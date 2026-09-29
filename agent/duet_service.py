@@ -35,6 +35,7 @@ from agent.duet_store import (
     DuetStore,
 )
 from agent.episode_blueprints import (
+    EPISODE_CREATION_BLUEPRINT_SCHEMA,
     creation_spec_from_blueprint,
     workflow_spec_from_blueprint,
 )
@@ -62,6 +63,29 @@ _REQUIRED_CREATOR_FIELDS = (
     "deliverable",
     "safety_bounds",
 )
+
+_FIELD_IMPACTS = {
+    "goal": FieldImpact.HIGH,
+    "unit": FieldImpact.HIGH,
+    "result": FieldImpact.HIGH,
+    "progress": FieldImpact.HIGH,
+    "stopping": FieldImpact.HIGH,
+    "execution_capability_names": FieldImpact.MEDIUM,
+    "creator_contract": FieldImpact.HIGH,
+    "deliverable": FieldImpact.MEDIUM,
+    "safety_bounds": FieldImpact.HIGH,
+}
+
+
+def _field_answer_schema(field_path: str) -> Mapping[str, Any]:
+    """Return the real blueprint schema for the unresolved top-level field."""
+
+    root = field_path.split(".", 1)[0]
+    properties = EPISODE_CREATION_BLUEPRINT_SCHEMA.get("properties")
+    if not isinstance(properties, Mapping):
+        return {"type": "object"}
+    schema = properties.get(root)
+    return schema if isinstance(schema, Mapping) else {"type": "object"}
 
 
 class DuetProtocolError(RuntimeError):
@@ -386,7 +410,11 @@ class DuetService:
                     revision=draft.revision,
                     field_path=deficit.field_path,
                     reason_code=deficit.code,
-                    answer_schema={"type": "object"},
+                    answer_schema=_field_answer_schema(deficit.field_path),
+                    impact=_FIELD_IMPACTS.get(
+                        deficit.field_path.split(".", 1)[0],
+                        FieldImpact.MEDIUM,
+                    ),
                     blocking=deficit.blocking,
                 )
             )
@@ -1486,6 +1514,43 @@ class DuetService:
             kind=ApprovalKind.WORKFLOW.value,
         )
         launch = self.store.latest_launch(duet_id.value)
+        review_artifact = self.store.latest_artifact(
+            duet_id=duet_id.value,
+            kind="contract_shadow_review",
+        )
+        contract_review = None
+        if (
+            review_artifact is not None
+            and review_artifact["record"].get("contract_hash")
+            == draft.content_hash.value
+        ):
+            contract_review = review_artifact["record"]
+        configuration = draft.materialized()
+        field_records = [item.as_record() for item in draft.fields]
+        ledger = []
+        for field_path in _REQUIRED_CREATOR_FIELDS:
+            records = tuple(
+                item
+                for item in draft.fields
+                if item.field_path == field_path
+                or item.field_path.startswith(field_path + ".")
+            )
+            if not records:
+                disposition = "unresolved"
+            elif all(item.human_fixed for item in records):
+                disposition = "human_confirmed"
+            elif any(item.human_fixed for item in records):
+                disposition = "mixed"
+            else:
+                disposition = "llm_proposed"
+            ledger.append(
+                {
+                    "field_path": field_path,
+                    "disposition": disposition,
+                    "impact": _FIELD_IMPACTS[field_path].value,
+                    "record_count": len(records),
+                }
+            )
         return {
             "duet_id": duet_id.value,
             "state": row["state"],
@@ -1495,6 +1560,16 @@ class DuetService:
             "content_hash": draft.content_hash.value,
             "deficit_codes": [item.code for item in draft.deficits],
             "requested_field_ids": [item.field_path for item in requests],
+            "configuration": configuration,
+            "field_records": field_records,
+            "design_ledger": ledger,
+            "open_questions": [item.as_record() for item in requests],
+            "unconfirmed_proposal_ids": [
+                item.field_path
+                for item in draft.fields
+                if not item.human_fixed
+            ],
+            "contract_review": contract_review,
             "creator_episode_id": (
                 None if creator is None else creator["creator_episode_id"]
             ),

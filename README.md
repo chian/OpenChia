@@ -40,6 +40,11 @@ Describe the outcome you want conversationally. The Duet can search for context
 and propose Creator configuration fields, but it cannot approve its own contract
 or execute the task directly.
 
+The Duet follows a bundled design-coaching guide rather than a fixed interview
+script. It can answer conceptual questions, follow useful tangents, recommend
+defaults, and challenge weak assumptions while the host maintains a durable
+ledger of confirmed, proposed, mixed, and unresolved contract fields.
+
 The terminal keeps the active state and the most important configuration values
 visible. Use these controls while specifying the Episode:
 
@@ -50,6 +55,7 @@ visible. Use these controls while specifying the Episode:
 /episode unset FIELD             remove a field or dotted path
 /episode capabilities            list capabilities Episodes may be assigned
 /duet                            show Duet, Creator, and Run state
+/review                          run or show the advisory shadow contract review
 /approve                         approve the ready contract or measured workflow
 ```
 
@@ -60,7 +66,11 @@ placeholder with a JSON value or leave it unchanged to keep that field missing.
 
 After contract approval, the conversational LLM submits the exact approved
 artifact to the host. The Creator then runs design experiments in the
-background. During that work:
+background. Before freezing each proposed workflow, the Creator can ask
+independent, tool-free critics to inspect contract alignment, measurement and
+evidence, iteration and recovery, capability safety, and task-specific risks.
+Their findings are advisory; only host-measured Run evidence contributes method
+credit. During that work:
 
 ```text
 /guide TEXT    queue guidance for the next Creator boundary

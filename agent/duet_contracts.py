@@ -167,6 +167,7 @@ DUET_SEARCH_TOOLS = frozenset({"web_search", "web_extract"})
 DUET_PROTOCOL_TOOLS = frozenset(
     {
         "duet_contract_patch",
+        "duet_contract_review",
         "duet_status",
         "duet_answer",
         "duet_decision",

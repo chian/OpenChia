@@ -834,6 +834,7 @@ include = [
 
 [tool.setuptools.package-data]
 method_loop = ["LICENSE"]
+agent = ["duet_coaching.md"]
 hermes_cli = [
   "observability/schemas/*.json",
   "data/*.json",

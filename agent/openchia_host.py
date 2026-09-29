@@ -8,7 +8,9 @@ surface, compute their own credit, or send Run prose into the Duet.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import threading
 from typing import Any, Callable, Iterable, Mapping, Optional
@@ -38,9 +40,13 @@ from agent.duet_contracts import (
     DuetPolicy,
     DuetProvenance,
     WorkflowCandidate,
+    canonical_json,
     content_id,
 )
-from agent.episode_blueprints import CREATION_BLUEPRINT_FIELDS
+from agent.episode_blueprints import (
+    CREATION_BLUEPRINT_FIELDS,
+    workflow_spec_from_blueprint,
+)
 from agent.duet_service import DuetProtocolError, DuetService
 from agent.duet_store import DuetStore
 from agent.episode_contracts import (
@@ -56,6 +62,8 @@ from agent.episode_contracts import (
 from agent.openchia_agents import (
     bind_duet_agent,
     build_creator_agent,
+    build_creator_workflow_critic_agent,
+    build_duet_contract_critic_agent,
     build_task_episode_agent,
 )
 from agent.task_episode import TaskRuntimeBindings
@@ -66,6 +74,15 @@ from method_loop import Context, Episode, EpisodeGoal, EpisodeRequest, EpisodeTr
 ROOT_PROGRESS_MEASUREMENT_ID = "root_episode_progress"
 RUN_EVIDENCE_ACCEPTANCE_SOURCE_ID = "run_episode_host"
 EPISODE_FIELD_PLACEHOLDER = "<OPENCHIA: value required>"
+WORKFLOW_REVIEW_LENSES = frozenset(
+    {
+        "contract_alignment",
+        "measurement_evidence",
+        "iteration_recovery",
+        "capability_safety",
+        "task_specific_skeptic",
+    }
+)
 
 
 class OpenChiaHostError(RuntimeError):
@@ -144,13 +161,201 @@ class OpenChiaHost:
         return tuple(sorted(name for name in names if isinstance(name, str)))
 
     def bind_duet(self, agent: Any) -> Any:
-        return bind_duet_agent(
+        bound = bind_duet_agent(
             agent,
             service=self.service,
             identity=self.identity,
             policy=self.policy,
             creator_launcher=self.launch_creator,
         )
+        bound._duet_contract_reviewer = self.review_contract
+        return bound
+
+    @staticmethod
+    def _parse_contract_review(payload: str) -> dict[str, Any]:
+        text = payload.strip()
+        if text.startswith("```"):
+            first_newline = text.find("\n")
+            text = text[first_newline + 1 :] if first_newline >= 0 else text
+            if text.rstrip().endswith("```"):
+                text = text.rstrip()[:-3].rstrip()
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            start, end = text.find("{"), text.rfind("}")
+            if start < 0 or end <= start:
+                raise ValueError("shadow critic did not return a JSON object")
+            value = json.loads(text[start : end + 1])
+        if not isinstance(value, dict):
+            raise ValueError("shadow critic response must be a JSON object")
+        verdict = value.get("verdict")
+        if verdict not in {"pass", "concern", "block"}:
+            raise ValueError("shadow critic verdict is invalid")
+        summary = value.get("summary")
+        findings = value.get("findings")
+        if not isinstance(summary, str) or not isinstance(findings, list):
+            raise ValueError("shadow critic response is missing summary or findings")
+        normalized = []
+        for finding in findings[:12]:
+            if not isinstance(finding, dict):
+                raise ValueError("shadow critic findings must be objects")
+            code = finding.get("code")
+            severity = finding.get("severity")
+            fields = finding.get("fields")
+            explanation = finding.get("explanation")
+            question = finding.get("question")
+            if (
+                not isinstance(code, str)
+                or severity not in {"low", "medium", "high"}
+                or not isinstance(fields, list)
+                or any(not isinstance(item, str) for item in fields)
+                or not isinstance(explanation, str)
+                or not isinstance(question, str)
+            ):
+                raise ValueError("shadow critic finding has an invalid shape")
+            normalized.append(
+                {
+                    "code": code[:128],
+                    "severity": severity,
+                    "fields": fields[:9],
+                    "explanation": explanation[:2048],
+                    "question": question[:2048],
+                }
+            )
+        return {
+            "verdict": verdict,
+            "summary": summary[:4096],
+            "findings": normalized,
+        }
+
+    def review_contract(self) -> dict[str, Any]:
+        """Run or reuse the advisory critic for the exact current draft hash."""
+
+        draft = self.service.latest_draft(self.identity.duet_id)
+        if not draft.ready:
+            raise DuetProtocolError("shadow review requires a complete valid contract")
+        latest = self.store.latest_artifact(
+            duet_id=self.identity.duet_id.value,
+            kind="contract_shadow_review",
+        )
+        if latest is not None and latest["record"].get("contract_hash") == draft.content_hash.value:
+            return {"accepted": True, "cached": True, **latest["record"]}
+        critic = build_duet_contract_critic_agent(
+            **self._role_agent_kwargs("contract_critic", draft.content_hash.value)
+        )
+        request = {
+            "operation": "review_creator_contract",
+            "contract_hash": draft.content_hash.value,
+            "contract": draft.materialized(),
+            "allowed_episode_capability_names": sorted(self.available_tool_names),
+            "host_facts": {
+                "root_measurement_id": ROOT_PROGRESS_MEASUREMENT_ID,
+                "run_evidence_acceptance_source_id": RUN_EVIDENCE_ACCEPTANCE_SOURCE_ID,
+                "minimum_creator_run_depth": 3,
+            },
+        }
+        review = self._parse_contract_review(critic.chat(canonical_json(request)))
+        record = {
+            "contract_hash": draft.content_hash.value,
+            "revision": draft.revision,
+            **review,
+        }
+        artifact_id = content_id("review", record)
+        self.store.put_artifact(
+            artifact_id=artifact_id.value,
+            duet_id=self.identity.duet_id.value,
+            kind="contract_shadow_review",
+            revision=draft.revision,
+            content_hash=Sha256Digest.of_record(record).value,
+            record=record,
+        )
+        return {
+            "accepted": True,
+            "cached": False,
+            "review_artifact_id": artifact_id.value,
+            **record,
+        }
+
+    def review_workflow_blueprint(
+        self,
+        creator_episode_id: OpaqueId,
+        workflow_blueprint: dict[str, Any],
+        lenses: tuple[str, ...],
+    ) -> dict[str, Any]:
+        """Run independent advisory lenses before a Creator freezes a candidate."""
+
+        if not lenses or len(set(lenses)) != len(lenses):
+            raise ValueError("workflow review lenses must be non-empty and unique")
+        unknown = set(lenses) - WORKFLOW_REVIEW_LENSES
+        if unknown:
+            raise ValueError(f"unknown workflow review lenses: {sorted(unknown)}")
+        frozen = self.service.creator_contract(creator_episode_id)
+        blueprint_hash = Sha256Digest.of_record(workflow_blueprint)
+        workflow = workflow_spec_from_blueprint(
+            workflow_blueprint,
+            identity_namespace=(
+                f"workflow-review:{creator_episode_id.value}:{blueprint_hash.value}"
+            ),
+        )
+        deficits = self.service.workflow_deficits(
+            creator_episode_id=creator_episode_id,
+            workflow=workflow,
+        )
+        if deficits:
+            return {
+                "accepted": False,
+                "reason": "workflow_admission_failed",
+                "deficits": [item.as_record() for item in deficits],
+            }
+
+        def review_lens(lens: str) -> tuple[str, dict[str, Any]]:
+            critic = build_creator_workflow_critic_agent(
+                **self._role_agent_kwargs(
+                    "workflow_critic",
+                    f"{creator_episode_id.value}:{blueprint_hash.value}:{lens}",
+                )
+            )
+            request = {
+                "operation": "review_workflow_blueprint",
+                "lens": lens,
+                "creator_contract_hash": frozen.content_hash.value,
+                "creator_contract": frozen.contract.as_record(),
+                "workflow_blueprint_hash": blueprint_hash.value,
+                "workflow": workflow_blueprint,
+                "host_validation": {"admission_deficits": []},
+            }
+            return lens, self._parse_contract_review(
+                critic.chat(canonical_json(request))
+            )
+
+        with ThreadPoolExecutor(
+            max_workers=min(len(lenses), 5),
+            thread_name_prefix="openchia-workflow-critic",
+        ) as pool:
+            reviews = dict(pool.map(review_lens, lenses))
+        record = {
+            "creator_episode_id": creator_episode_id.value,
+            "creator_contract_hash": frozen.content_hash.value,
+            "workflow_blueprint_hash": blueprint_hash.value,
+            "lenses": reviews,
+        }
+        artifact_id = content_id("review", record)
+        creator = self.store.get_creator(creator_episode_id.value)
+        revision = 0 if creator is None else int(creator["units_consumed"])
+        self.store.put_artifact(
+            artifact_id=artifact_id.value,
+            duet_id=frozen.duet_id.value,
+            creator_episode_id=creator_episode_id.value,
+            kind="workflow_shadow_review",
+            revision=revision,
+            content_hash=Sha256Digest.of_record(record).value,
+            record=record,
+        )
+        return {
+            "accepted": True,
+            "review_artifact_id": artifact_id.value,
+            **record,
+        }
 
     def episode_configuration(self) -> dict[str, Any]:
         """Return the editable Creator draft plus validation and provenance."""
@@ -505,6 +710,11 @@ class OpenChiaHost:
         agent = build_creator_agent(
             capability_names=creator_capabilities,
             log_store=logs,
+            workflow_reviewer=lambda workflow, lenses: self.review_workflow_blueprint(
+                creator_episode_id,
+                workflow,
+                lenses,
+            ),
             **self._role_agent_kwargs("creator", creator_episode_id.value),
         )
         designer = CreatorDesignSession(

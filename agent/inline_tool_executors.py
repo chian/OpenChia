@@ -338,6 +338,18 @@ def _duet_status(agent, args: dict, ctx: InlineToolContext) -> Any:
         return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
 
 
+def _duet_contract_review(agent, args: dict, ctx: InlineToolContext) -> Any:
+    try:
+        reviewer = getattr(agent, "_duet_contract_reviewer", None)
+        if not callable(reviewer):
+            raise RuntimeError("no shadow contract reviewer is bound")
+        return json.dumps(reviewer(), sort_keys=True)
+    except Exception as exc:
+        return json.dumps(
+            {"accepted": False, "reason": type(exc).__name__}, sort_keys=True
+        )
+
+
 def _duet_answer(agent, args: dict, ctx: InlineToolContext) -> Any:
     from agent.episode_contracts import OpaqueId
 
@@ -435,6 +447,7 @@ def _creator_log_read(agent, args: dict, ctx: InlineToolContext) -> Any:
 
 def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
     from agent.duet_service import WorkflowAdmissionError
+    from agent.episode_contracts import Sha256Digest
 
     submit = getattr(agent, "_creator_workflow_submit", None)
     if not callable(submit):
@@ -449,10 +462,13 @@ def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
             sort_keys=True,
         )
     try:
+        blueprint_hash = Sha256Digest.of_record(workflow).value
+        reviewed_hashes = getattr(agent, "_creator_reviewed_workflow_hashes", set())
         candidate = submit(workflow)
         return json.dumps(
             {
                 "accepted": True,
+                "shadow_reviewed": blueprint_hash in reviewed_hashes,
                 "candidate_artifact_id": candidate.artifact_id.value,
                 "revision": candidate.revision,
                 "workflow_hash": candidate.workflow.workflow_hash.value,
@@ -469,6 +485,36 @@ def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
             },
             sort_keys=True,
         )
+    except Exception as exc:
+        return json.dumps(
+            {"accepted": False, "reason": type(exc).__name__},
+            sort_keys=True,
+        )
+
+
+def _workflow_review(agent, args: dict, ctx: InlineToolContext) -> Any:
+    from agent.episode_contracts import Sha256Digest
+
+    reviewer = getattr(agent, "_creator_workflow_reviewer", None)
+    if not callable(reviewer):
+        return json.dumps(
+            {"accepted": False, "reason": "no_active_workflow_reviewer"},
+            sort_keys=True,
+        )
+    workflow = args.get("workflow")
+    lenses = args.get("lenses")
+    if not isinstance(workflow, dict) or not isinstance(lenses, list):
+        return json.dumps(
+            {"accepted": False, "reason": "invalid_review_request"},
+            sort_keys=True,
+        )
+    try:
+        result = reviewer(workflow, tuple(lenses))
+        if isinstance(result, dict) and result.get("accepted") is True:
+            reviewed = getattr(agent, "_creator_reviewed_workflow_hashes", None)
+            if isinstance(reviewed, set):
+                reviewed.add(Sha256Digest.of_record(workflow).value)
+        return json.dumps(result, sort_keys=True)
     except Exception as exc:
         return json.dumps(
             {"accepted": False, "reason": type(exc).__name__},
@@ -522,11 +568,13 @@ INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "manage_catalog": _manage_catalog,
     "setup_mcp": _setup_mcp_shim,
     "duet_contract_patch": _duet_contract_patch,
+    "duet_contract_review": _duet_contract_review,
     "duet_status": _duet_status,
     "duet_answer": _duet_answer,
     "duet_decision": _duet_decision,
     "episode_creator": _episode_creator,
     "creator_log_read": _creator_log_read,
+    "workflow_review": _workflow_review,
     "workflow_candidate": _workflow_candidate,
     "episode_progress": _episode_progress,
 }

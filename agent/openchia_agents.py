@@ -113,11 +113,36 @@ def build_duet_agent(
     )
 
 
+def build_duet_contract_critic_agent(**agent_kwargs: Any) -> Any:
+    """Construct a stateless, tool-free semantic reviewer for one Duet draft."""
+
+    from run_agent import AIAgent
+
+    agent = AIAgent(
+        **{
+            **agent_kwargs,
+            "enabled_toolsets": [],
+            "disabled_toolsets": [],
+            "skip_context_files": True,
+            "load_soul_identity": False,
+            "skip_memory": True,
+            "skip_background_review": True,
+        }
+    )
+    _install_exact_tools(agent, ())
+    agent._openchia_role = "duet_contract_critic"
+    agent._duet_contract_critic_prompt_isolated = True
+    agent._persist_disabled = True
+    agent._end_session_on_close = False
+    return agent
+
+
 def build_creator_agent(
     *,
     capability_names: Iterable[str],
     log_store: CreatorRunLogStore,
     log_references: Iterable[RunLogReference] = (),
+    workflow_reviewer: Optional[Callable[[dict[str, Any], tuple[str, ...]], dict[str, Any]]] = None,
     **agent_kwargs: Any,
 ) -> Any:
     """Construct one design specialist with scoped access to its own run logs."""
@@ -137,7 +162,7 @@ def build_creator_agent(
     )
     _install_exact_tools(
         agent,
-        {*capability_names, "creator_log_read", "workflow_candidate"},
+        {*capability_names, "creator_log_read", "workflow_review", "workflow_candidate"},
     )
     agent._openchia_role = "creator"
     agent._creator_episode_prompt_isolated = True
@@ -145,6 +170,34 @@ def build_creator_agent(
     agent._creator_log_references = {
         item.artifact_id.value: item for item in log_references
     }
+    if workflow_reviewer is not None and not callable(workflow_reviewer):
+        raise TypeError("workflow_reviewer must be callable")
+    agent._creator_workflow_reviewer = workflow_reviewer
+    agent._creator_reviewed_workflow_hashes = set()
+    agent._persist_disabled = True
+    agent._end_session_on_close = False
+    return agent
+
+
+def build_creator_workflow_critic_agent(**agent_kwargs: Any) -> Any:
+    """Construct one stateless, tool-free workflow review lens."""
+
+    from run_agent import AIAgent
+
+    agent = AIAgent(
+        **{
+            **agent_kwargs,
+            "enabled_toolsets": [],
+            "disabled_toolsets": [],
+            "skip_context_files": True,
+            "load_soul_identity": False,
+            "skip_memory": True,
+            "skip_background_review": True,
+        }
+    )
+    _install_exact_tools(agent, ())
+    agent._openchia_role = "creator_workflow_critic"
+    agent._creator_workflow_critic_prompt_isolated = True
     agent._persist_disabled = True
     agent._end_session_on_close = False
     return agent
@@ -186,6 +239,8 @@ def build_task_episode_agent(
 __all__ = [
     "bind_duet_agent",
     "build_creator_agent",
+    "build_creator_workflow_critic_agent",
+    "build_duet_contract_critic_agent",
     "build_duet_agent",
     "build_task_episode_agent",
 ]

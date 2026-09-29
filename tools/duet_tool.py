@@ -14,9 +14,12 @@ from tools.registry import registry, tool_error
 DUET_CONTRACT_PATCH_SCHEMA = {
     "name": "duet_contract_patch",
     "description": (
-        "Propose typed changes to the current Creator contract draft. The host "
+        "Commit typed proposals for design decisions that are sufficiently settled in "
+        "the conversation. Read duet_status first when the current revision or ledger "
+        "is uncertain. The host "
         "validates the resulting contract and returns field-path deficit codes. "
-        "This never grants approval and cannot replace human-fixed fields."
+        "This never grants approval and cannot replace human-fixed fields. Do not leave "
+        "settled decisions only in prose."
     ),
     "parameters": {
         "type": "object",
@@ -28,8 +31,20 @@ DUET_CONTRACT_PATCH_SCHEMA = {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "field_path": {"type": "string"},
-                        "value": {},
+                        "field_path": {
+                            "type": "string",
+                            "description": (
+                                "A top-level or dotted Creator blueprint path rooted at goal, "
+                                "unit, result, progress, stopping, execution_capability_names, "
+                                "creator_contract, deliverable, or safety_bounds."
+                            ),
+                        },
+                        "value": {
+                            "description": (
+                                "The complete JSON value for this path. Use the field schemas and "
+                                "coaching guidance supplied in the Duet system prompt."
+                            )
+                        },
                         "impact": {
                             "type": "string",
                             "enum": ["low", "medium", "high"],
@@ -49,9 +64,22 @@ DUET_CONTRACT_PATCH_SCHEMA = {
 DUET_STATUS_SCHEMA = {
     "name": "duet_status",
     "description": (
-        "Read the current closed Duet design state: revision, hash, readiness, "
-        "deficit codes, requested field IDs, and the latest prose-free Creator "
-        "progress envelope when execution has started."
+        "Read the durable Duet design ledger: the complete current configuration, "
+        "per-field provenance and disposition, structured open questions, revision, "
+        "hash, readiness, exact allowed capabilities, approvals, and the latest "
+        "prose-free Creator progress envelope. Use this instead of relying only on "
+        "conversation memory."
+    ),
+    "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+}
+
+
+DUET_CONTRACT_REVIEW_SCHEMA = {
+    "name": "duet_contract_review",
+    "description": (
+        "Run the advisory shadow critic against the exact current ready contract. "
+        "The review is cached by contract hash, cannot modify or approve the draft, "
+        "and returns typed semantic concerns for discussion with the human."
     ),
     "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
 }
@@ -149,6 +177,40 @@ WORKFLOW_CANDIDATE_SCHEMA = {
 }
 
 
+WORKFLOW_REVIEW_SCHEMA = {
+    "name": "workflow_review",
+    "description": (
+        "Ask independent, stateless critics to review a proposed workflow through "
+        "selected lenses before freezing it with workflow_candidate. Findings are "
+        "advisory, never approval or success evidence. Revise only when a finding is sound."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "workflow": EPISODE_WORKFLOW_BLUEPRINT_SCHEMA,
+            "lenses": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 5,
+                "uniqueItems": True,
+                "items": {
+                    "type": "string",
+                    "enum": [
+                        "contract_alignment",
+                        "measurement_evidence",
+                        "iteration_recovery",
+                        "capability_safety",
+                        "task_specific_skeptic",
+                    ],
+                },
+            },
+        },
+        "required": ["workflow", "lenses"],
+        "additionalProperties": False,
+    },
+}
+
+
 EPISODE_PROGRESS_SCHEMA = {
     "name": "episode_progress",
     "description": (
@@ -178,11 +240,13 @@ def _agent_bound_only(_args, **_kwargs):
 
 for _name, _toolset, _schema in (
     ("duet_contract_patch", "duet", DUET_CONTRACT_PATCH_SCHEMA),
+    ("duet_contract_review", "duet", DUET_CONTRACT_REVIEW_SCHEMA),
     ("duet_status", "duet", DUET_STATUS_SCHEMA),
     ("duet_answer", "duet", DUET_ANSWER_SCHEMA),
     ("duet_decision", "duet", DUET_DECISION_SCHEMA),
     ("episode_creator", "duet", EPISODE_CREATOR_SCHEMA),
     ("creator_log_read", "creator_protocol", CREATOR_LOG_READ_SCHEMA),
+    ("workflow_review", "creator_protocol", WORKFLOW_REVIEW_SCHEMA),
     ("workflow_candidate", "creator_protocol", WORKFLOW_CANDIDATE_SCHEMA),
     ("episode_progress", "episode_protocol", EPISODE_PROGRESS_SCHEMA),
 ):
@@ -200,9 +264,11 @@ __all__ = [
     "CREATOR_LOG_READ_SCHEMA",
     "DUET_ANSWER_SCHEMA",
     "DUET_CONTRACT_PATCH_SCHEMA",
+    "DUET_CONTRACT_REVIEW_SCHEMA",
     "DUET_DECISION_SCHEMA",
     "DUET_STATUS_SCHEMA",
     "EPISODE_CREATOR_SCHEMA",
     "EPISODE_PROGRESS_SCHEMA",
     "WORKFLOW_CANDIDATE_SCHEMA",
+    "WORKFLOW_REVIEW_SCHEMA",
 ]

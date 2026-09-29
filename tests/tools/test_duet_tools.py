@@ -43,16 +43,46 @@ def test_episode_progress_accepts_registered_evidence_not_model_scores():
 def test_duet_protocol_tools_are_agent_bound_and_delegate_is_absent():
     expected = {
         "duet_contract_patch",
+        "duet_contract_review",
         "duet_status",
         "duet_answer",
         "duet_decision",
         "episode_creator",
         "creator_log_read",
+        "workflow_review",
         "workflow_candidate",
         "episode_progress",
     }
     assert expected <= set(INLINE_TOOL_EXECUTORS)
     assert "delegate_task" not in INLINE_TOOL_EXECUTORS
+
+
+def test_workflow_review_is_advisory_and_marks_the_exact_blueprint():
+    calls = []
+
+    def review(workflow, lenses):
+        calls.append((workflow, lenses))
+        return {
+            "accepted": True,
+            "workflow_blueprint_hash": "sha256:" + "1" * 64,
+            "lenses": {},
+        }
+
+    agent = SimpleNamespace(
+        _creator_workflow_reviewer=review,
+        _creator_reviewed_workflow_hashes=set(),
+    )
+    workflow = {"episodes": []}
+    result = json.loads(
+        INLINE_TOOL_EXECUTORS["workflow_review"](
+            agent,
+            {"workflow": workflow, "lenses": ["contract_alignment"]},
+            InlineToolContext(effective_task_id="creator"),
+        )
+    )
+    assert result["accepted"] is True
+    assert calls == [(workflow, ("contract_alignment",))]
+    assert len(agent._creator_reviewed_workflow_hashes) == 1
 
 
 def test_episode_creator_admission_must_reach_the_bound_launcher():

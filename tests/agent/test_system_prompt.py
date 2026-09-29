@@ -408,7 +408,34 @@ class TestOpenChiaRolePrompts:
         assert "# Duet protocol" in combined
         assert "exact hash" in combined
         assert "human approval ID" in combined
+        assert "responsive design conversation, not a form" in combined
+        assert "Do not repeatedly describe an Episode while leaving its draft empty" in combined
+        assert "duet_contract_review" in combined
         assert "persistent orchestration Episode" not in combined
+
+    def test_contract_critic_has_a_tool_free_advisory_identity(self):
+        prompt = _prompt_parts(
+            _make_agent(
+                valid_tool_names=[],
+                _duet_contract_critic_prompt_isolated=True,
+            )
+        )
+        combined = "\n".join(prompt.values())
+        assert "advisory OpenChia contract critic" in combined
+        assert "Do not redesign the human's objective" in combined
+        assert "Duet protocol" not in combined
+
+    def test_workflow_critic_is_narrow_and_cannot_approve(self):
+        prompt = _prompt_parts(
+            _make_agent(
+                valid_tool_names=[],
+                _creator_workflow_critic_prompt_isolated=True,
+            )
+        )
+        combined = "\n".join(prompt.values())
+        assert "exactly one named review lens" in combined
+        assert "approve it" in combined
+        assert "Duet protocol" not in combined
 
     def test_creator_prompt_names_design_run_inspect_and_mandatory_log(self):
         prompt = _prompt_parts(
@@ -420,6 +447,7 @@ class TestOpenChiaRolePrompts:
         combined = "\n".join(prompt.values())
         assert "design--run--inspect cycle" in combined
         assert "mandatory run log" in combined
+        assert "workflow_review lenses" in combined
         assert "do not approve or launch" in combined
 
     def test_task_prompt_has_no_creation_authority(self):

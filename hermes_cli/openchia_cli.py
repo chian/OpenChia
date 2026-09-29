@@ -21,62 +21,60 @@ from hermes_constants import get_hermes_home
 
 
 def render_openchia_status(status: dict[str, Any] | None) -> str:
-    """Render the closed host projection as a compact ASCII navigation aid."""
+    """Render only changing state; the architecture diagram belongs in the banner."""
 
     if not status:
-        return (
-            "[DUET] -> [CREATOR] -> [RUN]\n"
-            " waiting for the first message\n"
-            " /episode  /episode edit  /duet  /approve"
-        )
+        return "Duet · describe the outcome you want · /help"
     progress = status.get("creator_progress") or {}
     state = str(status.get("state") or "unknown")
-    creator_state = str(progress.get("state") or "idle")
     revision = int(status.get("revision") or 0)
     field_count = int(status.get("field_count") or 0)
     deficits = tuple(status.get("requested_field_ids") or ())
-    run_state = "idle"
-    if progress:
-        run_state = (
-            f"candidate {progress.get('candidate_revision', 0)}; "
-            f"credit {progress.get('method_credit')}"
-        )
     if status.get("launch"):
-        run_state = f"approved workflow {status.get('final_run_state', 'launched')}"
+        run_state = str(status.get("final_run_state") or "launched")
         if status.get("final_error_code"):
             run_state += f" ({status['final_error_code']})"
-    missing = ", ".join(deficits[:3])
-    if len(deficits) > 3:
-        missing += f", +{len(deficits) - 3}"
-    contract = (
-        f"contract r{revision}: {field_count}/{len(CREATION_BLUEPRINT_FIELDS)} fields"
-    )
-    if missing:
-        contract += f"; needs {missing}"
-    configuration = status.get("configuration") or {}
+        return f"Run · {run_state} · /logs"
 
-    def compact(value: Any, limit: int = 76) -> str:
-        if value is None:
-            return "-"
-        text = " ".join(str(value).split())
-        return text if len(text) <= limit else text[: limit - 3] + "..."
+    if status.get("creator_episode_id"):
+        creator_state = str(progress.get("state") or state)
+        candidate = int(progress.get("candidate_revision") or 0)
+        credit = progress.get("method_credit")
+        detail = f"candidate {candidate}"
+        if credit is not None:
+            detail += f" · credit {credit}"
+        commands = "/approve · /guide · /pause · /logs" if state == "awaiting_workflow_approval" else "/guide · /pause · /logs"
+        return f"Creator · {creator_state} · {detail}\n{commands}"
 
-    progress_spec = configuration.get("progress") or {}
-    stopping = configuration.get("stopping") or {}
-    progress = "-"
-    if isinstance(progress_spec, dict):
-        description = compact(progress_spec.get("description"), 42)
-        baseline = progress_spec.get("baseline", "?")
-        target = stopping.get("target", "?") if isinstance(stopping, dict) else "?"
-        progress = f"{description}; {baseline} -> {target}"
+    if status.get("ready"):
+        proposals = len(status.get("unconfirmed_proposal_ids") or ())
+        assumption_note = f" · {proposals} unconfirmed proposal(s)" if proposals else ""
+        review = status.get("contract_review")
+        review_note = (
+            "shadow review pending"
+            if not isinstance(review, dict)
+            else f"shadow review: {review.get('verdict', 'unknown')}"
+        )
+        return (
+            f"Duet · contract r{revision} ready{assumption_note} · {review_note}\n"
+            "/episode · /review · /approve"
+        )
+
+    labels = {
+        "goal": "intended outcome",
+        "result": "concrete result",
+        "unit": "repeatable cycle",
+        "progress": "success evidence",
+        "stopping": "stopping behavior",
+        "execution_capability_names": "needed tools",
+        "creator_contract": "Creator design scope",
+        "deliverable": "deliverable boundary",
+        "safety_bounds": "safety limits",
+    }
+    focus = labels.get(deficits[0], deficits[0]) if deficits else "contract coherence"
     return (
-        "[DUET] -> [CREATOR] -> [RUN]\n"
-        f" {state} -> {creator_state} -> {run_state}\n"
-        f" {contract}\n"
-        f" goal: {compact(configuration.get('goal'))}\n"
-        f" unit: {compact(configuration.get('unit'))}\n"
-        f" progress: {progress}\n"
-        " /episode  /episode edit  /duet  /approve  /guide TEXT  /logs"
+        f"Duet · shaping contract · {field_count}/{len(CREATION_BLUEPRINT_FIELDS)} fields · gap: {focus}\n"
+        "/episode · /help"
     )
 
 
@@ -99,6 +97,7 @@ class OpenChiaCLI(HermesCLI):
         "/duet": "Show closed Duet, Creator, and Run state",
         "/openchia": "Alias for /duet",
         "/approve": "Approve the ready contract or measured workflow",
+        "/review": "Run or show the advisory shadow contract review",
         "/guide": "Queue human guidance at the next Creator boundary",
         "/pause": "Stop the Creator at its next boundary",
         "/cancel": "Cancel the Creator at its next boundary",
@@ -298,16 +297,13 @@ class OpenChiaCLI(HermesCLI):
         try:
             return render_openchia_status(self._status())
         except Exception as exc:
-            return (
-                "[DUET] -> [CREATOR] -> [RUN]\n"
-                f" status unavailable: {type(exc).__name__}"
-            )
+            return f"OpenChia status unavailable: {type(exc).__name__}"
 
     def _get_extra_tui_widgets(self) -> list[Any]:
         return [
             Window(
                 FormattedTextControl(self._panel_text),
-                height=7,
+                height=2,
                 style="class:openchia.status",
             )
         ]
@@ -444,6 +440,7 @@ class OpenChiaCLI(HermesCLI):
                 "  /episode unset FIELD            remove one field or dotted path\n"
                 "  /duet             show the closed Duet -> Creator -> Run state\n"
                 "  /approve          approve the ready contract or measured workflow\n"
+                "  /review           run or show the advisory shadow contract review\n"
                 "  /guide TEXT       queue human guidance at the next Creator boundary\n"
                 "  /pause            stop the Creator at its next boundary\n"
                 "  /cancel           cancel the Creator at its next boundary\n"
@@ -478,6 +475,14 @@ class OpenChiaCLI(HermesCLI):
                     )
             except Exception as exc:
                 self._print_openchia(f"Approval not recorded: {exc}")
+            self._refresh_openchia()
+            return True
+        if lower == "/review":
+            try:
+                review = self._episode_host().review_contract()
+                self._print_openchia(json.dumps(review, indent=2, ensure_ascii=False))
+            except Exception as exc:
+                self._print_openchia(f"Contract review unavailable: {exc}")
             self._refresh_openchia()
             return True
         if lower.startswith("/guide"):

@@ -97,10 +97,27 @@ class CreatorDesignSession(CandidateDesigner):
             "duet_boundary_messages": list(
                 self.service.creator_boundary_records(boundary_messages)
             ),
+            "review_policy": {
+                "required_before_submission": True,
+                "core_lenses": [
+                    "contract_alignment",
+                    "measurement_evidence",
+                    "capability_safety",
+                ],
+                "optional_lenses": [
+                    "iteration_recovery",
+                    "task_specific_skeptic",
+                ],
+                "authority": (
+                    "Reviews are advisory diagnostics. Host measurements, not critic "
+                    "opinion, determine method credit."
+                ),
+            },
             "required_action": (
                 "Inspect any useful prior Run log with creator_log_read, then "
-                "submit exactly one complete workflow blueprint with "
-                "workflow_candidate."
+                "draft a complete workflow, call workflow_review with the three core "
+                "lenses and any relevant optional lenses, revise when findings are "
+                "sound, then submit exactly one complete blueprint with workflow_candidate."
             ),
         }
         try:

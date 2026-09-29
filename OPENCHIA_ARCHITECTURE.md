@@ -29,6 +29,18 @@ must accept the Creator identity and return a closed execution receipt. The
 launcher is idempotent on that identity so an exact tool-call retry cannot
 start a duplicate Creator loop.
 
+The conversational role is governed by the bundled `agent/duet_coaching.md`
+guide. It describes design dimensions and interviewing behavior without fixing
+their conversational order. The model-facing `duet_status` projection includes
+the materialized draft, per-field provenance and disposition, typed open
+questions, and unconfirmed proposal paths, so conversational flexibility does
+not require relying on model memory alone.
+
+Once a contract is complete, `duet_contract_review` can run one stateless,
+tool-free semantic critic against that exact contract hash. The critic is
+advisory: it cannot patch, approve, or launch work, and a changed draft makes
+the prior review stale.
+
 Human answers, guidance, decisions, and approvals enter through trusted host
 operations. The LLM may submit their opaque artifact IDs but cannot invent
 their contents or authority.
@@ -63,12 +75,20 @@ is off by default and exists exactly when the Episode has an approved
 One Creator unit is one complete experiment:
 
 1. inspect prior typed Run outcomes and, when useful, their scoped logs;
-2. submit one complete nested workflow blueprint;
-3. let the host translate, validate, and freeze the workflow;
-4. launch one child Run Episode for that exact artifact and hash;
-5. receive the Run log reference plus typed goal information; and
-6. let the numerical Creator controller measure improvement and decide whether
+2. draft one complete nested workflow blueprint;
+3. request independent advisory review lenses and revise when their findings
+   are sound;
+4. submit the complete blueprint and let the host translate, validate, and
+   freeze the workflow;
+5. launch one child Run Episode for that exact artifact and hash;
+6. receive the Run log reference plus typed goal information; and
+7. let the numerical Creator controller measure improvement and decide whether
    to continue.
+
+Each `workflow_review` lens receives only the frozen Creator contract, proposed
+blueprint, host validation facts, and its narrow rubric. Reviewers have no tools
+or shared conversation and return typed findings. They do not vote, approve, or
+contribute method credit; host-observed Run evidence remains authoritative.
 
 The Creator model uses `workflow_candidate` to submit a design. It cannot
 approve or launch the adopted workflow. Invalid proposals may be corrected
@@ -242,11 +262,13 @@ No `head_episode_id` exists.
   host-owned task controller.
 - `agent/workflow_runtime.py`: frozen ordinary-task topology execution.
 - `agent/openchia_agents.py`: capability-exact Duet, Creator, and task AIAgent
-  construction.
+  construction, including tool-free contract and workflow critics.
+- `agent/duet_coaching.md`: flexible human-interview guidance and Episode design
+  rubric injected only into the Duet.
 - `agent/openchia_host.py`: profile-scoped persistence, human controls,
   background Creator execution, nested Creator wiring, mechanical Run
   evaluation, final workflow launch, and task-result storage.
-- `hermes_cli/openchia_cli.py`, `openchia_main.py`: ASCII status/navigation,
+- `hermes_cli/openchia_cli.py`, `openchia_main.py`: compact status/navigation,
   Duet slash commands, and the installed `openchia` entry point.
 - `tools/duet_tool.py`: the typed model-facing protocol schemas.
 

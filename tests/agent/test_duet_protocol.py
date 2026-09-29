@@ -160,7 +160,8 @@ def test_incomplete_contract_requests_fields_and_creates_nothing(duet):
     draft = service.open_duet(identity, policy)
 
     assert draft.ready is False
-    assert {item.field_path for item in service.information_requests(identity.duet_id)} == {
+    requests = service.information_requests(identity.duet_id)
+    assert {item.field_path for item in requests} == {
         "goal",
         "unit",
         "result",
@@ -175,6 +176,36 @@ def test_incomplete_contract_requests_fields_and_creates_nothing(duet):
         duet_id=identity.duet_id.value,
         kind=ApprovalKind.CREATOR_CONTRACT.value,
     ) is None
+    by_field = {item.field_path: item for item in requests}
+    assert by_field["goal"].answer_schema["type"] == "string"
+    assert "design_instructions" in by_field["creator_contract"].answer_schema["properties"]
+    status = service.duet_status(identity.duet_id)
+    assert status["configuration"] == {}
+    assert status["contract_review"] is None
+    assert all(
+        item["disposition"] == "unresolved"
+        for item in status["design_ledger"]
+    )
+
+    service.patch_contract(
+        identity.duet_id,
+        expected_revision=draft.revision,
+        patches=(
+            ContractFieldRecord(
+                field_path="goal",
+                value="Produce a verified result.",
+                provenance=DuetProvenance.LLM_PROPOSAL,
+            ),
+        ),
+        actor=DuetProvenance.LLM_PROPOSAL,
+    )
+    status = service.duet_status(identity.duet_id)
+    goal = next(
+        item for item in status["design_ledger"] if item["field_path"] == "goal"
+    )
+    assert goal["disposition"] == "llm_proposed"
+    assert status["configuration"]["goal"] == "Produce a verified result."
+    assert status["unconfirmed_proposal_ids"] == ["goal"]
 
 
 def test_llm_cannot_replace_human_field_and_exact_approval_is_required(duet):

@@ -1,3 +1,5 @@
+import pytest
+
 from agent.duet_contracts import ContractFieldRecord, DuetProvenance
 from agent.episode_blueprints import creation_blueprint_from_spec
 from agent.episode_contracts import (
@@ -72,6 +74,66 @@ def _creator_spec() -> EpisodeCreationSpec:
             max_depth=8,
         ),
     )
+
+
+def test_shadow_review_parser_accepts_json_and_rejects_bad_verdict():
+    parsed = OpenChiaHost._parse_contract_review(
+        """```json
+        {"verdict":"concern","summary":"Check evidence.","findings":[{"code":"weak_evidence","severity":"high","fields":["progress"],"explanation":"Evidence is self-reported.","question":"What host accepts it?"}]}
+        ```"""
+    )
+    assert parsed["verdict"] == "concern"
+    assert parsed["findings"][0]["fields"] == ["progress"]
+    with pytest.raises(ValueError, match="verdict"):
+        OpenChiaHost._parse_contract_review(
+            '{"verdict":"maybe","summary":"x","findings":[]}'
+        )
+
+
+def test_shadow_review_is_cached_by_exact_contract_hash(tmp_path, monkeypatch):
+    host = OpenChiaHost(
+        home=tmp_path,
+        session_id="20260929_120000_review",
+        available_tool_names={"web_search"},
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    calls = []
+
+    class Critic:
+        def chat(self, request):
+            calls.append(request)
+            return '{"verdict":"pass","summary":"Coherent.","findings":[]}'
+
+    monkeypatch.setattr(
+        "agent.openchia_host.build_duet_contract_critic_agent",
+        lambda **_kwargs: Critic(),
+    )
+    try:
+        blueprint = creation_blueprint_from_spec(_creator_spec())
+        draft = host.service.latest_draft(host.identity.duet_id)
+        host.service.patch_contract(
+            host.identity.duet_id,
+            expected_revision=draft.revision,
+            patches=tuple(
+                ContractFieldRecord(
+                    field_path=field,
+                    value=blueprint[field],
+                    provenance=DuetProvenance.HUMAN_INPUT,
+                    approved=True,
+                )
+                for field in blueprint
+            ),
+            actor=DuetProvenance.HUMAN_INPUT,
+        )
+        first = host.review_contract()
+        second = host.review_contract()
+        assert first["verdict"] == "pass"
+        assert first["cached"] is False
+        assert second["cached"] is True
+        assert len(calls) == 1
+        assert host.status()["contract_review"]["verdict"] == "pass"
+    finally:
+        host.close()
 
 
 def test_human_approval_is_visible_to_duet_and_creator_launch_is_idempotent(

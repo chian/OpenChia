@@ -198,14 +198,201 @@ def workflow_spec_from_blueprint(
     )
 
 
+EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA = {
+    "type": "object",
+    "description": (
+        "How successful work becomes usable outside the Episode. typed_status needs "
+        "no materialization tools; shared_state requires at least one named effectful tool."
+    ),
+    "properties": {
+        "kind": {"type": "string", "enum": ["typed_status", "shared_state"]},
+        "description": {"type": "string"},
+        "tool_names": {
+            "type": "array",
+            "items": {"type": "string"},
+            "uniqueItems": True,
+        },
+    },
+    "required": ["kind", "description", "tool_names"],
+    "additionalProperties": False,
+}
+
+
+EPISODE_SAFETY_BOUNDS_BLUEPRINT_SCHEMA = {
+    "type": ["object", "null"],
+    "description": (
+        "Hard resource caps; reaching one is not success. At least one value must be "
+        "non-null when the object is used."
+    ),
+    "properties": {
+        "max_iterations": {"type": ["integer", "null"], "minimum": 1},
+        "max_child_episodes": {"type": ["integer", "null"], "minimum": 1},
+        "max_depth": {"type": ["integer", "null"], "minimum": 1},
+        "max_elapsed_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    },
+    "required": [
+        "max_iterations",
+        "max_child_episodes",
+        "max_depth",
+        "max_elapsed_seconds",
+    ],
+    "additionalProperties": False,
+}
+
+
+_EVIDENCE_REQUIREMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "requirement_id": {"type": "string"},
+        "evidence_kind_id": {"type": "string"},
+        "acceptance_source_id": {"type": "string"},
+        "minimum_count": {"type": "integer", "minimum": 1},
+    },
+    "required": [
+        "requirement_id",
+        "evidence_kind_id",
+        "acceptance_source_id",
+        "minimum_count",
+    ],
+    "additionalProperties": False,
+}
+
+
+_CREDIT_COMPONENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "component_id": {"type": "string"},
+        "measurement_id": {"type": "string"},
+        "direction": {"type": "string", "enum": ["increase", "decrease"]},
+        "normalization_baseline": {"type": "number"},
+        "normalization_target": {"type": "number"},
+        "weight": {"type": "number", "minimum": 0},
+        "evidence_requirement_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"},
+            "uniqueItems": True,
+        },
+    },
+    "required": [
+        "component_id",
+        "measurement_id",
+        "direction",
+        "normalization_baseline",
+        "normalization_target",
+        "weight",
+        "evidence_requirement_ids",
+    ],
+    "additionalProperties": False,
+}
+
+
+EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA = {
+    "type": ["object", "null"],
+    "description": (
+        "A bounded workflow-design commission. Non-null grants Creator authority; null "
+        "creates an ordinary task Episode."
+    ),
+    "properties": {
+        "design_instructions": {"type": "string"},
+        "design_scope": {"type": "string"},
+        "assignable_capability_names": {
+            "type": "array",
+            "items": {"type": "string"},
+            "uniqueItems": True,
+        },
+        "may_assign_creator_capability": {"type": "boolean"},
+        "evidence_requirements": {
+            "type": "array",
+            "minItems": 1,
+            "items": _EVIDENCE_REQUIREMENT_SCHEMA,
+        },
+        "required_existing_evidence_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "uniqueItems": True,
+        },
+        "credit_assignment": {
+            "type": "object",
+            "properties": {
+                "aggregation": {
+                    "type": "string",
+                    "enum": ["normalized_weighted_sum_v1"],
+                },
+                "components": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": _CREDIT_COMPONENT_SCHEMA,
+                },
+            },
+            "required": ["aggregation", "components"],
+            "additionalProperties": False,
+        },
+        "return_contract": {
+            "type": "object",
+            "properties": {
+                "measurement_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string"},
+                    "uniqueItems": True,
+                },
+                "credit_component_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string"},
+                    "uniqueItems": True,
+                },
+                "status_fields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "workflow_valid",
+                            "measurements_complete",
+                            "evidence_requirements_met",
+                            "credit_complete",
+                        ],
+                    },
+                    "uniqueItems": True,
+                },
+            },
+            "required": ["measurement_ids", "credit_component_ids", "status_fields"],
+            "additionalProperties": False,
+        },
+    },
+    "required": [
+        "design_instructions",
+        "design_scope",
+        "assignable_capability_names",
+        "may_assign_creator_capability",
+        "evidence_requirements",
+        "required_existing_evidence_ids",
+        "credit_assignment",
+        "return_contract",
+    ],
+    "additionalProperties": False,
+}
+
+
 EPISODE_CREATION_BLUEPRINT_SCHEMA = {
     "type": "object",
     "properties": {
-        "goal": {"type": "string"},
-        "unit": {"type": "string"},
-        "result": {"type": "string"},
+        "goal": {
+            "type": "string",
+            "description": "The stable change in the world this Episode should achieve.",
+        },
+        "unit": {
+            "type": "string",
+            "description": "One complete repeatable attempt-observe-learn cycle.",
+        },
+        "result": {
+            "type": "string",
+            "description": "The concrete artifact, state, or typed outcome produced.",
+        },
         "progress": {
             "type": "object",
+            "description": "One host-observable numeric progress quantity.",
             "properties": {
                 "description": {"type": "string"},
                 "unit": {"type": "string"},
@@ -218,6 +405,7 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
         },
         "stopping": {
             "type": "object",
+            "description": "Success target and numerical no-progress behavior.",
             "properties": {
                 "target": {"type": "number"},
                 "minimum_delta": {"type": "number", "exclusiveMinimum": 0},
@@ -228,12 +416,13 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
         },
         "execution_capability_names": {
             "type": "array",
+            "description": "Least-privilege execution tools assigned to this Episode.",
             "items": {"type": "string"},
             "uniqueItems": True,
         },
-        "creator_contract": {"type": ["object", "null"]},
-        "deliverable": {"type": "object"},
-        "safety_bounds": {"type": ["object", "null"]},
+        "creator_contract": EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA,
+        "deliverable": EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA,
+        "safety_bounds": EPISODE_SAFETY_BOUNDS_BLUEPRINT_SCHEMA,
     },
     "required": sorted(_CREATION_FIELDS),
     "additionalProperties": False,
@@ -266,6 +455,9 @@ EPISODE_WORKFLOW_BLUEPRINT_SCHEMA = {
 __all__ = [
     "CREATION_BLUEPRINT_FIELDS",
     "EPISODE_CREATION_BLUEPRINT_SCHEMA",
+    "EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA",
+    "EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA",
+    "EPISODE_SAFETY_BOUNDS_BLUEPRINT_SCHEMA",
     "EPISODE_WORKFLOW_BLUEPRINT_SCHEMA",
     "creation_blueprint_from_spec",
     "creation_spec_from_blueprint",
