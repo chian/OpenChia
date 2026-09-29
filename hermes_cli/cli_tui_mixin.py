@@ -254,8 +254,15 @@ class CLITuiMixin:
         leading icon. A non-default profile name is prepended (``coder ❯``).
         """
         try:
-            from hermes_cli.skin_engine import get_active_prompt_symbol
-            symbol = get_active_prompt_symbol("❯ ")
+            from hermes_cli.skin_engine import (
+                get_active_prompt_symbol,
+                get_surface_branding,
+            )
+            symbol = get_surface_branding(
+                self,
+                "prompt_symbol",
+                get_active_prompt_symbol("❯ ").strip(),
+            )
         except Exception:
             symbol = "❯ "
         symbol = (symbol or "❯ ").rstrip() + " "
@@ -368,6 +375,11 @@ class CLITuiMixin:
         """Extension hook: wrapper CLIs return widgets inserted between the spacer and status bar."""
         return []
 
+    def _tui_background_ui_active(self) -> bool:
+        """Whether a wrapper has background work whose status needs repainting."""
+
+        return False
+
     def _register_extra_tui_keybindings(self, kb, *, input_area) -> None:
         """Extension hook: wrapper CLIs add bindings to ``kb`` (``input_area`` is the main TextArea)."""
 
@@ -419,6 +431,7 @@ class CLITuiMixin:
         return [item for item in ordered if item is not None]
 
     def _tui_spinner_loop(self):
+        background_was_active = False
         while not self._should_exit:
             if not self._app:
                 time.sleep(0.1)
@@ -426,7 +439,8 @@ class CLITuiMixin:
             monitor = getattr(self, "_subagent_monitor", None)
             if monitor is not None:
                 monitor.tick()
-            if self._command_running:
+            background_active = self._tui_background_ui_active()
+            if self._command_running or background_active or background_was_active:
                 self._invalidate(min_interval=0.1)
                 time.sleep(0.1)
             else:
@@ -434,6 +448,7 @@ class CLITuiMixin:
                 # redraws fight tmux/Ghostty/cmux viewport restoration after focus changes and
                 # visually move the input area. Input/agent events invalidate explicitly.
                 time.sleep(0.2)
+            background_was_active = background_active
 
     def _get_clarify_batch_display_fragments(self, state):
         """Batch (multi-question) clarify panel: "N questions" header, one status line per question
@@ -449,7 +464,8 @@ class CLITuiMixin:
         multi_select = state.get("multi_select", False)
         selected_indices = state.get("selected_indices", set()) if multi_select else set()
         freetext = self._clarify_freetext
-        title = "Hermes needs your input"
+        from hermes_cli.skin_engine import get_surface_branding
+        title = f"{get_surface_branding(self, 'agent_name', 'Hermes')} needs your input"
         header = f"{len(questions_list)} questions"
 
         def _status_rows(width):
@@ -529,7 +545,8 @@ class CLITuiMixin:
         multi_select = state.get("multi_select", False)
         selected_indices = state.get("selected_indices", set()) if multi_select else set()
         freetext = self._clarify_freetext
-        title = "Hermes needs your input"
+        from hermes_cli.skin_engine import get_surface_branding
+        title = f"{get_surface_branding(self, 'agent_name', 'Hermes')} needs your input"
         other_idx = len(choices)
 
         def _label(i, text):
@@ -735,10 +752,11 @@ class CLITuiMixin:
         if not self._sudo_state:
             return []
         if code := self._sudo_state.get("vault_code"):
+            from hermes_cli.skin_engine import get_surface_branding
             return self._render_sudo_style_panel(
                 f'🔐 Verification code for {code["site"]}',
                 [f'{code["site"]} is asking for a one-time code (text message, email or authenticator app).',
-                 'Type the code and press Enter; Hermes enters it into the page for you.',
+                 f"Type the code and press Enter; {get_surface_branding(self, 'agent_name', 'Hermes')} enters it into the page for you.",
                  'Enter on an empty line skips. The model never sees the code.'])
         if save := self._sudo_state.get("vault_save"):
             if save["step"] == "identifier":
@@ -1191,8 +1209,8 @@ class CLITuiMixin:
             return
         import signal as _sig
         from prompt_toolkit.application import run_in_terminal
-        from hermes_cli.skin_engine import get_active_skin
-        agent_name = get_active_skin().get_branding("agent_name", "Hermes Agent")
+        from hermes_cli.skin_engine import get_surface_branding
+        agent_name = get_surface_branding(self, "agent_name", "Hermes Agent")
         msg = f"\n{agent_name} has been suspended. Run `fg` to bring {agent_name} back."
 
         def _suspend():
@@ -2314,7 +2332,8 @@ class CLITuiMixin:
         _completer = SlashCommandCompleter(
             skill_commands_provider=lambda: get_skill_commands(),
             command_filter=cli_ref._command_available,
-            skill_bundles_provider=lambda: get_skill_bundles())
+            skill_bundles_provider=lambda: get_skill_bundles(),
+            surface_commands_provider=cli_ref._surface_commands)
         input_area = TextArea(
             height=Dimension(min=1, max=8, preferred=1),
             prompt=get_prompt,

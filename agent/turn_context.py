@@ -162,8 +162,21 @@ def append_notes_to_multimodal_content(content: Any, notes: Optional[str]) -> bo
 _UNTITLED_PLATFORMS = frozenset({"cron"})
 
 
+def _openchia_prompt_isolated(agent: Any) -> bool:
+    return any(
+        bool(getattr(agent, name, False))
+        for name in (
+            "_duet_prompt_isolated",
+            "_creator_episode_prompt_isolated",
+            "_task_episode_prompt_isolated",
+        )
+    )
+
+
 def _maybe_title_session_at_turn_start(agent: Any, messages: List[Any]) -> None:
     """Kick off auto-titling for the session's first user message; never fatal."""
+    if _openchia_prompt_isolated(agent):
+        return
     session_db = getattr(agent, "_session_db", None)
     session_id = getattr(agent, "session_id", None)
     if not session_db or not session_id:
@@ -753,6 +766,8 @@ def _collect_pre_llm_call_context(
     """Run ``pre_llm_call`` plugins; their context is injected into the user message
     (never the system prompt). Oversized per-hook context is spilled to disk so a
     runaway plugin can't inflate every subsequent turn's prompt."""
+    if _openchia_prompt_isolated(agent):
+        return ""
     if getattr(agent, "_persist_disabled", False):
         return ""
     try:
@@ -1128,12 +1143,20 @@ def build_turn_context(
         original_user_message=original_user_message, messages=messages,
         conversation_history=conversation_history,
     )
-    plugin_user_context = _merge_gateway_notes(
-        agent, messages, current_turn_user_idx, plugin_user_context
-    )
+    openchia_prompt_isolated = _openchia_prompt_isolated(agent)
+    if not openchia_prompt_isolated:
+        plugin_user_context = _merge_gateway_notes(
+            agent, messages, current_turn_user_idx, plugin_user_context
+        )
 
     _bind_interrupt_scope(agent, ra)
-    ext_prefetch_cache = _memory_turn_start_and_prefetch(agent, original_user_message, turn_author)
+    ext_prefetch_cache = (
+        ""
+        if openchia_prompt_isolated
+        else _memory_turn_start_and_prefetch(
+            agent, original_user_message, turn_author
+        )
+    )
 
     # Title the session now: titling depends only on the user's ask (before any injected
     # context lands on list content), so it runs concurrently with the turn. Daemon thread,

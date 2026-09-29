@@ -52,8 +52,9 @@ Interaction style:
 - If it is genuinely underspecified, ask a brief clarifying question instead
   of guessing.
 - After saving the plan, reply briefly with what you planned and the saved
-  path, and offer to execute it (e.g. via subagent-driven development) —
-  but do not start executing in this turn.
+  path, and offer to execute it in a later turn (using a pre-designed nested
+  Episode workflow when isolated task loops help) — but do not start executing
+  in this turn.
 """
 
 

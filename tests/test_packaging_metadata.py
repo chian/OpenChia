@@ -8,6 +8,23 @@ from packaging.version import Version
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_openchia_method_loop_is_in_the_installed_package_set():
+    manifest = tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    included = manifest["tool"]["setuptools"]["packages"]["find"]["include"]
+    assert "method_loop" in included
+    assert "method_loop.*" in included
+    assert "LICENSE" in manifest["tool"]["setuptools"]["package-data"][
+        "method_loop"
+    ]
+    assert "THIRD_PARTY_NOTICES.md" in manifest["project"]["license-files"]
+    assert "method_loop/LICENSE" in manifest["project"]["license-files"]
+    assert manifest["project"]["scripts"]["openchia"] == (
+        "hermes_cli.openchia_main:main"
+    )
+
+
 def test_test_dependencies_are_group_only_in_manifest_and_lock():
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))

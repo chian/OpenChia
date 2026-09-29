@@ -62,6 +62,7 @@ htmlcov/
 
 # Documentation
 *.md
+!THIRD_PARTY_NOTICES.md
 !skills/**/*.md
 !optional-skills/**/*.md
 

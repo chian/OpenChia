@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""OpenChia interactive Duet launcher."""
+
+if __name__ == "__main__":
+    from hermes_cli.openchia_main import main
+
+    main()

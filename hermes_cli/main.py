@@ -333,6 +333,7 @@ if _startup_fast.try_fast_version():
     raise SystemExit(0)
 
 import argparse
+import contextvars
 import contextlib
 import json
 import shutil
@@ -774,6 +775,34 @@ from hermes_cli.model_setup_flows import (
     _is_profile_plugin_flow_provider,
 )
 logger = logging.getLogger(__name__)
+
+
+_CHAT_CLI_MAIN = contextvars.ContextVar("hermes_chat_cli_main", default=None)
+_CHAT_FIRST_RUN_SETUP = contextvars.ContextVar(
+    "hermes_chat_first_run_setup",
+    default=None,
+)
+
+
+def run_with_chat_cli_main(chat_cli_main, *, first_run_setup=None):
+    """Run the normal Hermes parser with one explicit interactive CLI host.
+
+    This is the supported entry seam for a wrapper that keeps Hermes argument
+    parsing and startup behavior but supplies a ``cli.main``-compatible chat
+    constructor.  The override is context-local and is reset on exit.
+    """
+
+    if not callable(chat_cli_main):
+        raise TypeError("chat_cli_main must be callable")
+    if first_run_setup is not None and not callable(first_run_setup):
+        raise TypeError("first_run_setup must be callable or None")
+    main_token = _CHAT_CLI_MAIN.set(chat_cli_main)
+    setup_token = _CHAT_FIRST_RUN_SETUP.set(first_run_setup)
+    try:
+        return main()
+    finally:
+        _CHAT_FIRST_RUN_SETUP.reset(setup_token)
+        _CHAT_CLI_MAIN.reset(main_token)
 from hermes_cli.main_agent_cmds import (
     cmd_acp,
     cmd_insights,
@@ -1828,8 +1857,12 @@ def cmd_chat(args):
 
     run_bootstrap(announce=False)
     if not _has_any_provider_configured():
-        _first_run_setup_guard(args)
-        return
+        first_run_setup = _CHAT_FIRST_RUN_SETUP.get()
+        if first_run_setup is None:
+            _first_run_setup_guard(args)
+            return
+        if not first_run_setup(args):
+            return
 
     _start_chat_background_prefetch()
 
@@ -1883,7 +1916,9 @@ def cmd_chat(args):
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
     try:
-        from cli import main as cli_main
+        cli_main = _CHAT_CLI_MAIN.get()
+        if cli_main is None:
+            from cli import main as cli_main
 
         cli_main(**kwargs)
     except ValueError as e:

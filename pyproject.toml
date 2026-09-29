@@ -15,7 +15,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 authors = [{ name = "Nous Research" }]
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "method_loop/LICENSE"]
 dependencies = [
   # Core — every direct dep is exact-pinned to ==X.Y.Z (no ranges).
   # Rationale: ranges allow PyPI to ship a fresh version of a transitive
@@ -570,6 +570,7 @@ build-backend = "setuptools.build_meta"
 hermes = "hermes_cli.main:main"
 hermes-agent = "agent.legacy_cli:main"
 hermes-acp = "acp_adapter.entry:main"
+openchia = "hermes_cli.openchia_main:main"
 
 [tool.hermes]
 # Extras that only an explicit selection installs (setup, sync_venv). Bundles
@@ -806,6 +807,8 @@ youtube-transcript-api = false
 include = [
   "agent",
   "agent.*",
+  "method_loop",
+  "method_loop.*",
   "tools",
   "tools.*",
   "hermes_cli",
@@ -830,6 +833,7 @@ include = [
 ]
 
 [tool.setuptools.package-data]
+method_loop = ["LICENSE"]
 hermes_cli = [
   "observability/schemas/*.json",
   "data/*.json",

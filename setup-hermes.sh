@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Hermes Agent Setup Script — THE dev-environment entry point.
+# OpenChia Environment Setup — the development-environment entry point.
 # ============================================================================
 # Sets up the pm-managed development environment from a fresh clone:
 #   1. Stage the pinned uv from pm/lock.json (sha256-verified, into the pm
@@ -41,7 +41,7 @@ cd "$SCRIPT_DIR"
 export UV_NO_CONFIG=1
 
 echo ""
-echo -e "${CYAN}☤ Hermes Agent Setup${NC}"
+echo -e "${CYAN}OpenChia Environment Setup${NC}"
 echo ""
 
 # ============================================================================
@@ -210,7 +210,7 @@ fi
 # Publish user-facing launchers
 # ============================================================================
 
-echo -e "${CYAN}→${NC} Setting up hermes command..."
+echo -e "${CYAN}→${NC} Setting up the OpenChia command environment..."
 
 # Reuse the bootstrap interpreter only to run the shared launcher writer.
 bin_dir="$HOME/.local/bin"
@@ -221,7 +221,7 @@ if ! "$boot_py" -I -X utf8 hermes_cli/_launchers.py "$bin_dir"; then
     echo -e "${RED}✗${NC} launcher publication failed" >&2
     exit 1
 fi
-echo -e "${GREEN}✓${NC} Published Hermes commands in $bin_dir"
+echo -e "${GREEN}✓${NC} Published the OpenChia launcher in $bin_dir"
 
 if [ "$os" != win32 ]; then
     # Determine the appropriate shell config file
@@ -249,7 +249,7 @@ if [ "$os" != win32 ]; then
             if ! echo "$PATH" | tr ':' '\n' | grep -q "^$HOME/.local/bin$"; then
                 if ! grep -q '\.local/bin' "$SHELL_CONFIG" 2>/dev/null; then
                     echo "" >> "$SHELL_CONFIG"
-                    echo "# Hermes Agent — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
+                    echo "# OpenChia — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
                     echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_CONFIG"
                     echo -e "${GREEN}✓${NC} Added ~/.local/bin to PATH in $SHELL_CONFIG"
                 else
@@ -269,7 +269,7 @@ HERMES_SKILLS_DIR="${HERMES_HOME:-$HOME/.hermes}/skills"
 mkdir -p "$HERMES_SKILLS_DIR"
 
 echo ""
-echo "Syncing bundled skills to ~/.hermes/skills/ ..."
+echo "Syncing bundled skills into the OpenChia runtime ..."
 if "$boot_py" -m tools.skills_sync 2>/dev/null; then
     echo -e "${GREEN}✓${NC} Skills synced"
 else
@@ -292,15 +292,9 @@ echo ""
 echo "  1. Activate the dev environment (venv-style, in THIS shell):"
 echo "     source ./activate"
 echo ""
-echo "  2. Run the setup wizard to configure API keys:"
-echo "     hermes setup"
+echo "  2. Start an OpenChia Duet:"
+echo "     openchia"
 echo ""
-echo "  3. Start chatting:"
-echo "     hermes"
-echo ""
-echo "Other commands:"
-echo "  hermes pm install     # Re-run the tool + dependency install"
-echo "  hermes status         # Check configuration"
-echo "  hermes doctor         # Diagnose issues"
+echo "Environment command:"
 echo "  deactivate            # Undo the activation (restore PATH etc.)"
 echo ""

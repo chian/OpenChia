@@ -202,6 +202,71 @@ class TestHandleFunctionCall:
 # =========================================================================
 
 
+class TestOpenChiaProtocolToolSelection:
+    def test_role_protocol_tools_follow_explicit_toolset_selection(self):
+        from model_tools import get_tool_definitions
+
+        def names(**selection):
+            return {
+                definition["function"]["name"]
+                for definition in get_tool_definitions(
+                    quiet_mode=True,
+                    skip_tool_search_assembly=True,
+                    **selection,
+                )
+            }
+
+        duet = {
+            "duet_contract_patch",
+            "duet_status",
+            "duet_answer",
+            "duet_decision",
+            "episode_creator",
+        }
+        assert duet <= names(
+            enabled_toolsets=["duet"]
+        )
+        assert duet.isdisjoint(
+            names(enabled_toolsets=["file"])
+        )
+        assert duet.isdisjoint(
+            names(disabled_toolsets=["duet"])
+        )
+        assert "creator_log_read" in names(enabled_toolsets=["creator_protocol"])
+        assert "workflow_candidate" in names(enabled_toolsets=["creator_protocol"])
+        assert "episode_progress" in names(enabled_toolsets=["episode_protocol"])
+        assert "delegate_task" not in names()
+
+    def test_episode_control_tools_cannot_be_deferred(self):
+        from model_tools import get_tool_definitions
+        from tools.tool_search import classify_tools
+
+        raw = get_tool_definitions(
+            enabled_toolsets=["duet", "creator_protocol", "episode_protocol"],
+            quiet_mode=True,
+            skip_tool_search_assembly=True,
+        )
+        controls = {
+            "duet_contract_patch",
+            "duet_status",
+            "duet_answer",
+            "duet_decision",
+            "episode_creator",
+            "creator_log_read",
+            "workflow_candidate",
+            "episode_progress",
+        }
+        visible, deferred = classify_tools(
+            raw, frozenset(controls)
+        )
+        assert controls <= {
+            definition["function"]["name"] for definition in visible
+        }
+        assert controls.isdisjoint(
+            definition["function"]["name"] for definition in deferred
+        )
+
+
 
 # =========================================================================
 # Pre-tool-call blocking via plugin hooks

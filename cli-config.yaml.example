@@ -1492,6 +1492,9 @@ platform_toolsets:
 #   todo         - todo (in-memory task planning, no deps)
 #   tts          - text_to_speech  (Edge TTS free, or ELEVENLABS/OPENAI/MINIMAX/MISTRAL key)
 #   cronjob      - cronjob (create/list/update/pause/resume/run/remove scheduled tasks)
+#   duet         - restricted search and Creator-contract protocol for OpenChia
+#   creator_protocol - inspect owned Run logs and submit frozen workflow candidates
+#   episode_protocol - report accepted evidence identities from a task Episode
 #
 # PRESETS (curated bundles):
 #   hermes-cli       - All of the above except send_message

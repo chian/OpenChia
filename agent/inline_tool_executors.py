@@ -231,6 +231,251 @@ def _setup_mcp_shim(agent, args: dict, ctx: InlineToolContext) -> Any:
     }, ctx)
 
 
+def _episode_progress(agent, args: dict, ctx: InlineToolContext) -> Any:
+    """Register accepted evidence identities; the model never supplies a score."""
+    if not isinstance(getattr(agent, "_active_episode_id", None), str):
+        return json.dumps({"accepted": False, "reason": "no_active_episode"})
+    evidence_ids = args.get("accepted_evidence_ids")
+    if (
+        not isinstance(evidence_ids, list)
+        or not evidence_ids
+        or any(not isinstance(item, str) or not item for item in evidence_ids)
+        or len(set(evidence_ids)) != len(evidence_ids)
+    ):
+        return json.dumps(
+            {"accepted": False, "reason": "invalid_evidence_ids"},
+            sort_keys=True,
+        )
+    registered = getattr(agent, "_active_episode_evidence_ids", frozenset())
+    if not isinstance(registered, (set, frozenset)):
+        registered = frozenset()
+    unknown = sorted(set(evidence_ids) - set(registered))
+    if unknown:
+        return json.dumps(
+            {
+                "accepted": False,
+                "reason": "unregistered_evidence",
+                "unknown_count": len(unknown),
+            },
+            sort_keys=True,
+        )
+    reports = getattr(agent, "_episode_progress_reports", None)
+    if not isinstance(reports, list):
+        reports = []
+        agent._episode_progress_reports = reports
+    prior = {item for report in reports for item in report}
+    newly_accepted = tuple(item for item in evidence_ids if item not in prior)
+    reports.append(newly_accepted)
+    return json.dumps(
+        {
+            "accepted": True,
+            "accepted_count": len(newly_accepted),
+            "total_distinct_count": len(prior | set(newly_accepted)),
+        },
+        sort_keys=True,
+    )
+
+
+def _duet_context(agent):
+    service = getattr(agent, "_duet_service", None)
+    identity = getattr(agent, "_duet_identity", None)
+    if service is None or identity is None:
+        raise RuntimeError("no active host-bound Duet")
+    return service, identity
+
+
+def _duet_contract_patch(agent, args: dict, ctx: InlineToolContext) -> Any:
+    from agent.duet_contracts import (
+        ContractFieldRecord,
+        DuetProvenance,
+        FieldImpact,
+    )
+
+    try:
+        service, identity = _duet_context(agent)
+        raw_patches = args.get("patches")
+        if not isinstance(raw_patches, list) or not raw_patches:
+            raise ValueError("patches must be a non-empty array")
+        patches = tuple(
+            ContractFieldRecord(
+                field_path=item["field_path"],
+                value=item["value"],
+                provenance=DuetProvenance.LLM_PROPOSAL,
+                impact=FieldImpact(item["impact"]),
+            )
+            for item in raw_patches
+            if isinstance(item, dict)
+        )
+        if len(patches) != len(raw_patches):
+            raise ValueError("every patch must be an object")
+        draft = service.patch_contract(
+            identity.duet_id,
+            expected_revision=args.get("expected_revision"),
+            patches=patches,
+            actor=DuetProvenance.LLM_PROPOSAL,
+        )
+        return json.dumps(
+            {
+                "draft_id": draft.draft_id.value,
+                "revision": draft.revision,
+                "ready": draft.ready,
+                "content_hash": draft.content_hash.value,
+                "deficits": [item.as_record() for item in draft.deficits],
+            },
+            sort_keys=True,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {"accepted": False, "reason": type(exc).__name__}, sort_keys=True
+        )
+
+
+def _duet_status(agent, args: dict, ctx: InlineToolContext) -> Any:
+    try:
+        service, identity = _duet_context(agent)
+        return json.dumps(service.duet_status(identity.duet_id), sort_keys=True)
+    except Exception as exc:
+        return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
+
+
+def _duet_answer(agent, args: dict, ctx: InlineToolContext) -> Any:
+    from agent.episode_contracts import OpaqueId
+
+    try:
+        service, _identity = _duet_context(agent)
+        draft = service.submit_duet_answer(OpaqueId(args.get("answer_artifact_id")))
+        return json.dumps(
+            {
+                "accepted": True,
+                "revision": draft.revision,
+                "ready": draft.ready,
+                "deficit_codes": [item.code for item in draft.deficits],
+            },
+            sort_keys=True,
+        )
+    except Exception as exc:
+        return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
+
+
+def _duet_decision(agent, args: dict, ctx: InlineToolContext) -> Any:
+    from agent.episode_contracts import OpaqueId
+
+    try:
+        service, _identity = _duet_context(agent)
+        accepted = service.submit_duet_decision(
+            OpaqueId(args.get("decision_artifact_id"))
+        )
+        return json.dumps({"accepted": accepted}, sort_keys=True)
+    except Exception as exc:
+        return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
+
+
+def _episode_creator(agent, args: dict, ctx: InlineToolContext) -> Any:
+    from agent.episode_contracts import OpaqueId, Sha256Digest
+    from agent.duet_contracts import CreatorLaunchReceipt
+
+    try:
+        service, _identity = _duet_context(agent)
+        launcher = getattr(agent, "_duet_creator_launcher", None)
+        if not callable(launcher):
+            raise RuntimeError("no task-specific Creator launcher is bound")
+        episode_id = service.submit_episode_creator(
+            contract_artifact_id=OpaqueId(args.get("contract_artifact_id")),
+            content_hash=Sha256Digest(args.get("content_hash")),
+            human_approval_id=OpaqueId(args.get("human_approval_id")),
+        )
+        receipts = getattr(agent, "_duet_creator_receipts", None)
+        if not isinstance(receipts, dict):
+            receipts = {}
+            agent._duet_creator_receipts = receipts
+        receipt = receipts.get(episode_id.value)
+        if receipt is None:
+            receipt = launcher(episode_id)
+        if not isinstance(receipt, CreatorLaunchReceipt):
+            raise TypeError("Creator launcher must return CreatorLaunchReceipt")
+        if receipt.creator_episode_id != episode_id:
+            raise ValueError("Creator launch receipt identifies another admission")
+        receipts[episode_id.value] = receipt
+        return json.dumps(
+            {"accepted": True, **receipt.as_record()},
+            sort_keys=True,
+        )
+    except Exception as exc:
+        return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
+
+
+def _creator_log_read(agent, args: dict, ctx: InlineToolContext) -> Any:
+    try:
+        log_store = getattr(agent, "_creator_log_store", None)
+        references = getattr(agent, "_creator_log_references", None)
+        if log_store is None or not isinstance(references, dict):
+            raise RuntimeError("no active Creator log scope")
+        reference = references.get(args.get("log_artifact_id"))
+        if reference is None:
+            raise PermissionError("log artifact is not owned by this Creator")
+        content = log_store.read(
+            reference,
+            offset=args.get("offset", 0),
+            limit=args.get("limit", 65_536),
+        )
+        return json.dumps(
+            {
+                "log_artifact_id": reference.artifact_id.value,
+                "digest": reference.digest.value,
+                "location": reference.location,
+                "content": content,
+                "untrusted": True,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    except Exception as exc:
+        return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
+
+
+def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
+    from agent.duet_service import WorkflowAdmissionError
+
+    submit = getattr(agent, "_creator_workflow_submit", None)
+    if not callable(submit):
+        return json.dumps(
+            {"accepted": False, "reason": "no_active_creator_design_cycle"},
+            sort_keys=True,
+        )
+    workflow = args.get("workflow")
+    if not isinstance(workflow, dict):
+        return json.dumps(
+            {"accepted": False, "reason": "invalid_workflow_blueprint"},
+            sort_keys=True,
+        )
+    try:
+        candidate = submit(workflow)
+        return json.dumps(
+            {
+                "accepted": True,
+                "candidate_artifact_id": candidate.artifact_id.value,
+                "revision": candidate.revision,
+                "workflow_hash": candidate.workflow.workflow_hash.value,
+                "episode_count": len(candidate.workflow.episodes),
+            },
+            sort_keys=True,
+        )
+    except WorkflowAdmissionError as exc:
+        return json.dumps(
+            {
+                "accepted": False,
+                "reason": "workflow_admission_failed",
+                "deficits": [item.as_record() for item in exc.deficits],
+            },
+            sort_keys=True,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {"accepted": False, "reason": type(exc).__name__},
+            sort_keys=True,
+        )
+
+
 # Order is the historical if/elif order of ``execute_tool_calls_sequential``.
 INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "todo_list": _tool(
@@ -276,7 +521,14 @@ INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "manage_connections": _manage_connections,
     "manage_catalog": _manage_catalog,
     "setup_mcp": _setup_mcp_shim,
-    "delegate_task": lambda agent, args, ctx: agent._dispatch_delegate_task(args),
+    "duet_contract_patch": _duet_contract_patch,
+    "duet_status": _duet_status,
+    "duet_answer": _duet_answer,
+    "duet_decision": _duet_decision,
+    "episode_creator": _episode_creator,
+    "creator_log_read": _creator_log_read,
+    "workflow_candidate": _workflow_candidate,
+    "episode_progress": _episode_progress,
 }
 
 # ``invoke_tool`` (concurrent path) consults the memory manager right after these three

@@ -481,6 +481,17 @@ def _active_branding(key: str, fallback: str) -> str:
         return fallback
 
 
+def get_surface_branding(surface, key: str, fallback: str) -> str:
+    """Resolve branding for one CLI surface before consulting the active skin."""
+
+    overrides = getattr(surface, "_surface_branding", None)
+    if isinstance(overrides, dict):
+        value = overrides.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return _active_branding(key, fallback)
+
+
 def get_active_prompt_symbol(fallback: str = "❯") -> str:
     """Interactive prompt symbol (skins store a bare token) plus a single trailing space."""
     cleaned = (_active_branding("prompt_symbol", fallback) or fallback).strip()

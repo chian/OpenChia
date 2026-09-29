@@ -293,7 +293,13 @@ class CLISessionMixin:
         except Exception:
             ctx_label = None
 
-        lines = ["Hermes CLI Status", "", *status_lines(fields, "session_id", "path", "title", "model")]
+        from hermes_cli.skin_engine import get_surface_branding
+        surface_name = get_surface_branding(self, "agent_name", "Hermes")
+        lines = [
+            f"{surface_name} CLI Status",
+            "",
+            *status_lines(fields, "session_id", "path", "title", "model"),
+        ]
         try:
             from agent.i18n import t
             from hermes_cli.auth import resolve_provider
@@ -359,6 +365,12 @@ class CLISessionMixin:
     def show_history(self):
         """Display conversation history."""
         from cli import _cli_visible_print
+        from hermes_cli.skin_engine import get_surface_branding
+        assistant_label = get_surface_branding(
+            self,
+            "assistant_label",
+            "Hermes",
+        )
         if not self.conversation_history:
             if not self._show_recent_sessions(reason="history"):
                 _cli_visible_print("(._.) No conversation history yet.")
@@ -413,7 +425,9 @@ class CLISessionMixin:
                 _cli_visible_print(f"    {preview}{suffix}")
                 continue
 
-            _cli_visible_print(f"\n  [Hermes #{visible_index}]{_ts_suffix(msg)}")
+            _cli_visible_print(
+                f"\n  [{assistant_label} #{visible_index}]{_ts_suffix(msg)}"
+            )
             n_calls = len(msg.get("tool_calls") or [])
             if not content_text:
                 suffix = ""
@@ -677,7 +691,9 @@ class CLISessionMixin:
                 path = Path.cwd() / path
         else:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = saved_dir / f"hermes_conversation_{timestamp}.{fmt}"
+            from hermes_cli.skin_engine import get_surface_branding
+            command_name = get_surface_branding(self, "command_name", "hermes")
+            path = saved_dir / f"{command_name}_conversation_{timestamp}.{fmt}"
 
         try:
             content = render_session_for_save(session_data, fmt)
@@ -691,7 +707,12 @@ class CLISessionMixin:
             # tools/subprocesses on this thread resolve HERMES_SESSION_ID to the child id after an
             # out-of-place rotation (idempotent when no rotation happened).
             if self.session_id:
-                print(f"       Resume the live session with: hermes --resume {self.session_id}")
+                from hermes_cli.skin_engine import get_surface_branding
+                command_name = get_surface_branding(self, "command_name", "hermes")
+                print(
+                    "       Resume the live session with: "
+                    f"{command_name} --resume {self.session_id}"
+                )
         except Exception as e:
             print(f"(x_x) Failed to save: {e}")
 
@@ -1146,8 +1167,8 @@ class CLISessionMixin:
         msg_count = len(self.conversation_history)
         if not msg_count:
             try:
-                from hermes_cli.skin_engine import get_active_goodbye
-                goodbye = get_active_goodbye("Goodbye! ☤")
+                from hermes_cli.skin_engine import get_surface_branding
+                goodbye = get_surface_branding(self, "goodbye", "Goodbye! ☤")
             except Exception:
                 goodbye = "Goodbye! ☤"
             print(goodbye)
@@ -1179,9 +1200,11 @@ class CLISessionMixin:
         except Exception:
             _active_profile = "default"
         profile_flag = "" if _active_profile in ("default", "custom") else f" -p {_active_profile}"
-        print(f"  hermes --resume {self.session_id}{profile_flag}")
+        from hermes_cli.skin_engine import get_surface_branding
+        command_name = get_surface_branding(self, "command_name", "hermes")
+        print(f"  {command_name} --resume {self.session_id}{profile_flag}")
         if session_title:
-            print(f"  hermes -c \"{session_title}\"{profile_flag}")
+            print(f"  {command_name} -c \"{session_title}\"{profile_flag}")
         print()
         print(f"Session:        {self.session_id}")
         if session_title:

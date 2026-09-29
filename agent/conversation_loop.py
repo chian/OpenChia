@@ -1522,7 +1522,84 @@ def _run_api_retry_loop(agent, s: _LoopState) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _run_conversation_turn(
+@dataclass(frozen=True)
+class ConversationIterationVerdict:
+    """Result of exactly one Hermes model/tool iteration.
+
+    Creator Episode bindings may consume this operation as one acquired unit.
+    The ordinary user conversation remains a Duet conversation and owns its
+    own repetition; it is not silently promoted into an Episode.
+    """
+
+    action: str
+    result: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self) -> None:
+        if self.action not in {"continue", "break", "return"}:
+            raise ValueError("unsupported conversation iteration action")
+
+
+def advance_conversation_iteration(agent: Any, s: _LoopState) -> ConversationIterationVerdict:
+    """Advance one complete model/tool iteration without owning a loop."""
+
+    if _run_phase(begin_iteration, agent, s).action == "break":
+        return ConversationIterationVerdict("break")
+    _run_phase(prepare_iteration, agent, s)
+    _run_phase(assemble_api_request, agent, s)
+    _pg = _run_phase(run_preflight_gate, agent, s)
+    if _pg.action == "return":
+        return ConversationIterationVerdict("return", _pg.result)
+    if _pg.action == "break":
+        return ConversationIterationVerdict("break")
+    if _pg.action == "continue":
+        return ConversationIterationVerdict("continue")
+    _run_phase(announce_api_call, agent, s)
+
+    s.api_start_time, s.retry_count, s.max_retries = time.time(), 0, agent._api_max_retries
+    s._retry, s.finish_reason, s.response, s.api_kwargs = TurnRetryState(), "stop", None, None
+    s.api_request_id = agent._current_api_request_id = f"{s.turn_id}:api:{s.api_call_count}"
+
+    early_result = _run_api_retry_loop(agent, s)
+    if early_result is not None:
+        return ConversationIterationVerdict("return", early_result)
+
+    _rs = _run_phase(apply_retry_restarts, agent, s)
+    if _rs.action == "break":
+        return ConversationIterationVerdict("break")
+    if _rs.action == "continue":
+        return ConversationIterationVerdict("continue")
+
+    try:
+        _ri = _run_phase(normalize_model_response, agent, s)
+        if _ri.action == "return":
+            return ConversationIterationVerdict("return", _ri.result)
+        if _ri.action == "continue":
+            return ConversationIterationVerdict("continue")
+        if s.assistant_message.tool_calls:
+            _v = _run_phase(run_tool_round, agent, s)
+        else:
+            _v = _run_phase(finish_text_response, agent, s)
+        return ConversationIterationVerdict(_v.action, _v.result)
+    except Exception as exc:
+        action = _run_phase(handle_outer_loop_error, agent, s, e=exc).action
+        return ConversationIterationVerdict("break" if action == "break" else "continue")
+
+
+@dataclass(frozen=True)
+class PreparedConversationTurn:
+    """A reusable turn boundary for Duet and Creator conversations."""
+
+    state: Optional[_LoopState] = None
+    result: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self) -> None:
+        if self.state is None and self.result is None:
+            raise ValueError(
+                "a prepared conversation turn requires state or a typed result"
+            )
+
+
+def prepare_conversation_turn(
     agent,
     user_message: Any,
     system_message: str = None,
@@ -1536,8 +1613,8 @@ def _run_conversation_turn(
     persist_user_platform_id: Optional[str] = None,
     turn_author: Optional[Dict[str, Any]] = None,
     moa_config: Optional[dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Run a complete conversation with tool calling until completion; returns the result dict.
+) -> PreparedConversationTurn:
+    """Prepare one Hermes turn without starting or owning its iteration loop.
 
     ``stream_callback``: per-text-delta callback (TTS). ``persist_user_message``: clean text to
     store when ``user_message`` carries API-only synthetic prefixes; timestamp / platform id are
@@ -1562,6 +1639,7 @@ def _run_conversation_turn(
         logger.debug("per-turn env credential refresh failed", exc_info=True)
 
     # Per-turn setup: build_turn_context mutates ``agent`` and returns the locals the loop reads.
+    prepared_result = None
     try:
         _ctx = build_turn_context(
             agent, user_message, system_message, conversation_history, task_id,
@@ -1582,7 +1660,12 @@ def _run_conversation_turn(
             moa_active=bool(moa_config),
         )
     except PreflightCompressionTimedOut as _preflight_timeout_exc:
-        return _preflight_timeout_result(agent, _preflight_timeout_exc, conversation_history)
+        prepared_result = _preflight_timeout_result(
+            agent,
+            _preflight_timeout_exc,
+            conversation_history,
+        )
+        return PreparedConversationTurn(result=prepared_result)
 
     # Per-turn agent state (the gateway caches agents across turns, so none of this may
     # leak into the next message): interim-commentary dedup spans the whole turn but not
@@ -1604,79 +1687,89 @@ def _run_conversation_turn(
         max_compression_attempts=getattr(agent, "max_compression_attempts", 3),
         **{f.name: getattr(_ctx, f.name.lstrip("_")) for f in fields(_LoopState) if f.name in _CTX_FIELDS},
     )
-    # Opt-in runtime: api_mode == codex_app_server hands the whole turn to the codex
-    # app-server subprocess (see agent/transports/codex_app_server_session.py).
+    return PreparedConversationTurn(state=s, result=prepared_result)
+
+
+def finalize_conversation_turn(agent: Any, state: _LoopState) -> Dict[str, Any]:
+    """Finalize a prepared turn after its Episode stops without a direct result."""
+
+    result = finalize_turn(agent, **{
+        name: getattr(state, name)
+        for name in inspect.signature(finalize_turn).parameters if name != "agent"
+    })
+    if state._compression_timeout_exhausted:
+        # Reuse the gateway's context-recovery contract: transcript stays intact while
+        # future input can move to a clean session (#98722).
+        result.update(error=_COMPRESSION_TIMEOUT_FINAL_RESPONSE, partial=True, compression_exhausted=True)
+    return result
+
+
+def _run_conversation_turn(
+    agent,
+    user_message: Any,
+    system_message: str = None,
+    conversation_history: List[Dict[str, Any]] = None,
+    task_id: str = None,
+    stream_callback: Optional[callable] = None,
+    persist_user_message: Optional[Any] = None,
+    persist_user_timestamp: Optional[float] = None,
+    persist_user_display_kind: Optional[str] = None,
+    persist_user_display_metadata: Optional[Dict[str, Any]] = None,
+    persist_user_platform_id: Optional[str] = None,
+    turn_author: Optional[Dict[str, Any]] = None,
+    moa_config: Optional[dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Run one complete Duet conversation turn."""
+
+    prepared = prepare_conversation_turn(
+        agent,
+        user_message,
+        system_message=system_message,
+        conversation_history=conversation_history,
+        task_id=task_id,
+        stream_callback=stream_callback,
+        persist_user_message=persist_user_message,
+        persist_user_timestamp=persist_user_timestamp,
+        persist_user_display_kind=persist_user_display_kind,
+        persist_user_display_metadata=persist_user_display_metadata,
+        persist_user_platform_id=persist_user_platform_id,
+        turn_author=turn_author,
+        moa_config=moa_config,
+    )
+    if prepared.result is not None:
+        return prepared.result
+    s = prepared.state
+    if s is None:  # narrowed by PreparedConversationTurn.__post_init__
+        raise RuntimeError("prepared turn has no loop state")
+
+    # Preserve the inherited opaque Codex runtime. If it falls back, the
+    # ordinary conversation loop below owns the remaining iterations.
     if agent.api_mode == "codex_app_server":
         codex_result = agent._run_codex_app_server_turn(
-            user_message=s.user_message, original_user_message=s.original_user_message,
-            messages=s.messages, effective_task_id=s.effective_task_id,
+            user_message=s.user_message,
+            original_user_message=s.original_user_message,
+            messages=s.messages,
+            effective_task_id=s.effective_task_id,
             should_review_memory=s._should_review_memory,
         )
         from agent.turn_recovery import activate_codex_app_server_fallback
         if not activate_codex_app_server_fallback(agent, codex_result):
             return codex_result
-        # Fallback activation rewrote provider/model/api_mode: retry this same user turn on the generic
-        # loop below, keeping codex's projected rows and its failed API call in the turn's accounting.
         s.api_call_count = int(codex_result.get("api_calls") or 0)
-        s.active_system_prompt = _sync_failover_system_message(agent, None, s.active_system_prompt)
+        s.active_system_prompt = _sync_failover_system_message(
+            agent, None, s.active_system_prompt
+        )
 
-    while (s.api_call_count < agent.max_iterations and agent.iteration_budget.remaining > 0) or agent._budget_grace_call:
-        if _run_phase(begin_iteration, agent, s).action == "break":
+    while True:
+        verdict = advance_conversation_iteration(agent, s)
+        if verdict.action == "return":
+            if verdict.result is None:
+                raise RuntimeError("return verdict requires a result")
+            return verdict.result
+        if verdict.action == "break":
             break
-        _run_phase(prepare_iteration, agent, s)
-        _run_phase(assemble_api_request, agent, s)
-        _pg = _run_phase(run_preflight_gate, agent, s)
-        if _pg.action == "return":
-            return _pg.result
-        if _pg.action == "break":
-            break
-        if _pg.action == "continue":
-            continue
-        _run_phase(announce_api_call, agent, s)
 
-        s.api_start_time, s.retry_count, s.max_retries = time.time(), 0, agent._api_max_retries
-        s._retry, s.finish_reason, s.response, s.api_kwargs = TurnRetryState(), "stop", None, None
-        s.api_request_id = agent._current_api_request_id = f"{s.turn_id}:api:{s.api_call_count}"
-
-        early_result = _run_api_retry_loop(agent, s)
-        if early_result is not None:
-            return early_result
-
-        _rs = _run_phase(apply_retry_restarts, agent, s)
-        if _rs.action == "break":
-            break
-        if _rs.action == "continue":
-            continue
-
-        try:
-            _ri = _run_phase(normalize_model_response, agent, s)
-            if _ri.action == "return":
-                return _ri.result
-            if _ri.action == "continue":
-                continue
-            _v = _run_phase(
-                run_tool_round if s.assistant_message.tool_calls else finish_text_response, agent, s
-            )
-            if _v.action == "return":
-                return _v.result
-            if _v.action == "break":
-                break
-            if _v.action == "continue":
-                continue
-        except Exception as e:
-            if _run_phase(handle_outer_loop_error, agent, s, e=e).action == "break":
-                break
-
-    # Post-loop finalization lives in agent/turn_finalizer.finalize_turn.
-    result = finalize_turn(agent, **{
-        name: getattr(s, name)
-        for name in inspect.signature(finalize_turn).parameters if name != "agent"
-    })
-    if s._compression_timeout_exhausted:
-        # Reuse the gateway's context-recovery contract: transcript stays intact while
-        # future input can move to a clean session (#98722).
-        result.update(error=_COMPRESSION_TIMEOUT_FINAL_RESPONSE, partial=True, compression_exhausted=True)
-    return result
+    return finalize_conversation_turn(agent, s)
 
 
 def run_conversation(

@@ -127,6 +127,31 @@ function global:hermes {
     }
 }
 
+function global:openchia {
+    if (-not (_hermesWorktreeHere)) {
+        $here = (Get-Location).Path
+        Write-Error "openchia: $here is outside $($global:_hermesWorktree); refusing (the installed command is hidden while this checkout is active)" -ErrorAction Continue
+        $global:LASTEXITCODE = 1
+        return
+    }
+    Push-Location -LiteralPath $global:_hermesWorktree
+    try {
+        $py = $env:PYTHON
+        if (-not $py) {
+            foreach ($candidate in @(
+                '.venv\Scripts\python.exe', 'venv\Scripts\python.exe',
+                '.venv\bin\python', 'venv\bin\python'
+            )) {
+                if (Test-Path -LiteralPath $candidate) { $py = $candidate; break }
+            }
+        }
+        if (-not $py) { $py = 'python' }
+        & $py openchia @args
+    } finally {
+        Pop-Location
+    }
+}
+
 function global:prompt {
     $prefix = ''
     if (_hermesWorktreeHere) { $prefix = "($($global:_hermesWorktreeName)) " }
@@ -152,5 +177,5 @@ function global:deactivate {
     $global:_hermesWorktree = $null
     $global:_hermesWorktreeName = $null
     $global:_hermesSavedPrompt = $null
-    Remove-Item function:deactivate, function:hermes, function:_hermesWorktreeHere -ErrorAction SilentlyContinue
+    Remove-Item function:deactivate, function:hermes, function:openchia, function:_hermesWorktreeHere -ErrorAction SilentlyContinue
 }

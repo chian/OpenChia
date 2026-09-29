@@ -430,12 +430,13 @@ class CLIStreamMixin:
             self._stream_box_opened = True
             self._stream_box_live = True  # header drawn; cleared at the footer
             try:
-                from hermes_cli.skin_engine import get_active_skin
+                from hermes_cli.skin_engine import get_active_skin, get_surface_branding
                 _skin = get_active_skin()
-                label = _skin.get_branding("response_label", "☤ Hermes")
+                label = get_surface_branding(self, "response_label", "☤ Hermes")
                 _text_hex = _skin.get_color("banner_text", "#FFF8DC")
             except Exception:
-                label = "☤ Hermes"
+                from hermes_cli.skin_engine import get_surface_branding
+                label = get_surface_branding(self, "response_label", "☤ Hermes")
                 _text_hex = "#FFF8DC"
             try:  # true-color escape so streamed text matches the Rich Panel appearance
                 _r, _g, _b = (int(_text_hex[i:i + 2], 16) for i in (1, 3, 5))

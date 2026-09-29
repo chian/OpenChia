@@ -1,5 +1,5 @@
 # ============================================================================
-# Hermes Agent Setup Script (Windows) — THE dev-environment entry point.
+# OpenChia Environment Setup (Windows) — the development-environment entry point.
 # ============================================================================
 # Sets up the pm-managed development environment from a fresh clone:
 #   1. Stage the pinned uv from pm/lock.json (sha256-verified, into the pm
@@ -16,7 +16,7 @@ param([switch]$RuntimeOnly, [string]$TestExtras = '')
 $ErrorActionPreference = 'Stop'
 
 Write-Host ''
-Write-Host 'Hermes Agent Setup' -ForegroundColor Cyan
+Write-Host 'OpenChia Environment Setup' -ForegroundColor Cyan
 Write-Host ''
 
 $repo = $PSScriptRoot
@@ -133,15 +133,9 @@ Write-Host ''
 Write-Host '  1. Activate the dev environment (venv-style, in THIS session):'
 Write-Host '     .\activate.ps1'
 Write-Host ''
-Write-Host '  2. Run the setup wizard to configure API keys:'
-Write-Host '     hermes setup'
+Write-Host '  2. Start an OpenChia Duet:'
+Write-Host '     openchia'
 Write-Host ''
-Write-Host '  3. Start chatting:'
-Write-Host '     hermes'
-Write-Host ''
-Write-Host 'Other commands:'
-Write-Host '  hermes pm install     # Re-run the tool + dependency install'
-Write-Host '  hermes status         # Check configuration'
-Write-Host '  hermes doctor         # Diagnose issues'
+Write-Host 'Environment command:'
 Write-Host '  deactivate            # Undo the activation (restore PATH etc.)'
 Write-Host ''

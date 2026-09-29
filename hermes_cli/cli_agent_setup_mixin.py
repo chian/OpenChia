@@ -86,8 +86,10 @@ def _credential_pool_notice(provider: str) -> tuple:
     dead = [e for e in entries if e.last_status == STATUS_DEAD]
     if dead:
         reason = dead[0].last_error_message or dead[0].last_error_reason or "sign-in lost"
-        lines.append(f"The {provider} sign-in was lost ({reason}); run `hermes auth add {provider}` "
-                     "to sign in again.")
+        lines.append(
+            f"The {provider} sign-in was lost ({reason}); use the provider setup flow "
+            "to sign in again."
+        )
     return next_at is not None, lines
 
 
@@ -225,6 +227,16 @@ def _retire_agent(cli) -> None:
 class CLIAgentSetupMixin:
     """Agent construction + session-resume display methods for ``HermesCLI``."""
 
+    def _configure_new_agent(self, agent):
+        """Protected wrapper hook for role-specific agent binding.
+
+        The default Hermes surface returns the freshly initialized agent
+        unchanged.  Wrapper CLIs may narrow its tools and attach host-owned
+        protocol state before the first model request or prompt build.
+        """
+
+        return agent
+
     def _ensure_runtime_credentials(self) -> bool:
         """Re-resolve provider credentials before agent use so key rotation / token
         refresh are picked up without restarting the CLI. False on auth failure."""
@@ -288,12 +300,20 @@ class CLIAgentSetupMixin:
                     print(f"\n⚠️  No API key found for provider '{_prov}'.")
                 else:
                     print("\n⚠️  No inference provider is configured.")
-                print("   Run 'hermes model' to choose a provider, or "
-                      "'hermes setup' for first-time setup.")
+                from hermes_cli.skin_engine import get_surface_branding
+                command_name = get_surface_branding(self, "command_name", "hermes")
+                print(
+                    "   Use /model to choose a provider, or run "
+                    f"'{command_name}' again for provider setup."
+                )
                 return False
         if not isinstance(base_url, str) or not base_url:
-            print("\n⚠️  Provider resolver returned an empty base URL. "
-                  "Check your provider config or run: hermes setup")
+            from hermes_cli.skin_engine import get_surface_branding
+            command_name = get_surface_branding(self, "command_name", "hermes")
+            print(
+                "\n⚠️  Provider resolver returned an empty base URL. "
+                f"Check your provider config or run: {command_name}"
+            )
             return False
         credentials_changed = api_key != self.api_key or base_url != self.base_url
         routing_changed = resolved_routing != (self.provider, self.api_mode, self.acp_command, self.acp_args)
@@ -469,8 +489,11 @@ class CLIAgentSetupMixin:
         startup, TTY). Runs the same flow as ``hermes model`` so onboarding has a single
         source of truth. True when a provider was configured."""
         from cli import _cprint, logger
+        from hermes_cli.skin_engine import get_surface_branding
+        command_name = get_surface_branding(self, "command_name", "hermes")
+        status_symbol = get_surface_branding(self, "status_symbol", "☤")
         _cprint("")
-        _cprint("☤ No inference provider is configured yet — let's fix that.")
+        _cprint(f"{status_symbol} No inference provider is configured yet — let's fix that.")
         _cprint("  You'll pick a provider (Nous Portal OAuth is the fastest; "
                 "no API key needed) and a model.")
         try:
@@ -479,19 +502,19 @@ class CLIAgentSetupMixin:
             print()
             answer = "n"
         if answer in {"n", "no"}:
-            _cprint("  Skipped. Run 'hermes model' or 'hermes setup' any time.")
+            _cprint(f"  Skipped. Run '{command_name}' any time to try again.")
             return False
         try:
             from hermes_cli.main import select_provider_and_model
             select_provider_and_model()
         except (KeyboardInterrupt, EOFError, SystemExit):
             print()
-            _cprint("  Setup cancelled. Run 'hermes model' any time.")
+            _cprint(f"  Setup cancelled. Run '{command_name}' any time.")
             return False
         except Exception as exc:
             logger.debug("first-run provider setup failed: %s", exc)
             _cprint(f"  ⚠️  Provider setup failed: {exc}")
-            _cprint("  Run 'hermes model' to try again.")
+            _cprint(f"  Run '{command_name}' to try again.")
             return False
 
         # Re-sync CLI state from what the picker persisted so the next turn uses it without a restart.
@@ -515,7 +538,7 @@ class CLIAgentSetupMixin:
         if self._runtime_credentials_ready():
             _cprint("  ✓ Provider configured — you're ready to chat.")
             return True
-        _cprint("  Provider setup didn't complete. Run 'hermes model' to retry.")
+        _cprint(f"  Provider setup didn't complete. Run '{command_name}' to retry.")
         return False
 
     def _resolve_turn_agent_config(self, user_message: str) -> dict:
@@ -575,7 +598,12 @@ class CLIAgentSetupMixin:
             else:
                 ChatConsole().print(rich)
         if not session_meta:
-            hint = "Use a session ID from a previous CLI run (hermes sessions list)."
+            from hermes_cli.skin_engine import get_surface_branding
+            command_name = get_surface_branding(self, "command_name", "hermes")
+            hint = (
+                "Use a session ID from a previous CLI run with "
+                f"`{command_name} --resume SESSION`."
+            )
             if _quiet_mode:
                 print(f"Session not found: {self.session_id}", file=sys.stderr)
                 print(hint, file=sys.stderr)
@@ -697,6 +725,9 @@ class CLIAgentSetupMixin:
                 tool_gen_callback=self._on_tool_gen_start if self.streaming_enabled else None,
                 notice_callback=self._on_notice, notice_clear_callback=self._on_notice_clear,
                 reaction_callback=self._on_reaction)
+            self.agent = self._configure_new_agent(self.agent)
+            if self.agent is None:
+                raise TypeError("_configure_new_agent() must return an agent")
             # Reference for atexit memory-provider shutdown: ``_run_cleanup`` in cli.py
             # reads ``cli._active_agent_ref``, so this MUST write the ``cli`` module's
             # global — a ``global`` statement here would bind this module's namespace.
@@ -779,7 +810,12 @@ class CLIAgentSetupMixin:
         session_meta = self._session_db.get_session(self.session_id)
         if not session_meta:
             self._console_print(f"[bold red]Session not found: {self.session_id}[/]")
-            self._console_print("[dim]Use a session ID from a previous CLI run (hermes sessions list).[/]")
+            from hermes_cli.skin_engine import get_surface_branding
+            command_name = get_surface_branding(self, "command_name", "hermes")
+            self._console_print(
+                "[dim]Use a session ID from a previous CLI run with "
+                f"`{command_name} --resume SESSION`.[/]"
+            )
             return False
         session_meta = self._follow_compression_chain(
             session_meta,
@@ -840,11 +876,27 @@ class CLIAgentSetupMixin:
         _history_text_c, _session_label_c, _session_border_c, _assistant_label_c = (
             _resume_panel_colors())
 
+        from hermes_cli.skin_engine import get_surface_branding
+        assistant_label = get_surface_branding(
+            self,
+            "assistant_label",
+            "Hermes",
+        )
         # role -> (label, label style, body style, continuation indent)
         role_styles = {
             "user": ("  ● You: ", f"dim bold {_session_label_c}", "dim", " " * 9),
-            "assistant": ("  ◆ Hermes: ", f"dim bold {_assistant_label_c}", "dim", " " * 12),
-            "assistant_last": ("  ◆ Hermes: ", f"bold {_assistant_label_c}", "", " " * 12),  # full, non-dim
+            "assistant": (
+                f"  ◆ {assistant_label}: ",
+                f"dim bold {_assistant_label_c}",
+                "dim",
+                " " * (len(assistant_label) + 6),
+            ),
+            "assistant_last": (
+                f"  ◆ {assistant_label}: ",
+                f"bold {_assistant_label_c}",
+                "",
+                " " * (len(assistant_label) + 6),
+            ),  # full, non-dim
         }
         lines = Text()
         if skipped:

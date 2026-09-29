@@ -35,6 +35,18 @@ logger = logging.getLogger("tools.tool_search")
 # maps to one gateway request. Describe has no such remote limit.
 _MAX_QUERIES_PER_CALL = 7
 _MAX_DESCRIBE_NAMES_PER_CALL = 10
+_EPISODE_CONTROL_TOOLS = frozenset(
+    {
+        "duet_contract_patch",
+        "duet_status",
+        "duet_answer",
+        "duet_decision",
+        "episode_creator",
+        "creator_log_read",
+        "workflow_candidate",
+        "episode_progress",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -151,7 +163,7 @@ def is_deferrable_tool_name(name: str, defer_tools: Optional[frozenset] = None) 
     """True if a tool is *eligible* for deferral: named in ``defer_tools`` (curated set or
     user override), OR an MCP tool, OR neither core nor a session-gated GUI surface (i.e. a
     plugin tool). Bridge names never defer."""
-    if name in BRIDGE_TOOL_NAMES:
+    if name in BRIDGE_TOOL_NAMES or name in _EPISODE_CONTROL_TOOLS:
         return False
     if defer_tools is not None and name in defer_tools:
         return True

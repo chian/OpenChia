@@ -1016,7 +1016,9 @@ class CLIStatusBarMixin:
         ``(style, text)`` fragments. Shared by the plain-text and prompt_toolkit renderers so
         the two can never drift; ``styled`` selects the graphical context bar."""
         from cli import format_token_count_compact
+        from hermes_cli.skin_engine import get_surface_branding
         model_short = snapshot["model_short"]
+        status_symbol = get_surface_branding(self, "status_symbol", "☤")
         duration_label = snapshot["duration"]
         goal_segment = self._status_bar_goal_segment(snapshot)
         focus_label = snapshot.get("focus_label") or ""
@@ -1037,9 +1039,9 @@ class CLIStatusBarMixin:
 
         if _ok("model"):
             if styled:
-                segs.append([(_SB, " ☤ "), (_STRONG, model_short)])
+                segs.append([(_SB, f" {status_symbol} "), (_STRONG, model_short)])
             else:
-                segs.append([("", f"☤ {model_short}")])
+                segs.append([("", f"{status_symbol} {model_short}")])
         narrow, wide = width < 52, width >= 76
         if narrow:
             # Narrow bars put duration ahead of the goal segment; the other tiers reverse it.
@@ -1124,7 +1126,13 @@ class CLIStatusBarMixin:
                 text = (" · " if width < 76 else " │ ").join(parts)
             return self._right_align_status_title(text, session_title, width)
         except Exception:
-            return f"☤ {self.model if getattr(self, 'model', None) else 'Hermes'}"
+            from hermes_cli.skin_engine import get_surface_branding
+            status_symbol = get_surface_branding(self, "status_symbol", "☤")
+            surface_name = get_surface_branding(self, "agent_name", "Hermes")
+            return (
+                f"{status_symbol} "
+                f"{self.model if getattr(self, 'model', None) else surface_name}"
+            )
 
     def _get_status_bar_fragments(self):
         if (
@@ -1147,7 +1155,11 @@ class CLIStatusBarMixin:
                 snapshot, width, field_set, self._is_session_yolo_active(), styled=True)
             sep = " · " if width < 76 else " │ "
             frags: list = []
-            for seg in segs or [[(_SB, " ☤ "), (_STRONG, snapshot["model_short"])]]:
+            if not segs:
+                from hermes_cli.skin_engine import get_surface_branding
+                status_symbol = get_surface_branding(self, "status_symbol", "☤")
+                segs = [[(_SB, f" {status_symbol} "), (_STRONG, snapshot["model_short"])]]
+            for seg in segs:
                 if frags:
                     frags.append((_DIM, sep))
                 frags.extend(seg)

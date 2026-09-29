@@ -25,7 +25,7 @@ _HERMES_CORE_TOOLS = [
     "todo_list", "memory",
     "session_search",
     "clarify",
-    "execute_code", "delegate_task",
+    "execute_code",
     "cronjob_manage",
     "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
     "kanban_show", "kanban_list",
@@ -158,7 +158,21 @@ TOOLSETS = {
     ),
     "clarify": _ts("Ask the user clarifying questions (multiple-choice or open-ended)", ["clarify"]),
     "code_execution": _ts("Run Python scripts that call tools programmatically (reduces LLM round trips)", ["execute_code"]),
-    "delegation": _ts("Spawn subagents with isolated context for complex subtasks", ["delegate_task"]),
+    "duet": _ts(
+        "Restricted human--LLM Duet for designing and admitting Creator Episodes",
+        [
+            "web_search", "web_extract", "duet_contract_patch", "duet_status",
+            "duet_answer", "duet_decision", "episode_creator",
+        ],
+    ),
+    "creator_protocol": _ts(
+        "Creator-only design submission and access to its own Run Episode logs",
+        ["creator_log_read", "workflow_candidate"],
+    ),
+    "episode_protocol": _ts(
+        "Task Episode evidence reporting to the host-owned controller",
+        ["episode_progress"],
+    ),
     "homeassistant": _ts("Home Assistant smart home control and monitoring", _HA_TOOLS),
     "kanban": _ts(
         "Kanban multi-agent coordination — only active when the agent is spawned by "
@@ -191,7 +205,7 @@ TOOLSETS = {
     # config (see the non-configurable-toolset recovery loop in hermes_cli/tools_config.py).
     "coding": _ts(
         "Coding-focused toolset: files, terminal, search, web docs, skills, todo, "
-        "delegate, vision, browser",
+        "vision, browser",
         _CODING_TOOLS,
         posture=True,
     ),

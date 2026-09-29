@@ -543,8 +543,14 @@ class CLIModelSwitchMixin:
             warning = None
         if warning is None:
             return True
+        from hermes_cli.skin_engine import get_surface_branding
+        surface_name = get_surface_branding(self, "agent_name", "Hermes")
         choices = [
-            ("once", "Switch anyway", "Use this model for the current Hermes session."),
+            (
+                "once",
+                "Switch anyway",
+                f"Use this model for the current {surface_name} session.",
+            ),
             ("cancel", "Cancel", "Keep the current model.")]
         raw = self._prompt_text_input_modal(
             title=f"!!! {warning.title} !!!", detail=warning.message, choices=choices, timeout=120)

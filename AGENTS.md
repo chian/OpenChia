@@ -9,11 +9,17 @@ past that); see the **routing table** at the end and read the area file before e
 
 ## What Hermes Is
 
-Hermes is a personal AI agent that runs the same agent core across a CLI, a messaging
-gateway (Telegram, Discord, Slack, ~20 platforms), a TUI, and an Electron desktop app. It
-learns across sessions (memory + skills), delegates to subagents, runs scheduled jobs, and
-drives a real terminal and browser. It is extended primarily through **plugins and skills**,
-not by growing the core.
+OpenChia is a Hermes fork that keeps the same CLI, messaging gateway, TUI,
+desktop app, providers, and execution tools while replacing model-facing
+delegation with Duet-approved Episodes. The Duet is the human, its restricted
+conversational LLM, and the host protocol. It approves a task-specific Creator
+Episode; each Creator unit freezes one nested design, launches one child Run
+Episode, receives its mandatory log reference and typed goal measurements, and
+iterates numerically. Ordinary task Episodes execute predeclared topology and
+cannot create Episodes. Creation capability is explicit, default-off, and
+requires a complete Creator contract. There is no persistent head Episode.
+Inherited Hermes capabilities remain extended primarily through **plugins and
+skills**, not by growing the core.
 
 Two invariants shape almost every design decision and are the lens for reviewing any change:
 

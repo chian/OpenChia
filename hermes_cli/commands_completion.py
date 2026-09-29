@@ -272,10 +272,12 @@ class SlashCommandCompleter(Completer):
         self,
         skill_commands_provider: Callable[[], Mapping[str, dict[str, Any]]] | None = None,
         command_filter: Callable[[str], bool] | None = None,
-        skill_bundles_provider: Callable[[], Mapping[str, dict[str, Any]]] | None = None) -> None:
+        skill_bundles_provider: Callable[[], Mapping[str, dict[str, Any]]] | None = None,
+        surface_commands_provider: Callable[[], Mapping[str, dict[str, Any]]] | None = None) -> None:
         self._skill_commands_provider = skill_commands_provider
         self._command_filter = command_filter
         self._skill_bundles_provider = skill_bundles_provider
+        self._surface_commands_provider = surface_commands_provider
         # Cached project file list for fuzzy @ completions
         self._file_cache: list[str] = []
         self._file_cache_time: float = 0.0
@@ -446,18 +448,22 @@ class SlashCommandCompleter(Completer):
         for cmd, desc in COMMANDS.items():
             if self._command_allowed(cmd) and cmd[1:].startswith(word):
                 yield _cmd_completion(cmd[1:], desc)
+        for cmd, info in self._call_provider(self._surface_commands_provider).items():
+            if cmd not in COMMANDS and self._command_allowed(cmd) and cmd[1:].startswith(word):
+                yield _cmd_completion(cmd[1:], info.get("description", ""))
         for cmd, info in self._call_provider(self._skill_bundles_provider).items():
-            if cmd[1:].startswith(word):
+            if self._command_allowed(cmd) and cmd[1:].startswith(word):
                 skill_count = len(info.get("skills", []))
                 yield _cmd_completion(
                     cmd[1:], f"▣ {info.get('description', 'Skill bundle')} ({skill_count} skills)")
         for cmd, info in self._iter_skill_commands().items():
-            if cmd[1:].startswith(word):
+            if self._command_allowed(cmd) and cmd[1:].startswith(word):
                 yield _cmd_completion(cmd[1:], f"⚡ {info.get('description', 'Skill command')}")
         try:
             from hermes_cli.plugins import get_plugin_commands
             for cmd_name, cmd_info in get_plugin_commands().items():
-                if cmd_name.startswith(word):
+                slash_command = f"/{cmd_name}"
+                if self._command_allowed(slash_command) and cmd_name.startswith(word):
                     yield _cmd_completion(
                         cmd_name, f"🔌 {cmd_info.get('description', 'Plugin command')}")
         except Exception:

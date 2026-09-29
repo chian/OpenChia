@@ -168,6 +168,29 @@ hermes() {
     )
 }
 
+openchia() {
+    _hermes_worktree_here || {
+        printf '%s\n' "openchia: $(pwd) is outside $__HERMES_WORKTREE; refusing (the installed command is hidden while this checkout is active)" >&2
+        return 1
+    }
+    (
+        cd "$__HERMES_WORKTREE" || exit 1
+        if [ -n "${PYTHON-}" ]; then
+            exec "$PYTHON" openchia "$@"
+        elif [ -x .venv/Scripts/python.exe ]; then
+            exec .venv/Scripts/python.exe openchia "$@"
+        elif [ -x .venv/bin/python ]; then
+            exec .venv/bin/python openchia "$@"
+        elif [ -x venv/Scripts/python.exe ]; then
+            exec venv/Scripts/python.exe openchia "$@"
+        elif [ -x venv/bin/python ]; then
+            exec venv/bin/python openchia "$@"
+        else
+            exec python openchia "$@"
+        fi
+    )
+}
+
 _hermes_prompt() {
     if [ "$__HERMES_SAVED_PS1" = "__HERMES_UNSET__" ]; then
         _hermes_base_ps1=""
@@ -213,7 +236,7 @@ deactivate() {
     unset __HERMES_SAVED_PATH __HERMES_KEY_LIST __HERMES_ACTIVATED \
           __HERMES_WORKTREE __HERMES_WORKTREE_NAME \
           __HERMES_SAVED_PS1 __HERMES_SAVED_PROMPT_COMMAND
-    unset -f deactivate hermes _hermes_worktree_here _hermes_prompt
+    unset -f deactivate hermes openchia _hermes_worktree_here _hermes_prompt
     unset _hermes_k _hermes_was _hermes_old _hermes_top
 }
 

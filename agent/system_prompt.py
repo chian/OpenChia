@@ -5,7 +5,8 @@ triggers a rebuild) so the upstream prefix cache stays warm.  Three tiers are
 joined with ``\\n\\n``: ``stable`` (identity, guidance, env hints, coding brief,
 platform hints), ``context`` (workspace snapshot, caller ``system_message``,
 context files) and ``volatile`` (skills index, memory, USER.md, external memory
-provider, timestamp line).  See ``references/system-prompt-invariant.md``.
+provider, timestamp line). See
+``references/system-prompt-invariant.md``.
 """
 
 from __future__ import annotations
@@ -19,10 +20,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agent.delegation_context import owned_kanban_task
 from agent.prompt_builder import (
-    ASYNC_HANDOFF_GUIDANCE, DEFAULT_AGENT_IDENTITY, EXECUTION_GUIDANCE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE,
+    CREATOR_EPISODE_IDENTITY, DEFAULT_AGENT_IDENTITY, DUET_LLM_IDENTITY, DUET_PROTOCOL_GUIDANCE,
+    EXECUTION_GUIDANCE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE,
     HERMES_AGENT_HELP_GUIDANCE, HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS, KANBAN_GUIDANCE,
     PARALLEL_TOOL_CALL_GUIDANCE, PLATFORM_HINTS, SESSION_SEARCH_GUIDANCE,
-    SKILLS_GUIDANCE, STEER_CHANNEL_NOTE, TASK_COMPLETION_GUIDANCE, TELEGRAM_RICH_MESSAGES_HINT,
+    SKILLS_GUIDANCE, STEER_CHANNEL_NOTE, TASK_COMPLETION_GUIDANCE, TASK_EPISODE_IDENTITY, TELEGRAM_RICH_MESSAGES_HINT,
     TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, drain_truncation_warnings,
 )
 from agent import prompt_builder as _pb
@@ -36,6 +38,19 @@ _PLUGIN_SECTION_FRAME_RE = re.compile(
     re.MULTILINE,
 )
 _GATE_WORDS = {**dict.fromkeys(("true", "always", "yes", "on"), True), **dict.fromkeys(("false", "never", "no", "off"), False)}
+
+
+def _task_episode_prompt_isolated(agent: Any) -> bool:
+    """Whether prompt assembly is for a fixed-contract task Episode."""
+    return bool(getattr(agent, "_task_episode_prompt_isolated", False))
+
+
+def _creator_episode_prompt_isolated(agent: Any) -> bool:
+    return bool(getattr(agent, "_creator_episode_prompt_isolated", False))
+
+
+def _duet_prompt_isolated(agent: Any) -> bool:
+    return bool(getattr(agent, "_duet_prompt_isolated", False))
 
 
 def _model_gate(setting: Any, model: Optional[str], default_models) -> bool:
@@ -273,6 +288,8 @@ def _profile_name_for_home(home: Path) -> str:
 
 def _tool_guidance_block(agent: Any) -> Optional[str]:
     """Tool-aware behavioral guidance, injected only when the tools are loaded."""
+    if _task_episode_prompt_isolated(agent) or _creator_episode_prompt_isolated(agent) or _duet_prompt_isolated(agent):
+        return None
     names = agent.valid_tool_names
     # With both memory stores disabled no store is built, so the full guidance
     # would steer the model at a tool that always answers "Memory is not
@@ -576,10 +593,6 @@ def _guidance_parts(agent: Any) -> List[str]:
     if _model_gate(getattr(agent, "_execution_guidance", "auto"), agent.model, EXECUTION_GUIDANCE_MODELS):
         from agent.prompt_builder import execution_guidance_text
         parts.append(execution_guidance_text())
-    # delegate_task background delivery is intentionally between turns. Put this after the generic persistence
-    # blocks so their "keep working" rule cannot turn the required yield into no-op/polling activity.
-    if "delegate_task" in agent.valid_tool_names:
-        parts.append(ASYNC_HANDOFF_GUIDANCE)
     return parts
 
 
@@ -736,12 +749,44 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     guidance and the coding brief), ``context`` (caller ``system_message``, project
     context files, workspace snapshot and remaining workspace guidance) and
     ``volatile`` (skills index, memory, user profile, external memory block,
-    timestamp line, runtime environment hints).  Worktree-dependent blocks follow project context so a
+    timestamp line, runtime environment hints).
+    Worktree-dependent blocks follow project context so a
     shared context file can remain in the longest common prefix across worktrees.
     Never re-rendered mid-session."""
     # Model context window scales the context-file caps; stable per conversation.
     _cc_len = getattr(getattr(agent, "context_compressor", None), "context_length", None)
     _ctx_len = _cc_len if isinstance(_cc_len, int) and _cc_len > 0 else None
+    isolated_identity = None
+    if _duet_prompt_isolated(agent):
+        isolated_identity = f"{DUET_LLM_IDENTITY}\n\n{DUET_PROTOCOL_GUIDANCE}"
+    elif _creator_episode_prompt_isolated(agent):
+        isolated_identity = CREATOR_EPISODE_IDENTITY
+    elif _task_episode_prompt_isolated(agent):
+        isolated_identity = TASK_EPISODE_IDENTITY
+    if isolated_identity is not None:
+        # OpenChia roles receive only their role contract, generic safety rails,
+        # exact tools, and runtime facts. Profile/project/memory/plugin text is
+        # outside the immutable Episode or Duet authority boundary.
+        stable_parts: List[Optional[str]] = [isolated_identity]
+        if not _duet_prompt_isolated(agent):
+            stable_parts.extend(_guidance_parts(agent))
+        stable_parts.extend(_alibaba_identity_part(agent))
+        volatile_parts: List[Optional[str]] = [_timestamp_line(agent)]
+        environment_hints = _pb.build_environment_hints()
+        if environment_hints:
+            environment_hints = environment_hints.replace(
+                _pb.RUNTIME_ENVIRONMENT_HEADING,
+                "> " + _pb.RUNTIME_ENVIRONMENT_HEADING,
+            )
+            volatile_parts.append(
+                f"{_pb.RUNTIME_ENVIRONMENT_HEADING}\n\n{environment_hints}\n\n"
+                f"{_pb.RUNTIME_ENVIRONMENT_END}"
+            )
+        return {
+            "stable": _join_tier(stable_parts),
+            "context": "",
+            "volatile": _join_tier(volatile_parts),
+        }
     # ── Stable tier ────────────────────────────────────────────────
     stable_parts, _soul_loaded = _identity_parts(agent, _ctx_len)
     # The skill_view() pointer dangles without skill tools OR without the
@@ -780,7 +825,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # ── Volatile tier (most likely to differ on a rebuild; kept last so the stable prefix stays reusable) ──
     # Skills are runtime-mutable, so the index leads the volatile band: on a longest-prefix
     # backend an unchanged index stays inside the reused prefix; a changed one re-prefills from here.
-    volatile_parts: List[str] = [skills_prompt, *_memory_parts(agent)]
+    volatile_parts: List[Optional[str]] = [skills_prompt, *_memory_parts(agent)]
     # Plugin sections are confined to one coarse anchor in the volatile tail so
     # a resumed process can reconstruct the stable prefix without re-running plugins.
     volatile_parts.extend(_plugin_section_blocks(_frozen_plugin_prompt_sections(agent), "after_memory"))

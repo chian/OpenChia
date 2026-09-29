@@ -394,29 +394,45 @@ class TestExecutionGuidanceInjection:
             "deepseek/deepseek-v4-pro", valid_tool_names=())
 
 
-class TestAsyncDelegationHandoffGuidance:
-    """A background child cannot re-enter until the parent yields its current turn (#124072)."""
+class TestOpenChiaRolePrompts:
+    def test_duet_is_not_an_episode_and_uses_exact_hash_protocol(self):
+        prompt = _prompt_parts(
+            _make_agent(
+                valid_tool_names=["web_search", "episode_creator"],
+                _duet_prompt_isolated=True,
+            )
+        )
+        combined = "\n".join(prompt.values())
+        assert "conversational LLM participant" in combined
+        assert "You are not an Episode" in combined
+        assert "# Duet protocol" in combined
+        assert "exact hash" in combined
+        assert "human approval ID" in combined
+        assert "persistent orchestration Episode" not in combined
 
-    def _prompt(self, valid_tool_names):
-        return _stable_prompt(_make_agent(
-            valid_tool_names=list(valid_tool_names),
-            model="openai/gpt-5.5",
-            _tool_use_enforcement="auto",
-            _execution_guidance="auto",
-        ))
+    def test_creator_prompt_names_design_run_inspect_and_mandatory_log(self):
+        prompt = _prompt_parts(
+            _make_agent(
+                valid_tool_names=["creator_log_read"],
+                _creator_episode_prompt_isolated=True,
+            )
+        )
+        combined = "\n".join(prompt.values())
+        assert "design--run--inspect cycle" in combined
+        assert "mandatory run log" in combined
+        assert "do not approve or launch" in combined
 
-    @pytest.mark.parametrize("tools,expected", [
-        (("delegate_task", "execute_code"), True),
-        (("execute_code",), False),
-    ])
-    def test_handoff_injected_only_with_delegate_task(self, tools, expected):
-        stable = self._prompt(tools)
-        assert ("Async handoff" in stable) is expected
-        if expected:
-            assert stable.count("Async handoff") == 1
-            # Must follow the generic "keep working" blocks so it reads as their exception.
-            assert stable.index("Async handoff") > stable.index("Tool-use enforcement")
-            assert stable.index("Async handoff") > stable.index("Execution discipline")
+    def test_task_prompt_has_no_creation_authority(self):
+        prompt = _prompt_parts(
+            _make_agent(
+                valid_tool_names=["episode_progress", "web_search"],
+                _task_episode_prompt_isolated=True,
+            )
+        )
+        combined = "\n".join(prompt.values())
+        assert "one task Episode" in combined
+        assert "Do not design or open another work loop" in combined
+        assert "Duet protocol" not in combined
 
 
 class TestNamedProfileHintIntegration:

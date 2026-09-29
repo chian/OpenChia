@@ -1,0 +1,106 @@
+import json
+from types import SimpleNamespace
+
+from agent.duet_contracts import CreatorLaunchReceipt, CreatorLaunchState
+from agent.episode_contracts import OpaqueId
+from agent.inline_tool_executors import INLINE_TOOL_EXECUTORS, InlineToolContext
+
+
+def test_episode_progress_accepts_registered_evidence_not_model_scores():
+    agent = SimpleNamespace(
+        _active_episode_id="episode_" + "a" * 64,
+        _active_episode_evidence_ids=frozenset({"evidence_" + "b" * 64}),
+        _episode_progress_reports=[],
+    )
+    context = InlineToolContext(effective_task_id="task")
+
+    rejected_score = json.loads(
+        INLINE_TOOL_EXECUTORS["episode_progress"](
+            agent, {"value": 0.99}, context
+        )
+    )
+    accepted_evidence = json.loads(
+        INLINE_TOOL_EXECUTORS["episode_progress"](
+            agent,
+            {"accepted_evidence_ids": ["evidence_" + "b" * 64]},
+            context,
+        )
+    )
+    rejected_unknown = json.loads(
+        INLINE_TOOL_EXECUTORS["episode_progress"](
+            agent,
+            {"accepted_evidence_ids": ["evidence_" + "c" * 64]},
+            context,
+        )
+    )
+
+    assert rejected_score == {"accepted": False, "reason": "invalid_evidence_ids"}
+    assert accepted_evidence["accepted"] is True
+    assert accepted_evidence["accepted_count"] == 1
+    assert rejected_unknown["reason"] == "unregistered_evidence"
+
+
+def test_duet_protocol_tools_are_agent_bound_and_delegate_is_absent():
+    expected = {
+        "duet_contract_patch",
+        "duet_status",
+        "duet_answer",
+        "duet_decision",
+        "episode_creator",
+        "creator_log_read",
+        "workflow_candidate",
+        "episode_progress",
+    }
+    assert expected <= set(INLINE_TOOL_EXECUTORS)
+    assert "delegate_task" not in INLINE_TOOL_EXECUTORS
+
+
+def test_episode_creator_admission_must_reach_the_bound_launcher():
+    creator_id = OpaqueId.mint("episode", "admitted-creator")
+    calls = []
+
+    class _Service:
+        def submit_episode_creator(self, **kwargs):
+            calls.append(("admit", kwargs))
+            return creator_id
+
+    def launch(value):
+        calls.append(("launch", value))
+        return CreatorLaunchReceipt(
+            creator_episode_id=value,
+            execution_id=OpaqueId.mint("execution", value.value),
+            state=CreatorLaunchState.LAUNCHED,
+        )
+
+    agent = SimpleNamespace(
+        _duet_service=_Service(),
+        _duet_identity=object(),
+        _duet_creator_launcher=launch,
+    )
+    result = json.loads(
+        INLINE_TOOL_EXECUTORS["episode_creator"](
+            agent,
+            {
+                "contract_artifact_id": OpaqueId.mint("contract", "one").value,
+                "content_hash": "sha256:" + "1" * 64,
+                "human_approval_id": OpaqueId.mint("approval", "one").value,
+            },
+            InlineToolContext(effective_task_id="duet"),
+        )
+    )
+    repeated = json.loads(
+        INLINE_TOOL_EXECUTORS["episode_creator"](
+            agent,
+            {
+                "contract_artifact_id": OpaqueId.mint("contract", "one").value,
+                "content_hash": "sha256:" + "1" * 64,
+                "human_approval_id": OpaqueId.mint("approval", "one").value,
+            },
+            InlineToolContext(effective_task_id="duet"),
+        )
+    )
+
+    assert result["accepted"] is True
+    assert repeated == result
+    assert result["creator_episode_id"] == creator_id.value
+    assert [item[0] for item in calls] == ["admit", "launch", "admit"]

@@ -263,15 +263,12 @@ class CLITuiRuntimeMixin:
             self._display_resumed_history()
 
         _welcome_skin = None  # stays None when the skin engine failed
-        _welcome_text = "Welcome to Hermes Agent! Type your message or /help for commands."
-        _welcome_color = "#FFF8DC"
         try:
             from hermes_cli.skin_engine import get_active_skin
             _welcome_skin = get_active_skin()
-            _welcome_text = _welcome_skin.get_branding("welcome", _welcome_text)
-            _welcome_color = _welcome_skin.get_color("banner_text", _welcome_color)
         except Exception:
             pass
+        _welcome_text, _welcome_color = self._tui_welcome_branding(_welcome_skin)
         self._console_print(f"[{_welcome_color}]{_welcome_text}[/]")
 
         self._tui_startup_prewarm_and_warnings(_welcome_skin)
@@ -284,6 +281,16 @@ class CLITuiRuntimeMixin:
             self._console_print(f"[bold {_accent_hex()}]Activated skills:[/] {', '.join(_skills_for_line)}")
             self._startup_skills_line_shown = True
         self._console_print()
+
+    def _tui_welcome_branding(self, welcome_skin):
+        """Return wrapper-overridable startup text and color."""
+
+        text = "Welcome to Hermes Agent! Type your message or /help for commands."
+        color = "#FFF8DC"
+        if welcome_skin is not None:
+            text = welcome_skin.get_branding("welcome", text)
+            color = welcome_skin.get_color("banner_text", color)
+        return text, color
 
     def _tui_startup_prewarm_and_warnings(self, _welcome_skin):
         """Idle-window prewarms (picker cache, agent runtime imports) plus the redaction-off and OpenClaw-residue banners."""
@@ -428,10 +435,12 @@ class CLITuiRuntimeMixin:
         try:
             os.fstat(0)
         except OSError:
+            from hermes_cli.skin_engine import get_surface_branding
+            command_name = get_surface_branding(self, "command_name", "hermes")
             print(
                 "Error: stdin (fd 0) is not available.\n"
                 "This can happen with certain Python installations (e.g. uv-managed cPython on macOS).\n"
-                "Try reinstalling Python via pyenv or Homebrew, then re-run: hermes setup"
+                f"Try reinstalling Python via pyenv or Homebrew, then re-run: {command_name}"
             )
             return False
         if sys.platform == "darwin":

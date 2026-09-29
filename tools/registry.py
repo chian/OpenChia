@@ -28,6 +28,19 @@ _TOOL_ERROR_TRUNCATION_MARKER = "… [truncated]"
 # Logs keep more of the body than the model sees, but still a bounded amount.
 _MAX_LOGGED_ERROR_CHARS = 8192
 
+# Retired model-tool names stay reserved so a plugin or stale built-in cannot
+# restore an execution path that the Episode runtime replaced.
+RESERVED_MODEL_TOOL_NAMES = frozenset({"delegate_task"})
+
+
+def reject_reserved_model_tool_name(name: str) -> None:
+    """Raise when *name* belongs to a retired model-facing execution path."""
+    if name in RESERVED_MODEL_TOOL_NAMES:
+        raise ValueError(
+            f"Tool name {name!r} is reserved and cannot be registered; "
+            "nested work is composed through explicitly creator-capable Episodes."
+        )
+
 
 def _bound_error_text(text: str) -> str:
     """Bound an error body destined for model context; logs keep a longer prefix."""
@@ -193,7 +206,7 @@ class ToolEntry:
     emoji: str
     max_result_size_chars: int | float | None = None
     # Zero-arg callable whose dict is shallow-merged onto the schema at every get_definitions()
-    # — for fields tracking runtime config (delegate_task's description reflects limits).
+    # for fields tracking runtime config.
     dynamic_schema_overrides: Optional[Callable] = None
 
 
@@ -672,6 +685,7 @@ class ToolRegistry:
         """Register a tool (called at import time by each tool file). ``override=True`` is an
         explicit opt-in for plugins replacing a built-in implementation (e.g. a headed-Chrome
         browser backend); without it, cross-toolset shadowing is rejected."""
+        reject_reserved_model_tool_name(name)
         # Reject malformed schemas at registration, not at request time: a non-dict
         # ``parameters`` (e.g. a list) serializes into every provider request and 400s the
         # whole turn far from the offending plugin. Failing here names the culprit instead.
@@ -855,7 +869,7 @@ class ToolRegistry:
                     logger.debug("Tool %s unavailable (check failed)", name)
                 continue
             schema_with_name = {**entry.schema, "name": entry.name}
-            # Runtime-dynamic overrides (e.g. delegate_task limits); the caller's memo is
+            # Runtime-dynamic overrides; the caller's memo is
             # keyed on config.yaml mtime+size, so config changes invalidate it automatically.
             if entry.dynamic_schema_overrides is not None:
                 try:

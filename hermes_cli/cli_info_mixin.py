@@ -230,6 +230,11 @@ class CLIInfoMixin:
             return self._fast_command_available()
         return True
 
+    def _surface_commands(self) -> dict:
+        """Commands added by a specialized CLI surface."""
+
+        return {}
+
     def show_help(self, arg: str = ""):
         """Display help. Bare /help shows categorized core commands with the skill list collapsed
         to one line; /help skills lists all skill commands; /help <query> filters by substring."""
@@ -265,8 +270,15 @@ class CLIInfoMixin:
         query = arg.lower() if arg else ""
 
         try:
-            from hermes_cli.skin_engine import get_active_help_header
-            header = get_active_help_header("(^_^)? Available Commands")
+            from hermes_cli.skin_engine import (
+                get_active_help_header,
+                get_surface_branding,
+            )
+            header = get_surface_branding(
+                self,
+                "help_header",
+                get_active_help_header("(^_^)? Available Commands"),
+            )
         except Exception:
             header = "(^_^)? Available Commands"
         header = ((header or "").strip() or "(^_^)? Available Commands")[:55]
