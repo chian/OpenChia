@@ -16,6 +16,7 @@ import sys
 from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
     DURABLE_EVIDENCE_PROGRESS_ADAPTER,
+    EVIDENCE_GATE_SCORE_PROGRESS_ADAPTER,
     TERMINAL_RESULT_PROGRESS_ADAPTER,
     NumericProgressMeasure,
     ProgressDirection,
@@ -30,6 +31,7 @@ class ProgressObservationKind(str, Enum):
     CREATOR_METHOD_CREDIT = "creator_method_credit"
     DURABLE_EVIDENCE = "durable_evidence"
     TERMINAL_RESULT = "terminal_result"
+    EVIDENCE_GATE_SCORE = "evidence_gate_score"
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,10 @@ class ProgressAdapter:
                     "terminal_result_count_v1 requires increase, baseline 0, "
                     "target 1, and minimum_delta 1"
                 )
-        if self.observation_kind is ProgressObservationKind.CREATOR_METHOD_CREDIT:
+        if self.observation_kind in {
+            ProgressObservationKind.CREATOR_METHOD_CREDIT,
+            ProgressObservationKind.EVIDENCE_GATE_SCORE,
+        }:
             if (
                 measure.direction is not ProgressDirection.INCREASE
                 or measure.baseline != 0
@@ -93,12 +98,16 @@ class ProgressAdapter:
                 or stopping.minimum_delta > 1
             ):
                 raise ValueError(
-                    "creator_method_credit_v1 requires increase from baseline 0 "
+                    f"{self.adapter_id} requires increase from baseline 0 "
                     "toward a target in (0, 1] with minimum_delta <= 1"
                 )
 
     def observed_value(self, value: object) -> float:
         result = finite_number(value, f"{self.adapter_id} observation")
+        if self.observation_kind is ProgressObservationKind.EVIDENCE_GATE_SCORE:
+            if not 0 <= result <= 1:
+                raise ValueError(f"{self.adapter_id} observations must lie in [0, 1]")
+            return result
         if not result.is_integer():
             raise ValueError(
                 f"{self.adapter_id} observations must be integer-valued"
@@ -112,6 +121,13 @@ _ADAPTERS = {
         description="Host-computed method credit from complete Run Episode outcomes",
         unit="normalized method credit",
         observation_kind=ProgressObservationKind.CREATOR_METHOD_CREDIT,
+        model_selectable=False,
+    ),
+    EVIDENCE_GATE_SCORE_PROGRESS_ADAPTER: ProgressAdapter(
+        adapter_id=EVIDENCE_GATE_SCORE_PROGRESS_ADAPTER,
+        description="Host-computed accepted weight from a frozen evidence-gate manifest",
+        unit="normalized accepted required-gate weight",
+        observation_kind=ProgressObservationKind.EVIDENCE_GATE_SCORE,
         model_selectable=False,
     ),
     DURABLE_EVIDENCE_PROGRESS_ADAPTER: ProgressAdapter(

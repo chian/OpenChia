@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "example_only": true,
+  "task_goal": "Build and independently qualify a set of typed artifacts.",
+  "fixed_success_criteria": [
+    "Every required item has a content-addressed artifact.",
+    "Every required item and integration edge has host-accepted evidence.",
+    "Independent qualification passes without waiving a required gate."
+  ],
+  "authority_tree": {
+    "orchestrator": ["planning", "factory", "integration", "portfolio", "qualification"],
+    "factory": ["bounded_builder_episode", "bounded_test_episode"]
+  },
+  "work_graph": [
+    {"from": "planning", "to": "factory", "kind": "worklist"},
+    {"from": "factory", "to": "integration", "kind": "artifact_and_evidence"},
+    {"from": "portfolio", "to": "factory", "kind": "selection_decision"},
+    {"from": "integration", "to": "qualification", "kind": "accepted_edges"}
+  ],
+  "template_instances": [
+    {"instance_id": "planning", "creator_type": "plan_context_creator"},
+    {"instance_id": "factory", "creator_type": "worklist_factory_creator"},
+    {"instance_id": "integration", "creator_type": "integration_handoff_creator"},
+    {"instance_id": "portfolio", "creator_type": "rarefaction_portfolio_creator"},
+    {"instance_id": "qualification", "creator_type": "qualification_release_creator"},
+    {"instance_id": "orchestrator", "creator_type": "generic_orchestrator_creator"}
+  ],
+  "rollout": {
+    "recursive_creators_feature_flag": false,
+    "effectful_capabilities_require_isolated_executor": true,
+    "ordinary_task_episodes_unchanged": true
+  }
+}

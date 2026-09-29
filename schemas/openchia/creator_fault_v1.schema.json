@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openchia.local/schemas/creator_fault_v1.schema.json",
+  "title": "OpenChia Creator Fault v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "fault_id", "reporting_instance_id", "owning_instance_id",
+    "failed_gate_or_interface_edge", "artifact_ids_and_hashes", "observed_result",
+    "expected_result", "accepted_evidence_ids", "reproducible_test_or_command_reference",
+    "severity", "retryability", "suggested_repair_scope", "remaining_repair_budget", "status"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "fault_id": {"type": "string"},
+    "reporting_instance_id": {"type": "string"},
+    "owning_instance_id": {"type": ["string", "null"]},
+    "failed_gate_or_interface_edge": {"type": "string"},
+    "artifact_ids_and_hashes": {"type": "array", "items": {"type": "object"}},
+    "observed_result": {"type": "object"},
+    "expected_result": {"type": "object"},
+    "accepted_evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "reproducible_test_or_command_reference": {"type": "object"},
+    "severity": {"type": "string"},
+    "retryability": {"type": "boolean"},
+    "suggested_repair_scope": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "remaining_repair_budget": {"type": "integer", "minimum": 0},
+    "status": {"enum": ["open", "repair_requested", "repaired", "verified", "closed"]}
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "instance_id": "planning",
+  "creator_type": "plan_context_creator",
+  "parent_instance_id": null,
+  "local_goal": "Produce a versioned, evidence-gated work graph for the supplied task without weakening fixed success criteria.",
+  "immutable_parent_success_criteria_refs": ["task_success_criteria"],
+  "input_artifacts": [],
+  "work_definition": {
+    "stable_task_goal": "Produce the result described by the supplied schema.",
+    "desired_result_schema": {"type": "object"},
+    "constraints_and_safety_bounds": {"external_writes": false},
+    "available_capabilities": ["read_file"],
+    "supplied_references": [],
+    "existing_artifacts_and_evidence": [],
+    "unresolved_questions": [],
+    "suggested_decomposition": []
+  },
+  "result_schema": {"type": "object"},
+  "dependency_ids": [],
+  "interface_contracts": [],
+  "progress_measurement": {
+    "adapter_id": "evidence_gate_score_v1",
+    "gate_manifest_id": "planning_gates",
+    "description": "Weighted host-accepted required planning gates"
+  },
+  "target": 1.0,
+  "minimum_delta": 0.1,
+  "stagnation_window": 3,
+  "evidence_requirements": [
+    {
+      "requirement_id": "plan_conformance",
+      "evidence_kind_id": "test_result",
+      "acceptance_source_id": "host_test",
+      "minimum_count": 1
+    }
+  ],
+  "assignable_capabilities": ["read_file"],
+  "shared_state_namespace": "task/planning",
+  "maximum_iterations": 12,
+  "maximum_child_episodes": 0,
+  "maximum_depth": 1,
+  "maximum_elapsed_time": 300,
+  "fault_ownership": {},
+  "parent_gates_may_satisfy": ["planning_complete"],
+  "cancellation_behavior": "cascade_immediately",
+  "retry_behavior": {
+    "maximum_attempts": 2,
+    "require_new_evidence": true,
+    "reopen_with_delta_only": true
+  },
+  "status": "pending",
+  "may_create_child_creators": false
+}

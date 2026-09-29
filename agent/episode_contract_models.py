@@ -36,6 +36,7 @@ TASK_EPISODE_GRAIN = "task_episode"
 DURABLE_EVIDENCE_PROGRESS_ADAPTER = "durable_evidence_count_v1"
 TERMINAL_RESULT_PROGRESS_ADAPTER = "terminal_result_count_v1"
 CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER = "creator_method_credit_v1"
+EVIDENCE_GATE_SCORE_PROGRESS_ADAPTER = "evidence_gate_score_v1"
 DEFAULT_AGENT_EPISODE_UNIT = (
     "one Hermes model/tool iteration for the fixed task contract"
 )
@@ -1738,6 +1739,7 @@ class EpisodeWorkflowDesignProjection:
 __all__ = [
     "CHILD_EPISODE_UPDATE_SCHEMA_VERSION",
     "CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER",
+    "EVIDENCE_GATE_SCORE_PROGRESS_ADAPTER",
     "DEFAULT_AGENT_EPISODE_RESULT",
     "DEFAULT_AGENT_EPISODE_UNIT",
     "DEFAULT_CREATOR_EPISODE_UNIT",

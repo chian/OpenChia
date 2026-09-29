@@ -8,6 +8,9 @@ from agent.creator_episode import CreatorRunLogStore, RunLogReference
 from agent.duet_contracts import CreatorLaunchReceipt, DuetIdentity, DuetPolicy
 from agent.duet_service import DuetService
 from agent.episode_contracts import OpaqueId
+from agent.generic_creator_models import GenericCreatorInstanceSpec
+from agent.generic_creator_runtime import IsolatedExecutorAttestation
+from agent.openchia_execution_boundary import OpenChiaExecutionBoundary
 
 
 def _tool_name(tool: object) -> Optional[str]:
@@ -143,6 +146,7 @@ def build_creator_agent(
     log_store: CreatorRunLogStore,
     log_references: Iterable[RunLogReference] = (),
     workflow_reviewer: Optional[Callable[[dict[str, Any], tuple[str, ...]], dict[str, Any]]] = None,
+    execution_boundary: Any = None,
     **agent_kwargs: Any,
 ) -> Any:
     """Construct one design specialist with scoped access to its own run logs."""
@@ -174,6 +178,8 @@ def build_creator_agent(
         raise TypeError("workflow_reviewer must be callable")
     agent._creator_workflow_reviewer = workflow_reviewer
     agent._creator_reviewed_workflow_hashes = set()
+    if execution_boundary is not None:
+        agent._openchia_execution_boundary = execution_boundary
     agent._persist_disabled = True
     agent._end_session_on_close = False
     return agent
@@ -203,11 +209,102 @@ def build_creator_workflow_critic_agent(**agent_kwargs: Any) -> Any:
     return agent
 
 
+def build_generic_creator_agent(
+    *,
+    spec: GenericCreatorInstanceSpec,
+    creator_capability_names: Iterable[str] = (),
+    workspace_roots: Iterable[str],
+    protected_roots: Iterable[str],
+    isolated_executor: Optional[IsolatedExecutorAttestation],
+    execution_boundary: Optional[OpenChiaExecutionBoundary] = None,
+    owned_process_sessions: Iterable[str] = (),
+    log_store: CreatorRunLogStore,
+    log_references: Iterable[RunLogReference] = (),
+    workflow_reviewer: Optional[Callable[[dict[str, Any], tuple[str, ...]], dict[str, Any]]] = None,
+    **agent_kwargs: Any,
+) -> Any:
+    """Construct a generic Creator with a mandatory mechanical boundary."""
+
+    from pathlib import Path
+
+    creator_capabilities = frozenset(creator_capability_names)
+    if not creator_capabilities.issubset(spec.assignable_capabilities):
+        raise ValueError("generic Creator capabilities must be a subset of its assignable grant")
+    if creator_capabilities & {
+        "write_file", "patch", "terminal", "execute_code", "process_manage"
+    }:
+        raise ValueError(
+            "generic Creator control loops cannot directly exercise effectful task capabilities"
+        )
+    boundary = execution_boundary or OpenChiaExecutionBoundary(
+        workspace_roots=tuple(Path(item) for item in workspace_roots),
+        protected_roots=tuple(Path(item) for item in protected_roots),
+        isolated_executor=isolated_executor,
+        owned_process_sessions=frozenset(owned_process_sessions),
+    )
+    return build_creator_agent(
+        capability_names=creator_capabilities,
+        log_store=log_store,
+        log_references=log_references,
+        workflow_reviewer=workflow_reviewer,
+        execution_boundary=boundary,
+        **agent_kwargs,
+    )
+
+
+def build_generic_task_episode_agent(
+    *,
+    parent_spec: GenericCreatorInstanceSpec,
+    capability_names: Iterable[str],
+    episode_id: str,
+    accepted_evidence_ids: Iterable[str],
+    workspace_roots: Iterable[str],
+    protected_roots: Iterable[str],
+    isolated_executor: Optional[IsolatedExecutorAttestation],
+    execution_boundary: Optional[OpenChiaExecutionBoundary] = None,
+    owned_process_sessions: Iterable[str] = (),
+    **agent_kwargs: Any,
+) -> Any:
+    """Build a generic Creator's task Episode with inherited authority."""
+
+    from pathlib import Path
+
+    capabilities = frozenset(capability_names)
+    if not capabilities.issubset(parent_spec.assignable_capabilities):
+        raise ValueError("task Episode capabilities must be inherited from its Creator")
+    effectful = capabilities & {
+        "write_file", "patch", "terminal", "execute_code", "process_manage"
+    }
+    effective_attestation = (
+        execution_boundary.isolated_executor
+        if execution_boundary is not None
+        else isolated_executor
+    )
+    if effectful and (
+        effective_attestation is None or not effective_attestation.permits_effectful_recursion
+    ):
+        raise ValueError("effectful task Episodes require an attested isolated executor")
+    boundary = execution_boundary or OpenChiaExecutionBoundary(
+        workspace_roots=tuple(Path(item) for item in workspace_roots),
+        protected_roots=tuple(Path(item) for item in protected_roots),
+        isolated_executor=isolated_executor,
+        owned_process_sessions=frozenset(owned_process_sessions),
+    )
+    return build_task_episode_agent(
+        capability_names=capabilities,
+        episode_id=episode_id,
+        accepted_evidence_ids=accepted_evidence_ids,
+        execution_boundary=boundary,
+        **agent_kwargs,
+    )
+
+
 def build_task_episode_agent(
     *,
     capability_names: Iterable[str],
     episode_id: str,
     accepted_evidence_ids: Iterable[str],
+    execution_boundary: Any = None,
     **agent_kwargs: Any,
 ) -> Any:
     """Construct one fixed-contract executor; it has no creation authority."""
@@ -231,6 +328,8 @@ def build_task_episode_agent(
     agent._active_episode_id = episode_id
     agent._active_episode_evidence_ids = frozenset(accepted_evidence_ids)
     agent._episode_progress_reports = []
+    if execution_boundary is not None:
+        agent._openchia_execution_boundary = execution_boundary
     agent._persist_disabled = True
     agent._end_session_on_close = False
     return agent
@@ -239,6 +338,8 @@ def build_task_episode_agent(
 __all__ = [
     "bind_duet_agent",
     "build_creator_agent",
+    "build_generic_creator_agent",
+    "build_generic_task_episode_agent",
     "build_creator_workflow_critic_agent",
     "build_duet_contract_critic_agent",
     "build_duet_agent",

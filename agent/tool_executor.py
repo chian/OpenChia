@@ -721,6 +721,17 @@ def _dispatch_authorized_once(
             }
             block_error_type = _PRUNED_TOOL_ARGUMENTS_ERROR
 
+    # OpenChia Episodes may carry a host-created mechanical boundary.  It runs
+    # after plugin argument rewrites and before guardrails or dispatch so a
+    # plugin cannot redirect an approved write or process operation.
+    if block_body is None:
+        boundary = getattr(agent, "_openchia_execution_boundary", None)
+        if boundary is not None:
+            denial = boundary.authorize(ref.name, ref.args)
+            if denial is not None:
+                block_body = denial
+                block_error_type = str(denial.get("error", "openchia_execution_boundary"))
+
     guardrail_decision = None
     if block_body is None:
         guardrail_decision = agent._tool_guardrails.before_call(ref.name, ref.args)

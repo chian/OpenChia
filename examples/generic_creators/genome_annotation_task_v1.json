@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "example_only": true,
+  "production_submissions_permitted": false,
+  "task_goal": "Produce evidence-backed structural and functional genome annotations without baking organism, provider, or workflow-system semantics into generic Creator code.",
+  "fixed_success_criteria": [
+    "Every accepted annotation claim retains source evidence and provenance.",
+    "Conflicting claims are reconciled or explicitly unresolved.",
+    "All required remote handoffs and materialization edges pass independent integration checks.",
+    "Final qualification verifies artifact hashes, evidence gates, and required integration edges."
+  ],
+  "authentication": {
+    "mode": "human_supplied_external_secret",
+    "shared_state_value": "SECRET_REDACTED",
+    "persist_raw_credentials": false
+  },
+  "task_policy": {
+    "provider_preference": {
+      "provider": "BV-BRC",
+      "when": "supported bacterial or archaeal input and policy-compatible authentication",
+      "fallback": "select another declared provider without changing generic Creator code"
+    },
+    "organism_and_batch_size_are_runtime_inputs": true,
+    "unchecked_remote_results_receive_credit": false
+  },
+  "cross_cutting_contracts": [
+    {
+      "contract_id": "remote_data_plane",
+      "display_name": "REMOTE_DATA_PLANE",
+      "workspace_behavior": "Inputs and outputs are referenced by locality, immutable identity, and content hash.",
+      "remote_job_behavior": "Submissions are idempotent; polling has bounded backoff; terminal interpretation, output discovery, verification, retention, and cleanup are explicit.",
+      "secret_behavior": "Authentication is injected by the human-controlled runtime and is never copied into shared state or artifacts."
+    }
+  ],
+  "creator_instances": [
+    {
+      "instance_id": "operation_factory",
+      "creator_type": "worklist_factory_creator",
+      "task_inputs": {
+        "items": [
+          "gowe_resolve_locality", "gowe_stage_in", "gowe_submit", "gowe_poll",
+          "gowe_discover_outputs", "gowe_verify", "gowe_stage_out", "gowe_resume_cleanup"
+        ],
+        "artifact_schema": "versioned provider-operation contract",
+        "builder_episode_template": "bounded operation builder",
+        "test_episode_template": "offline simulated provider conformance test",
+        "per_item_acceptance_gates": ["schema", "idempotency", "resume", "secret_redaction"],
+        "execution_mode": "bounded_parallel"
+      }
+    },
+    {
+      "instance_id": "remote_transaction_loop",
+      "creator_type": "agent_loop_designer_creator",
+      "task_inputs": {
+        "state_action_flow": [
+          "locality_resolution",
+          "stage_in_or_provider_native_reference",
+          "submit",
+          "poll",
+          "terminal_state_interpretation",
+          "output_discovery",
+          "verification",
+          "stage_out_or_retained_reference",
+          "materialization",
+          "resume_or_cleanup"
+        ],
+        "allowed_actions_or_tools": ["GoWe provider operation contracts"],
+        "stopping_rule": "verified materialization or typed terminal fault",
+        "representative_test_scenarios": [
+          "provider_success", "transient_poll_failure", "terminal_provider_failure",
+          "missing_output", "hash_mismatch", "interrupted_resume"
+        ]
+      }
+    },
+    {
+      "instance_id": "annotation_claim_loop",
+      "creator_type": "agent_loop_designer_creator",
+      "task_inputs": {
+        "state_action_flow": [
+          "collect_evidence", "propose_annotation_claim", "detect_conflict",
+          "reconcile_or_mark_unresolved", "validate", "remediate", "commit_with_provenance"
+        ],
+        "terminal_results": ["accepted", "provisional", "unresolved", "typed_fault"],
+        "completion_policy": "Only accepted claims count toward completion."
+      }
+    },
+    {
+      "instance_id": "annotation_integration",
+      "creator_type": "integration_handoff_creator",
+      "task_inputs": {
+        "integration_flow": [
+          "input_locality",
+          "GoWe_tool",
+          "provider_job",
+          "workspace_output",
+          "stage_out_or_retained_reference",
+          "normalized_annotation",
+          "reconciliation"
+        ],
+        "gate_ownership": {
+          "provider_operation_fault": "operation_factory",
+          "remote_transaction_fault": "remote_transaction_loop",
+          "claim_or_reconciliation_fault": "annotation_claim_loop"
+        },
+        "repair_policy": "Route a bounded delta request to the owner and retest the affected edge plus required regressions."
+      }
+    },
+    {
+      "instance_id": "experiment_portfolio",
+      "creator_type": "rarefaction_portfolio_creator",
+      "task_inputs": {
+        "yield": "new unique host-accepted annotation or integration gates",
+        "cost": "declared runtime and remote-job budget",
+        "stopping_rule": "stop when configured marginal accepted yield or stagnation threshold is reached"
+      }
+    },
+    {
+      "instance_id": "annotation_qualification",
+      "creator_type": "qualification_release_creator",
+      "task_inputs": {
+        "required_artifacts": ["normalized_annotations", "evidence_ledger", "conflict_report", "coverage_report"],
+        "required_edges": ["remote_data_plane_to_normalized_annotation", "normalized_annotation_to_reconciliation"],
+        "deliverable": "versioned annotation bundle with hashes and explicit unresolved cases"
+      }
+    }
+  ],
+  "test_policy": {
+    "provider_mode": "offline_simulation_only",
+    "perform_production_bv_brc_submission": false,
+    "fixtures_contain_credentials": false
+  }
+}
