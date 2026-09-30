@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import tempfile
 import time
+from collections.abc import Mapping
 from typing import Any
 
 from prompt_toolkit.layout import FormattedTextControl, Window
@@ -18,6 +19,57 @@ from agent.episode_blueprints import CREATION_BLUEPRINT_FIELDS
 from agent.openchia_host import OpenChiaHost
 from cli import HermesCLI
 from hermes_constants import get_hermes_home
+
+
+_MISSING = object()
+
+
+def episode_configuration_changes(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    *,
+    field_metadata: Mapping[str, Mapping[str, Any]] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    """Return stable path-level changes between two Episode configurations."""
+
+    metadata = field_metadata or {}
+    changes: list[dict[str, Any]] = []
+
+    def metadata_for(path: str) -> dict[str, Any]:
+        candidate = path
+        while candidate:
+            if candidate in metadata:
+                return dict(metadata[candidate])
+            candidate, _, _leaf = candidate.rpartition(".")
+        return {}
+
+    def visit(path: str, old: Any, new: Any) -> None:
+        if isinstance(old, Mapping) and isinstance(new, Mapping):
+            for key in sorted(set(old) | set(new)):
+                child_path = f"{path}.{key}" if path else str(key)
+                visit(
+                    child_path,
+                    old.get(key, _MISSING),
+                    new.get(key, _MISSING),
+                )
+            return
+        if old is not _MISSING and new is not _MISSING and old == new:
+            return
+        if old is _MISSING:
+            kind = "added"
+        elif new is _MISSING:
+            kind = "removed"
+        else:
+            kind = "changed"
+        change = {"path": path, "kind": kind, **metadata_for(path)}
+        if old is not _MISSING:
+            change["before"] = old
+        if new is not _MISSING:
+            change["after"] = new
+        changes.append(change)
+
+    visit("", before, after)
+    return tuple(changes)
 
 
 def render_openchia_status(status: dict[str, Any] | None) -> str:
@@ -145,6 +197,11 @@ class OpenChiaCLI(HermesCLI):
         self._openchia_host: OpenChiaHost | None = None
         self._openchia_status_cache: dict[str, Any] | None = None
         self._openchia_status_at = 0.0
+        self._episode_view_revision: int | None = None
+        self._episode_view_configuration: dict[str, Any] | None = None
+        self._episode_last_changes: tuple[
+            int, int, tuple[dict[str, Any], ...]
+        ] | None = None
         super().__init__(**kwargs)
 
     @staticmethod
@@ -242,6 +299,10 @@ class OpenChiaCLI(HermesCLI):
                 available_tool_names=self._tool_names(agent),
                 agent_kwargs_factory=self._agent_kwargs_for_episode,
             )
+        if self._episode_view_configuration is None:
+            snapshot = self._openchia_host.episode_configuration()
+            self._episode_view_revision = int(snapshot["revision"])
+            self._episode_view_configuration = dict(snapshot["configuration"])
         self._openchia_status_cache = None
         return self._openchia_host.bind_duet(agent)
 
@@ -369,12 +430,104 @@ class OpenChiaCLI(HermesCLI):
             except OSError:
                 pass
 
+    @staticmethod
+    def _json_value(value: Any) -> str:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+    def _render_episode_changes(
+        self,
+        from_revision: int,
+        to_revision: int,
+        changes: tuple[dict[str, Any], ...],
+    ) -> str:
+        if not changes:
+            return f"Episode changes r{from_revision} -> r{to_revision}: none"
+        markers = {"added": "+", "removed": "-", "changed": "~"}
+        lines = [f"Episode changes r{from_revision} -> r{to_revision}:"]
+        for change in changes:
+            provenance = change.get("provenance")
+            suffix = f" [{provenance}]" if provenance else ""
+            lines.append(
+                f"  {markers[change['kind']]} {change['path']}{suffix}"
+            )
+            if "before" in change:
+                lines.append(f"      before: {self._json_value(change['before'])}")
+            if "after" in change:
+                lines.append(f"      after:  {self._json_value(change['after'])}")
+        return "\n".join(lines)
+
+    def _current_episode_changes(
+        self,
+        snapshot: Mapping[str, Any],
+    ) -> tuple[int, int, tuple[dict[str, Any], ...]]:
+        revision = int(snapshot["revision"])
+        previous_revision = self._episode_view_revision
+        previous = self._episode_view_configuration
+        if previous_revision is None or previous is None:
+            return revision, revision, ()
+        changes = episode_configuration_changes(
+            previous,
+            snapshot["configuration"],
+            field_metadata=snapshot.get("fields") or {},
+        )
+        return previous_revision, revision, changes
+
+    def _remember_episode_view(self, snapshot: Mapping[str, Any]) -> None:
+        self._episode_view_revision = int(snapshot["revision"])
+        self._episode_view_configuration = json.loads(
+            json.dumps(snapshot["configuration"], ensure_ascii=False)
+        )
+
     def _show_episode_configuration(self) -> None:
-        configuration = self._episode_host().episode_configuration()
-        capabilities = configuration.pop("allowed_capabilities", [])
-        configuration["allowed_capability_count"] = len(capabilities)
-        configuration["capabilities_command"] = "/episode capabilities"
-        self._print_openchia(json.dumps(configuration, indent=2, ensure_ascii=False))
+        snapshot = self._episode_host().episode_configuration()
+        changes = self._current_episode_changes(snapshot)
+        self._episode_last_changes = changes
+        self._print_openchia(self._render_episode_changes(*changes))
+        display = dict(snapshot)
+        capabilities = display.pop("allowed_capabilities", [])
+        display["allowed_capability_count"] = len(capabilities)
+        display["capabilities_command"] = "/episode capabilities"
+        self._print_openchia(json.dumps(display, indent=2, ensure_ascii=False))
+        self._remember_episode_view(snapshot)
+
+    def _show_episode_changes(self) -> None:
+        snapshot = self._episode_host().episode_configuration()
+        changes = self._current_episode_changes(snapshot)
+        if changes[2]:
+            self._episode_last_changes = changes
+        elif changes[0] == changes[1] and self._episode_last_changes is not None:
+            changes = self._episode_last_changes
+        self._print_openchia(self._render_episode_changes(*changes))
+
+    @staticmethod
+    def _is_episode_command(command: str) -> bool:
+        stripped = command.strip()
+        lower = stripped.lower()
+        return lower == "/episode" or lower.startswith("/episode ")
+
+    def _tui_enter_inline_command(self, event: Any, text: str, has_images: bool) -> bool:
+        """Keep Episode inspection responsive while the Duet is producing a turn."""
+
+        if (
+            self._agent_running
+            and not has_images
+            and self._is_episode_command(text)
+        ):
+            action = text.strip()[len("/episode") :].strip().split(maxsplit=1)
+            if action and action[0].lower() == "edit":
+                from prompt_toolkit.application import run_in_terminal
+
+                event.app.current_buffer.reset(append_to_history=True)
+                run_in_terminal(
+                    lambda: self.process_command(text),
+                    in_executor=True,
+                )
+            else:
+                self.process_command(text)
+                event.app.current_buffer.reset(append_to_history=True)
+            event.app.invalidate()
+            return True
+        return super()._tui_enter_inline_command(event, text, has_images)
 
     def _process_episode_command(self, stripped: str) -> bool:
         remainder = stripped[len("/episode") :].strip()
@@ -384,16 +537,22 @@ class OpenChiaCLI(HermesCLI):
         if action in {"show", "status"}:
             self._show_episode_configuration()
             return True
+        if action in {"diff", "changes"}:
+            self._show_episode_changes()
+            return True
         if action == "edit":
-            revision, document = host.episode_editor_document()
-            edited = self._edit_json_document(document)
-            if edited is None or edited == document:
-                self._print_openchia("Episode configuration unchanged.")
-                return True
-            draft = host.replace_episode_configuration(
-                edited,
-                expected_revision=revision,
-            )
+            with host.episode_edit_session() as (revision, document):
+                self._show_episode_changes()
+                edited = self._edit_json_document(document)
+                if edited is None or edited == document:
+                    self._remember_episode_view(host.episode_configuration())
+                    self._print_openchia("Episode configuration unchanged.")
+                    return True
+                draft = host.replace_episode_configuration(
+                    edited,
+                    expected_revision=revision,
+                )
+                self._remember_episode_view(host.episode_configuration())
             self._print_openchia(
                 f"Episode configuration saved as revision {draft['revision']}; "
                 f"ready={draft['ready']}."
@@ -428,7 +587,7 @@ class OpenChiaCLI(HermesCLI):
             self._print_openchia("Assignable Episode capabilities:\n" + "\n".join(names))
             return True
         raise ValueError(
-            "Usage: /episode [show|edit|set FIELD JSON_VALUE|unset FIELD|capabilities]"
+            "Usage: /episode [show|diff|edit|set FIELD JSON_VALUE|unset FIELD|capabilities]"
         )
 
     def process_command(self, cmd: str) -> bool:
@@ -439,6 +598,7 @@ class OpenChiaCLI(HermesCLI):
                 "OpenChia controls:\n"
                 "  /episode          show the complete editable Creator configuration\n"
                 "  /episode edit     edit the complete configuration as JSON\n"
+                "  /episode diff     show exact changes since the last view\n"
                 "  /episode set FIELD JSON_VALUE   set one field or dotted path\n"
                 "  /episode unset FIELD            remove one field or dotted path\n"
                 "  /duet             show the closed Duet -> Creator -> Run state\n"
@@ -558,4 +718,8 @@ class OpenChiaCLI(HermesCLI):
         return super().process_command(cmd)
 
 
-__all__ = ["OpenChiaCLI", "render_openchia_status"]
+__all__ = [
+    "OpenChiaCLI",
+    "episode_configuration_changes",
+    "render_openchia_status",
+]

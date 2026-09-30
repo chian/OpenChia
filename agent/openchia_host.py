@@ -9,6 +9,7 @@ surface, compute their own credit, or send Run prose into the Duet.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -147,6 +148,7 @@ class OpenChiaHost:
         self.creator_bindings = CreatorRuntimeBindings()
         self.task_bindings = TaskRuntimeBindings()
         self._lock = threading.RLock()
+        self._draft_write_lock = threading.RLock()
         self._creator_threads: dict[str, threading.Thread] = {}
         self._final_threads: dict[str, threading.Thread] = {}
         self._execution_errors: dict[str, str] = {}
@@ -170,6 +172,7 @@ class OpenChiaHost:
             creator_launcher=self.launch_creator,
         )
         bound._duet_contract_reviewer = self.review_contract
+        bound._openchia_draft_write_lock = self._draft_write_lock
         return bound
 
     @staticmethod
@@ -252,7 +255,6 @@ class OpenChiaHost:
             "host_facts": {
                 "root_measurement_id": ROOT_PROGRESS_MEASUREMENT_ID,
                 "run_evidence_acceptance_source_id": RUN_EVIDENCE_ACCEPTANCE_SOURCE_ID,
-                "minimum_creator_run_depth": 3,
             },
         }
         review = self._parse_contract_review(critic.chat(canonical_json(request)))
@@ -389,6 +391,14 @@ class OpenChiaHost:
             for field in CREATION_BLUEPRINT_FIELDS
         }
 
+    @contextmanager
+    def episode_edit_session(self):
+        """Give the human exclusive draft-write ownership for one editor session."""
+
+        with self._draft_write_lock:
+            self._assert_draft_mutable()
+            yield self.episode_editor_document()
+
     def record_human_answer(self, field_path: str, value: Any) -> DuetAnswer:
         """Record one exact answer through the trusted human host boundary."""
 
@@ -424,29 +434,30 @@ class OpenChiaHost:
     ) -> dict[str, Any]:
         """Replace the draft exactly with a directly edited human configuration."""
 
-        self._assert_draft_mutable()
-        if not isinstance(configuration, Mapping):
-            raise TypeError("Episode configuration must be a JSON object")
-        unknown = sorted(set(configuration) - set(CREATION_BLUEPRINT_FIELDS))
-        if unknown:
-            raise ValueError(f"unknown Episode configuration fields: {unknown}")
-        fields = tuple(
-            ContractFieldRecord(
-                field_path=field,
-                value=value,
-                provenance=DuetProvenance.HUMAN_INPUT,
-                approved=True,
+        with self._draft_write_lock:
+            self._assert_draft_mutable()
+            if not isinstance(configuration, Mapping):
+                raise TypeError("Episode configuration must be a JSON object")
+            unknown = sorted(set(configuration) - set(CREATION_BLUEPRINT_FIELDS))
+            if unknown:
+                raise ValueError(f"unknown Episode configuration fields: {unknown}")
+            fields = tuple(
+                ContractFieldRecord(
+                    field_path=field,
+                    value=value,
+                    provenance=DuetProvenance.HUMAN_INPUT,
+                    approved=True,
+                )
+                for field in CREATION_BLUEPRINT_FIELDS
+                if (value := configuration.get(field, EPISODE_FIELD_PLACEHOLDER))
+                != EPISODE_FIELD_PLACEHOLDER
             )
-            for field in CREATION_BLUEPRINT_FIELDS
-            if (value := configuration.get(field, EPISODE_FIELD_PLACEHOLDER))
-            != EPISODE_FIELD_PLACEHOLDER
-        )
-        draft = self.service.replace_contract(
-            self.identity.duet_id,
-            expected_revision=expected_revision,
-            fields=fields,
-        )
-        return draft.as_record()
+            draft = self.service.replace_contract(
+                self.identity.duet_id,
+                expected_revision=expected_revision,
+                fields=fields,
+            )
+            return draft.as_record()
 
     def update_episode_configuration(
         self,
@@ -457,53 +468,54 @@ class OpenChiaHost:
     ) -> dict[str, Any]:
         """Set or remove one dotted path, committing one human-authored revision."""
 
-        if not isinstance(field_path, str) or not field_path.strip():
-            raise ValueError("field path must be non-empty")
-        parts = field_path.strip().split(".")
-        if parts[0] not in CREATION_BLUEPRINT_FIELDS:
-            raise ValueError(f"unknown Episode configuration field: {parts[0]}")
-        revision, document = self.episode_editor_document()
-        current = {
-            key: item
-            for key, item in document.items()
-            if item != EPISODE_FIELD_PLACEHOLDER
-        }
-        if len(parts) == 1:
-            if remove:
-                if parts[0] not in current:
-                    raise KeyError(f"Episode field is not set: {field_path}")
-                del current[parts[0]]
+        with self._draft_write_lock:
+            if not isinstance(field_path, str) or not field_path.strip():
+                raise ValueError("field path must be non-empty")
+            parts = field_path.strip().split(".")
+            if parts[0] not in CREATION_BLUEPRINT_FIELDS:
+                raise ValueError(f"unknown Episode configuration field: {parts[0]}")
+            revision, document = self.episode_editor_document()
+            current = {
+                key: item
+                for key, item in document.items()
+                if item != EPISODE_FIELD_PLACEHOLDER
+            }
+            if len(parts) == 1:
+                if remove:
+                    if parts[0] not in current:
+                        raise KeyError(f"Episode field is not set: {field_path}")
+                    del current[parts[0]]
+                else:
+                    current[parts[0]] = value
             else:
-                current[parts[0]] = value
-        else:
-            root = current.get(parts[0])
-            if root is None and not remove:
-                root = {}
-                current[parts[0]] = root
-            if not isinstance(root, dict):
-                raise ValueError(
-                    f"Episode field {parts[0]} is not an object; replace it first"
-                )
-            cursor = root
-            for part in parts[1:-1]:
-                child = cursor.get(part)
-                if child is None and not remove:
-                    child = {}
-                    cursor[part] = child
-                if not isinstance(child, dict):
-                    raise ValueError(f"Episode path is not an object: {part}")
-                cursor = child
-            leaf = parts[-1]
-            if remove:
-                if leaf not in cursor:
-                    raise KeyError(f"Episode field is not set: {field_path}")
-                del cursor[leaf]
-            else:
-                cursor[leaf] = value
-        return self.replace_episode_configuration(
-            current,
-            expected_revision=revision,
-        )
+                root = current.get(parts[0])
+                if root is None and not remove:
+                    root = {}
+                    current[parts[0]] = root
+                if not isinstance(root, dict):
+                    raise ValueError(
+                        f"Episode field {parts[0]} is not an object; replace it first"
+                    )
+                cursor = root
+                for part in parts[1:-1]:
+                    child = cursor.get(part)
+                    if child is None and not remove:
+                        child = {}
+                        cursor[part] = child
+                    if not isinstance(child, dict):
+                        raise ValueError(f"Episode path is not an object: {part}")
+                    cursor = child
+                leaf = parts[-1]
+                if remove:
+                    if leaf not in cursor:
+                        raise KeyError(f"Episode field is not set: {field_path}")
+                    del cursor[leaf]
+                else:
+                    cursor[leaf] = value
+            return self.replace_episode_configuration(
+                current,
+                expected_revision=revision,
+            )
 
     def _role_agent_kwargs(self, role: str, identity: str) -> dict[str, Any]:
         kwargs = self.agent_kwargs_factory(role, identity)

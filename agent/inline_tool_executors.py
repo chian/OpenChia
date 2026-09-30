@@ -9,6 +9,7 @@ lazily at call time so ``patch("tools.x.y")`` in tests keeps working.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import json
 from dataclasses import dataclass
 from importlib import import_module
@@ -284,6 +285,11 @@ def _duet_context(agent):
     return service, identity
 
 
+def _duet_draft_write(agent):
+    lock = getattr(agent, "_openchia_draft_write_lock", None)
+    return lock if lock is not None else nullcontext()
+
+
 def _duet_contract_patch(agent, args: dict, ctx: InlineToolContext) -> Any:
     from agent.duet_contracts import (
         ContractFieldRecord,
@@ -308,12 +314,13 @@ def _duet_contract_patch(agent, args: dict, ctx: InlineToolContext) -> Any:
         )
         if len(patches) != len(raw_patches):
             raise ValueError("every patch must be an object")
-        draft = service.patch_contract(
-            identity.duet_id,
-            expected_revision=args.get("expected_revision"),
-            patches=patches,
-            actor=DuetProvenance.LLM_PROPOSAL,
-        )
+        with _duet_draft_write(agent):
+            draft = service.patch_contract(
+                identity.duet_id,
+                expected_revision=args.get("expected_revision"),
+                patches=patches,
+                actor=DuetProvenance.LLM_PROPOSAL,
+            )
         return json.dumps(
             {
                 "draft_id": draft.draft_id.value,
@@ -355,7 +362,10 @@ def _duet_answer(agent, args: dict, ctx: InlineToolContext) -> Any:
 
     try:
         service, _identity = _duet_context(agent)
-        draft = service.submit_duet_answer(OpaqueId(args.get("answer_artifact_id")))
+        with _duet_draft_write(agent):
+            draft = service.submit_duet_answer(
+                OpaqueId(args.get("answer_artifact_id"))
+            )
         return json.dumps(
             {
                 "accepted": True,
@@ -391,11 +401,12 @@ def _episode_creator(agent, args: dict, ctx: InlineToolContext) -> Any:
         launcher = getattr(agent, "_duet_creator_launcher", None)
         if not callable(launcher):
             raise RuntimeError("no task-specific Creator launcher is bound")
-        episode_id = service.submit_episode_creator(
-            contract_artifact_id=OpaqueId(args.get("contract_artifact_id")),
-            content_hash=Sha256Digest(args.get("content_hash")),
-            human_approval_id=OpaqueId(args.get("human_approval_id")),
-        )
+        with _duet_draft_write(agent):
+            episode_id = service.submit_episode_creator(
+                contract_artifact_id=OpaqueId(args.get("contract_artifact_id")),
+                content_hash=Sha256Digest(args.get("content_hash")),
+                human_approval_id=OpaqueId(args.get("human_approval_id")),
+            )
         receipts = getattr(agent, "_duet_creator_receipts", None)
         if not isinstance(receipts, dict):
             receipts = {}

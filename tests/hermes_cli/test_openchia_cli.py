@@ -3,7 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from hermes_cli.openchia_cli import OpenChiaCLI, render_openchia_status
+from hermes_cli.openchia_cli import (
+    OpenChiaCLI,
+    episode_configuration_changes,
+    render_openchia_status,
+)
 from hermes_cli.openchia_main import main
 
 
@@ -56,6 +60,78 @@ def test_status_panel_is_compact_and_contextual():
     )
     assert "shadow review: concern" in ready
     assert "/review · /approve" in ready
+
+
+def test_running_prompt_advertises_only_openchia_commands():
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    cli._voice_recording = False
+    cli._voice_processing = False
+    cli._sudo_state = None
+    cli._secret_state = None
+    cli._approval_state = None
+    cli._slash_confirm_state = None
+    cli._clarify_freetext = False
+    cli._clarify_state = None
+    cli._command_running = False
+    cli._agent_running = True
+
+    assert cli._tui_placeholder_text() == "msg=interrupt · Ctrl+C cancel"
+
+
+def test_episode_configuration_changes_are_path_level_and_keep_provenance():
+    changes = episode_configuration_changes(
+        {
+            "goal": "old",
+            "progress": {"metric": "coverage", "target": 0.5},
+            "unit": "one cycle",
+        },
+        {
+            "goal": "new",
+            "progress": {"metric": "coverage", "target": 0.8},
+            "result": "one workflow",
+        },
+        field_metadata={
+            "goal": {"provenance": "llm_proposal"},
+            "progress.target": {"provenance": "human_input"},
+            "result": {"provenance": "llm_proposal"},
+        },
+    )
+
+    assert [(item["path"], item["kind"]) for item in changes] == [
+        ("goal", "changed"),
+        ("progress.target", "changed"),
+        ("result", "added"),
+        ("unit", "removed"),
+    ]
+    assert changes[0]["provenance"] == "llm_proposal"
+    assert changes[1]["before"] == 0.5
+    assert changes[1]["after"] == 0.8
+
+
+def test_episode_read_executes_immediately_during_duet_turn():
+    observed = []
+
+    class Buffer:
+        def reset(self, *, append_to_history=False):
+            observed.append(("reset", append_to_history))
+
+    class App:
+        current_buffer = Buffer()
+
+        def invalidate(self):
+            observed.append(("invalidate", True))
+
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    cli._agent_running = True
+    cli.process_command = lambda command: observed.append(("command", command))
+    event = SimpleNamespace(app=App())
+
+    assert cli._tui_enter_inline_command(event, "/episode", False) is True
+    assert observed == [
+        ("command", "/episode"),
+        ("reset", True),
+        ("invalidate", True),
+    ]
 
 
 def test_answer_command_records_and_exposes_exact_artifact_to_duet():

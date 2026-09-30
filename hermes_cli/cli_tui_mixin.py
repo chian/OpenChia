@@ -893,7 +893,14 @@ class CLITuiMixin:
         if self._command_running:
             return f"{self._command_spinner_frame()} {self._command_status or 'Processing command...'}"
         if self._agent_running:
-            return "msg=interrupt · /queue · /bg · /steer · Ctrl+C cancel"
+            controls = ["msg=interrupt"]
+            controls.extend(
+                command
+                for command in ("/queue", "/bg", "/steer")
+                if self._command_available(command)
+            )
+            controls.append("Ctrl+C cancel")
+            return " · ".join(controls)
         if self._voice_mode:
             return f"type or {self._voice_record_key_label()} to record"
         # Advertise a parked draft so the stash can never be silently forgotten.

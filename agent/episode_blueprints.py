@@ -233,10 +233,6 @@ EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA = {
 
 EPISODE_SAFETY_BOUNDS_BLUEPRINT_SCHEMA = {
     "type": ["object", "null"],
-    "description": (
-        "Hard resource caps; reaching one is not success. At least one value must be "
-        "non-null when the object is used."
-    ),
     "properties": {
         "max_iterations": {"type": ["integer", "null"], "minimum": 1},
         "max_child_episodes": {"type": ["integer", "null"], "minimum": 1},
