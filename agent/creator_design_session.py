@@ -8,7 +8,7 @@ design cycle.  Approval and final workflow launch remain Duet operations.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from agent.creator_episode import (
     CandidateDesigner,
@@ -24,6 +24,19 @@ from method_loop import EpisodeView
 class CreatorDesignCycleError(RuntimeError):
     """A Creator conversation ended without one admitted workflow design."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "candidate_not_admitted",
+        details: Optional[Mapping[str, Any]] = None,
+        retryable: bool = True,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = dict(details or {})
+        self.retryable = retryable
+
 
 class CreatorDesignSession(CandidateDesigner):
     """Bridge a restricted Creator AIAgent into the generic Episode source."""
@@ -34,6 +47,9 @@ class CreatorDesignSession(CandidateDesigner):
         service: DuetService,
         creator_episode_id: OpaqueId,
         agent: Any,
+        activity_publisher: Optional[
+            Callable[[str, str, Mapping[str, Any]], None]
+        ] = None,
     ) -> None:
         if not isinstance(service, DuetService):
             raise TypeError("CreatorDesignSession requires a DuetService")
@@ -44,8 +60,18 @@ class CreatorDesignSession(CandidateDesigner):
         self.service = service
         self.creator_episode_id = creator_episode_id
         self.agent = agent
+        self.activity_publisher = activity_publisher
         self.frozen_contract = service.creator_contract(creator_episode_id)
         self._pending: Optional[WorkflowCandidateDesign] = None
+
+    def _activity(
+        self,
+        stage: str,
+        activity_code: str,
+        details: Mapping[str, Any],
+    ) -> None:
+        if self.activity_publisher is not None:
+            self.activity_publisher(stage, activity_code, details)
 
     def _submit(self, workflow_blueprint: Mapping[str, Any]) -> WorkflowCandidateDesign:
         if self._pending is not None:
@@ -91,7 +117,17 @@ class CreatorDesignSession(CandidateDesigner):
             references[result.log.artifact_id.value] = result.log
 
         self._pending = None
+        self.agent._creator_last_candidate_result = None
         self.agent._creator_workflow_submit = self._submit
+        self._activity(
+            "designing",
+            "design_cycle_started",
+            {
+                "unit_index": view.units_consumed,
+                "previous_run_count": len(previous_runs),
+                "boundary_message_count": len(boundary_messages),
+            },
+        )
         request = {
             "operation": "design_next_workflow_candidate",
             "creator_episode_id": self.creator_episode_id.value,
@@ -132,7 +168,11 @@ class CreatorDesignSession(CandidateDesigner):
                 "creator_log_read, then "
                 "draft a complete workflow, call workflow_review with the three core "
                 "lenses and any relevant optional lenses, revise when findings are "
-                "sound, then submit exactly one complete blueprint with workflow_candidate."
+                "sound, then submit exactly one complete blueprint with workflow_candidate. "
+                "A tool result with accepted=false is a structured repair request: read "
+                "its reason, message, and deficits, correct only the candidate, and call "
+                "the tool again. Do not end this conversation until workflow_candidate "
+                "returns accepted=true unless the host interrupts the attempt."
             ),
         }
         try:
@@ -140,8 +180,22 @@ class CreatorDesignSession(CandidateDesigner):
         finally:
             self.agent._creator_workflow_submit = None
         if self._pending is None:
+            rejection = getattr(
+                self.agent,
+                "_creator_last_candidate_result",
+                None,
+            )
+            if isinstance(rejection, Mapping):
+                reason = str(rejection.get("reason") or "candidate_rejected")
+                raise CreatorDesignCycleError(
+                    "Creator submitted no admissible workflow candidate: "
+                    f"{reason}",
+                    code="candidate_rejected",
+                    details={"candidate_submission": dict(rejection)},
+                )
             raise CreatorDesignCycleError(
-                "Creator conversation ended without an admitted workflow candidate"
+                "Creator conversation ended without submitting a workflow candidate",
+                code="candidate_not_submitted",
             )
         return self._pending
 

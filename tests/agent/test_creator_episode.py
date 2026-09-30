@@ -24,7 +24,7 @@ from agent.creator_episode import (
     creator_to_parent_update,
 )
 from agent.duet_contracts import DuetDecision, DuetDesignState, DuetMessageKind
-from agent.creator_design_session import CreatorDesignSession
+from agent.creator_design_session import CreatorDesignCycleError, CreatorDesignSession
 from agent.duet_service import DuetService
 from agent.episode_blueprints import workflow_blueprint_from_spec
 from agent.episode_contracts import (
@@ -608,6 +608,11 @@ def test_creator_design_session_exposes_prior_log_and_freezes_one_submission():
             self._creator_log_references = {}
             self._creator_workflow_submit = None
             self._creator_context_read_ids = {required_context_id}
+            self._creator_reviewed_workflow_hashes = {
+                Sha256Digest.of_record(
+                    workflow_blueprint_from_spec(workflow)
+                ).value
+            }
             self.request = None
 
         def chat(self, message):
@@ -640,3 +645,32 @@ def test_creator_design_session_exposes_prior_log_and_freezes_one_submission():
     assert previous.log.artifact_id.value in agent._creator_log_references
     assert agent.request["previous_run_results"][0]["log"] == previous.log.as_record()
     assert agent._creator_workflow_submit is None
+
+    class _RejectingAgent:
+        def __init__(self):
+            self._creator_log_references = {}
+            self._creator_context_read_ids = {required_context_id}
+
+        def chat(self, _message):
+            self._creator_last_candidate_result = {
+                "accepted": False,
+                "reason": "ValueError",
+                "message": "episodes[2].contract.result_schema is required",
+            }
+            return "candidate rejected"
+
+    rejecting_session = CreatorDesignSession(
+        service=_Service(),
+        creator_episode_id=creator_id,
+        agent=_RejectingAgent(),
+    )
+    with pytest.raises(CreatorDesignCycleError) as rejected:
+        rejecting_session.next_candidate(
+            SimpleNamespace(units_consumed=0),
+            (),
+            (),
+        )
+    assert rejected.value.code == "candidate_rejected"
+    assert rejected.value.details["candidate_submission"]["message"] == (
+        "episodes[2].contract.result_schema is required"
+    )

@@ -11,6 +11,7 @@ from agent.duet_contracts import (
     ApprovalKind,
     ContractDeficit,
     ContractFieldRecord,
+    CreatorActivityEnvelope,
     CreatorContractDraft,
     CreatorGuidance,
     CreatorProgressEnvelope,
@@ -1277,6 +1278,57 @@ class DuetService:
         )
         return artifact_id
 
+    def publish_creator_activity(
+        self,
+        envelope: CreatorActivityEnvelope,
+    ) -> OpaqueId:
+        """Append one host-observed Creator activity event."""
+
+        if not isinstance(envelope, CreatorActivityEnvelope):
+            raise TypeError("Creator activity must be a CreatorActivityEnvelope")
+        creator = self.store.get_creator(envelope.creator_episode_id.value)
+        if creator is None:
+            raise DuetNotFoundError("unknown Creator Episode")
+        record = envelope.as_record()
+        artifact_id = content_id(
+            "activity",
+            {
+                "duet_id": creator["duet_id"],
+                "envelope": record,
+            },
+        )
+        latest = self.store.latest_artifact(
+            duet_id=creator["duet_id"],
+            kind="creator_activity",
+            creator_episode_id=envelope.creator_episode_id.value,
+        )
+        if latest is not None:
+            if latest["artifact_id"] == artifact_id.value:
+                return artifact_id
+            latest_record = latest["record"]
+            if envelope.attempt < int(latest_record["attempt"]):
+                raise DuetConflictError("Creator activity attempt moved backwards")
+            if envelope.event_index <= int(latest_record["event_index"]):
+                raise DuetConflictError(
+                    "Creator activity event index did not increase"
+                )
+        self.store.put_artifact(
+            artifact_id=artifact_id.value,
+            duet_id=creator["duet_id"],
+            creator_episode_id=envelope.creator_episode_id.value,
+            kind="creator_activity",
+            revision=envelope.event_index,
+            content_hash=Sha256Digest.of_record(record).value,
+            record=record,
+        )
+        self.store.append_event(
+            duet_id=creator["duet_id"],
+            event_type="creator_activity",
+            provenance=DuetProvenance.HOST_VALIDATION.value,
+            record=record,
+        )
+        return artifact_id
+
     @staticmethod
     def _workflow_depths(workflow: EpisodeWorkflowSpec) -> dict[str, int]:
         by_id = {item.local_id: item for item in workflow.episodes}
@@ -1983,14 +2035,76 @@ class DuetService:
         requests = self.information_requests(duet_id)
         creator = self.store.latest_creator(duet_id.value)
         progress = None
+        activity = None
+        activity_history: list[dict[str, Any]] = []
+        failure = None
+        workflow_review = None
         if creator is not None:
+            creator_episode_id = creator["creator_episode_id"]
             latest = self.store.latest_artifact(
                 duet_id=duet_id.value,
                 kind="creator_progress",
-                creator_episode_id=creator["creator_episode_id"],
+                creator_episode_id=creator_episode_id,
             )
             if latest is not None:
                 progress = latest["record"]
+            activity_artifacts = self.store.recent_artifacts_by_kind(
+                duet_id=duet_id.value,
+                kind="creator_activity",
+                creator_episode_id=creator_episode_id,
+                limit=8,
+            )
+            if activity_artifacts:
+                activity_history = [
+                    item["record"] for item in activity_artifacts[-8:]
+                ]
+                activity = activity_history[-1]
+            failure_artifact = self.store.latest_artifact(
+                duet_id=duet_id.value,
+                kind="creator_execution_error",
+                creator_episode_id=creator_episode_id,
+            )
+            if failure_artifact is not None:
+                failure = {
+                    "error_artifact_id": failure_artifact["artifact_id"],
+                    **failure_artifact["record"],
+                }
+                if (
+                    activity is not None
+                    and failure.get("attempt") != activity.get("attempt")
+                ):
+                    failure = None
+            review_artifact = self.store.latest_artifact(
+                duet_id=duet_id.value,
+                kind="workflow_shadow_review",
+                creator_episode_id=creator_episode_id,
+            )
+            if review_artifact is not None:
+                review_record = review_artifact["record"]
+                lens_summaries = []
+                for lens, review in sorted(
+                    (review_record.get("lenses") or {}).items()
+                ):
+                    findings = review.get("findings") or []
+                    lens_summaries.append(
+                        {
+                            "lens": lens,
+                            "verdict": review.get("verdict", "unknown"),
+                            "finding_codes": [
+                                item.get("code")
+                                for item in findings
+                                if isinstance(item, Mapping)
+                                and isinstance(item.get("code"), str)
+                            ],
+                        }
+                    )
+                workflow_review = {
+                    "review_artifact_id": review_artifact["artifact_id"],
+                    "workflow_blueprint_hash": review_record.get(
+                        "workflow_blueprint_hash"
+                    ),
+                    "lenses": lens_summaries,
+                }
         creator_approval = self.store.latest_approval(
             duet_id=duet_id.value,
             kind=ApprovalKind.CREATOR_CONTRACT.value,
@@ -2082,6 +2196,10 @@ class DuetService:
                 None if creator is None else creator["creator_episode_id"]
             ),
             "creator_progress": progress,
+            "creator_activity": activity,
+            "creator_activity_history": activity_history,
+            "creator_failure": failure,
+            "workflow_review": workflow_review,
             "creator_contract_approval": creator_approval,
             "workflow_approval": workflow_approval,
             "launch": launch,

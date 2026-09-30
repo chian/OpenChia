@@ -158,6 +158,21 @@ class CreatorLaunchState(str, Enum):
     COMPLETED = "completed"
 
 
+class CreatorActivityStage(str, Enum):
+    """Host-observed stage of one Creator execution attempt."""
+
+    INITIALIZING = "initializing"
+    GATHERING_CONTEXT = "gathering_context"
+    DESIGNING = "designing"
+    REVIEWING = "reviewing"
+    REVISING = "revising"
+    SUBMITTING = "submitting"
+    RUNNING_CANDIDATE = "running_candidate"
+    EVALUATING = "evaluating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class FieldImpact(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
@@ -621,6 +636,65 @@ class CreatorProgressEnvelope:
 
 
 @dataclass(frozen=True)
+class CreatorActivityEnvelope:
+    """Durable, structured live activity without model reasoning or prose."""
+
+    creator_episode_id: OpaqueId
+    attempt: int
+    event_index: int
+    stage: CreatorActivityStage
+    activity_code: str
+    attempt_started_at: float
+    observed_at: float
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        _opaque(self.creator_episode_id, "creator_episode_id")
+        object.__setattr__(
+            self,
+            "attempt",
+            _integer(self.attempt, "attempt", minimum=1),
+        )
+        object.__setattr__(
+            self,
+            "event_index",
+            _integer(self.event_index, "event_index", minimum=1),
+        )
+        if not isinstance(self.stage, CreatorActivityStage):
+            raise ValueError("stage must be a CreatorActivityStage")
+        object.__setattr__(
+            self,
+            "activity_code",
+            _identifier(self.activity_code, "activity_code"),
+        )
+        attempt_started_at = _number(self.attempt_started_at, "attempt_started_at")
+        observed_at = _number(self.observed_at, "observed_at")
+        if attempt_started_at < 0 or observed_at < attempt_started_at:
+            raise ValueError(
+                "Creator activity timestamps must be ordered non-negative values"
+            )
+        object.__setattr__(self, "attempt_started_at", attempt_started_at)
+        object.__setattr__(self, "observed_at", observed_at)
+        details = _json_value(self.details, "details")
+        if not isinstance(details, dict):
+            raise ValueError("details must be a mapping")
+        object.__setattr__(self, "details", MappingProxyType(details))
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "creator_episode_id": self.creator_episode_id.value,
+            "attempt": self.attempt,
+            "event_index": self.event_index,
+            "stage": self.stage.value,
+            "activity_code": self.activity_code,
+            "attempt_started_at": self.attempt_started_at,
+            "observed_at": self.observed_at,
+            "details": dict(self.details),
+        }
+
+
+@dataclass(frozen=True)
 class CreatorLaunchReceipt:
     """Host-produced receipt proving that admission reached an execution host."""
 
@@ -797,6 +871,8 @@ __all__ = [
     "ApprovalKind",
     "ContractDeficit",
     "ContractFieldRecord",
+    "CreatorActivityEnvelope",
+    "CreatorActivityStage",
     "CreatorGuidance",
     "CreatorLaunchReceipt",
     "CreatorLaunchState",

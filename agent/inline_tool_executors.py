@@ -509,6 +509,19 @@ def _creator_context_read(agent, args: dict, ctx: InlineToolContext) -> Any:
         if artifact is None:
             raise PermissionError("context artifact is not authorized for this Creator")
         reads.add(artifact_id)
+        _publish_creator_activity(
+            agent,
+            "gathering_context",
+            "creator_context_read",
+            {
+                "artifact_id": artifact_id,
+                "required": artifact_id
+                in getattr(agent, "_creator_required_context_ids", frozenset()),
+                "remaining_required_count": len(
+                    _required_creator_context_unread(agent)
+                ),
+            },
+        )
         return json.dumps(
             {
                 "artifact_id": artifact_id,
@@ -535,6 +548,28 @@ def _required_creator_context_unread(agent) -> list[str]:
     return sorted(set(required) - reads)
 
 
+def _publish_creator_activity(
+    agent: Any,
+    stage: str,
+    activity_code: str,
+    details: dict[str, Any],
+) -> None:
+    """Best-effort bridge from Creator protocol tools to host activity state."""
+
+    publisher = getattr(agent, "_creator_activity_publisher", None)
+    if not callable(publisher):
+        return
+    try:
+        publisher(stage, activity_code, details)
+    except Exception:
+        return
+
+
+def _creator_protocol_result(agent: Any, name: str, result: dict[str, Any]) -> str:
+    setattr(agent, name, dict(result))
+    return json.dumps(result, sort_keys=True)
+
+
 def _creator_log_read(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
         log_store = getattr(agent, "_creator_log_store", None)
@@ -548,6 +583,12 @@ def _creator_log_read(agent, args: dict, ctx: InlineToolContext) -> Any:
             reference,
             offset=args.get("offset", 0),
             limit=args.get("limit", 65_536),
+        )
+        _publish_creator_activity(
+            agent,
+            "gathering_context",
+            "creator_run_log_read",
+            {"log_artifact_id": reference.artifact_id.value},
         )
         return json.dumps(
             {
@@ -570,54 +611,115 @@ def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
 
     submit = getattr(agent, "_creator_workflow_submit", None)
     if not callable(submit):
-        return json.dumps(
+        return _creator_protocol_result(
+            agent,
+            "_creator_last_candidate_result",
             {"accepted": False, "reason": "no_active_creator_design_cycle"},
-            sort_keys=True,
         )
     unread_context = _required_creator_context_unread(agent)
     if unread_context:
-        return json.dumps(
+        return _creator_protocol_result(
+            agent,
+            "_creator_last_candidate_result",
             {
                 "accepted": False,
                 "reason": "required_context_unread",
                 "artifact_ids": unread_context,
             },
-            sort_keys=True,
         )
     workflow = args.get("workflow")
     if not isinstance(workflow, dict):
-        return json.dumps(
+        return _creator_protocol_result(
+            agent,
+            "_creator_last_candidate_result",
             {"accepted": False, "reason": "invalid_workflow_blueprint"},
-            sort_keys=True,
         )
+    blueprint_hash = Sha256Digest.of_record(workflow).value
+    reviewed_hashes = getattr(agent, "_creator_reviewed_workflow_hashes", set())
+    if blueprint_hash not in reviewed_hashes:
+        result = {
+            "accepted": False,
+            "reason": "workflow_review_required",
+            "workflow_blueprint_hash": blueprint_hash,
+        }
+        _publish_creator_activity(
+            agent,
+            "revising",
+            "workflow_candidate_rejected",
+            {"reason": result["reason"]},
+        )
+        return _creator_protocol_result(
+            agent,
+            "_creator_last_candidate_result",
+            result,
+        )
+    _publish_creator_activity(
+        agent,
+        "submitting",
+        "workflow_candidate_submitting",
+        {"workflow_blueprint_hash": blueprint_hash},
+    )
     try:
-        blueprint_hash = Sha256Digest.of_record(workflow).value
-        reviewed_hashes = getattr(agent, "_creator_reviewed_workflow_hashes", set())
         candidate = submit(workflow)
-        return json.dumps(
+        result = {
+            "accepted": True,
+            "shadow_reviewed": blueprint_hash in reviewed_hashes,
+            "candidate_artifact_id": candidate.artifact_id.value,
+            "revision": candidate.revision,
+            "workflow_hash": candidate.workflow.workflow_hash.value,
+            "episode_count": len(candidate.workflow.episodes),
+        }
+        _publish_creator_activity(
+            agent,
+            "submitting",
+            "workflow_candidate_admitted",
             {
-                "accepted": True,
-                "shadow_reviewed": blueprint_hash in reviewed_hashes,
                 "candidate_artifact_id": candidate.artifact_id.value,
-                "revision": candidate.revision,
-                "workflow_hash": candidate.workflow.workflow_hash.value,
+                "candidate_revision": candidate.revision,
                 "episode_count": len(candidate.workflow.episodes),
             },
-            sort_keys=True,
+        )
+        return _creator_protocol_result(
+            agent,
+            "_creator_last_candidate_result",
+            result,
         )
     except WorkflowAdmissionError as exc:
-        return json.dumps(
+        result = {
+            "accepted": False,
+            "reason": "workflow_admission_failed",
+            "deficits": [item.as_record() for item in exc.deficits],
+        }
+        _publish_creator_activity(
+            agent,
+            "revising",
+            "workflow_candidate_rejected",
             {
-                "accepted": False,
-                "reason": "workflow_admission_failed",
-                "deficits": [item.as_record() for item in exc.deficits],
+                "reason": result["reason"],
+                "deficit_codes": [item.code for item in exc.deficits],
             },
-            sort_keys=True,
+        )
+        return _creator_protocol_result(
+            agent,
+            "_creator_last_candidate_result",
+            result,
         )
     except Exception as exc:
-        return json.dumps(
-            {"accepted": False, "reason": type(exc).__name__},
-            sort_keys=True,
+        result = {
+            "accepted": False,
+            "reason": type(exc).__name__,
+            "message": str(exc)[:2048],
+        }
+        _publish_creator_activity(
+            agent,
+            "revising",
+            "workflow_candidate_rejected",
+            {"reason": result["reason"], "message": result["message"]},
+        )
+        return _creator_protocol_result(
+            agent,
+            "_creator_last_candidate_result",
+            result,
         )
 
 
@@ -647,18 +749,59 @@ def _workflow_review(agent, args: dict, ctx: InlineToolContext) -> Any:
             {"accepted": False, "reason": "invalid_review_request"},
             sort_keys=True,
         )
+    blueprint_hash = Sha256Digest.of_record(workflow).value
+    _publish_creator_activity(
+        agent,
+        "reviewing",
+        "workflow_review_started",
+        {
+            "workflow_blueprint_hash": blueprint_hash,
+            "lenses": list(lenses),
+        },
+    )
     try:
         result = reviewer(workflow, tuple(lenses))
         if isinstance(result, dict) and result.get("accepted") is True:
             reviewed = getattr(agent, "_creator_reviewed_workflow_hashes", None)
             if isinstance(reviewed, set):
-                reviewed.add(Sha256Digest.of_record(workflow).value)
+                reviewed.add(blueprint_hash)
+        lens_results = result.get("lenses") if isinstance(result, dict) else None
+        finding_count = 0
+        blocking_lenses = []
+        if isinstance(lens_results, dict):
+            for lens, review in lens_results.items():
+                if not isinstance(review, dict):
+                    continue
+                finding_count += len(review.get("findings") or ())
+                if review.get("verdict") == "block":
+                    blocking_lenses.append(lens)
+        _publish_creator_activity(
+            agent,
+            "revising" if finding_count else "designing",
+            "workflow_review_completed",
+            {
+                "workflow_blueprint_hash": blueprint_hash,
+                "finding_count": finding_count,
+                "blocking_lenses": sorted(blocking_lenses),
+            },
+        )
+        if isinstance(result, dict):
+            agent._creator_last_review_result = dict(result)
         return json.dumps(result, sort_keys=True)
     except Exception as exc:
-        return json.dumps(
-            {"accepted": False, "reason": type(exc).__name__},
-            sort_keys=True,
+        result = {
+            "accepted": False,
+            "reason": type(exc).__name__,
+            "message": str(exc)[:2048],
+        }
+        agent._creator_last_review_result = dict(result)
+        _publish_creator_activity(
+            agent,
+            "revising",
+            "workflow_review_failed",
+            {"reason": result["reason"], "message": result["message"]},
         )
+        return json.dumps(result, sort_keys=True)
 
 
 # Order is the historical if/elif order of ``execute_tool_calls_sequential``.

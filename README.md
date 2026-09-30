@@ -55,6 +55,7 @@ visible. Use these controls while specifying the Episode:
 /episode unset FIELD             remove a field or dotted path
 /episode capabilities            list capabilities Episodes may be assigned
 /duet                            show Duet, Creator, and Run state
+/creator                         show live Creator stages or failure diagnostics
 /review                          run or show the advisory shadow contract review
 /approve                         approve the ready contract or measured workflow
 ```
@@ -69,16 +70,24 @@ artifact to the host. The Creator then runs design experiments in the
 background. Before freezing each proposed workflow, the Creator can ask
 independent, tool-free critics to inspect contract alignment, measurement and
 evidence, iteration and recovery, capability safety, and task-specific risks.
-Their findings are advisory; only host-measured Run evidence contributes method
-credit. During that work:
+Their findings are advisory, but the exact candidate hash must be reviewed before
+submission; a post-review edit must be reviewed again. Only host-measured Run
+evidence contributes method credit. During that work, the status panel shows the
+current structured stage without exposing private model reasoning:
 
 ```text
 /guide TEXT    queue guidance for the next Creator boundary
 /pause         stop at the next Creator boundary
 /cancel        cancel at the next Creator boundary
-/retry         request another design attempt at the next boundary
+/creator       show recent stages, exact failure code, owner, and next action
+/retry         queue a live-boundary retry or restart a retryable failed Creator
 /logs          list persisted Run Episode logs
 ```
+
+Creator tool validation failures preserve their structured reason, message, and
+deficits. A schema-invalid workflow is reported as a Creator-owned design failure,
+not a generic runtime error. Platform-owned faults remain non-retryable until the
+runtime is fixed.
 
 When a measured workflow awaits adoption, `/approve` approves and launches that
 exact frozen workflow.

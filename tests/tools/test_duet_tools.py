@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 from agent.duet_contracts import CreatorLaunchReceipt, CreatorLaunchState
-from agent.episode_contracts import OpaqueId
+from agent.episode_contracts import OpaqueId, Sha256Digest
 from agent.inline_tool_executors import INLINE_TOOL_EXECUTORS, InlineToolContext
 
 
@@ -137,6 +137,71 @@ def test_workflow_review_is_advisory_and_marks_the_exact_blueprint():
     assert result["accepted"] is True
     assert calls == [(workflow, ("contract_alignment",))]
     assert len(agent._creator_reviewed_workflow_hashes) == 1
+
+
+def test_workflow_candidate_preserves_validation_message_and_activity():
+    activity = []
+    workflow = {"episodes": []}
+
+    def reject(_workflow):
+        raise ValueError("episodes[2].contract.result_schema is required")
+
+    agent = SimpleNamespace(
+        _creator_workflow_submit=reject,
+        _creator_required_context_ids=frozenset(),
+        _creator_context_read_ids=set(),
+        _creator_reviewed_workflow_hashes={
+            Sha256Digest.of_record(workflow).value
+        },
+        _creator_activity_publisher=lambda stage, code, details: activity.append(
+            (stage, code, details)
+        ),
+    )
+
+    result = json.loads(
+        INLINE_TOOL_EXECUTORS["workflow_candidate"](
+            agent,
+            {"workflow": workflow},
+            InlineToolContext(effective_task_id="creator"),
+        )
+    )
+
+    assert result == {
+        "accepted": False,
+        "reason": "ValueError",
+        "message": "episodes[2].contract.result_schema is required",
+    }
+    assert agent._creator_last_candidate_result == result
+    assert [item[:2] for item in activity] == [
+        ("submitting", "workflow_candidate_submitting"),
+        ("revising", "workflow_candidate_rejected"),
+    ]
+
+
+def test_workflow_candidate_requires_review_of_the_exact_blueprint_hash():
+    submitted = []
+    workflow = {"episodes": []}
+    agent = SimpleNamespace(
+        _creator_workflow_submit=lambda value: submitted.append(value),
+        _creator_required_context_ids=frozenset(),
+        _creator_context_read_ids=set(),
+        _creator_reviewed_workflow_hashes=set(),
+    )
+
+    result = json.loads(
+        INLINE_TOOL_EXECUTORS["workflow_candidate"](
+            agent,
+            {"workflow": workflow},
+            InlineToolContext(effective_task_id="creator"),
+        )
+    )
+
+    assert result["accepted"] is False
+    assert result["reason"] == "workflow_review_required"
+    assert result["workflow_blueprint_hash"] == (
+        Sha256Digest.of_record(workflow).value
+    )
+    assert submitted == []
 
 
 def test_required_context_is_delivered_exactly_before_workflow_review():

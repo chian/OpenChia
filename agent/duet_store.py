@@ -446,6 +446,38 @@ class DuetStore:
             for row in rows
         )
 
+    def recent_artifacts_by_kind(
+        self,
+        *,
+        duet_id: str,
+        kind: str,
+        creator_episode_id: str,
+        limit: int,
+    ) -> tuple[dict[str, Any], ...]:
+        """Return a bounded oldest-to-newest artifact tail for one Creator."""
+
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("artifact history limit must be a positive integer")
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM artifacts WHERE duet_id = ? AND kind = ? "
+                "AND creator_episode_id = ? "
+                "ORDER BY revision DESC, created_at DESC, artifact_id DESC LIMIT ?",
+                (duet_id, kind, creator_episode_id, limit),
+            ).fetchall()
+        return tuple(
+            {
+                "artifact_id": row["artifact_id"],
+                "duet_id": row["duet_id"],
+                "creator_episode_id": row["creator_episode_id"],
+                "kind": row["kind"],
+                "revision": row["revision"],
+                "content_hash": row["content_hash"],
+                "record": self._decode(row),
+            }
+            for row in reversed(rows)
+        )
+
     def put_approval(self, record: Mapping[str, Any]) -> None:
         record = _object(record, "approval")
         payload = canonical_json(record)

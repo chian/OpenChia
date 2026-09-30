@@ -8,6 +8,8 @@ from agent.duet_contracts import (
     ApprovalKind,
     ContractDeficit,
     ContractFieldRecord,
+    CreatorActivityEnvelope,
+    CreatorActivityStage,
     CreatorContractDraft,
     CreatorProgressEnvelope,
     DuetIdentity,
@@ -1095,6 +1097,41 @@ def test_creator_progress_is_atomic_monotonic_and_visible_without_log_content(du
         service.publish_creator_progress(
             replace(envelope, sequence=0, state=DuetDesignState.DESIGNING)
         )
+
+
+def test_creator_activity_is_typed_durable_and_visible_as_recent_history(duet):
+    identity, policy, _store, service = duet
+    _spec, creator_id = _admitted_creator(identity, policy, service)
+    first = CreatorActivityEnvelope(
+        creator_episode_id=creator_id,
+        attempt=1,
+        event_index=1,
+        stage=CreatorActivityStage.DESIGNING,
+        activity_code="design_cycle_started",
+        attempt_started_at=100.0,
+        observed_at=100.0,
+        details={"unit_index": 0},
+    )
+    second = CreatorActivityEnvelope(
+        creator_episode_id=creator_id,
+        attempt=1,
+        event_index=2,
+        stage=CreatorActivityStage.REVIEWING,
+        activity_code="workflow_review_started",
+        attempt_started_at=100.0,
+        observed_at=104.0,
+        details={"lenses": ["contract_alignment"]},
+    )
+
+    service.publish_creator_activity(first)
+    service.publish_creator_activity(second)
+    status = service.duet_status(identity.duet_id)
+
+    assert status["creator_activity"] == second.as_record()
+    assert status["creator_activity_history"] == [
+        first.as_record(),
+        second.as_record(),
+    ]
 
 
 def test_low_credit_run_is_retained_for_learning_but_not_approvable(duet):

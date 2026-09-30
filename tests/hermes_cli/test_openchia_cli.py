@@ -7,6 +7,7 @@ import pytest
 from hermes_cli.openchia_cli import (
     OpenChiaCLI,
     episode_configuration_changes,
+    render_creator_diagnostics,
     render_openchia_status,
 )
 from hermes_cli.openchia_main import main
@@ -61,6 +62,82 @@ def test_status_panel_is_compact_and_contextual():
     )
     assert "shadow review: concern" in ready
     assert "/review · /approve" in ready
+
+    running = render_openchia_status(
+        {
+            "state": "designing",
+            "creator_episode_id": "episode_" + "a" * 64,
+            "creator_progress": {
+                "state": "designing",
+                "candidate_revision": 0,
+                "method_credit": None,
+            },
+            "creator_activity": {
+                "attempt": 1,
+                "stage": "reviewing",
+                "activity_code": "workflow_review_started",
+                "details": {
+                    "lenses": [
+                        "contract_alignment",
+                        "measurement_evidence",
+                        "capability_safety",
+                    ]
+                },
+            },
+        }
+    )
+    assert "Stage 3/6" in running
+    assert "independent workflow review (3 lenses)" in running
+    assert "/creator" in running
+
+
+def test_creator_diagnostics_explains_failure_and_recovery():
+    status = {
+        "state": "failed",
+        "creator_episode_id": "episode_" + "a" * 64,
+        "creator_progress": {"state": "failed", "candidate_revision": 0},
+        "creator_activity": {"attempt": 1},
+        "creator_activity_history": [
+            {
+                "stage": "reviewing",
+                "activity_code": "workflow_review_started",
+                "attempt_started_at": 100.0,
+                "observed_at": 104.0,
+                "details": {"lenses": ["contract_alignment"]},
+            }
+        ],
+        "creator_failure": {
+            "error_code": "candidate_rejected",
+            "owner": "creator",
+            "failed_stage": "submitting",
+            "message": "No admissible candidate",
+            "retryable": True,
+            "contract_change_required": False,
+            "details": {
+                "candidate_submission": {
+                    "reason": "ValueError",
+                    "message": "result_schema is required",
+                }
+            },
+        },
+        "workflow_review": {
+            "lenses": [
+                {
+                    "lens": "contract_alignment",
+                    "verdict": "block",
+                    "finding_codes": ["CAPABILITY_INHERITANCE_ESCALATION"],
+                }
+            ]
+        },
+    }
+
+    rendered = render_creator_diagnostics(status)
+
+    assert "Code: candidate_rejected" in rendered
+    assert "Validation detail: result_schema is required" in rendered
+    assert "Approved Creator contract change required: no" in rendered
+    assert "CAPABILITY_INHERITANCE_ESCALATION" in rendered
+    assert "/retry" in rendered
 
 
 def test_running_prompt_advertises_only_openchia_commands():

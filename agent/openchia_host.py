@@ -12,11 +12,13 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 import json
+import logging
 from pathlib import Path
 import threading
+import time
 from typing import Any, Callable, Iterable, Mapping, Optional
 
-from agent.creator_design_session import CreatorDesignSession
+from agent.creator_design_session import CreatorDesignCycleError, CreatorDesignSession
 from agent.creator_episode import (
     CreatorRunLogStore,
     RunEpisodeStopReason,
@@ -30,6 +32,8 @@ from agent.creator_runtime import (
 from agent.duet_contracts import (
     ApprovalKind,
     ContractFieldRecord,
+    CreatorActivityEnvelope,
+    CreatorActivityStage,
     CreatorLaunchReceipt,
     CreatorLaunchState,
     CreatorProgressEnvelope,
@@ -50,7 +54,11 @@ from agent.episode_blueprints import (
     CREATION_BLUEPRINT_FIELDS,
     workflow_spec_from_blueprint,
 )
-from agent.duet_service import DuetProtocolError, DuetService
+from agent.duet_service import (
+    DuetProtocolError,
+    DuetService,
+    WorkflowAdmissionError,
+)
 from agent.duet_store import DuetStore
 from agent.episode_contracts import (
     ChildEpisodeStopReason,
@@ -89,6 +97,8 @@ WORKFLOW_REVIEW_LENSES = frozenset(
         "task_specific_skeptic",
     }
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OpenChiaHostError(RuntimeError):
@@ -158,6 +168,10 @@ class OpenChiaHost:
         self._lock = threading.RLock()
         self._draft_write_lock = threading.RLock()
         self._creator_threads: dict[str, threading.Thread] = {}
+        self._creator_attempts: dict[str, int] = {}
+        self._creator_activity_indexes: dict[str, int] = {}
+        self._creator_attempt_started_at: dict[str, float] = {}
+        self._creator_execution_ids: dict[str, OpaqueId] = {}
         self._final_threads: dict[str, threading.Thread] = {}
         self._execution_errors: dict[str, str] = {}
         self._final_errors: dict[str, str] = {}
@@ -816,6 +830,7 @@ class OpenChiaHost:
                 workflow_design_artifact_id=candidate.artifact_id,
                 node_local_id=node.local_id,
             )
+            self._begin_creator_attempt(nested_id)
             runtime = self._creator_runtime(nested_id)
             return runtime.bind(goal=goal, nested=True)
 
@@ -828,6 +843,112 @@ class OpenChiaHost:
             ),
             creator_node_builder=nested_creator,
             bindings=self.task_bindings,
+        )
+
+    def _begin_creator_attempt(self, creator_episode_id: OpaqueId) -> int:
+        """Reserve a new durable attempt number and activity sequence."""
+
+        creator_key = creator_episode_id.value
+        latest = self.store.latest_artifact(
+            duet_id=self.service.creator_contract(creator_episode_id).duet_id.value,
+            kind="creator_activity",
+            creator_episode_id=creator_key,
+        )
+        last_attempt = 0
+        last_event_index = 0
+        if latest is not None:
+            last_attempt = int(latest["record"]["attempt"])
+            last_event_index = int(latest["record"]["event_index"])
+        with self._lock:
+            attempt = max(
+                last_attempt,
+                self._creator_attempts.get(creator_key, 0),
+            ) + 1
+            self._creator_attempts[creator_key] = attempt
+            self._creator_activity_indexes[creator_key] = last_event_index
+            self._creator_attempt_started_at[creator_key] = time.time()
+        return attempt
+
+    def _publish_creator_activity(
+        self,
+        creator_episode_id: OpaqueId,
+        stage: CreatorActivityStage | str,
+        activity_code: str,
+        details: Mapping[str, Any],
+    ) -> OpaqueId:
+        """Publish a typed live stage event for the active Creator attempt."""
+
+        if isinstance(stage, str):
+            stage = CreatorActivityStage(stage)
+        creator_key = creator_episode_id.value
+        with self._lock:
+            attempt = self._creator_attempts.get(creator_key)
+            if attempt is None:
+                attempt = 1
+                self._creator_attempts[creator_key] = attempt
+                self._creator_activity_indexes.setdefault(creator_key, 0)
+                self._creator_attempt_started_at.setdefault(
+                    creator_key,
+                    time.time(),
+                )
+            event_index = self._creator_activity_indexes.get(creator_key, 0) + 1
+            self._creator_activity_indexes[creator_key] = event_index
+            attempt_started_at = self._creator_attempt_started_at[creator_key]
+        return self.service.publish_creator_activity(
+            CreatorActivityEnvelope(
+                creator_episode_id=creator_episode_id,
+                attempt=attempt,
+                event_index=event_index,
+                stage=stage,
+                activity_code=activity_code,
+                attempt_started_at=attempt_started_at,
+                observed_at=time.time(),
+                details=details,
+            )
+        )
+
+    def _candidate_run_source(
+        self,
+        creator_episode_id: OpaqueId,
+        candidate: WorkflowCandidateDesign,
+        run_goal: EpisodeGoal,
+    ) -> Any:
+        self._publish_creator_activity(
+            creator_episode_id,
+            CreatorActivityStage.RUNNING_CANDIDATE,
+            "candidate_run_started",
+            {
+                "candidate_artifact_id": candidate.artifact_id.value,
+                "candidate_revision": candidate.revision,
+            },
+        )
+        return self._workflow_runtime(
+            creator_episode_id=creator_episode_id,
+            candidate=candidate,
+        ).source_for_candidate(candidate, run_goal)
+
+    def _evaluate_candidate_run(
+        self,
+        creator_episode_id: OpaqueId,
+        candidate: WorkflowCandidateDesign,
+        record: Any,
+        log: Any,
+    ) -> RunEvaluation:
+        self._publish_creator_activity(
+            creator_episode_id,
+            CreatorActivityStage.EVALUATING,
+            "candidate_run_evaluating",
+            {
+                "candidate_artifact_id": candidate.artifact_id.value,
+                "candidate_revision": candidate.revision,
+                "run_episode_id": record.episode_id,
+            },
+        )
+        return self._run_evaluator(
+            creator_episode_id,
+            candidate,
+            record,
+            log,
         )
 
     def _creator_runtime(self, creator_episode_id: OpaqueId) -> CreatorRuntime:
@@ -857,21 +978,31 @@ class OpenChiaHost:
             **self._role_agent_kwargs("creator", creator_episode_id.value),
         )
         agent_slot["agent"] = agent
+        agent._creator_activity_publisher = (
+            lambda stage, activity_code, details: self._publish_creator_activity(
+                creator_episode_id,
+                stage,
+                activity_code,
+                details,
+            )
+        )
         designer = CreatorDesignSession(
             service=self.service,
             creator_episode_id=creator_episode_id,
             agent=agent,
+            activity_publisher=agent._creator_activity_publisher,
         )
         return CreatorRuntime(
             service=self.service,
             creator_episode_id=creator_episode_id,
             designer=designer,
             log_store=logs,
-            run_source_factory=lambda candidate, run_goal: self._workflow_runtime(
-                creator_episode_id=creator_episode_id,
-                candidate=candidate,
-            ).source_for_candidate(candidate, run_goal),
-            run_evaluator=lambda candidate, record, log: self._run_evaluator(
+            run_source_factory=lambda candidate, run_goal: self._candidate_run_source(
+                creator_episode_id,
+                candidate,
+                run_goal,
+            ),
+            run_evaluator=lambda candidate, record, log: self._evaluate_candidate_run(
                 creator_episode_id,
                 candidate,
                 record,
@@ -896,29 +1027,74 @@ class OpenChiaHost:
         creator_episode_id: OpaqueId,
         exc: BaseException,
     ) -> None:
-        code = type(exc).__name__
+        if isinstance(exc, CreatorDesignCycleError):
+            error_code = exc.code
+            failure_kind = "workflow_design"
+            owner = "creator"
+            retryable = exc.retryable
+            details = dict(exc.details)
+            suggested_action = "retry_creator"
+            contract_change_required = False
+        elif isinstance(exc, WorkflowAdmissionError):
+            error_code = "workflow_admission_failed"
+            failure_kind = "workflow_design"
+            owner = "creator"
+            retryable = True
+            details = {
+                "deficits": [item.as_record() for item in exc.deficits]
+            }
+            suggested_action = "retry_creator"
+            contract_change_required = False
+        else:
+            error_code = "runtime_error"
+            failure_kind = "platform_runtime"
+            owner = "platform"
+            retryable = False
+            details = {}
+            suggested_action = "inspect_platform_error"
+            contract_change_required = False
         with self._lock:
-            self._execution_errors[creator_episode_id.value] = code
+            self._execution_errors[creator_episode_id.value] = error_code
+            attempt = self._creator_attempts.get(creator_episode_id.value, 1)
         creator = self.store.get_creator(creator_episode_id.value)
         if creator is None:
             return
         sequence = int(creator["units_consumed"])
+        status = self.service.duet_status(OpaqueId(creator["duet_id"]))
+        prior_progress = status.get("creator_progress") or {}
+        prior_activity = status.get("creator_activity") or {}
+        failed_stage = prior_activity.get("stage", "initializing")
         self.service.publish_creator_progress(
             CreatorProgressEnvelope(
                 creator_episode_id=creator_episode_id,
                 sequence=sequence,
                 state=DuetDesignState.FAILED,
-                candidate_revision=0,
+                candidate_revision=int(
+                    prior_progress.get("candidate_revision") or 0
+                ),
                 deficit_count=1,
-                validation_codes=("runtime_error",),
-                accepted_evidence_ids=(),
-                method_credit=None,
+                validation_codes=(error_code,),
+                accepted_evidence_ids=tuple(
+                    OpaqueId(item)
+                    for item in prior_progress.get("accepted_evidence_ids", ())
+                ),
+                method_credit=prior_progress.get("method_credit"),
             )
         )
         record = {
+            "schema_version": 1,
             "creator_episode_id": creator_episode_id.value,
-            "error_class": code,
+            "attempt": attempt,
+            "error_code": error_code,
+            "error_class": type(exc).__name__,
             "message": str(exc),
+            "failure_kind": failure_kind,
+            "owner": owner,
+            "failed_stage": failed_stage,
+            "retryable": retryable,
+            "suggested_action": suggested_action,
+            "contract_change_required": contract_change_required,
+            "details": details,
         }
         artifact_id = content_id("error", record)
         self.store.put_artifact(
@@ -926,45 +1102,126 @@ class OpenChiaHost:
             duet_id=creator["duet_id"],
             creator_episode_id=creator_episode_id.value,
             kind="creator_execution_error",
-            revision=sequence,
+            revision=attempt,
             content_hash=Sha256Digest.of_record(record).value,
             record=record,
+        )
+        self._publish_creator_activity(
+            creator_episode_id,
+            CreatorActivityStage.FAILED,
+            "creator_attempt_failed",
+            {
+                "error_artifact_id": artifact_id.value,
+                "error_code": error_code,
+                "failed_stage": failed_stage,
+                "owner": owner,
+                "retryable": retryable,
+            },
         )
 
     def _run_creator(self, creator_episode_id: OpaqueId, execution_id: OpaqueId) -> None:
         try:
+            creator = self.store.get_creator(creator_episode_id.value)
+            sequence = 0 if creator is None else int(creator["units_consumed"])
+            prior_progress = {}
+            if creator is not None:
+                prior_progress = (
+                    self.service.duet_status(OpaqueId(creator["duet_id"])).get(
+                        "creator_progress"
+                    )
+                    or {}
+                )
+            self.service.publish_creator_progress(
+                CreatorProgressEnvelope(
+                    creator_episode_id=creator_episode_id,
+                    sequence=sequence,
+                    state=DuetDesignState.DESIGNING,
+                    candidate_revision=int(
+                        prior_progress.get("candidate_revision") or 0
+                    ),
+                    deficit_count=0,
+                    validation_codes=(),
+                    accepted_evidence_ids=tuple(
+                        OpaqueId(item)
+                        for item in prior_progress.get(
+                            "accepted_evidence_ids",
+                            (),
+                        )
+                    ),
+                    method_credit=prior_progress.get("method_credit"),
+                )
+            )
             runtime = self._creator_runtime(creator_episode_id)
             bounds = runtime.frozen_contract.contract.safety_bounds
             max_depth = 8 if bounds is None else bounds.max_depth
-            runtime.run(
+            record = runtime.run(
                 goal=self._creator_goal(runtime.frozen_contract.contract),
                 run_id=execution_id.value,
                 task_grain=self.task_bindings.grain,
                 max_depth=max_depth,
             )
+            self._publish_creator_activity(
+                creator_episode_id,
+                CreatorActivityStage.COMPLETED,
+                "creator_attempt_completed",
+                {
+                    "ended_by": record.ended_by,
+                    "units_consumed": record.units_consumed,
+                },
+            )
         except Exception as exc:
+            logger.exception(
+                "Creator execution failed: creator_episode_id=%s",
+                creator_episode_id.value,
+            )
             self._record_execution_error(creator_episode_id, exc)
 
-    def launch_creator(self, creator_episode_id: OpaqueId) -> CreatorLaunchReceipt:
+    def launch_creator(
+        self,
+        creator_episode_id: OpaqueId,
+        *,
+        retry: bool = False,
+    ) -> CreatorLaunchReceipt:
         if not isinstance(creator_episode_id, OpaqueId):
             raise TypeError("creator_episode_id must be an OpaqueId")
-        execution_id = content_id(
-            "execution",
-            {"creator_episode_id": creator_episode_id.value},
-        )
         with self._lock:
             existing = self._creator_threads.get(creator_episode_id.value)
             if existing is not None:
-                state = (
-                    CreatorLaunchState.RUNNING
-                    if existing.is_alive()
-                    else CreatorLaunchState.COMPLETED
-                )
-                return CreatorLaunchReceipt(creator_episode_id, execution_id, state)
+                if existing.is_alive():
+                    return CreatorLaunchReceipt(
+                        creator_episode_id,
+                        self._creator_execution_ids[creator_episode_id.value],
+                        CreatorLaunchState.RUNNING,
+                    )
+                if not retry:
+                    return CreatorLaunchReceipt(
+                        creator_episode_id,
+                        self._creator_execution_ids[creator_episode_id.value],
+                        CreatorLaunchState.COMPLETED,
+                    )
+            attempt = self._begin_creator_attempt(creator_episode_id)
+            execution_id = content_id(
+                "execution",
+                {
+                    "creator_episode_id": creator_episode_id.value,
+                    "attempt": attempt,
+                },
+            )
+            self._creator_execution_ids[creator_episode_id.value] = execution_id
+            self._execution_errors.pop(creator_episode_id.value, None)
+            self._publish_creator_activity(
+                creator_episode_id,
+                CreatorActivityStage.INITIALIZING,
+                "creator_attempt_started",
+                {"execution_id": execution_id.value},
+            )
             thread = threading.Thread(
                 target=self._run_creator,
                 args=(creator_episode_id, execution_id),
-                name=f"openchia-creator-{creator_episode_id.value[-12:]}",
+                name=(
+                    f"openchia-creator-{creator_episode_id.value[-12:]}-"
+                    f"attempt-{attempt}"
+                ),
                 daemon=True,
             )
             self._creator_threads[creator_episode_id.value] = thread
@@ -1155,6 +1412,33 @@ class OpenChiaHost:
         )
         self.service.submit_duet_decision(decision.message_id)
         return decision.message_id
+
+    def retry_creator(self) -> tuple[OpaqueId, Optional[CreatorLaunchReceipt]]:
+        """Queue retry guidance and restart a Creator that has no live boundary."""
+
+        creator_id, _sequence = self._current_creator_boundary()
+        with self._lock:
+            thread = self._creator_threads.get(creator_id.value)
+            running = bool(thread and thread.is_alive())
+        status = self.service.duet_status(self.identity.duet_id)
+        failure = status.get("creator_failure") or {}
+        if not running and failure and failure.get("retryable") is not True:
+            raise DuetProtocolError(
+                "this Creator failure requires a platform fix before retry"
+            )
+        decision_id = self.decide_creator(DuetMessageKind.RETRY)
+        if running:
+            return decision_id, None
+        progress = status.get("creator_progress") or {}
+        restartable_states = {
+            DuetDesignState.FAILED.value,
+            DuetDesignState.NO_PROGRESS.value,
+            DuetDesignState.BOUND_HIT.value,
+            DuetDesignState.WAITING_ON_DUET.value,
+        }
+        if progress.get("state") not in restartable_states:
+            return decision_id, None
+        return decision_id, self.launch_creator(creator_id, retry=True)
 
     def status(self) -> dict[str, Any]:
         status = self.service.duet_status(self.identity.duet_id)

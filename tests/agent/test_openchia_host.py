@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent.creator_design_session import CreatorDesignCycleError
 from agent.duet_contracts import ContractFieldRecord, DuetProvenance
 from agent.episode_blueprints import creation_blueprint_from_spec
 from agent.episode_contracts import (
@@ -309,5 +310,35 @@ def test_human_approval_is_visible_to_duet_and_creator_launch_is_idempotent(
         assert first.execution_id == second.execution_id
         assert len(calls) == 1
         assert second.state.value == "completed"
+
+        host._record_execution_error(
+            creator_id,
+            CreatorDesignCycleError(
+                "Creator submitted no admissible workflow candidate: ValueError",
+                code="candidate_rejected",
+                details={
+                    "candidate_submission": {
+                        "accepted": False,
+                        "reason": "ValueError",
+                        "message": "episodes[2].contract.result_schema is required",
+                    }
+                },
+            ),
+        )
+        failed = host.status()
+        assert failed["creator_progress"]["validation_codes"] == [
+            "candidate_rejected"
+        ]
+        assert failed["creator_failure"]["owner"] == "creator"
+        assert failed["creator_failure"]["contract_change_required"] is False
+        assert failed["creator_failure"]["details"]["candidate_submission"][
+            "message"
+        ] == "episodes[2].contract.result_schema is required"
+
+        _decision_id, retry = host.retry_creator()
+        assert retry is not None
+        host._creator_threads[creator_id.value].join(timeout=2)
+        assert retry.execution_id != first.execution_id
+        assert len(calls) == 2
     finally:
         host.close()
