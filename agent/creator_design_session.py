@@ -52,9 +52,17 @@ class CreatorDesignSession(CandidateDesigner):
             raise CreatorDesignCycleError(
                 "this design cycle already has a frozen workflow candidate"
             )
+        creator_contract = self.frozen_contract.contract.creator_contract
+        if creator_contract is None:
+            raise CreatorDesignCycleError(
+                "Creator Episode lacks its structured Creator contract"
+            )
         design = self.service.freeze_workflow_design(
             creator_episode_id=self.creator_episode_id,
             workflow_blueprint=workflow_blueprint,
+            consumed_context_artifact_ids=tuple(
+                sorted(getattr(self.agent, "_creator_context_read_ids", set()))
+            ),
         )
         candidate = WorkflowCandidateDesign(
             revision=design.revision,
@@ -90,6 +98,11 @@ class CreatorDesignSession(CandidateDesigner):
             "creator_contract_artifact_id": self.frozen_contract.artifact_id.value,
             "creator_contract_hash": self.frozen_contract.content_hash.value,
             "creator_contract": self.frozen_contract.contract.as_record(),
+            "creator_context": (
+                None
+                if self.frozen_contract.contract.creator_contract is None
+                else self.frozen_contract.contract.creator_contract.design_context.as_record()
+            ),
             "unit_index": view.units_consumed,
             "previous_run_results": [
                 self._run_summary(item) for item in previous_runs
@@ -114,7 +127,9 @@ class CreatorDesignSession(CandidateDesigner):
                 ),
             },
             "required_action": (
-                "Inspect any useful prior Run log with creator_log_read, then "
+                "Read every required Creator context artifact exactly with "
+                "creator_context_read, inspect any useful prior Run log with "
+                "creator_log_read, then "
                 "draft a complete workflow, call workflow_review with the three core "
                 "lenses and any relevant optional lenses, revise when findings are "
                 "sound, then submit exactly one complete blueprint with workflow_candidate."

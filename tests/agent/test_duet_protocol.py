@@ -18,6 +18,7 @@ from agent.duet_contracts import (
     FieldImpact,
 )
 from agent.duet_service import (
+    CreatorContextValidationError,
     DuetProtocolError,
     DuetService,
     StaleDuetApprovalError,
@@ -38,6 +39,8 @@ from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
     EpisodeCreationSpec,
     EpisodeCreatorContract,
+    EpisodeCreatorContext,
+    EpisodeCreatorContextReference,
     EpisodeCreatorReturnContract,
     EpisodeCreditComponentSpec,
     EpisodeDesignSpec,
@@ -64,7 +67,7 @@ def _identity(label: str = "test") -> DuetIdentity:
     )
 
 
-def _creator_spec() -> EpisodeCreationSpec:
+def _creator_spec(context: EpisodeCreatorContext) -> EpisodeCreationSpec:
     requirement = EpisodeEvidenceRequirement(
         requirement_id="goal_evidence",
         evidence_kind_id="goal_observation",
@@ -100,7 +103,7 @@ def _creator_spec() -> EpisodeCreationSpec:
         can_create_episodes=True,
         execution_capability_names=("web_search",),
         creator_contract=EpisodeCreatorContract(
-            design_instructions="Iterate full workflow candidates using Run Episode logs.",
+            design_context=context,
             design_scope="The workflow required to satisfy the Duet's frozen goal.",
             assignable_capability_names=("web_search",),
             may_assign_creator_capability=False,
@@ -147,6 +150,27 @@ def _draft_fields(
     )
 
 
+def _register_root_context(
+    service: DuetService,
+    identity: DuetIdentity,
+) -> EpisodeCreatorContext:
+    reference = service.register_creator_context_artifact(
+        identity.duet_id,
+        artifact_kind="task_specification",
+        schema_version=1,
+        purpose="creator_entrypoint",
+        required=True,
+        content={
+            "goal": "Design and test a complete nested Episode workflow.",
+            "required_behavior": ["iterate", "run", "inspect", "revise"],
+        },
+    )
+    return EpisodeCreatorContext(
+        entrypoint_artifact_id=reference.artifact_id,
+        artifact_references=(reference,),
+    )
+
+
 @pytest.fixture
 def duet(tmp_path):
     identity = _identity()
@@ -155,6 +179,18 @@ def duet(tmp_path):
     service = DuetService(store, allowed_episode_capabilities={"web_search"})
     yield identity, policy, store, service
     store.close()
+
+
+def _ready_creator_draft(identity, policy, service):
+    empty = service.open_duet(identity, policy)
+    spec = _creator_spec(_register_root_context(service, identity))
+    draft = service.patch_contract(
+        identity.duet_id,
+        expected_revision=empty.revision,
+        patches=_draft_fields(spec),
+        actor=DuetProvenance.HUMAN_INPUT,
+    )
+    return spec, draft
 
 
 def test_incomplete_contract_requests_fields_and_creates_nothing(duet):
@@ -180,7 +216,7 @@ def test_incomplete_contract_requests_fields_and_creates_nothing(duet):
     ) is None
     by_field = {item.field_path: item for item in requests}
     assert by_field["goal"].answer_schema["type"] == "string"
-    assert "design_instructions" in by_field["creator_contract"].answer_schema["properties"]
+    assert "design_context" in by_field["creator_contract"].answer_schema["properties"]
     assert (
         by_field["progress"].answer_schema["properties"]["adapter_id"]["const"]
         == CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER
@@ -221,8 +257,11 @@ def test_incomplete_contract_requests_fields_and_creates_nothing(duet):
 
 def test_nested_validation_deficit_accepts_one_exact_human_answer(duet):
     identity, policy, store, service = duet
-    blueprint = creation_blueprint_from_spec(_creator_spec())
-    blueprint["creator_contract"]["design_instructions"] = "x" * 4097
+    empty = service.open_duet(identity, policy)
+    blueprint = creation_blueprint_from_spec(
+        _creator_spec(_register_root_context(service, identity))
+    )
+    blueprint["creator_contract"]["design_scope"] = "x" * 4097
     fields = tuple(
         ContractFieldRecord(
             field_path=path,
@@ -231,13 +270,18 @@ def test_nested_validation_deficit_accepts_one_exact_human_answer(duet):
         )
         for path, value in blueprint.items()
     )
-    draft = service.open_duet(identity, policy, initial_fields=fields)
+    draft = service.patch_contract(
+        identity.duet_id,
+        expected_revision=empty.revision,
+        patches=fields,
+        actor=DuetProvenance.LLM_PROPOSAL,
+    )
 
     assert [(item.code, item.field_path) for item in draft.deficits] == [
-        ("invalid_contract", "creator_contract.design_instructions")
+        ("invalid_contract", "creator_contract.design_scope")
     ]
     [request] = service.information_requests(identity.duet_id)
-    assert request.field_path == "creator_contract.design_instructions"
+    assert request.field_path == "creator_contract.design_scope"
     assert request.answer_schema == {"type": "string", "maxLength": 4096}
 
     stale = CreatorContractDraft(
@@ -259,7 +303,7 @@ def test_nested_validation_deficit_accepts_one_exact_human_answer(duet):
     refreshed = service.open_duet(identity, policy)
     assert refreshed.revision == stale.revision + 1
     assert refreshed.deficits[0].field_path == (
-        "creator_contract.design_instructions"
+        "creator_contract.design_scope"
     )
 
     [request] = service.information_requests(identity.duet_id)
@@ -271,19 +315,19 @@ def test_nested_validation_deficit_accepts_one_exact_human_answer(duet):
     assert service.duet_status(identity.duet_id)["pending_human_answer"] == {
         "answer_artifact_id": answer.answer_id.value,
         "request_id": request.request_id.value,
-        "field_path": "creator_contract.design_instructions",
+        "field_path": "creator_contract.design_scope",
         "revision": refreshed.revision,
     }
 
     completed = service.submit_duet_answer(answer.answer_id)
     assert completed.ready is True
-    assert completed.materialized()["creator_contract"]["design_instructions"] == (
+    assert completed.materialized()["creator_contract"]["design_scope"] == (
         "Iterate complete workflow candidates and inspect each Run log."
     )
     human_field = next(
         item
         for item in completed.fields
-        if item.field_path == "creator_contract.design_instructions"
+        if item.field_path == "creator_contract.design_scope"
     )
     assert human_field.human_fixed is True
     assert service.duet_status(identity.duet_id)["pending_human_answer"] is None
@@ -294,7 +338,7 @@ def test_nested_validation_deficit_accepts_one_exact_human_answer(duet):
             expected_revision=completed.revision,
             patches=(
                 ContractFieldRecord(
-                    field_path="creator_contract.design_instructions",
+                    field_path="creator_contract.design_scope",
                     value="Replace the human answer.",
                     provenance=DuetProvenance.LLM_PROPOSAL,
                 ),
@@ -305,8 +349,7 @@ def test_nested_validation_deficit_accepts_one_exact_human_answer(duet):
 
 def test_llm_cannot_replace_human_field_and_exact_approval_is_required(duet):
     identity, policy, _store, service = duet
-    spec = _creator_spec()
-    draft = service.open_duet(identity, policy, initial_fields=_draft_fields(spec))
+    spec, draft = _ready_creator_draft(identity, policy, service)
     assert draft.ready is True
 
     with pytest.raises(DuetProtocolError, match="human-fixed"):
@@ -353,8 +396,7 @@ def test_llm_cannot_replace_human_field_and_exact_approval_is_required(duet):
 
 def test_new_draft_revision_invalidates_creator_approval(duet):
     identity, policy, _store, service = duet
-    spec = _creator_spec()
-    draft = service.open_duet(identity, policy, initial_fields=_draft_fields(spec))
+    spec, draft = _ready_creator_draft(identity, policy, service)
     frozen = service.freeze_creator_contract(
         identity.duet_id, expected_revision=draft.revision
     )
@@ -387,9 +429,181 @@ def test_new_draft_revision_invalidates_creator_approval(duet):
         )
 
 
+def test_structured_creator_context_is_exact_and_receipted(duet):
+    identity, policy, _store, service = duet
+    empty = service.open_duet(identity, policy)
+    reference = service.register_creator_context_artifact(
+        identity.duet_id,
+        artifact_kind="task_specification",
+        schema_version=1,
+        purpose="creator_entrypoint",
+        required=True,
+        content={
+            "goal_contract": {"required_gate_ids": ["gate_a", "gate_b"]},
+            "decisions": [{"decision_id": "d1", "value": "preserve_exact"}],
+        },
+    )
+    status = service.duet_status(identity.duet_id)
+    assert status["creator_context_artifacts"] == [
+        {
+            "artifact_id": reference.artifact_id.value,
+            "content_hash": reference.content_hash.value,
+            "artifact_kind": reference.artifact_kind,
+            "schema_version": reference.schema_version,
+            "purpose": reference.purpose,
+            "required": reference.required,
+            "producer_creator_episode_id": None,
+        }
+    ]
+    recovered = service.read_creator_context_artifact(
+        identity.duet_id,
+        reference.artifact_id,
+    )
+    assert recovered["content"]["decisions"][0]["value"] == "preserve_exact"
+    context = EpisodeCreatorContext(
+        entrypoint_artifact_id=reference.artifact_id,
+        artifact_references=(reference,),
+    )
+    spec = _creator_spec(context)
+    restored = EpisodeCreationSpec.from_record(spec.as_record())
+    assert restored == spec
+    assert set(restored.as_record()["creator_contract"]) == {
+        "design_context",
+        "design_scope",
+        "assignable_capability_names",
+        "may_assign_creator_capability",
+        "evidence_requirements",
+        "required_existing_evidence_ids",
+        "credit_assignment",
+        "return_contract",
+    }
+
+    draft = service.patch_contract(
+        identity.duet_id,
+        expected_revision=empty.revision,
+        patches=_draft_fields(spec, DuetProvenance.LLM_PROPOSAL),
+        actor=DuetProvenance.LLM_PROPOSAL,
+    )
+    assert draft.ready is True
+    frozen = service.freeze_creator_contract(
+        identity.duet_id,
+        expected_revision=draft.revision,
+    )
+    approval = service.record_human_approval(
+        identity,
+        kind=ApprovalKind.CREATOR_CONTRACT,
+        artifact_id=frozen.artifact_id,
+        content_hash=frozen.content_hash,
+        revision=frozen.revision,
+    )
+    creator_id = service.submit_episode_creator(
+        contract_artifact_id=frozen.artifact_id,
+        content_hash=frozen.content_hash,
+        human_approval_id=approval.approval_id,
+    )
+    resolved = service.creator_context_artifacts(creator_id)
+    assert resolved[reference.artifact_id.value]["content"] == {
+        "goal_contract": {"required_gate_ids": ["gate_a", "gate_b"]},
+        "decisions": [{"decision_id": "d1", "value": "preserve_exact"}],
+    }
+
+    workflow = EpisodeWorkflowSpec(
+        (EpisodeDesignSpec("root", None, _task_spec()),)
+    )
+    blueprint = workflow_blueprint_from_spec(workflow)
+    with pytest.raises(WorkflowAdmissionError) as unread:
+        service.freeze_workflow_design(
+            creator_episode_id=creator_id,
+            workflow_blueprint=blueprint,
+        )
+    assert [item.code for item in unread.value.deficits] == [
+        "required_context_unread"
+    ]
+    design = service.freeze_workflow_design(
+        creator_episode_id=creator_id,
+        workflow_blueprint=blueprint,
+        consumed_context_artifact_ids=(reference.artifact_id.value,),
+    )
+    assert design.context_receipts == (reference,)
+
+
+def test_creator_context_rejects_hash_mismatch_and_raw_secrets(duet):
+    identity, policy, _store, service = duet
+    service.open_duet(identity, policy)
+    reference = service.register_creator_context_artifact(
+        identity.duet_id,
+        artifact_kind="interface_contract",
+        schema_version=2,
+        purpose="handoff_contract",
+        required=True,
+        content={"input_schema": {"type": "object"}},
+    )
+    bad_reference = EpisodeCreatorContextReference(
+        artifact_id=reference.artifact_id,
+        content_hash=replace(
+            reference.content_hash,
+            value="sha256:" + "0" * 64,
+        ),
+        artifact_kind=reference.artifact_kind,
+        schema_version=reference.schema_version,
+        purpose=reference.purpose,
+        required=True,
+    )
+    with pytest.raises(CreatorContextValidationError) as mismatch:
+        service.resolve_creator_context(
+            identity.duet_id,
+            EpisodeCreatorContext(
+                entrypoint_artifact_id=bad_reference.artifact_id,
+                artifact_references=(bad_reference,),
+            ),
+        )
+    assert mismatch.value.code == "context_artifact_hash_mismatch"
+
+    wrong_purpose = replace(reference, purpose="different_handoff")
+    with pytest.raises(CreatorContextValidationError) as metadata_mismatch:
+        service.resolve_creator_context(
+            identity.duet_id,
+            EpisodeCreatorContext(
+                entrypoint_artifact_id=wrong_purpose.artifact_id,
+                artifact_references=(wrong_purpose,),
+            ),
+        )
+    assert metadata_mismatch.value.code == "context_artifact_metadata_mismatch"
+
+    with pytest.raises(ValueError, match="raw secret"):
+        service.register_creator_context_artifact(
+            identity.duet_id,
+            artifact_kind="reference",
+            schema_version=1,
+            purpose="unsafe_reference",
+            required=False,
+            content={"value": "sk-" + "a" * 32},
+        )
+    with pytest.raises(ValueError, match="secret-shaped key"):
+        service.register_creator_context_artifact(
+            identity.duet_id,
+            artifact_kind="reference",
+            schema_version=1,
+            purpose="unsafe_reference",
+            required=False,
+            content={"api_key": "not-even-a-recognizable-key"},
+        )
+    safe_budget = service.register_creator_context_artifact(
+        identity.duet_id,
+        artifact_kind="safety_policy",
+        schema_version=1,
+        purpose="bounded_execution",
+        required=False,
+        content={
+            "token_budget": 20_000,
+            "credential_requirements": "human_supplied_and_secret_redacted",
+        },
+    )
+    assert safe_budget.artifact_kind == "safety_policy"
+
+
 def _admitted_creator(identity, policy, service):
-    spec = _creator_spec()
-    draft = service.open_duet(identity, policy, initial_fields=_draft_fields(spec))
+    spec, draft = _ready_creator_draft(identity, policy, service)
     frozen = service.freeze_creator_contract(
         identity.duet_id, expected_revision=draft.revision
     )
@@ -408,7 +622,126 @@ def _admitted_creator(identity, policy, service):
     return spec, creator_id
 
 
-def _task_spec(*, capabilities=("web_search",), creator=False):
+def test_creator_context_rejects_a_sibling_branch_artifact(tmp_path):
+    identity = _identity("context-siblings")
+    policy = DuetPolicy(
+        policy_id=identity.policy_id,
+        maximum_creator_depth=3,
+    )
+    with DuetStore(tmp_path / "context-siblings.sqlite3") as store:
+        service = DuetService(
+            store,
+            allowed_episode_capabilities={"web_search"},
+        )
+        empty = service.open_duet(identity, policy)
+        parent_context = _register_root_context(service, identity)
+        parent_spec = _creator_spec(parent_context)
+        parent_spec = replace(
+            parent_spec,
+            creator_contract=replace(
+                parent_spec.creator_contract,
+                may_assign_creator_capability=True,
+            ),
+        )
+        draft = service.patch_contract(
+            identity.duet_id,
+            expected_revision=empty.revision,
+            patches=_draft_fields(parent_spec),
+            actor=DuetProvenance.HUMAN_INPUT,
+        )
+        frozen = service.freeze_creator_contract(
+            identity.duet_id,
+            expected_revision=draft.revision,
+        )
+        approval = service.record_human_approval(
+            identity,
+            kind=ApprovalKind.CREATOR_CONTRACT,
+            artifact_id=frozen.artifact_id,
+            content_hash=frozen.content_hash,
+            revision=frozen.revision,
+        )
+        root_id = service.submit_episode_creator(
+            contract_artifact_id=frozen.artifact_id,
+            content_hash=frozen.content_hash,
+            human_approval_id=approval.approval_id,
+        )
+        child_contexts = []
+        for branch in ("a", "b"):
+            reference = service.register_creator_context_artifact(
+                identity.duet_id,
+                artifact_kind="interface_contract",
+                schema_version=1,
+                purpose=f"branch_{branch}_entrypoint",
+                required=True,
+                content={"branch": branch},
+                producer_creator_episode_id=root_id,
+            )
+            child_contexts.append(
+                EpisodeCreatorContext(
+                    entrypoint_artifact_id=reference.artifact_id,
+                    artifact_references=(reference,),
+                )
+            )
+        workflow = EpisodeWorkflowSpec(
+            (
+                EpisodeDesignSpec("root", None, _task_spec()),
+                EpisodeDesignSpec(
+                    "branch_a",
+                    "root",
+                    _task_spec(creator=True, creator_context=child_contexts[0]),
+                ),
+                EpisodeDesignSpec(
+                    "branch_b",
+                    "root",
+                    _task_spec(creator=True, creator_context=child_contexts[1]),
+                ),
+            )
+        )
+        design = service.freeze_workflow_design(
+            creator_episode_id=root_id,
+            consumed_context_artifact_ids=(
+                parent_context.entrypoint_artifact_id.value,
+            ),
+            workflow_blueprint=workflow_blueprint_from_spec(workflow),
+        )
+        sibling_ids = tuple(
+            service.admit_nested_creator(
+                parent_creator_episode_id=root_id,
+                workflow_design_artifact_id=design.artifact_id,
+                node_local_id=branch,
+            )
+            for branch in ("branch_a", "branch_b")
+        )
+        sibling_artifact = service.register_creator_context_artifact(
+            identity.duet_id,
+            artifact_kind="interface_contract",
+            schema_version=1,
+            purpose="private_branch_handoff",
+            required=True,
+            content={"owner": "sibling_a"},
+            producer_creator_episode_id=sibling_ids[0],
+        )
+        context = EpisodeCreatorContext(
+            entrypoint_artifact_id=sibling_artifact.artifact_id,
+            artifact_references=(sibling_artifact,),
+        )
+
+        with pytest.raises(CreatorContextValidationError) as denied:
+            service.resolve_creator_context(
+                identity.duet_id,
+                context,
+                consumer_creator_episode_id=sibling_ids[1],
+            )
+
+        assert denied.value.code == "context_artifact_scope_violation"
+
+
+def _task_spec(
+    *,
+    capabilities=("web_search",),
+    creator=False,
+    creator_context=None,
+):
     return EpisodeCreationSpec(
         goal="Collect one accepted observation for the frozen workflow goal.",
         progress=NumericProgressMeasure(
@@ -430,7 +763,11 @@ def _task_spec(*, capabilities=("web_search",), creator=False):
         ),
         can_create_episodes=creator,
         execution_capability_names=capabilities,
-        creator_contract=_creator_spec().creator_contract if creator else None,
+        creator_contract=(
+            _creator_spec(creator_context).creator_contract
+            if creator
+            else None
+        ),
         safety_bounds=EpisodeSafetyBounds(max_iterations=3, max_depth=2),
     )
 
@@ -460,7 +797,16 @@ def test_invalid_workflow_persists_no_candidate(duet):
     ) is None
 
     recursive = EpisodeWorkflowSpec(
-        (EpisodeDesignSpec("root", None, _task_spec(creator=True)),)
+        (
+            EpisodeDesignSpec(
+                "root",
+                None,
+                _task_spec(
+                    creator=True,
+                    creator_context=_spec.creator_contract.design_context,
+                ),
+            ),
+        )
     )
     with pytest.raises(WorkflowAdmissionError) as recursive_error:
         service.submit_workflow_candidate(
@@ -481,23 +827,26 @@ def test_recursive_creator_is_allowed_only_by_an_explicit_narrower_contract(tmp_
         minimum_method_credit=0.8,
         maximum_creator_depth=2,
     )
-    parent_spec = _creator_spec()
-    parent_spec = replace(
-        parent_spec,
-        creator_contract=replace(
-            parent_spec.creator_contract,
-            may_assign_creator_capability=True,
-        ),
-    )
     with DuetStore(tmp_path / "recursive.sqlite3") as store:
         service = DuetService(
             store,
             allowed_episode_capabilities={"web_search"},
         )
-        draft = service.open_duet(
-            identity,
-            policy,
-            initial_fields=_draft_fields(parent_spec),
+        empty = service.open_duet(identity, policy)
+        parent_context = _register_root_context(service, identity)
+        parent_spec = _creator_spec(parent_context)
+        parent_spec = replace(
+            parent_spec,
+            creator_contract=replace(
+                parent_spec.creator_contract,
+                may_assign_creator_capability=True,
+            ),
+        )
+        draft = service.patch_contract(
+            identity.duet_id,
+            expected_revision=empty.revision,
+            patches=_draft_fields(parent_spec),
+            actor=DuetProvenance.HUMAN_INPUT,
         )
         frozen = service.freeze_creator_contract(
             identity.duet_id,
@@ -515,7 +864,23 @@ def test_recursive_creator_is_allowed_only_by_an_explicit_narrower_contract(tmp_
             content_hash=frozen.content_hash,
             human_approval_id=approval.approval_id,
         )
-        nested_creator_spec = _task_spec(creator=True)
+        child_context_reference = service.register_creator_context_artifact(
+            identity.duet_id,
+            artifact_kind="interface_contract",
+            schema_version=1,
+            purpose="nested_creator_handoff",
+            required=True,
+            content={"accepted_parent_fields": ["artifact_id", "content_hash"]},
+            producer_creator_episode_id=creator_id,
+        )
+        child_context = EpisodeCreatorContext(
+            entrypoint_artifact_id=child_context_reference.artifact_id,
+            artifact_references=(child_context_reference,),
+        )
+        nested_creator_spec = _task_spec(
+            creator=True,
+            creator_context=child_context,
+        )
         nested_creator_spec = replace(
             nested_creator_spec,
             creator_contract=replace(
@@ -528,6 +893,9 @@ def test_recursive_creator_is_allowed_only_by_an_explicit_narrower_contract(tmp_
         )
         design = service.freeze_workflow_design(
             creator_episode_id=creator_id,
+            consumed_context_artifact_ids=(
+                parent_context.entrypoint_artifact_id.value,
+            ),
             workflow_blueprint=workflow_blueprint_from_spec(recursive_workflow),
         )
         nested_creator_id = service.admit_nested_creator(
@@ -538,6 +906,10 @@ def test_recursive_creator_is_allowed_only_by_an_explicit_narrower_contract(tmp_
         nested_row = store.get_creator(nested_creator_id.value)
         assert nested_row["parent_creator_episode_id"] == creator_id.value
         assert nested_row["design_artifact_id"] == design.artifact_id.value
+        nested_context = service.creator_context_artifacts(nested_creator_id)
+        assert nested_context[child_context_reference.artifact_id.value]["content"] == {
+            "accepted_parent_fields": ["artifact_id", "content_hash"]
+        }
         assert service.creator_contract(nested_creator_id).contract == (
             design.workflow.episodes[0].contract
         )
@@ -560,6 +932,9 @@ def test_recursive_creator_is_allowed_only_by_an_explicit_narrower_contract(tmp_
         with pytest.raises(WorkflowAdmissionError) as depth_error:
             service.freeze_workflow_design(
                 creator_episode_id=nested_creator_id,
+                consumed_context_artifact_ids=(
+                    child_context_reference.artifact_id.value,
+                ),
                 workflow_blueprint=workflow_blueprint_from_spec(
                     EpisodeWorkflowSpec(
                         (
@@ -577,13 +952,23 @@ def test_recursive_creator_is_allowed_only_by_an_explicit_narrower_contract(tmp_
         }
         creator_with_predeclared_child = EpisodeWorkflowSpec(
             (
-                EpisodeDesignSpec("root", None, _task_spec(creator=True)),
+                EpisodeDesignSpec(
+                    "root",
+                    None,
+                    _task_spec(
+                        creator=True,
+                        creator_context=child_context,
+                    ),
+                ),
                 EpisodeDesignSpec("child", "root", _task_spec()),
             )
         )
         with pytest.raises(WorkflowAdmissionError) as invalid_shape:
             service.freeze_workflow_design(
                 creator_episode_id=creator_id,
+                consumed_context_artifact_ids=(
+                    parent_context.entrypoint_artifact_id.value,
+                ),
                 workflow_blueprint=workflow_blueprint_from_spec(
                     creator_with_predeclared_child
                 ),
@@ -614,6 +999,9 @@ def test_host_credit_workflow_approval_and_atomic_launch(duet):
     )
     design = service.freeze_workflow_design(
         creator_episode_id=creator_id,
+        consumed_context_artifact_ids=(
+            _spec.creator_contract.design_context.entrypoint_artifact_id.value,
+        ),
         workflow_blueprint=workflow_blueprint_from_spec(workflow),
     )
     assert design.workflow_hash == design.workflow.workflow_hash
@@ -808,6 +1196,9 @@ def test_creator_runtime_seals_run_log_before_publishing_closed_progress(duet, t
     )
     design = service.freeze_workflow_design(
         creator_episode_id=creator_id,
+        consumed_context_artifact_ids=(
+            _spec.creator_contract.design_context.entrypoint_artifact_id.value,
+        ),
         workflow_blueprint=workflow_blueprint_from_spec(workflow),
     )
 

@@ -17,7 +17,7 @@ from typing import Any
 from prompt_toolkit.layout import FormattedTextControl, Window
 from rich.markup import escape
 
-from agent.duet_contracts import DuetMessageKind
+from agent.duet_contracts import OPENCHIA_CONTROL_PLANE_TOOLS, DuetMessageKind
 from agent.episode_blueprints import CREATION_BLUEPRINT_FIELDS
 from agent.openchia_host import OpenChiaHost
 from cli import HermesCLI
@@ -130,7 +130,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
 
     labels = {
         "goal": "intended outcome",
-        "creator_contract.design_instructions": "Creator design instructions",
+        "creator_contract.design_context": "structured Creator context",
         "creator_contract.design_scope": "Creator design scope",
         "result": "concrete result",
         "unit": "repeatable cycle",
@@ -176,6 +176,7 @@ class OpenChiaCLI(HermesCLI):
         "/cancel": "Cancel the Creator at its next boundary",
         "/retry": "Request another design attempt at the next boundary",
         "/logs": "List persisted Run Episode logs",
+        "/stop": "Interrupt the current turn and stop owned background work",
         "/help": "Show OpenChia controls",
     }
     _inherited_commands = frozenset(
@@ -228,18 +229,10 @@ class OpenChiaCLI(HermesCLI):
     def _tool_names(agent: Any) -> tuple[str, ...]:
         import model_tools
 
-        excluded = {
-            "creator_log_read",
+        excluded = set(OPENCHIA_CONTROL_PLANE_TOOLS) | {
             "delegate_task",
-            "duet_answer",
-            "duet_contract_patch",
-            "duet_decision",
-            "duet_status",
-            "episode_creator",
-            "episode_progress",
             "tool_call",
             "tool_search",
-            "workflow_candidate",
         }
         names = set()
         for tool in model_tools.get_tool_definitions(
@@ -981,6 +974,7 @@ class OpenChiaCLI(HermesCLI):
                 "  /cancel           cancel the Creator at its next boundary\n"
                 "  /retry            request another design attempt at the next boundary\n"
                 "  /logs             list persisted Run Episode logs\n"
+                "  /stop             interrupt the current turn and stop owned background work\n"
                 "Session controls: /model, /status, /context, /history, /quit"
             )
             return True

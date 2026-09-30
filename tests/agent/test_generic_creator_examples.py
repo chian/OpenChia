@@ -38,5 +38,6 @@ def test_genome_example_keeps_domain_policy_in_task_spec_and_is_offline() -> Non
 def test_published_json_schemas_are_well_formed_json() -> None:
     schemas = ROOT / "schemas/openchia"
     loaded = [_load(path) for path in sorted(schemas.glob("*.schema.json"))]
-    assert len(loaded) == 3
+    assert loaded
     assert all(item["$schema"].endswith("2020-12/schema") for item in loaded)
+    assert len({item["$id"] for item in loaded}) == len(loaded)

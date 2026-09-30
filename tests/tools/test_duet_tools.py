@@ -48,6 +48,9 @@ def test_duet_protocol_tools_are_agent_bound_and_delegate_is_absent():
         "duet_answer",
         "duet_decision",
         "episode_creator",
+        "creator_context_artifact",
+        "creator_context_read",
+        "openchia_scope",
         "creator_log_read",
         "workflow_review",
         "workflow_candidate",
@@ -55,6 +58,57 @@ def test_duet_protocol_tools_are_agent_bound_and_delegate_is_absent():
     }
     assert expected <= set(INLINE_TOOL_EXECUTORS)
     assert "delegate_task" not in INLINE_TOOL_EXECUTORS
+
+
+def test_openchia_scope_returns_exact_host_derived_role_boundaries():
+    context = InlineToolContext(effective_task_id="scope")
+    duet = SimpleNamespace(
+        _openchia_authority_scope={
+            "schema_version": 1,
+            "role": "duet",
+            "callable_tool_names": ["duet_status", "openchia_scope"],
+            "assignable_child_capability_names": ["web_search"],
+        }
+    )
+    creator = SimpleNamespace(
+        _openchia_authority_scope={
+            "schema_version": 1,
+            "role": "creator",
+            "callable_tool_names": ["openchia_scope", "workflow_candidate"],
+            "assignable_child_capability_names": ["terminal"],
+            "may_create_child_creators": False,
+        }
+    )
+
+    duet_scope = json.loads(
+        INLINE_TOOL_EXECUTORS["openchia_scope"](duet, {}, context)
+    )
+    creator_scope = json.loads(
+        INLINE_TOOL_EXECUTORS["openchia_scope"](creator, {}, context)
+    )
+
+    assert duet_scope["accepted"] is True
+    assert duet_scope["scope"]["role"] == "duet"
+    assert duet_scope["scope"]["callable_tool_names"] != duet_scope["scope"][
+        "assignable_child_capability_names"
+    ]
+    assert creator_scope["scope"]["role"] == "creator"
+    assert creator_scope["scope"]["may_create_child_creators"] is False
+
+
+def test_openchia_scope_fails_closed_without_host_binding():
+    result = json.loads(
+        INLINE_TOOL_EXECUTORS["openchia_scope"](
+            SimpleNamespace(),
+            {},
+            InlineToolContext(effective_task_id="scope"),
+        )
+    )
+
+    assert result == {
+        "accepted": False,
+        "reason": "no_host_bound_openchia_scope",
+    }
 
 
 def test_workflow_review_is_advisory_and_marks_the_exact_blueprint():
@@ -83,6 +137,74 @@ def test_workflow_review_is_advisory_and_marks_the_exact_blueprint():
     assert result["accepted"] is True
     assert calls == [(workflow, ("contract_alignment",))]
     assert len(agent._creator_reviewed_workflow_hashes) == 1
+
+
+def test_required_context_is_delivered_exactly_before_workflow_review():
+    artifact_id = OpaqueId.mint("context", "required-context").value
+    content = {
+        "interface": {
+            "inputs": ["artifact_id", "content_hash"],
+            "outputs": ["evidence_id"],
+        }
+    }
+    calls = []
+
+    def review(workflow, lenses):
+        calls.append((workflow, lenses))
+        return {"accepted": True}
+
+    agent = SimpleNamespace(
+        _creator_workflow_reviewer=review,
+        _creator_reviewed_workflow_hashes=set(),
+        _creator_context_artifacts={
+            artifact_id: {
+                "reference": {
+                    "artifact_id": artifact_id,
+                    "content_hash": "sha256:" + "1" * 64,
+                    "artifact_kind": "interface_contract",
+                    "schema_version": 1,
+                    "purpose": "handoff_contract",
+                    "required": True,
+                },
+                "content": content,
+            }
+        },
+        _creator_required_context_ids=frozenset({artifact_id}),
+        _creator_context_read_ids=set(),
+    )
+    context = InlineToolContext(effective_task_id="creator")
+    blocked = json.loads(
+        INLINE_TOOL_EXECUTORS["workflow_review"](
+            agent,
+            {"workflow": {"episodes": []}, "lenses": ["contract_alignment"]},
+            context,
+        )
+    )
+    assert blocked == {
+        "accepted": False,
+        "reason": "required_context_unread",
+        "artifact_ids": [artifact_id],
+    }
+
+    delivered = json.loads(
+        INLINE_TOOL_EXECUTORS["creator_context_read"](
+            agent,
+            {"artifact_id": artifact_id},
+            context,
+        )
+    )
+    assert delivered["delivery"] == "exact_whole_artifact_v1"
+    assert delivered["content"] == content
+
+    accepted = json.loads(
+        INLINE_TOOL_EXECUTORS["workflow_review"](
+            agent,
+            {"workflow": {"episodes": []}, "lenses": ["contract_alignment"]},
+            context,
+        )
+    )
+    assert accepted["accepted"] is True
+    assert len(calls) == 1
 
 
 def test_episode_creator_admission_must_reach_the_bound_launcher():

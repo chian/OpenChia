@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from agent.creator_episode import CreatorRunLogStore, RunLogReference
 from agent.duet_contracts import CreatorLaunchReceipt, DuetIdentity, DuetPolicy
 from agent.duet_service import DuetService
-from agent.episode_contracts import OpaqueId
+from agent.episode_contracts import EpisodeCreationSpec, OpaqueId
 from agent.generic_creator_models import GenericCreatorInstanceSpec
 from agent.generic_creator_runtime import IsolatedExecutorAttestation
 from agent.openchia_execution_boundary import OpenChiaExecutionBoundary
@@ -52,6 +52,145 @@ def _install_exact_tools(agent: Any, names: Iterable[str]) -> None:
     agent._openchia_capability_allowlist = allowed
 
 
+def _duet_authority_scope(
+    agent: Any,
+    *,
+    service: DuetService,
+    identity: DuetIdentity,
+    policy: DuetPolicy,
+) -> dict[str, Any]:
+    """Materialize the host policy boundary exposed by ``openchia_scope``."""
+
+    return {
+        "schema_version": 1,
+        "role": "duet",
+        "authority_source": "host_policy",
+        "authority_ids": {
+            "duet_id": identity.duet_id.value,
+            "policy_id": policy.policy_id.value,
+        },
+        "callable_tool_names": sorted(agent._openchia_capability_allowlist),
+        "assignable_child_capability_names": sorted(
+            service.allowed_episode_capabilities
+        ),
+        "tree_boundary": {
+            "owns": "commission_and_admission_of_exactly_one_root_creator",
+            "may_design_or_launch_descendant_task_tree": False,
+            "maximum_creator_depth": policy.maximum_creator_depth,
+            "creator_builds_descendant_work_graph": True,
+            "host_admits_and_launches_descendants": True,
+        },
+        "allowed_operations": [
+            "inspect_scope",
+            "read_duet_status",
+            "gather_read_only_information",
+            "commit_root_context_artifact",
+            "read_context_artifact",
+            "propose_creator_contract_patch",
+            "request_contract_review",
+            "submit_host_recorded_human_answer_or_decision",
+            "launch_human_approved_root_creator",
+        ],
+        "prohibited_operations": [
+            "execute_task_work",
+            "submit_workflow_candidate",
+            "design_or_launch_descendant_task_tree",
+            "self_approve_or_mint_approval",
+            "modify_contract_approval_evidence_or_credit_policy",
+            "assign_capabilities_outside_host_ceiling",
+        ],
+    }
+
+
+def _creator_authority_scope(
+    agent: Any,
+    *,
+    creator_episode_id: Optional[OpaqueId],
+    creation_spec: Optional[EpisodeCreationSpec],
+    generic_spec: Optional[GenericCreatorInstanceSpec],
+) -> dict[str, Any]:
+    """Materialize one immutable Creator grant without deriving it from prose."""
+
+    if creation_spec is not None and generic_spec is not None:
+        raise ValueError("Creator authority must use one contract model")
+    if creation_spec is not None:
+        contract = creation_spec.creator_contract
+        if contract is None:
+            raise ValueError("Creator authority requires a Creator contract")
+        authority_id = (
+            None if creator_episode_id is None else creator_episode_id.value
+        )
+        assignable = contract.assignable_capability_names
+        may_create_creators = contract.may_assign_creator_capability
+        bounds = (
+            None
+            if creation_spec.safety_bounds is None
+            else creation_spec.safety_bounds.as_record()
+        )
+        authority_hash = creation_spec.spec_hash.value
+        authority_kind = "episode_creator_contract"
+    elif generic_spec is not None:
+        authority_id = generic_spec.instance_id
+        assignable = generic_spec.assignable_capabilities
+        may_create_creators = generic_spec.may_create_child_creators
+        bounds = {
+            "max_iterations": generic_spec.maximum_iterations,
+            "max_child_episodes": generic_spec.maximum_child_episodes,
+            "max_depth": generic_spec.maximum_depth,
+            "max_elapsed_seconds": generic_spec.maximum_elapsed_time,
+        }
+        authority_hash = generic_spec.content_hash.value
+        authority_kind = "generic_creator_instance"
+    else:
+        authority_id = (
+            None if creator_episode_id is None else creator_episode_id.value
+        )
+        assignable = ()
+        may_create_creators = False
+        bounds = None
+        authority_hash = None
+        authority_kind = "unbound_creator_test_surface"
+    callable_tools = set(agent._openchia_capability_allowlist)
+    allowed_operations = [
+        "inspect_scope",
+        "read_owned_run_logs",
+        "request_advisory_workflow_review",
+        "submit_complete_workflow_candidate",
+    ]
+    if "creator_context_read" in callable_tools:
+        allowed_operations.append("read_required_exact_context")
+    if "creator_context_artifact" in callable_tools:
+        allowed_operations.append("commit_descendant_context_artifact")
+    return {
+        "schema_version": 1,
+        "role": "creator",
+        "authority_source": "immutable_host_admission",
+        "authority_kind": authority_kind,
+        "authority_id": authority_id,
+        "authority_hash": authority_hash,
+        "callable_tool_names": sorted(agent._openchia_capability_allowlist),
+        "assignable_child_capability_names": sorted(assignable),
+        "may_create_child_creators": may_create_creators,
+        "safety_bounds": bounds,
+        "tree_boundary": {
+            "owns": "design_of_the_descendant_episode_work_graph",
+            "may_submit_complete_workflow_blueprint": True,
+            "may_directly_launch_descendants": False,
+            "host_admits_and_launches_descendants": True,
+            "child_authority_must_be_inherited": True,
+        },
+        "allowed_operations": allowed_operations,
+        "prohibited_operations": [
+            "change_parent_goal_success_criteria_or_approval",
+            "change_evidence_acceptance_or_credit_weights",
+            "self_approve_or_directly_launch_episode",
+            "assign_capabilities_outside_inherited_grant",
+            "read_sibling_branch_artifacts",
+            "modify_active_host_or_control_plane",
+        ],
+    }
+
+
 def bind_duet_agent(
     agent: Any,
     *,
@@ -73,6 +212,12 @@ def bind_duet_agent(
         raise TypeError("Duet binding requires a task-specific Creator launcher")
     _install_exact_tools(agent, policy.capability_allowlist)
     agent._openchia_role = "duet"
+    agent._openchia_authority_scope = _duet_authority_scope(
+        agent,
+        service=service,
+        identity=identity,
+        policy=policy,
+    )
     agent._duet_prompt_isolated = True
     agent._duet_service = service
     agent._duet_identity = identity
@@ -147,13 +292,18 @@ def build_creator_agent(
     log_references: Iterable[RunLogReference] = (),
     workflow_reviewer: Optional[Callable[[dict[str, Any], tuple[str, ...]], dict[str, Any]]] = None,
     execution_boundary: Any = None,
+    context_service: Any = None,
+    creator_episode_id: Optional[OpaqueId] = None,
+    context_artifacts: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    creation_spec: Optional[EpisodeCreationSpec] = None,
+    generic_spec: Optional[GenericCreatorInstanceSpec] = None,
     **agent_kwargs: Any,
 ) -> Any:
     """Construct one design specialist with scoped access to its own run logs."""
 
     from run_agent import AIAgent
 
-    agent = AIAgent(
+    agent: Any = AIAgent(
         **{
             **agent_kwargs,
             "enabled_toolsets": [],
@@ -164,11 +314,24 @@ def build_creator_agent(
             "skip_background_review": True,
         }
     )
-    _install_exact_tools(
-        agent,
-        {*capability_names, "creator_log_read", "workflow_review", "workflow_candidate"},
-    )
+    protocol_tools = {
+        "openchia_scope",
+        "creator_log_read",
+        "workflow_review",
+        "workflow_candidate",
+    }
+    if context_service is not None and creator_episode_id is not None:
+        protocol_tools.add("creator_context_artifact")
+    if context_artifacts is not None:
+        protocol_tools.add("creator_context_read")
+    _install_exact_tools(agent, {*capability_names, *protocol_tools})
     agent._openchia_role = "creator"
+    agent._openchia_authority_scope = _creator_authority_scope(
+        agent,
+        creator_episode_id=creator_episode_id,
+        creation_spec=creation_spec,
+        generic_spec=generic_spec,
+    )
     agent._creator_episode_prompt_isolated = True
     agent._creator_log_store = log_store
     agent._creator_log_references = {
@@ -178,6 +341,17 @@ def build_creator_agent(
         raise TypeError("workflow_reviewer must be callable")
     agent._creator_workflow_reviewer = workflow_reviewer
     agent._creator_reviewed_workflow_hashes = set()
+    agent._creator_context_service = context_service
+    agent._creator_episode_id = creator_episode_id
+    agent._creator_context_artifacts = {
+        key: dict(value) for key, value in (context_artifacts or {}).items()
+    }
+    agent._creator_required_context_ids = frozenset(
+        artifact_id
+        for artifact_id, artifact in agent._creator_context_artifacts.items()
+        if artifact["reference"]["required"]
+    )
+    agent._creator_context_read_ids = set()
     if execution_boundary is not None:
         agent._openchia_execution_boundary = execution_boundary
     agent._persist_disabled = True
@@ -248,6 +422,7 @@ def build_generic_creator_agent(
         log_references=log_references,
         workflow_reviewer=workflow_reviewer,
         execution_boundary=boundary,
+        generic_spec=spec,
         **agent_kwargs,
     )
 

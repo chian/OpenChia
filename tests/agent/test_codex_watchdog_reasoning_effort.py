@@ -15,7 +15,14 @@ import pytest
 _SMALL_PROMPT = {"model": "gpt-5.5", "input": [{"role": "user", "content": "x" * 6000}]}
 
 
-def _codex_agent(tmp_path: Path, monkeypatch, effort: str, *, enabled: bool = True):
+def _codex_agent(
+    tmp_path: Path,
+    monkeypatch,
+    effort: str,
+    *,
+    enabled: bool = True,
+    model: str = "gpt-5.5",
+):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     (tmp_path / ".env").write_text("", encoding="utf-8")
     (tmp_path / "config.yaml").write_text("{}\n", encoding="utf-8")
@@ -25,7 +32,7 @@ def _codex_agent(tmp_path: Path, monkeypatch, effort: str, *, enabled: bool = Tr
     from run_agent import AIAgent
 
     agent = AIAgent(
-        model="gpt-5.5", provider="openai-codex", api_key="sk-dummy",
+        model=model, provider="openai-codex", api_key="sk-dummy",
         base_url="https://chatgpt.com/backend-api/codex", quiet_mode=True,
         skip_context_files=True, skip_memory=True, platform="cli",
     )
@@ -64,6 +71,44 @@ def test_default_effort_tiers_and_explicit_operator_values_are_untouched(tmp_pat
     monkeypatch.setenv("HERMES_API_CALL_STALE_TIMEOUT", "75")
     explicit = _resolve_nonstream_watchdogs(agent, _SMALL_PROMPT)
     assert (explicit.idle_timeout, explicit.ttfb_timeout, explicit.stale_timeout) == (20.0, 45.0, 75.0)
+
+
+def test_known_reasoning_model_gets_event_gap_floor_at_default_effort(tmp_path, monkeypatch):
+    from agent.chat_completion_helpers import (
+        REASONING_MODEL_EVENT_IDLE_FLOOR_SECONDS,
+        _resolve_nonstream_watchdogs,
+    )
+
+    request = {**_SMALL_PROMPT, "model": "gpt-5.6-sol-900k"}
+    agent = _codex_agent(
+        tmp_path,
+        monkeypatch,
+        "medium",
+        model="gpt-5.6-sol-900k",
+    )
+
+    watchdogs = _resolve_nonstream_watchdogs(agent, request)
+
+    assert watchdogs.idle_timeout == REASONING_MODEL_EVENT_IDLE_FLOOR_SECONDS
+    assert watchdogs.idle_requires_progress is True
+
+
+def test_explicit_event_gap_override_wins_for_known_reasoning_model(tmp_path, monkeypatch):
+    from agent.chat_completion_helpers import _resolve_nonstream_watchdogs
+
+    request = {**_SMALL_PROMPT, "model": "gpt-5.6-sol-900k"}
+    agent = _codex_agent(
+        tmp_path,
+        monkeypatch,
+        "medium",
+        model="gpt-5.6-sol-900k",
+    )
+    monkeypatch.setenv("HERMES_CODEX_EVENT_STALE_TIMEOUT_SECONDS", "20")
+
+    watchdogs = _resolve_nonstream_watchdogs(agent, request)
+
+    assert watchdogs.idle_timeout == 20.0
+    assert watchdogs.idle_requires_progress is False
 
 
 def test_effort_floor_never_outlives_the_run_budget_cap(tmp_path, monkeypatch):

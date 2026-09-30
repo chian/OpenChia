@@ -37,6 +37,13 @@ as hostile conditions even when accidental.
   authority fails closed without a mechanically isolated executor attestation.
 - The generic agent factory attaches the boundary after capability filtering;
   dispatch checks it after plugin argument rewrites and before execution.
+- `openchia_scope` is derived from the installed host allowlist and immutable
+  admitted contract. Protocol/control-plane tools are removed from the child
+  capability catalog both during CLI discovery and again at host construction.
+  Conversation text cannot expand either set.
+- Contract and workflow critics are registered as interruptible children of
+  the Duet or Creator while active. A hard stop propagates into their provider
+  requests, and the host closes and unregisters them on every exit path.
 - Platform patches are proposal artifacts only and require stopped-host human
   review, tests, migration notes, and a new frozen runtime identity.
 

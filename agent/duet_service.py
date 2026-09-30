@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import re
 from typing import Any, Iterable, Mapping, Optional
 
 from agent.duet_contracts import (
@@ -43,6 +44,8 @@ from agent.episode_blueprints import (
 from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
     EpisodeCreationSpec,
+    EpisodeCreatorContext,
+    EpisodeCreatorContextReference,
     EpisodeCreatorStatusField,
     EpisodeMeasuredOutcome,
     EpisodeWorkflowDesignProjection,
@@ -50,6 +53,8 @@ from agent.episode_contracts import (
     EpisodeWorkflowSpec,
     OpaqueId,
     Sha256Digest,
+    MAX_CREATOR_CONTEXT_ARTIFACT_BYTES,
+    MAX_CREATOR_CONTEXT_TOTAL_BYTES,
 )
 from method_loop.identities import EpisodeRef
 
@@ -77,6 +82,32 @@ _FIELD_IMPACTS = {
     "deliverable": FieldImpact.MEDIUM,
     "safety_bounds": FieldImpact.HIGH,
 }
+
+_CREATOR_CONTEXT_ARTIFACT_KIND = "creator_context"
+_SECRET_CONTEXT_KEY = re.compile(
+    r"(?:^|[_-])(?:password|passwd|secret|api[_-]?key|private[_-]?key|"
+    r"access[_-]?token|refresh[_-]?token|auth[_-]?token)$|"
+    r"^(?:token|credential|authorization)$",
+    re.IGNORECASE,
+)
+_RAW_SECRET_VALUE = re.compile(
+    r"(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk-|ghp_|github_pat_)[A-Za-z0-9_-]{16,})"
+)
+
+
+def _reject_raw_context_secrets(value: object, path: str = "$") -> None:
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if _SECRET_CONTEXT_KEY.search(str(key)):
+                raise ValueError(
+                    f"Creator context cannot contain a secret-shaped key at {path}.{key}"
+                )
+            _reject_raw_context_secrets(child, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            _reject_raw_context_secrets(child, f"{path}[{index}]")
+    elif isinstance(value, str) and _RAW_SECRET_VALUE.search(value):
+        raise ValueError(f"Creator context cannot contain a raw secret at {path}")
 
 
 def _field_answer_schema(field_path: str) -> Mapping[str, Any]:
@@ -115,6 +146,14 @@ def _field_answer_schema(field_path: str) -> Mapping[str, Any]:
 
 class DuetProtocolError(RuntimeError):
     """The requested operation violates the typed Duet protocol."""
+
+
+class CreatorContextValidationError(DuetProtocolError):
+    """A context reference failed a mechanical ownership or integrity gate."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)
 
 
 class StaleDuetApprovalError(DuetProtocolError):
@@ -197,7 +236,7 @@ def _frozen_from_artifact(record: Mapping[str, Any]) -> FrozenCreatorContract:
 
 def _path_for_error(message: str) -> str:
     nested_fields = {
-        "design_instructions": "creator_contract.design_instructions",
+        "design_context": "creator_contract.design_context",
         "design_scope": "creator_contract.design_scope",
     }
     for token, path in nested_fields.items():
@@ -249,7 +288,10 @@ class DuetService:
         if existing is not None:
             draft = _draft_from_record(existing)
             if self.store.latest_creator(identity.duet_id.value) is None:
-                _, deficits = self._materialize_contract(draft.fields)
+                _, deficits = self._materialize_contract(
+                    draft.fields,
+                    duet_id=identity.duet_id,
+                )
                 if deficits != draft.deficits:
                     return self._write_revision(
                         identity.duet_id,
@@ -280,9 +322,283 @@ class DuetService:
             raise DuetNotFoundError("Duet has no Creator contract draft")
         return _draft_from_record(record)
 
+    def register_creator_context_artifact(
+        self,
+        duet_id: OpaqueId,
+        *,
+        artifact_kind: str,
+        schema_version: int,
+        purpose: str,
+        required: bool,
+        content: Mapping[str, Any],
+        producer_creator_episode_id: Optional[OpaqueId] = None,
+    ) -> EpisodeCreatorContextReference:
+        """Persist one exact structured document and return its immutable reference."""
+
+        self._duet_row(duet_id)
+        if not isinstance(content, Mapping):
+            raise ValueError("Creator context artifact content must be an object")
+        normalized = json.loads(canonical_json(content))
+        _reject_raw_context_secrets(normalized)
+        producer_id = (
+            None
+            if producer_creator_episode_id is None
+            else producer_creator_episode_id.value
+        )
+        if producer_id is not None:
+            producer = self.store.get_creator(producer_id)
+            if producer is None or producer["duet_id"] != duet_id.value:
+                raise DuetProtocolError(
+                    "Creator context producer is outside the active Duet"
+                )
+        record = {
+            "artifact_kind": artifact_kind,
+            "schema_version": schema_version,
+            "purpose": purpose,
+            "required": required,
+            "content": normalized,
+        }
+        encoded = canonical_json(record).encode("utf-8")
+        if len(encoded) > MAX_CREATOR_CONTEXT_ARTIFACT_BYTES:
+            raise ValueError(
+                "Creator context artifact exceeds the per-artifact byte budget"
+            )
+        digest = Sha256Digest.of_bytes(encoded)
+        artifact_id = content_id(
+            "context",
+            {
+                "duet_id": duet_id.value,
+                "producer_creator_episode_id": producer_id,
+                "content_hash": digest.value,
+            },
+        )
+        reference = EpisodeCreatorContextReference(
+            artifact_id=artifact_id,
+            content_hash=digest,
+            artifact_kind=artifact_kind,
+            schema_version=schema_version,
+            purpose=purpose,
+            required=required,
+        )
+        self.store.put_artifact(
+            artifact_id=artifact_id.value,
+            duet_id=duet_id.value,
+            creator_episode_id=producer_id,
+            kind=_CREATOR_CONTEXT_ARTIFACT_KIND,
+            revision=0,
+            content_hash=digest.value,
+            record=record,
+        )
+        self.store.append_event(
+            duet_id=duet_id.value,
+            event_type="creator_context_artifact_registered",
+            provenance=DuetProvenance.LLM_PROPOSAL.value,
+            record={
+                "artifact_id": artifact_id.value,
+                "content_hash": digest.value,
+                "artifact_kind": reference.artifact_kind,
+                "schema_version": reference.schema_version,
+                "purpose": reference.purpose,
+                "required": reference.required,
+                "producer_creator_episode_id": producer_id,
+            },
+        )
+        return reference
+
+    def read_creator_context_artifact(
+        self,
+        duet_id: OpaqueId,
+        artifact_id: OpaqueId,
+    ) -> dict[str, Any]:
+        """Return one whole context artifact after verifying its immutable digest."""
+
+        self._duet_row(duet_id)
+        artifact = self.store.get_artifact(artifact_id.value)
+        if (
+            artifact is None
+            or artifact["duet_id"] != duet_id.value
+            or artifact["kind"] != _CREATOR_CONTEXT_ARTIFACT_KIND
+        ):
+            raise DuetNotFoundError("unknown Creator context artifact")
+        record = artifact["record"]
+        if set(record) != {
+            "artifact_kind",
+            "schema_version",
+            "purpose",
+            "required",
+            "content",
+        }:
+            raise CreatorContextValidationError(
+                "context_artifact_malformed",
+                "Creator context artifact contains unknown or missing fields",
+            )
+        encoded = canonical_json(record).encode("utf-8")
+        digest = Sha256Digest.of_bytes(encoded)
+        if digest.value != artifact["content_hash"]:
+            raise CreatorContextValidationError(
+                "context_artifact_hash_mismatch",
+                "Creator context artifact no longer matches its stored digest",
+            )
+        return {
+            "artifact_id": artifact_id.value,
+            "content_hash": digest.value,
+            "artifact_kind": record["artifact_kind"],
+            "schema_version": record["schema_version"],
+            "purpose": record["purpose"],
+            "required": record["required"],
+            "producer_creator_episode_id": artifact["creator_episode_id"],
+            "content": record["content"],
+        }
+
+    def list_creator_context_artifacts(
+        self,
+        duet_id: OpaqueId,
+    ) -> tuple[dict[str, Any], ...]:
+        """Project resumable artifact metadata without repeating full content."""
+
+        self._duet_row(duet_id)
+        return tuple(
+            {
+                "artifact_id": artifact["artifact_id"],
+                "content_hash": artifact["content_hash"],
+                "artifact_kind": artifact["record"]["artifact_kind"],
+                "schema_version": artifact["record"]["schema_version"],
+                "purpose": artifact["record"]["purpose"],
+                "required": artifact["record"]["required"],
+                "producer_creator_episode_id": artifact["creator_episode_id"],
+            }
+            for artifact in self.store.artifacts_by_kind(
+                duet_id=duet_id.value,
+                kind=_CREATOR_CONTEXT_ARTIFACT_KIND,
+            )
+        )
+
+    def _creator_lineage_ids(self, creator_episode_id: OpaqueId) -> set[str]:
+        lineage: set[str] = set()
+        cursor: Optional[str] = creator_episode_id.value
+        duet_id: Optional[str] = None
+        while cursor is not None:
+            if cursor in lineage:
+                raise DuetProtocolError("Creator authority lineage contains a cycle")
+            row = self.store.get_creator(cursor)
+            if row is None:
+                raise DuetNotFoundError("Creator authority lineage is incomplete")
+            if duet_id is None:
+                duet_id = row["duet_id"]
+            elif row["duet_id"] != duet_id:
+                raise DuetProtocolError("Creator authority lineage crosses Duets")
+            lineage.add(cursor)
+            cursor = row.get("parent_creator_episode_id")
+        return lineage
+
+    def resolve_creator_context(
+        self,
+        duet_id: OpaqueId,
+        context: EpisodeCreatorContext,
+        *,
+        consumer_creator_episode_id: Optional[OpaqueId] = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Resolve and verify a manifest without rewriting or summarizing content."""
+
+        if not isinstance(context, EpisodeCreatorContext):
+            raise TypeError("context must be an EpisodeCreatorContext")
+        self._duet_row(duet_id)
+        allowed_owners = (
+            set()
+            if consumer_creator_episode_id is None
+            else self._creator_lineage_ids(consumer_creator_episode_id)
+        )
+        resolved: dict[str, dict[str, Any]] = {}
+        total_bytes = 0
+        for reference in context.artifact_references:
+            artifact = self.store.get_artifact(reference.artifact_id.value)
+            if artifact is None:
+                raise CreatorContextValidationError(
+                    "context_artifact_missing",
+                    f"missing Creator context artifact {reference.artifact_id.value}",
+                )
+            if (
+                artifact["duet_id"] != duet_id.value
+                or artifact["kind"] != _CREATOR_CONTEXT_ARTIFACT_KIND
+            ):
+                raise CreatorContextValidationError(
+                    "context_artifact_scope_violation",
+                    "Creator context artifact is outside the contract's Duet",
+                )
+            owner = artifact["creator_episode_id"]
+            if owner is not None and owner not in allowed_owners:
+                raise CreatorContextValidationError(
+                    "context_artifact_scope_violation",
+                    "Creator context artifact is outside the consumer authority lineage",
+                )
+            record = artifact["record"]
+            if set(record) != {
+                "artifact_kind",
+                "schema_version",
+                "purpose",
+                "required",
+                "content",
+            }:
+                raise CreatorContextValidationError(
+                    "context_artifact_malformed",
+                    "Creator context artifact contains unknown or missing fields",
+                )
+            encoded = canonical_json(record).encode("utf-8")
+            total_bytes += len(encoded)
+            if len(encoded) > MAX_CREATOR_CONTEXT_ARTIFACT_BYTES:
+                raise CreatorContextValidationError(
+                    "context_artifact_too_large",
+                    "Creator context artifact exceeds its byte budget",
+                )
+            digest = Sha256Digest.of_bytes(encoded)
+            if (
+                digest != reference.content_hash
+                or artifact["content_hash"] != reference.content_hash.value
+            ):
+                raise CreatorContextValidationError(
+                    "context_artifact_hash_mismatch",
+                    "Creator context artifact hash does not match its reference",
+                )
+            if (
+                record["artifact_kind"] != reference.artifact_kind
+                or record["schema_version"] != reference.schema_version
+                or record["purpose"] != reference.purpose
+                or record["required"] != reference.required
+            ):
+                raise CreatorContextValidationError(
+                    "context_artifact_metadata_mismatch",
+                    "Creator context artifact metadata does not match its reference",
+                )
+            resolved[reference.artifact_id.value] = {
+                "reference": reference.as_record(),
+                "content": record["content"],
+            }
+        if total_bytes > MAX_CREATOR_CONTEXT_TOTAL_BYTES:
+            raise CreatorContextValidationError(
+                "context_budget_exceeded",
+                "Creator context manifest exceeds the aggregate exact-delivery budget",
+            )
+        return resolved
+
+    def creator_context_artifacts(
+        self,
+        creator_episode_id: OpaqueId,
+    ) -> dict[str, dict[str, Any]]:
+        frozen = self.creator_contract(creator_episode_id)
+        contract = frozen.contract.creator_contract
+        if contract is None:
+            return {}
+        return self.resolve_creator_context(
+            frozen.duet_id,
+            contract.design_context,
+            consumer_creator_episode_id=creator_episode_id,
+        )
+
     def _materialize_contract(
         self,
         fields: tuple[ContractFieldRecord, ...],
+        *,
+        duet_id: OpaqueId,
     ) -> tuple[Optional[EpisodeCreationSpec], tuple[ContractDeficit, ...]]:
         draft = CreatorContractDraft(
             draft_id=OpaqueId.mint("draft", "validation"),
@@ -320,8 +636,22 @@ class DuetService:
                     _path_for_error(message),
                 ),
             )
+        creator_contract = spec.creator_contract
+        if creator_contract is None:
+            return None, (
+                ContractDeficit("invalid_contract", "creator_contract"),
+            )
+        try:
+            self.resolve_creator_context(duet_id, creator_contract.design_context)
+        except CreatorContextValidationError as exc:
+            return None, (
+                ContractDeficit(
+                    exc.code,
+                    "creator_contract.design_context",
+                ),
+            )
         task_caps = set(spec.execution_capability_names)
-        assignable = set(spec.creator_contract.assignable_capability_names)
+        assignable = set(creator_contract.assignable_capability_names)
         unknown = (task_caps | assignable) - self.allowed_episode_capabilities
         if unknown:
             return None, (
@@ -337,7 +667,7 @@ class DuetService:
         fields: tuple[ContractFieldRecord, ...],
         provenance: DuetProvenance,
     ) -> CreatorContractDraft:
-        _, deficits = self._materialize_contract(fields)
+        _, deficits = self._materialize_contract(fields, duet_id=duet_id)
         revision = 0 if prior is None else prior.revision + 1
         draft_id = (
             OpaqueId.mint("draft", f"{duet_id.value}:creator-contract")
@@ -597,7 +927,10 @@ class DuetService:
         draft = self.latest_draft(duet_id)
         if draft.revision != expected_revision:
             raise DuetConflictError("cannot freeze a stale draft revision")
-        spec, deficits = self._materialize_contract(draft.fields)
+        spec, deficits = self._materialize_contract(
+            draft.fields,
+            duet_id=duet_id,
+        )
         if spec is None or deficits:
             raise DuetProtocolError("Creator contract is not complete and valid")
         artifact_id = content_id(
@@ -1025,6 +1358,20 @@ class DuetService:
                             "creator_contract",
                         )
                     )
+                else:
+                    try:
+                        self.resolve_creator_context(
+                            frozen.duet_id,
+                            item.contract.creator_contract.design_context,
+                            consumer_creator_episode_id=creator_episode_id,
+                        )
+                    except CreatorContextValidationError as exc:
+                        deficits.append(
+                            ContractDeficit(
+                                exc.code,
+                                "creator_contract.design_context",
+                            )
+                        )
             parent_id = item.workflow_parent_local_id
             if (
                 parent_id is not None
@@ -1104,10 +1451,55 @@ class DuetService:
         *,
         creator_episode_id: OpaqueId,
         workflow_blueprint: Mapping[str, Any],
+        consumed_context_artifact_ids: tuple[str, ...] = (),
     ) -> FrozenWorkflowDesign:
         """Translate, admit, and freeze one design before its Run Episode."""
 
         frozen_creator = self._creator_frozen_contract(creator_episode_id)
+        if (
+            not isinstance(consumed_context_artifact_ids, tuple)
+            or any(
+                not isinstance(item, str) for item in consumed_context_artifact_ids
+            )
+            or len(set(consumed_context_artifact_ids))
+            != len(consumed_context_artifact_ids)
+        ):
+            raise ValueError(
+                "consumed_context_artifact_ids must be unique string IDs"
+            )
+        creator_contract = frozen_creator.contract.creator_contract
+        if creator_contract is None:
+            raise DuetProtocolError("Creator Episode lacks its Creator contract")
+        references = creator_contract.design_context.artifact_references
+        by_artifact_id = {
+            item.artifact_id.value: item for item in references
+        }
+        consumed = set(consumed_context_artifact_ids)
+        unknown_consumed = consumed - set(by_artifact_id)
+        if unknown_consumed:
+            raise WorkflowAdmissionError(
+                (
+                    ContractDeficit(
+                        "undeclared_context_receipt",
+                        "creator_contract.design_context",
+                    ),
+                )
+            )
+        required = {
+            item.artifact_id.value for item in references if item.required
+        }
+        if not required.issubset(consumed):
+            raise WorkflowAdmissionError(
+                (
+                    ContractDeficit(
+                        "required_context_unread",
+                        "creator_contract.design_context",
+                    ),
+                )
+            )
+        context_receipts = tuple(
+            item for item in references if item.artifact_id.value in consumed
+        )
         prior = self.store.latest_artifact(
             duet_id=frozen_creator.duet_id.value,
             kind="workflow_design",
@@ -1133,6 +1525,9 @@ class DuetService:
                 "creator_episode_id": creator_episode_id.value,
                 "revision": revision,
                 "workflow": workflow.as_record(),
+                "context_receipts": [
+                    item.as_record() for item in context_receipts
+                ],
             },
         )
         design = FrozenWorkflowDesign(
@@ -1142,6 +1537,7 @@ class DuetService:
             revision=revision,
             workflow_hash=workflow.workflow_hash,
             workflow=workflow,
+            context_receipts=context_receipts,
         )
         self.store.put_artifact(
             artifact_id=design.artifact_id.value,
@@ -1669,6 +2065,9 @@ class DuetService:
             "deficit_codes": [item.code for item in draft.deficits],
             "requested_field_ids": [item.field_path for item in requests],
             "configuration": configuration,
+            "creator_context_artifacts": list(
+                self.list_creator_context_artifacts(duet_id)
+            ),
             "field_records": field_records,
             "design_ledger": ledger,
             "open_questions": [item.as_record() for item in requests],
@@ -1698,6 +2097,7 @@ class DuetService:
 
 
 __all__ = [
+    "CreatorContextValidationError",
     "DuetProtocolError",
     "DuetService",
     "StaleDuetApprovalError",

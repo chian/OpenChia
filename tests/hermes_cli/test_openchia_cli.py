@@ -81,6 +81,46 @@ def test_running_prompt_advertises_only_openchia_commands():
     )
 
 
+def test_stop_is_available_and_delegates_to_the_interrupt_capable_base(monkeypatch):
+    observed = []
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    monkeypatch.setattr(
+        "cli.HermesCLI.process_command",
+        lambda self, command: observed.append(command) or True,
+    )
+
+    assert cli._command_available("/stop") is True
+    assert OpenChiaCLI.process_command(cli, "/stop") is True
+    assert observed == ["/stop"]
+
+
+def test_episode_capability_ceiling_excludes_every_control_plane_tool(monkeypatch):
+    protocol_names = {
+        "openchia_scope",
+        "duet_status",
+        "duet_contract_review",
+        "creator_context_artifact",
+        "creator_context_read",
+        "creator_log_read",
+        "workflow_review",
+        "workflow_candidate",
+        "episode_progress",
+    }
+    definitions = [
+        {"type": "function", "function": {"name": name}}
+        for name in sorted(protocol_names | {"web_search", "terminal"})
+    ]
+    monkeypatch.setattr(
+        "model_tools.get_tool_definitions",
+        lambda **kwargs: definitions,
+    )
+
+    names = OpenChiaCLI._tool_names(SimpleNamespace())
+
+    assert names == ("terminal", "web_search")
+    assert not protocol_names.intersection(names)
+
+
 def test_background_command_starts_and_continues_duets():
     observed = []
     context = object()

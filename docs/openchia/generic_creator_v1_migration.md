@@ -20,5 +20,11 @@ Apply it only with OpenChia stopped:
 
 Rollback requires stopping the host and restoring the prior code/database
 backup. The additive tables may also be left unused; old code does not read
-them. There is no Creator-contract migration because existing schema-v4
-contracts and approval invalidation semantics are unchanged.
+them. Approval invalidation semantics are unchanged.
+
+Creator context is a deliberate pre-beta breaking change. Creator contracts
+must contain a versioned `design_context` manifest; the old prose instruction
+field is rejected as unknown. Recreate old Creator contracts by committing
+complete context artifacts and issuing a new human approval. The host never
+converts old prose automatically because that could discard authoritative
+design information. Ordinary non-Creator Episode contracts are unaffected.

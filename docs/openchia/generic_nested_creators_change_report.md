@@ -9,13 +9,20 @@
   `agent/generic_creator_models.py`, `agent/generic_creator_store.py`,
   `schemas/openchia/*.schema.json`,
   `docs/openchia/generic_creator_v1_migration.md`.
+- Exact Creator handoff:
+  `agent/episode_contract_models.py`, `agent/duet_service.py`,
+  `agent/creator_design_session.py`, `tools/duet_tool.py`, and
+  `docs/openchia/structured_creator_context.md`.
 - Templates and execution:
   `agent/generic_creator_templates.py`, `agent/generic_creator_runtime.py`.
 - Evidence/credit:
   `agent/episode_contract_models.py`, `agent/episode_progress_adapters.py`.
 - Isolation and agent construction:
   `agent/openchia_execution_boundary.py`, `agent/openchia_agents.py`,
-  `agent/tool_executor.py`.
+  `agent/tool_executor.py`, `agent/inline_tool_executors.py`.
+- Interactive reliability and controls:
+  `agent/chat_completion_helpers.py`, `agent/openchia_host.py`, and
+  `hermes_cli/openchia_cli.py`.
 - Examples and operations:
   `examples/generic_creators/*.json`,
   `docs/openchia/generic_nested_creators.md`.
@@ -41,26 +48,42 @@ symlink, nested-mount, and hard-link aliases are rejected. Shell, code, and
 process capabilities fail closed unless an isolated executor attests the full
 mechanical boundary. Platform changes are durable proposal artifacts only.
 
+Creator commissions no longer use a free-form instruction string. The Duet
+commits complete structured documents as immutable context artifacts, the
+contract carries their exact IDs and hashes, required reads are host-recorded,
+and the frozen workflow records the consumed references. Purpose/required
+metadata is hash-bound, lineage checks deny sibling-branch reads, and raw
+secrets are rejected without rejecting legitimate policy fields such as
+`token_budget`.
+
+`openchia_scope` exposes host-derived callable tools, child-assignable
+capabilities, recursion permission, bounds, role ownership, and prohibitions.
+Control-plane tools are removed from the child capability catalog at both CLI
+discovery and host construction. `/stop` is available on the OpenChia surface,
+and active contract/workflow critics are registered beneath their parent so a
+hard stop reaches their model requests. Known Codex reasoning-model streams now
+receive a 120-second implicit event-gap floor; explicit operator overrides still
+win.
+
 ## Test results
 
-- Pre-change relevant baseline: **124 passed, 0 failed** in 12 files.
-- New focused Creator/security suite: **60 passed, 0 failed** in 6 files.
-- Affected OpenChia/tool suite excluding the known baseline failure:
-  **193 passed, 0 failed** in 20 files.
-- Expanded run including `test_run_agent.py`: **473 passed, 1 failed**. The
-  failure is
-  `TestAgentRuntimePostHookOwnershipSync::...delegate_task-tool_args13`.
-  A detached, untouched `43ca5aa613` worktree reproduced the same filtered
-  result (**13 passed, 1 failed**), so it is not introduced by this change.
-- Ruff on all touched Python and test files: passed.
-- Ty on the five new implementation modules: passed. Repository-wide checks
-  on legacy touched modules retain pre-existing diagnostics and are not claimed
-  clean.
+- Pre-change relevant baseline: **104 passed, 0 failed**.
+- Final affected suite: **154 passed, 0 failed** in 16 files, including generic
+  Creator models/runtime/store, context admission and lineage, evidence-gate
+  scoring, execution-boundary adversarial tests, Duet/Creator tools, CLI stop,
+  Codex TTFB/event-idle policy, and retry interruption.
+- Independent authenticated Codex smoke call: `MODEL_OK` in 5.3 seconds.
+- Ruff on every touched Python and test file: passed.
+- `git diff --check`: passed.
+- Repository-wide type checking retains a large pre-existing diagnostic
+  baseline and is not claimed clean.
 
 ## Compatibility
 
-Existing schema-v4 Creator contracts, approval invalidation, Duet state,
-ordinary task Episodes, and the outer `root_episode_progress` contract remain
+The free-form Creator instruction field is intentionally unsupported. Old
+Creator drafts/contracts must be recreated with structured context artifacts;
+there is no automatic prose conversion. Approval invalidation, ordinary
+non-Creator task Episodes, and the outer `root_episode_progress` contract remain
 unchanged. The SQLite migration is additive and idempotent. Generic admission
 is opt-in through `GenericCreatorEngine`; `recursive_creators_enabled` is the
 rollout flag. Existing hosts do not instantiate it automatically.

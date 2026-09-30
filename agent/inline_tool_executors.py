@@ -290,6 +290,23 @@ def _duet_draft_write(agent):
     return lock if lock is not None else nullcontext()
 
 
+def _openchia_scope(agent, args: dict, ctx: InlineToolContext) -> Any:
+    """Return the immutable host-authored role boundary, never model prose."""
+
+    scope = getattr(agent, "_openchia_authority_scope", None)
+    if not isinstance(scope, dict):
+        return json.dumps(
+            {"accepted": False, "reason": "no_host_bound_openchia_scope"},
+            sort_keys=True,
+        )
+    # Serialize through JSON so callers cannot receive or mutate the host's live dict.
+    return json.dumps(
+        {"accepted": True, "scope": scope},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
 def _duet_contract_patch(agent, args: dict, ctx: InlineToolContext) -> Any:
     from agent.duet_contracts import (
         ContractFieldRecord,
@@ -427,6 +444,97 @@ def _episode_creator(agent, args: dict, ctx: InlineToolContext) -> Any:
         return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
 
 
+def _creator_context_artifact(agent, args: dict, ctx: InlineToolContext) -> Any:
+    try:
+        role = getattr(agent, "_openchia_role", None)
+        if role == "duet":
+            service, identity = _duet_context(agent)
+            duet_id = identity.duet_id
+            producer_id = None
+        elif role == "creator":
+            service = getattr(agent, "_creator_context_service", None)
+            producer_id = getattr(agent, "_creator_episode_id", None)
+            if service is None or producer_id is None:
+                raise RuntimeError("no active Creator context authority")
+            duet_id = service.creator_contract(producer_id).duet_id
+        else:
+            raise RuntimeError("context artifacts require an active Duet or Creator")
+        reference = service.register_creator_context_artifact(
+            duet_id,
+            artifact_kind=args.get("artifact_kind"),
+            schema_version=args.get("schema_version"),
+            purpose=args.get("purpose"),
+            required=args.get("required"),
+            content=args.get("content"),
+            producer_creator_episode_id=producer_id,
+        )
+        return json.dumps(
+            {"accepted": True, "reference": reference.as_record()},
+            sort_keys=True,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {"accepted": False, "reason": type(exc).__name__},
+            sort_keys=True,
+        )
+
+
+def _creator_context_read(agent, args: dict, ctx: InlineToolContext) -> Any:
+    try:
+        artifact_id = args.get("artifact_id")
+        if not isinstance(artifact_id, str):
+            raise ValueError("artifact_id must be a string")
+        if getattr(agent, "_openchia_role", None) == "duet":
+            from agent.episode_contracts import OpaqueId
+
+            service, identity = _duet_context(agent)
+            artifact = service.read_creator_context_artifact(
+                identity.duet_id,
+                OpaqueId(artifact_id),
+            )
+            return json.dumps(
+                {
+                    **artifact,
+                    "delivery": "exact_whole_artifact_v1",
+                    "authority": "duet_context_ledger",
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        artifacts = getattr(agent, "_creator_context_artifacts", None)
+        reads = getattr(agent, "_creator_context_read_ids", None)
+        if not isinstance(artifacts, dict) or not isinstance(reads, set):
+            raise RuntimeError("no active Creator context scope")
+        artifact = artifacts.get(artifact_id)
+        if artifact is None:
+            raise PermissionError("context artifact is not authorized for this Creator")
+        reads.add(artifact_id)
+        return json.dumps(
+            {
+                "artifact_id": artifact_id,
+                "reference": artifact["reference"],
+                "content": artifact["content"],
+                "delivery": "exact_whole_artifact_v1",
+                "authority": "approved_creator_contract",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {"accepted": False, "reason": type(exc).__name__},
+            sort_keys=True,
+        )
+
+
+def _required_creator_context_unread(agent) -> list[str]:
+    required = getattr(agent, "_creator_required_context_ids", frozenset())
+    reads = getattr(agent, "_creator_context_read_ids", set())
+    if not isinstance(required, (set, frozenset)) or not isinstance(reads, set):
+        return []
+    return sorted(set(required) - reads)
+
+
 def _creator_log_read(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
         log_store = getattr(agent, "_creator_log_store", None)
@@ -464,6 +572,16 @@ def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
     if not callable(submit):
         return json.dumps(
             {"accepted": False, "reason": "no_active_creator_design_cycle"},
+            sort_keys=True,
+        )
+    unread_context = _required_creator_context_unread(agent)
+    if unread_context:
+        return json.dumps(
+            {
+                "accepted": False,
+                "reason": "required_context_unread",
+                "artifact_ids": unread_context,
+            },
             sort_keys=True,
         )
     workflow = args.get("workflow")
@@ -510,6 +628,16 @@ def _workflow_review(agent, args: dict, ctx: InlineToolContext) -> Any:
     if not callable(reviewer):
         return json.dumps(
             {"accepted": False, "reason": "no_active_workflow_reviewer"},
+            sort_keys=True,
+        )
+    unread_context = _required_creator_context_unread(agent)
+    if unread_context:
+        return json.dumps(
+            {
+                "accepted": False,
+                "reason": "required_context_unread",
+                "artifact_ids": unread_context,
+            },
             sort_keys=True,
         )
     workflow = args.get("workflow")
@@ -578,12 +706,15 @@ INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "manage_connections": _manage_connections,
     "manage_catalog": _manage_catalog,
     "setup_mcp": _setup_mcp_shim,
+    "openchia_scope": _openchia_scope,
     "duet_contract_patch": _duet_contract_patch,
     "duet_contract_review": _duet_contract_review,
     "duet_status": _duet_status,
     "duet_answer": _duet_answer,
     "duet_decision": _duet_decision,
     "episode_creator": _episode_creator,
+    "creator_context_artifact": _creator_context_artifact,
+    "creator_context_read": _creator_context_read,
     "creator_log_read": _creator_log_read,
     "workflow_review": _workflow_review,
     "workflow_candidate": _workflow_candidate,

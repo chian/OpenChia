@@ -35,6 +35,7 @@ from agent.duet_contracts import (
     CreatorProgressEnvelope,
     DUET_PROTOCOL_TOOLS,
     DUET_SEARCH_TOOLS,
+    OPENCHIA_CONTROL_PLANE_TOOLS,
     DuetAnswer,
     DuetDesignState,
     DuetIdentity,
@@ -55,12 +56,15 @@ from agent.episode_contracts import (
     ChildEpisodeStopReason,
     ChildEpisodeUpdate,
     EpisodeCreationSpec,
+    EpisodeCreatorContext,
     EpisodeEvidenceMeasurement,
     EpisodeMeasuredOutcome,
+    MAX_CREATOR_CONTEXT_TOTAL_BYTES,
     OpaqueId,
     ProgressDirection,
     Sha256Digest,
 )
+from agent.interrupt_compat import request_hard_interrupt
 from agent.openchia_agents import (
     bind_duet_agent,
     build_creator_agent,
@@ -120,7 +124,11 @@ class OpenChiaHost:
         self.available_tool_names = frozenset(
             name
             for name in available_tool_names
-            if isinstance(name, str) and name
+            if (
+                isinstance(name, str)
+                and name
+                and name not in OPENCHIA_CONTROL_PLANE_TOOLS
+            )
         )
         self.agent_kwargs_factory = agent_kwargs_factory
         policy_id = OpaqueId.mint("policy", "openchia-interactive-v1")
@@ -154,6 +162,7 @@ class OpenChiaHost:
         self._execution_errors: dict[str, str] = {}
         self._final_errors: dict[str, str] = {}
         self._final_completed: set[str] = set()
+        self._duet_agent: Any = None
 
     def close(self) -> None:
         self.store.close()
@@ -173,7 +182,41 @@ class OpenChiaHost:
         )
         bound._duet_contract_reviewer = self.review_contract
         bound._openchia_draft_write_lock = self._draft_write_lock
+        self._duet_agent = bound
         return bound
+
+    @staticmethod
+    def _chat_as_interruptible_child(
+        parent_agent: Any,
+        child_agent: Any,
+        request: str,
+    ) -> str:
+        """Run an auxiliary critic inside its parent's hard-stop fan-out."""
+
+        children = getattr(parent_agent, "_active_children", None)
+        children_lock = getattr(parent_agent, "_active_children_lock", None)
+        registered = isinstance(children, list) and children_lock is not None
+        if registered:
+            with children_lock:
+                children.append(child_agent)
+            hard_event = getattr(parent_agent, "_hard_interrupt_requested", None)
+            if hard_event is not None and hard_event.is_set():
+                request_hard_interrupt(
+                    child_agent,
+                    tool_reason="parent OpenChia turn stopped",
+                )
+            elif getattr(parent_agent, "_interrupt_requested", False):
+                child_agent.interrupt()
+        try:
+            return child_agent.chat(request)
+        finally:
+            if registered:
+                with children_lock:
+                    if child_agent in children:
+                        children.remove(child_agent)
+            close = getattr(child_agent, "close", None)
+            if callable(close):
+                close()
 
     @staticmethod
     def _parse_contract_review(payload: str) -> dict[str, Any]:
@@ -247,17 +290,34 @@ class OpenChiaHost:
         critic = build_duet_contract_critic_agent(
             **self._role_agent_kwargs("contract_critic", draft.content_hash.value)
         )
+        materialized = draft.materialized()
+        creator_record = materialized.get("creator_contract")
+        context_artifacts: dict[str, dict[str, Any]] = {}
+        if isinstance(creator_record, Mapping):
+            context_artifacts = self.service.resolve_creator_context(
+                self.identity.duet_id,
+                EpisodeCreatorContext.from_record(
+                    creator_record["design_context"]
+                ),
+            )
         request = {
             "operation": "review_creator_contract",
             "contract_hash": draft.content_hash.value,
-            "contract": draft.materialized(),
+            "contract": materialized,
+            "creator_context_artifacts": context_artifacts,
             "allowed_episode_capability_names": sorted(self.available_tool_names),
             "host_facts": {
                 "root_measurement_id": ROOT_PROGRESS_MEASUREMENT_ID,
                 "run_evidence_acceptance_source_id": RUN_EVIDENCE_ACCEPTANCE_SOURCE_ID,
             },
         }
-        review = self._parse_contract_review(critic.chat(canonical_json(request)))
+        review = self._parse_contract_review(
+            self._chat_as_interruptible_child(
+                self._duet_agent,
+                critic,
+                canonical_json(request),
+            )
+        )
         record = {
             "contract_hash": draft.content_hash.value,
             "revision": draft.revision,
@@ -284,6 +344,8 @@ class OpenChiaHost:
         creator_episode_id: OpaqueId,
         workflow_blueprint: dict[str, Any],
         lenses: tuple[str, ...],
+        *,
+        parent_agent: Any = None,
     ) -> dict[str, Any]:
         """Run independent advisory lenses before a Creator freezes a candidate."""
 
@@ -310,6 +372,35 @@ class OpenChiaHost:
                 "reason": "workflow_admission_failed",
                 "deficits": [item.as_record() for item in deficits],
             }
+        review_context_artifacts = self.service.creator_context_artifacts(
+            creator_episode_id
+        )
+        for node in workflow.episodes:
+            creator_contract = node.contract.creator_contract
+            if creator_contract is None:
+                continue
+            review_context_artifacts.update(
+                self.service.resolve_creator_context(
+                    frozen.duet_id,
+                    creator_contract.design_context,
+                    consumer_creator_episode_id=creator_episode_id,
+                )
+            )
+        if (
+            len(canonical_json(review_context_artifacts).encode("utf-8"))
+            > MAX_CREATOR_CONTEXT_TOTAL_BYTES
+        ):
+            return {
+                "accepted": False,
+                "reason": "context_budget_exceeded",
+                "deficits": [
+                    {
+                        "code": "context_budget_exceeded",
+                        "field_path": "creator_contract.design_context",
+                        "blocking": True,
+                    }
+                ],
+            }
 
         def review_lens(lens: str) -> tuple[str, dict[str, Any]]:
             critic = build_creator_workflow_critic_agent(
@@ -323,12 +414,17 @@ class OpenChiaHost:
                 "lens": lens,
                 "creator_contract_hash": frozen.content_hash.value,
                 "creator_contract": frozen.contract.as_record(),
+                "creator_context_artifacts": review_context_artifacts,
                 "workflow_blueprint_hash": blueprint_hash.value,
                 "workflow": workflow_blueprint,
                 "host_validation": {"admission_deficits": []},
             }
             return lens, self._parse_contract_review(
-                critic.chat(canonical_json(request))
+                self._chat_as_interruptible_child(
+                    parent_agent,
+                    critic,
+                    canonical_json(request),
+                )
             )
 
         with ThreadPoolExecutor(
@@ -738,9 +834,13 @@ class OpenChiaHost:
         frozen = self.service.creator_contract(creator_episode_id)
         self._validate_host_measurement_contract(frozen.contract)
         logs = self._creator_log_store(creator_episode_id)
+        context_artifacts = self.service.creator_context_artifacts(
+            creator_episode_id
+        )
         creator_capabilities = tuple(
             sorted(DUET_SEARCH_TOOLS & self.available_tool_names)
         )
+        agent_slot: dict[str, Any] = {}
         agent = build_creator_agent(
             capability_names=creator_capabilities,
             log_store=logs,
@@ -748,9 +848,15 @@ class OpenChiaHost:
                 creator_episode_id,
                 workflow,
                 lenses,
+                parent_agent=agent_slot.get("agent"),
             ),
+            context_service=self.service,
+            creator_episode_id=creator_episode_id,
+            context_artifacts=context_artifacts,
+            creation_spec=frozen.contract,
             **self._role_agent_kwargs("creator", creator_episode_id.value),
         )
+        agent_slot["agent"] = agent
         designer = CreatorDesignSession(
             service=self.service,
             creator_episode_id=creator_episode_id,

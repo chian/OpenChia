@@ -28,6 +28,13 @@ The role inputs and result envelopes are registered in
 `agent/generic_creator_templates.py`. Domain terminology belongs in a task
 specification, never in the registry or engine.
 
+Every host-bound Duet and Creator can call `openchia_scope` to inspect its
+actual role boundary. The response distinguishes tools callable by that model
+from capabilities it may assign to children and includes recursion and resource
+bounds from the frozen contract. This host-derived record takes precedence over
+conversation text. A Duet admits the root Creator; a Creator proposes the
+descendant work graph; only the host admits and launches descendants.
+
 ## Admission and execution
 
 1. Parse the JSON record with `GenericCreatorInstanceSpec.from_record` and run
@@ -74,6 +81,12 @@ This repository does not pretend the local terminal backend is a sandbox. If
 no isolated executor is configured, admission of those capabilities fails.
 Platform changes are stored as content-addressed `PlatformPatchProposal`
 artifacts. A running Episode never applies or hot-loads one.
+
+Complex commissions use the lossless artifact manifest described in
+[structured Creator context](structured_creator_context.md). Generic instance
+specifications, gate manifests, interface contracts, work graphs, and task
+policies remain separate content-addressed artifacts; a model-written summary
+is never a substitute for a declared input artifact.
 
 ## Migration and rollback
 

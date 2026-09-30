@@ -46,6 +46,10 @@ MAX_EPISODE_GOAL_CHARS = 4096
 MAX_EPISODE_BLUEPRINT_TEXT_CHARS = 1024
 MAX_EPISODE_LOCAL_ID_CHARS = 64
 MAX_EPISODE_TOOL_NAME_CHARS = 256
+CREATOR_CONTEXT_SCHEMA_VERSION = 1
+MAX_CREATOR_CONTEXT_ARTIFACTS = 64
+MAX_CREATOR_CONTEXT_ARTIFACT_BYTES = 131_072
+MAX_CREATOR_CONTEXT_TOTAL_BYTES = 524_288
 
 _OPAQUE_ID = re.compile(r"^[a-z][a-z0-9_]{0,31}_[0-9a-f]{32,64}$")
 _OPAQUE_ID_KIND = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -299,6 +303,175 @@ class Sha256Digest:
     @classmethod
     def of_record(cls, record: Mapping[str, Any]) -> "Sha256Digest":
         return cls.of_bytes(_dump_json(record).encode("utf-8"))
+
+
+@dataclass(frozen=True)
+class EpisodeCreatorContextReference:
+    """One exact, content-addressed input to a Creator design commission."""
+
+    artifact_id: OpaqueId
+    content_hash: Sha256Digest
+    artifact_kind: str
+    schema_version: int
+    purpose: str
+    required: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.artifact_id, OpaqueId):
+            raise ValueError("context artifact_id must be an OpaqueId")
+        if not isinstance(self.content_hash, Sha256Digest):
+            raise ValueError("context content_hash must be a Sha256Digest")
+        object.__setattr__(
+            self,
+            "artifact_kind",
+            _local_identifier(self.artifact_kind, "context artifact_kind"),
+        )
+        object.__setattr__(
+            self,
+            "schema_version",
+            _positive_int(self.schema_version, "context artifact schema_version"),
+        )
+        object.__setattr__(
+            self,
+            "purpose",
+            _local_identifier(self.purpose, "context artifact purpose"),
+        )
+        object.__setattr__(self, "required", _boolean(self.required, "required"))
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "artifact_id": self.artifact_id.value,
+            "content_hash": self.content_hash.value,
+            "artifact_kind": self.artifact_kind,
+            "schema_version": self.schema_version,
+            "purpose": self.purpose,
+            "required": self.required,
+        }
+
+    @classmethod
+    def from_record(cls, value: object) -> "EpisodeCreatorContextReference":
+        record = _record(value, "Creator context artifact reference")
+        _keys(
+            record,
+            {
+                "artifact_id",
+                "content_hash",
+                "artifact_kind",
+                "schema_version",
+                "purpose",
+                "required",
+            },
+            "Creator context artifact reference",
+        )
+        return cls(
+            artifact_id=OpaqueId(record["artifact_id"]),
+            content_hash=Sha256Digest(record["content_hash"]),
+            artifact_kind=record["artifact_kind"],
+            schema_version=record["schema_version"],
+            purpose=record["purpose"],
+            required=record["required"],
+        )
+
+
+@dataclass(frozen=True)
+class EpisodeCreatorContext:
+    """Lossless context manifest; summaries carry no authority in this channel."""
+
+    entrypoint_artifact_id: OpaqueId
+    artifact_references: tuple[EpisodeCreatorContextReference, ...]
+    unresolved_question_ids: tuple[OpaqueId, ...] = ()
+    schema_version: int = field(
+        default=CREATOR_CONTEXT_SCHEMA_VERSION,
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.entrypoint_artifact_id, OpaqueId):
+            raise ValueError("entrypoint_artifact_id must be an OpaqueId")
+        if (
+            not isinstance(self.artifact_references, tuple)
+            or not self.artifact_references
+            or any(
+                not isinstance(item, EpisodeCreatorContextReference)
+                for item in self.artifact_references
+            )
+        ):
+            raise ValueError(
+                "artifact_references must contain at least one Creator context reference"
+            )
+        if len(self.artifact_references) > MAX_CREATOR_CONTEXT_ARTIFACTS:
+            raise ValueError(
+                f"artifact_references may contain at most {MAX_CREATOR_CONTEXT_ARTIFACTS} items"
+            )
+        artifact_ids = tuple(item.artifact_id for item in self.artifact_references)
+        if len(set(artifact_ids)) != len(artifact_ids):
+            raise ValueError("Creator context artifact references must be unique")
+        entrypoints = tuple(
+            item
+            for item in self.artifact_references
+            if item.artifact_id == self.entrypoint_artifact_id
+        )
+        if len(entrypoints) != 1 or not entrypoints[0].required:
+            raise ValueError(
+                "entrypoint_artifact_id must name one required context artifact"
+            )
+        if not isinstance(self.unresolved_question_ids, tuple) or any(
+            not isinstance(item, OpaqueId) for item in self.unresolved_question_ids
+        ):
+            raise ValueError("unresolved_question_ids must be a tuple of OpaqueIds")
+        if len(set(self.unresolved_question_ids)) != len(
+            self.unresolved_question_ids
+        ):
+            raise ValueError("unresolved_question_ids must be unique")
+
+    @property
+    def required_artifact_ids(self) -> tuple[OpaqueId, ...]:
+        return tuple(
+            item.artifact_id for item in self.artifact_references if item.required
+        )
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "entrypoint_artifact_id": self.entrypoint_artifact_id.value,
+            "artifact_references": [
+                item.as_record() for item in self.artifact_references
+            ],
+            "unresolved_question_ids": [
+                item.value for item in self.unresolved_question_ids
+            ],
+        }
+
+    @classmethod
+    def from_record(cls, value: object) -> "EpisodeCreatorContext":
+        record = _record(value, "Creator context")
+        _keys(
+            record,
+            {
+                "schema_version",
+                "entrypoint_artifact_id",
+                "artifact_references",
+                "unresolved_question_ids",
+            },
+            "Creator context",
+        )
+        _schema_version(
+            record["schema_version"],
+            CREATOR_CONTEXT_SCHEMA_VERSION,
+            "Creator context",
+        )
+        references = record["artifact_references"]
+        question_ids = record["unresolved_question_ids"]
+        if not isinstance(references, list) or not isinstance(question_ids, list):
+            raise ValueError("Creator context collection fields must be arrays")
+        return cls(
+            entrypoint_artifact_id=OpaqueId(record["entrypoint_artifact_id"]),
+            artifact_references=tuple(
+                EpisodeCreatorContextReference.from_record(item)
+                for item in references
+            ),
+            unresolved_question_ids=tuple(OpaqueId(item) for item in question_ids),
+        )
 
 
 @dataclass(frozen=True)
@@ -880,9 +1053,9 @@ class EpisodeCreatorReturnContract:
 
 @dataclass(frozen=True)
 class EpisodeCreatorContract:
-    """Bounded instructions and host-owned evaluation for a creator Episode."""
+    """Structured context and host-owned evaluation for a Creator Episode."""
 
-    design_instructions: str
+    design_context: EpisodeCreatorContext
     design_scope: str
     assignable_capability_names: tuple[str, ...]
     may_assign_creator_capability: bool
@@ -892,15 +1065,8 @@ class EpisodeCreatorContract:
     return_contract: EpisodeCreatorReturnContract
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "design_instructions",
-            _text(
-                self.design_instructions,
-                "design_instructions",
-                max_chars=MAX_EPISODE_GOAL_CHARS,
-            ),
-        )
+        if not isinstance(self.design_context, EpisodeCreatorContext):
+            raise ValueError("design_context must be an EpisodeCreatorContext")
         object.__setattr__(
             self,
             "design_scope",
@@ -981,7 +1147,7 @@ class EpisodeCreatorContract:
 
     def as_record(self) -> dict[str, Any]:
         return {
-            "design_instructions": self.design_instructions,
+            "design_context": self.design_context.as_record(),
             "design_scope": self.design_scope,
             "assignable_capability_names": list(
                 self.assignable_capability_names
@@ -1003,7 +1169,7 @@ class EpisodeCreatorContract:
         _keys(
             record,
             {
-                "design_instructions",
+                "design_context",
                 "design_scope",
                 "assignable_capability_names",
                 "may_assign_creator_capability",
@@ -1023,7 +1189,9 @@ class EpisodeCreatorContract:
         ):
             raise ValueError("creator contract collection fields must be arrays")
         return cls(
-            design_instructions=record["design_instructions"],
+            design_context=EpisodeCreatorContext.from_record(
+                record["design_context"]
+            ),
             design_scope=record["design_scope"],
             assignable_capability_names=tuple(capabilities),
             may_assign_creator_capability=record[
@@ -1738,6 +1906,7 @@ class EpisodeWorkflowDesignProjection:
 
 __all__ = [
     "CHILD_EPISODE_UPDATE_SCHEMA_VERSION",
+    "CREATOR_CONTEXT_SCHEMA_VERSION",
     "CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER",
     "EVIDENCE_GATE_SCORE_PROGRESS_ADAPTER",
     "DEFAULT_AGENT_EPISODE_RESULT",
@@ -1749,6 +1918,9 @@ __all__ = [
     "MAX_EPISODE_BLUEPRINT_TEXT_CHARS",
     "MAX_EPISODE_GOAL_CHARS",
     "MAX_EPISODE_TOOL_NAME_CHARS",
+    "MAX_CREATOR_CONTEXT_ARTIFACTS",
+    "MAX_CREATOR_CONTEXT_ARTIFACT_BYTES",
+    "MAX_CREATOR_CONTEXT_TOTAL_BYTES",
     "PARENT_UPDATE_PROJECTION_SCHEMA_VERSION",
     "CapabilityInheritance",
     "ChildEpisodePhase",
@@ -1757,6 +1929,8 @@ __all__ = [
     "EpisodeDeliverableKind",
     "EpisodeCreationSpec",
     "EpisodeCreatorContract",
+    "EpisodeCreatorContext",
+    "EpisodeCreatorContextReference",
     "EpisodeCreatorReturnContract",
     "EpisodeCreatorStatusField",
     "EpisodeCreditAggregation",

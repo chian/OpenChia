@@ -1,3 +1,6 @@
+import threading
+from types import SimpleNamespace
+
 import pytest
 
 from agent.duet_contracts import ContractFieldRecord, DuetProvenance
@@ -6,6 +9,7 @@ from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
     EpisodeCreationSpec,
     EpisodeCreatorContract,
+    EpisodeCreatorContext,
     EpisodeCreatorReturnContract,
     EpisodeCreditComponentSpec,
     EpisodeEvidenceRequirement,
@@ -20,7 +24,7 @@ from agent.episode_contracts import (
 from agent.openchia_host import OpenChiaHost, ROOT_PROGRESS_MEASUREMENT_ID
 
 
-def _creator_spec() -> EpisodeCreationSpec:
+def _creator_spec(context: EpisodeCreatorContext) -> EpisodeCreationSpec:
     evidence = EpisodeEvidenceRequirement(
         requirement_id="root_run",
         evidence_kind_id="root_episode_terminal_update",
@@ -56,7 +60,7 @@ def _creator_spec() -> EpisodeCreationSpec:
         can_create_episodes=True,
         execution_capability_names=("web_search",),
         creator_contract=EpisodeCreatorContract(
-            design_instructions="Iterate complete workflow candidates.",
+            design_context=context,
             design_scope="The human-approved task.",
             assignable_capability_names=("web_search",),
             may_assign_creator_capability=True,
@@ -76,6 +80,24 @@ def _creator_spec() -> EpisodeCreationSpec:
     )
 
 
+def _creator_context(host: OpenChiaHost) -> EpisodeCreatorContext:
+    reference = host.service.register_creator_context_artifact(
+        host.identity.duet_id,
+        artifact_kind="task_specification",
+        schema_version=1,
+        purpose="creator_entrypoint",
+        required=True,
+        content={
+            "goal": "Design and test a nested Episode workflow for the human goal.",
+            "required_behavior": ["iterate", "run", "inspect", "revise"],
+        },
+    )
+    return EpisodeCreatorContext(
+        entrypoint_artifact_id=reference.artifact_id,
+        artifact_references=(reference,),
+    )
+
+
 def test_shadow_review_parser_accepts_json_and_rejects_bad_verdict():
     parsed = OpenChiaHost._parse_contract_review(
         """```json
@@ -88,6 +110,66 @@ def test_shadow_review_parser_accepts_json_and_rejects_bad_verdict():
         OpenChiaHost._parse_contract_review(
             '{"verdict":"maybe","summary":"x","findings":[]}'
         )
+
+
+def test_host_never_treats_control_plane_tools_as_child_capabilities(tmp_path):
+    host = OpenChiaHost(
+        home=tmp_path,
+        session_id="20260930_120000_scope",
+        available_tool_names={
+            "web_search",
+            "openchia_scope",
+            "creator_context_artifact",
+            "workflow_candidate",
+            "episode_progress",
+        },
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    try:
+        assert host.available_tool_names == frozenset({"web_search"})
+        assert host.service.allowed_episode_capabilities == frozenset(
+            {"web_search"}
+        )
+    finally:
+        host.close()
+
+
+def test_auxiliary_critic_is_owned_closed_and_inherits_pending_stop():
+    events = []
+    parent = SimpleNamespace(
+        _active_children=[],
+        _active_children_lock=threading.RLock(),
+        _hard_interrupt_requested=threading.Event(),
+        _interrupt_requested=True,
+    )
+    parent._hard_interrupt_requested.set()
+
+    class Critic:
+        def hard_interrupt(self, *, tool_reason=None):
+            events.append(("interrupt", tool_reason))
+
+        def chat(self, request):
+            assert self in parent._active_children
+            events.append(("chat", request))
+            return "done"
+
+        def close(self):
+            events.append(("close", None))
+
+    critic = Critic()
+    result = OpenChiaHost._chat_as_interruptible_child(
+        parent,
+        critic,
+        "review request",
+    )
+
+    assert result == "done"
+    assert events == [
+        ("interrupt", "parent OpenChia turn stopped"),
+        ("chat", "review request"),
+        ("close", None),
+    ]
+    assert parent._active_children == []
 
 
 def test_host_records_exact_human_answer_for_duet_submission(tmp_path):
@@ -137,7 +219,9 @@ def test_shadow_review_is_cached_by_exact_contract_hash(tmp_path, monkeypatch):
         lambda **_kwargs: Critic(),
     )
     try:
-        blueprint = creation_blueprint_from_spec(_creator_spec())
+        blueprint = creation_blueprint_from_spec(
+            _creator_spec(_creator_context(host))
+        )
         draft = host.service.latest_draft(host.identity.duet_id)
         host.service.patch_contract(
             host.identity.duet_id,
@@ -174,7 +258,8 @@ def test_human_approval_is_visible_to_duet_and_creator_launch_is_idempotent(
         agent_kwargs_factory=lambda _role, _identity: {},
     )
     try:
-        blueprint = creation_blueprint_from_spec(_creator_spec())
+        creator_spec = _creator_spec(_creator_context(host))
+        blueprint = creation_blueprint_from_spec(creator_spec)
         draft = host.service.latest_draft(host.identity.duet_id)
         draft = host.service.patch_contract(
             host.identity.duet_id,
@@ -212,7 +297,7 @@ def test_human_approval_is_visible_to_duet_and_creator_launch_is_idempotent(
             content_hash=Sha256Digest(frozen["content_hash"]),
             human_approval_id=approval.approval_id,
         )
-        assert frozen["contract"]["goal"] == _creator_spec().goal
+        assert frozen["contract"]["goal"] == creator_spec.goal
 
         calls = []
         host._run_creator = lambda value, execution: calls.append(

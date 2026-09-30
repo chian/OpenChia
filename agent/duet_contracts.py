@@ -20,6 +20,7 @@ from typing import Any, Mapping, Optional
 
 from agent.episode_contracts import (
     EpisodeCreationSpec,
+    EpisodeCreatorContextReference,
     EpisodeWorkflowDesignProjection,
     EpisodeWorkflowSpec,
     OpaqueId,
@@ -166,15 +167,26 @@ class FieldImpact(str, Enum):
 DUET_SEARCH_TOOLS = frozenset({"web_search", "web_extract"})
 DUET_PROTOCOL_TOOLS = frozenset(
     {
+        "openchia_scope",
         "duet_contract_patch",
         "duet_contract_review",
         "duet_status",
         "duet_answer",
         "duet_decision",
         "episode_creator",
+        "creator_context_artifact",
+        "creator_context_read",
     }
 )
 DUET_ALLOWED_TOOLS = DUET_SEARCH_TOOLS | DUET_PROTOCOL_TOOLS
+OPENCHIA_CONTROL_PLANE_TOOLS = DUET_PROTOCOL_TOOLS | frozenset(
+    {
+        "creator_log_read",
+        "workflow_review",
+        "workflow_candidate",
+        "episode_progress",
+    }
+)
 DUET_FORBIDDEN_TOOLS = frozenset(
     {
         "terminal",
@@ -640,6 +652,7 @@ class FrozenWorkflowDesign:
     revision: int
     workflow_hash: Sha256Digest
     workflow: EpisodeWorkflowSpec
+    context_receipts: tuple[EpisodeCreatorContextReference, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("artifact_id", "duet_id", "creator_episode_id"):
@@ -655,6 +668,16 @@ class FrozenWorkflowDesign:
             raise ValueError("workflow must be an EpisodeWorkflowSpec")
         if self.workflow_hash != self.workflow.workflow_hash:
             raise ValueError("workflow hash does not match its content")
+        if not isinstance(self.context_receipts, tuple) or any(
+            not isinstance(item, EpisodeCreatorContextReference)
+            for item in self.context_receipts
+        ):
+            raise ValueError(
+                "context_receipts must contain Creator context references"
+            )
+        receipt_ids = tuple(item.artifact_id for item in self.context_receipts)
+        if len(set(receipt_ids)) != len(receipt_ids):
+            raise ValueError("context_receipts must be unique")
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -664,6 +687,9 @@ class FrozenWorkflowDesign:
             "revision": self.revision,
             "workflow_hash": self.workflow_hash.value,
             "workflow": self.workflow.as_record(),
+            "context_receipts": [
+                item.as_record() for item in self.context_receipts
+            ],
         }
 
 
@@ -780,6 +806,7 @@ __all__ = [
     "DUET_ALLOWED_TOOLS",
     "DUET_FORBIDDEN_TOOLS",
     "DUET_PROTOCOL_TOOLS",
+    "OPENCHIA_CONTROL_PLANE_TOOLS",
     "DUET_SCHEMA_VERSION",
     "DUET_SEARCH_TOOLS",
     "DuetAnswer",

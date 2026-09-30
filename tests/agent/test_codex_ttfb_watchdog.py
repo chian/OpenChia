@@ -290,7 +290,7 @@ def test_ttfb_does_not_kill_when_events_flow(tmp_path, monkeypatch):
     [
         ("openai-codex", "https://chatgpt.com/backend-api/codex", 40_004, None, True, True),
         ("openai-codex", "https://chatgpt.com/backend-api/codex", 40_004, "2", True, False),
-        ("openai-codex", "https://chatgpt.com/backend-api/codex", 40_000, None, True, False),
+        ("openai-codex", "https://chatgpt.com/backend-api/codex", 40_000, None, True, True),
         ("xai-oauth", "https://api.x.ai/v1", 40_004, None, True, False),
         ("openai-codex", "https://chatgpt.com/backend-api/codex", 40_004, "", True, True),
         ("openai-codex", "https://chatgpt.com/backend-api/codex", 40_004, "invalid", True, True),
@@ -307,7 +307,7 @@ def test_idle_phase_policy_is_narrow_and_preserves_operator_overrides(
     idle_enabled,
     requires_progress,
 ):
-    """Only an implicit, large, official request uses progress-phase arming."""
+    """Implicit official requests use progress arming when large or from a known reasoning family."""
     from agent import chat_completion_helpers as h
 
     agent = _make_codex_agent(

@@ -1157,6 +1157,13 @@ class _RequestClientRegistry:
 # timeout's run-budget cap is applied AFTER this floor (AIAgent._compute_non_stream_stale_timeout).
 HIGH_EFFORT_SILENCE_FLOOR_SECONDS = 300.0
 
+# Known reasoning-model families can pause between substantive Responses events even when the
+# caller leaves reasoning effort at its default. A 12-second small-request idle fuse killed a
+# healthy GPT-5.6 Creator critic after it had already begun reasoning. Keep this distinct from
+# the much larger whole-call stale floor: it protects an individual event gap without making a
+# genuinely dead stream wait ten minutes. Explicit operator values still win.
+REASONING_MODEL_EVENT_IDLE_FLOOR_SECONDS = 120.0
+
 # First-progress budget for a lifecycle-only stream on an official-Codex large request: the
 # stream opened but no substantive model event has arrived. Measured from the physical-attempt
 # start (a reconnect restarts it; lifecycle frames do not), and applied regardless of reasoning
@@ -1220,11 +1227,17 @@ def _resolve_nonstream_watchdogs(agent, api_kwargs: dict) -> _NonStreamWatchdogs
     # large-context floor, hard ceiling and TTFB scale-up/cap below must not tighten it.
     base_url = getattr(agent, "base_url", None)
     local = bool(base_url) and is_local_endpoint(base_url)
+    model_idle_floor = 0.0
+    if codex and openai_codex_backend and not local:
+        from agent.reasoning_timeouts import get_reasoning_stale_timeout_floor
+
+        if get_reasoning_stale_timeout_floor(api_kwargs.get("model")) is not None:
+            model_idle_floor = REASONING_MODEL_EVENT_IDLE_FLOOR_SECONDS
     if codex and not local:
         codex_floor = openai_codex_stale_timeout_floor(est_tokens)
         stale_timeout = _bound_openai_codex_stale_timeout(stale_timeout, est_tokens)
 
-    idle_default = max(effort_floor, next(
+    idle_default = max(effort_floor, model_idle_floor, next(
         (default for threshold, default in ((100_000, 180.0), (50_000, 120.0), (10_000, 60.0)) if est_tokens > threshold),
         12.0))
 
@@ -1272,7 +1285,12 @@ def _resolve_nonstream_watchdogs(agent, api_kwargs: dict) -> _NonStreamWatchdogs
     # default for unset AND unparseable values, so both count as implicit.
     idle_explicit = env_float("HERMES_CODEX_EVENT_STALE_TIMEOUT_SECONDS", -1.0) != -1.0
     idle_timeout = env_float("HERMES_CODEX_EVENT_STALE_TIMEOUT_SECONDS", idle_default)
-    progress_gated = codex and openai_codex_backend and codex_floor > 0 and not idle_explicit
+    progress_gated = (
+        codex
+        and openai_codex_backend
+        and (codex_floor > 0 or model_idle_floor > 0)
+        and not idle_explicit
+    )
     return _NonStreamWatchdogs(stale_timeout=stale_timeout, codex=codex, est_tokens=est_tokens,
         ttfb_enabled=ttfb_enabled, ttfb_timeout=ttfb_timeout, idle_enabled=codex and idle_timeout > 0,
         idle_timeout=idle_timeout, idle_requires_progress=progress_gated,

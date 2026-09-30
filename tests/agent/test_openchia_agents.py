@@ -49,6 +49,7 @@ def test_duet_agent_surface_is_exact_and_search_cannot_expand_it(tmp_path):
     assert agent.valid_tool_names == set(policy.capability_allowlist)
     assert "web_search" in agent.valid_tool_names
     assert "episode_creator" in agent.valid_tool_names
+    assert "openchia_scope" in agent.valid_tool_names
     assert "tool_search" not in agent.valid_tool_names
     assert "terminal" not in agent.valid_tool_names
     assert "write_file" not in agent.valid_tool_names
@@ -57,3 +58,17 @@ def test_duet_agent_surface_is_exact_and_search_cannot_expand_it(tmp_path):
     assert "delegate_task" not in agent.valid_tool_names
     assert agent._tool_search_catalog == {}
     assert agent._deferred_tool_names == frozenset()
+    assert agent._openchia_authority_scope["role"] == "duet"
+    assert agent._openchia_authority_scope["callable_tool_names"] == sorted(
+        policy.capability_allowlist
+    )
+    assert agent._openchia_authority_scope[
+        "assignable_child_capability_names"
+    ] == ["web_search"]
+    assert agent._openchia_authority_scope["tree_boundary"] == {
+        "owns": "commission_and_admission_of_exactly_one_root_creator",
+        "may_design_or_launch_descendant_task_tree": False,
+        "maximum_creator_depth": policy.maximum_creator_depth,
+        "creator_builds_descendant_work_graph": True,
+        "host_admits_and_launches_descendants": True,
+    }

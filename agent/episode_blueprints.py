@@ -18,6 +18,7 @@ from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
     EpisodeCreationSpec,
     EpisodeWorkflowSpec,
+    MAX_CREATOR_CONTEXT_ARTIFACTS,
     MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
     MAX_EPISODE_GOAL_CHARS,
     OpaqueId,
@@ -296,6 +297,59 @@ _CREDIT_COMPONENT_SCHEMA = {
 }
 
 
+_CREATOR_CONTEXT_REFERENCE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "artifact_id": {"type": "string"},
+        "content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "artifact_kind": {"type": "string"},
+        "schema_version": {"type": "integer", "minimum": 1},
+        "purpose": {"type": "string"},
+        "required": {"type": "boolean"},
+    },
+    "required": [
+        "artifact_id",
+        "content_hash",
+        "artifact_kind",
+        "schema_version",
+        "purpose",
+        "required",
+    ],
+    "additionalProperties": False,
+}
+
+
+_CREATOR_CONTEXT_SCHEMA = {
+    "type": "object",
+    "description": (
+        "A lossless manifest of immutable context artifacts. Artifact content is read "
+        "exactly through creator_context_read; summaries are not authoritative."
+    ),
+    "properties": {
+        "schema_version": {"const": 1},
+        "entrypoint_artifact_id": {"type": "string"},
+        "artifact_references": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": MAX_CREATOR_CONTEXT_ARTIFACTS,
+            "items": _CREATOR_CONTEXT_REFERENCE_SCHEMA,
+        },
+        "unresolved_question_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "uniqueItems": True,
+        },
+    },
+    "required": [
+        "schema_version",
+        "entrypoint_artifact_id",
+        "artifact_references",
+        "unresolved_question_ids",
+    ],
+    "additionalProperties": False,
+}
+
+
 EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA = {
     "type": ["object", "null"],
     "description": (
@@ -303,10 +357,7 @@ EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA = {
         "creates an ordinary task Episode."
     ),
     "properties": {
-        "design_instructions": {
-            "type": "string",
-            "maxLength": MAX_EPISODE_GOAL_CHARS,
-        },
+        "design_context": _CREATOR_CONTEXT_SCHEMA,
         "design_scope": {
             "type": "string",
             "maxLength": MAX_EPISODE_GOAL_CHARS,
@@ -377,7 +428,7 @@ EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA = {
         },
     },
     "required": [
-        "design_instructions",
+        "design_context",
         "design_scope",
         "assignable_capability_names",
         "may_assign_creator_capability",

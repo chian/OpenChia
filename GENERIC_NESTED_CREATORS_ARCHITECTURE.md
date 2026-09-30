@@ -69,9 +69,17 @@ runtime:
    host-accepted evidence determines the weighted required-gate score. Model
    assertions, skipped/blocked gates, duplicate evidence, and unchecked remote
    work receive no credit.
-7. Existing Creator contracts, ordinary Episodes, exact approval invalidation,
-   and `root_episode_progress` remain unchanged. Generic instances are an
-   additive schema and runtime path.
+7. Creator commissions use an exact `design_context` manifest of immutable,
+   content-addressed artifacts. The former free-form instruction field is
+   intentionally rejected; this is a pre-beta breaking change for Creator
+   contracts. Ordinary non-Creator Episodes, exact approval invalidation, and
+   `root_episode_progress` remain unchanged. Generic instances are otherwise
+   an additive schema and runtime path.
+8. `openchia_scope` exposes the host-derived role boundary at runtime. It
+   distinguishes tools callable by the Duet or Creator from capabilities the
+   Creator may assign to children. The Duet admits the root Creator, the
+   Creator proposes the descendant graph, and only the host admits and launches
+   descendants.
 
 ## Threat model and security boundary
 
@@ -117,9 +125,10 @@ sandbox would violate the requested self-modification guarantee.
 
 ## Rollout and compatibility
 
-The database migration is additive and idempotent. Existing rows and schema
-versions remain readable. Generic Creator admission is explicit; current Duet,
-Creator, Run, and ordinary task paths do not opt into it automatically. An
-operator must configure an isolated executor before assigning effectful shell,
-code, or process capabilities to a recursive generic instance. No migration
-restarts or mutates a running host.
+The database migration is additive and idempotent. Existing generic rows remain
+readable, but pre-structured Creator contracts must be recreated with exact
+context artifacts; there is deliberately no lossy automatic conversion.
+Generic Creator admission is explicit; ordinary task paths do not opt into it
+automatically. An operator must configure an isolated executor before assigning
+effectful shell, code, or process capabilities to a recursive generic instance.
+No migration restarts or mutates a running host.

@@ -421,6 +421,31 @@ class DuetStore:
             "record": self._decode(row),
         }
 
+    def artifacts_by_kind(
+        self,
+        *,
+        duet_id: str,
+        kind: str,
+    ) -> tuple[dict[str, Any], ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM artifacts WHERE duet_id = ? AND kind = ? "
+                "ORDER BY created_at, artifact_id",
+                (duet_id, kind),
+            ).fetchall()
+        return tuple(
+            {
+                "artifact_id": row["artifact_id"],
+                "duet_id": row["duet_id"],
+                "creator_episode_id": row["creator_episode_id"],
+                "kind": row["kind"],
+                "revision": row["revision"],
+                "content_hash": row["content_hash"],
+                "record": self._decode(row),
+            }
+            for row in rows
+        )
+
     def put_approval(self, record: Mapping[str, Any]) -> None:
         record = _object(record, "approval")
         payload = canonical_json(record)

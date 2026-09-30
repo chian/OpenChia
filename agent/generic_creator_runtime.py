@@ -96,16 +96,21 @@ def compute_runtime_identity(source_root: str | Path) -> Sha256Digest:
         Path(sys.executable).resolve(),
         root / "agent" / "duet_service.py",
         root / "agent" / "duet_store.py",
+        root / "agent" / "duet_contracts.py",
+        root / "agent" / "creator_design_session.py",
+        root / "agent" / "episode_blueprints.py",
         root / "agent" / "episode_contract_models.py",
         root / "agent" / "episode_progress_adapters.py",
         root / "agent" / "openchia_agents.py",
         root / "agent" / "openchia_host.py",
         root / "agent" / "tool_executor.py",
+        root / "agent" / "inline_tool_executors.py",
         root / "agent" / "generic_creator_models.py",
         root / "agent" / "generic_creator_templates.py",
         root / "agent" / "generic_creator_store.py",
         root / "agent" / "generic_creator_runtime.py",
         root / "agent" / "openchia_execution_boundary.py",
+        root / "tools" / "duet_tool.py",
     )
     material = bytearray()
     for path in paths:

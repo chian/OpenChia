@@ -32,6 +32,8 @@ from agent.episode_contracts import (
     ChildEpisodeUpdate,
     EpisodeCreationSpec,
     EpisodeCreatorContract,
+    EpisodeCreatorContext,
+    EpisodeCreatorContextReference,
     EpisodeCreatorReturnContract,
     EpisodeCreditComponentSpec,
     EpisodeDesignSpec,
@@ -43,6 +45,7 @@ from agent.episode_contracts import (
     OpaqueId,
     ProgressDirection,
     ProgressStopCriteria,
+    Sha256Digest,
 )
 from method_loop import (
     Context,
@@ -130,6 +133,19 @@ def _creator_spec():
         weight=1,
         evidence_requirement_ids=(requirement.requirement_id,),
     )
+    context_record = {
+        "artifact_kind": "task_specification",
+        "schema_version": 1,
+        "content": {"goal": "Design one nested workflow."},
+    }
+    context_reference = EpisodeCreatorContextReference(
+        artifact_id=OpaqueId.mint("context", "creator-episode-test-context"),
+        content_hash=Sha256Digest.of_record(context_record),
+        artifact_kind="task_specification",
+        schema_version=1,
+        purpose="creator_entrypoint",
+        required=True,
+    )
     return EpisodeCreationSpec(
         goal="Design one nested workflow.",
         progress=NumericProgressMeasure(
@@ -147,7 +163,10 @@ def _creator_spec():
         ),
         can_create_episodes=True,
         creator_contract=EpisodeCreatorContract(
-            design_instructions="Design and test the requested workflow.",
+            design_context=EpisodeCreatorContext(
+                entrypoint_artifact_id=context_reference.artifact_id,
+                artifact_references=(context_reference,),
+            ),
             design_scope="Only the nested goal.",
             assignable_capability_names=(),
             may_assign_creator_capability=False,
@@ -545,6 +564,10 @@ def test_creator_log_read_rejects_a_reference_that_changes_identity_or_size(tmp_
 
 def test_creator_design_session_exposes_prior_log_and_freezes_one_submission():
     workflow = _workflow()
+    creator_spec = _creator_spec()
+    required_context_id = (
+        creator_spec.creator_contract.design_context.entrypoint_artifact_id.value
+    )
     creator_id = OpaqueId.mint("episode", "creator-design-session")
 
     class _Service(DuetService):
@@ -556,12 +579,19 @@ def test_creator_design_session_exposes_prior_log_and_freezes_one_submission():
             return SimpleNamespace(
                 artifact_id=OpaqueId.mint("contract", "creator-design-session"),
                 content_hash=workflow.workflow_hash,
-                contract=_task_spec(),
+                contract=creator_spec,
             )
 
-        def freeze_workflow_design(self, *, creator_episode_id, workflow_blueprint):
+        def freeze_workflow_design(
+            self,
+            *,
+            creator_episode_id,
+            workflow_blueprint,
+            consumed_context_artifact_ids,
+        ):
             assert creator_episode_id == creator_id
             assert workflow_blueprint == workflow_blueprint_from_spec(workflow)
+            assert consumed_context_artifact_ids == (required_context_id,)
             self.revision += 1
             return SimpleNamespace(
                 revision=self.revision,
@@ -577,6 +607,7 @@ def test_creator_design_session_exposes_prior_log_and_freezes_one_submission():
         def __init__(self):
             self._creator_log_references = {}
             self._creator_workflow_submit = None
+            self._creator_context_read_ids = {required_context_id}
             self.request = None
 
         def chat(self, message):
