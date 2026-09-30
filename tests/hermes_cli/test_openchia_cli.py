@@ -1,8 +1,9 @@
 import sys
+from types import SimpleNamespace
 
 import pytest
 
-from hermes_cli.openchia_cli import render_openchia_status
+from hermes_cli.openchia_cli import OpenChiaCLI, render_openchia_status
 from hermes_cli.openchia_main import main
 
 
@@ -55,3 +56,29 @@ def test_status_panel_is_compact_and_contextual():
     )
     assert "shadow review: concern" in ready
     assert "/review · /approve" in ready
+
+
+def test_answer_command_records_and_exposes_exact_artifact_to_duet():
+    observed = {}
+
+    class Host:
+        def record_human_answer(self, field_path, value):
+            observed["answer"] = (field_path, value)
+            return SimpleNamespace(
+                field_path=field_path,
+                answer_id=SimpleNamespace(value="answer_" + "a" * 64),
+            )
+
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    cli._openchia_host = Host()
+    cli._pending_agent_seed = None
+    cli._print_openchia = lambda text: observed.setdefault("printed", text)
+    cli._refresh_openchia = lambda: observed.setdefault("refreshed", True)
+
+    assert OpenChiaCLI.process_command(
+        cli,
+        '/answer goal "Design the measured workflow."',
+    ) is True
+    assert observed["answer"] == ("goal", "Design the measured workflow.")
+    assert "answer_" + "a" * 64 in cli._pending_agent_seed
+    assert "duet_answer" in cli._pending_agent_seed

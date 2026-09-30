@@ -6,7 +6,9 @@ import pytest
 
 from agent.duet_contracts import (
     ApprovalKind,
+    ContractDeficit,
     ContractFieldRecord,
+    CreatorContractDraft,
     CreatorProgressEnvelope,
     DuetIdentity,
     DuetDesignState,
@@ -179,9 +181,18 @@ def test_incomplete_contract_requests_fields_and_creates_nothing(duet):
     by_field = {item.field_path: item for item in requests}
     assert by_field["goal"].answer_schema["type"] == "string"
     assert "design_instructions" in by_field["creator_contract"].answer_schema["properties"]
+    assert (
+        by_field["progress"].answer_schema["properties"]["adapter_id"]["const"]
+        == CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER
+    )
     status = service.duet_status(identity.duet_id)
     assert status["configuration"] == {}
     assert status["contract_review"] is None
+    assert status["creator_progress_adapter"] == {
+        "adapter_id": CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+        "host_owned": True,
+        "measurement_boundary": "root_episode_progress",
+    }
     assert all(
         item["disposition"] == "unresolved"
         for item in status["design_ledger"]
@@ -206,6 +217,90 @@ def test_incomplete_contract_requests_fields_and_creates_nothing(duet):
     assert goal["disposition"] == "llm_proposed"
     assert status["configuration"]["goal"] == "Produce a verified result."
     assert status["unconfirmed_proposal_ids"] == ["goal"]
+
+
+def test_nested_validation_deficit_accepts_one_exact_human_answer(duet):
+    identity, policy, store, service = duet
+    blueprint = creation_blueprint_from_spec(_creator_spec())
+    blueprint["creator_contract"]["design_instructions"] = "x" * 4097
+    fields = tuple(
+        ContractFieldRecord(
+            field_path=path,
+            value=value,
+            provenance=DuetProvenance.LLM_PROPOSAL,
+        )
+        for path, value in blueprint.items()
+    )
+    draft = service.open_duet(identity, policy, initial_fields=fields)
+
+    assert [(item.code, item.field_path) for item in draft.deficits] == [
+        ("invalid_contract", "creator_contract.design_instructions")
+    ]
+    [request] = service.information_requests(identity.duet_id)
+    assert request.field_path == "creator_contract.design_instructions"
+    assert request.answer_schema == {"type": "string", "maxLength": 4096}
+
+    stale = CreatorContractDraft(
+        draft_id=draft.draft_id,
+        duet_id=draft.duet_id,
+        revision=draft.revision + 1,
+        fields=draft.fields,
+        deficits=(ContractDeficit("invalid_contract", "goal"),),
+    )
+    store.put_draft(
+        duet_id=identity.duet_id.value,
+        draft_id=stale.draft_id.value,
+        revision=stale.revision,
+        content_hash=stale.content_hash.value,
+        ready=stale.ready,
+        record=stale.as_record(),
+        expected_previous_revision=draft.revision,
+    )
+    refreshed = service.open_duet(identity, policy)
+    assert refreshed.revision == stale.revision + 1
+    assert refreshed.deficits[0].field_path == (
+        "creator_contract.design_instructions"
+    )
+
+    [request] = service.information_requests(identity.duet_id)
+    answer = service.record_human_answer(
+        identity,
+        request_id=request.request_id,
+        value="Iterate complete workflow candidates and inspect each Run log.",
+    )
+    assert service.duet_status(identity.duet_id)["pending_human_answer"] == {
+        "answer_artifact_id": answer.answer_id.value,
+        "request_id": request.request_id.value,
+        "field_path": "creator_contract.design_instructions",
+        "revision": refreshed.revision,
+    }
+
+    completed = service.submit_duet_answer(answer.answer_id)
+    assert completed.ready is True
+    assert completed.materialized()["creator_contract"]["design_instructions"] == (
+        "Iterate complete workflow candidates and inspect each Run log."
+    )
+    human_field = next(
+        item
+        for item in completed.fields
+        if item.field_path == "creator_contract.design_instructions"
+    )
+    assert human_field.human_fixed is True
+    assert service.duet_status(identity.duet_id)["pending_human_answer"] is None
+
+    with pytest.raises(DuetProtocolError, match="human-fixed"):
+        service.patch_contract(
+            identity.duet_id,
+            expected_revision=completed.revision,
+            patches=(
+                ContractFieldRecord(
+                    field_path="creator_contract.design_instructions",
+                    value="Replace the human answer.",
+                    provenance=DuetProvenance.LLM_PROPOSAL,
+                ),
+            ),
+            actor=DuetProvenance.LLM_PROPOSAL,
+        )
 
 
 def test_llm_cannot_replace_human_field_and_exact_approval_is_required(duet):

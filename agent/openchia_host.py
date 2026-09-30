@@ -34,6 +34,7 @@ from agent.duet_contracts import (
     CreatorProgressEnvelope,
     DUET_PROTOCOL_TOOLS,
     DUET_SEARCH_TOOLS,
+    DuetAnswer,
     DuetDesignState,
     DuetIdentity,
     DuetMessageKind,
@@ -387,6 +388,27 @@ class OpenChiaHost:
             field: current.get(field, EPISODE_FIELD_PLACEHOLDER)
             for field in CREATION_BLUEPRINT_FIELDS
         }
+
+    def record_human_answer(self, field_path: str, value: Any) -> DuetAnswer:
+        """Record one exact answer through the trusted human host boundary."""
+
+        self._assert_draft_mutable()
+        requests = {
+            request.field_path: request
+            for request in self.service.information_requests(self.identity.duet_id)
+        }
+        request = requests.get(field_path)
+        if request is None:
+            available = ", ".join(sorted(requests)) or "none"
+            raise DuetProtocolError(
+                f"{field_path} is not an open information request; open fields: "
+                f"{available}"
+            )
+        return self.service.record_human_answer(
+            self.identity,
+            request_id=request.request_id,
+            value=value,
+        )
 
     def _assert_draft_mutable(self) -> None:
         if self.service.duet_status(self.identity.duet_id).get("creator_episode_id"):

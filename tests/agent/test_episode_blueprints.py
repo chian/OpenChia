@@ -3,12 +3,15 @@ from __future__ import annotations
 import pytest
 
 from agent.episode_blueprints import (
+    EPISODE_CREATION_BLUEPRINT_SCHEMA,
     creation_blueprint_from_spec,
     creation_spec_from_blueprint,
     workflow_blueprint_from_spec,
     workflow_spec_from_blueprint,
 )
 from agent.episode_contracts import (
+    CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+    DURABLE_EVIDENCE_PROGRESS_ADAPTER,
     EpisodeCreationSpec,
     EpisodeDesignSpec,
     EpisodeWorkflowSpec,
@@ -16,6 +19,7 @@ from agent.episode_contracts import (
     OpaqueId,
     ProgressDirection,
     ProgressStopCriteria,
+    TERMINAL_RESULT_PROGRESS_ADAPTER,
 )
 
 
@@ -82,3 +86,15 @@ def test_blueprint_rejects_model_claims_to_host_owned_fields():
             blueprint,
             identity_namespace="test:smuggled-authority",
         )
+
+
+def test_blueprint_exposes_only_registered_progress_adapters():
+    adapter_schema = EPISODE_CREATION_BLUEPRINT_SCHEMA["properties"]["progress"][
+        "properties"
+    ]["adapter_id"]
+
+    assert set(adapter_schema["enum"]) == {
+        CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+        DURABLE_EVIDENCE_PROGRESS_ADAPTER,
+        TERMINAL_RESULT_PROGRESS_ADAPTER,
+    }

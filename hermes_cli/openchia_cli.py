@@ -62,6 +62,8 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
 
     labels = {
         "goal": "intended outcome",
+        "creator_contract.design_instructions": "Creator design instructions",
+        "creator_contract.design_scope": "Creator design scope",
         "result": "concrete result",
         "unit": "repeatable cycle",
         "progress": "success evidence",
@@ -97,6 +99,7 @@ class OpenChiaCLI(HermesCLI):
         "/duet": "Show closed Duet, Creator, and Run state",
         "/openchia": "Alias for /duet",
         "/approve": "Approve the ready contract or measured workflow",
+        "/answer": "Record an exact human answer to an open contract field",
         "/review": "Run or show the advisory shadow contract review",
         "/guide": "Queue human guidance at the next Creator boundary",
         "/pause": "Stop the Creator at its next boundary",
@@ -440,6 +443,7 @@ class OpenChiaCLI(HermesCLI):
                 "  /episode unset FIELD            remove one field or dotted path\n"
                 "  /duet             show the closed Duet -> Creator -> Run state\n"
                 "  /approve          approve the ready contract or measured workflow\n"
+                "  /answer FIELD JSON_VALUE   record an exact human answer to an open field\n"
                 "  /review           run or show the advisory shadow contract review\n"
                 "  /guide TEXT       queue human guidance at the next Creator boundary\n"
                 "  /pause            stop the Creator at its next boundary\n"
@@ -457,6 +461,29 @@ class OpenChiaCLI(HermesCLI):
                 return True
         if lower in {"/duet", "/openchia"}:
             self._print_openchia(render_openchia_status(self._status(refresh=True)))
+            return True
+        if lower == "/answer" or lower.startswith("/answer "):
+            arguments = stripped[len("/answer") :].strip()
+            field_path, separator, raw_value = arguments.partition(" ")
+            if not separator:
+                self._print_openchia("Usage: /answer FIELD JSON_VALUE")
+                return True
+            try:
+                value = json.loads(raw_value)
+                answer = self._episode_host().record_human_answer(field_path, value)
+                self._print_openchia(
+                    f"Recorded human answer for {answer.field_path}: "
+                    f"{answer.answer_id.value}"
+                )
+                self._pending_agent_seed = (
+                    "Host event: the human recorded an exact answer for "
+                    f"{answer.field_path}. Read duet_status and submit answer artifact "
+                    f"{answer.answer_id.value} with duet_answer. Do not paraphrase or "
+                    "replace its value."
+                )
+            except Exception as exc:
+                self._print_openchia(f"Human answer not recorded: {exc}")
+            self._refresh_openchia()
             return True
         if lower == "/approve":
             if self._openchia_host is None:

@@ -18,8 +18,11 @@ from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
     EpisodeCreationSpec,
     EpisodeWorkflowSpec,
+    MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
+    MAX_EPISODE_GOAL_CHARS,
     OpaqueId,
 )
+from agent.episode_progress_adapters import model_progress_adapters
 
 
 CREATION_BLUEPRINT_FIELDS = (
@@ -46,6 +49,13 @@ _WORKFLOW_NODE_FIELDS = {
     "workflow_parent_local_id",
     "contract",
 }
+_MODEL_PROGRESS_ADAPTER_IDS = tuple(
+    adapter.adapter_id for adapter in model_progress_adapters()
+)
+_BLUEPRINT_PROGRESS_ADAPTER_IDS = (
+    CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+    *_MODEL_PROGRESS_ADAPTER_IDS,
+)
 
 
 def _object(value: object, name: str) -> Mapping[str, Any]:
@@ -206,7 +216,10 @@ EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA = {
     ),
     "properties": {
         "kind": {"type": "string", "enum": ["typed_status", "shared_state"]},
-        "description": {"type": "string"},
+        "description": {
+            "type": "string",
+            "maxLength": MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
+        },
         "tool_names": {
             "type": "array",
             "items": {"type": "string"},
@@ -294,8 +307,14 @@ EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA = {
         "creates an ordinary task Episode."
     ),
     "properties": {
-        "design_instructions": {"type": "string"},
-        "design_scope": {"type": "string"},
+        "design_instructions": {
+            "type": "string",
+            "maxLength": MAX_EPISODE_GOAL_CHARS,
+        },
+        "design_scope": {
+            "type": "string",
+            "maxLength": MAX_EPISODE_GOAL_CHARS,
+        },
         "assignable_capability_names": {
             "type": "array",
             "items": {"type": "string"},
@@ -380,14 +399,17 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
     "properties": {
         "goal": {
             "type": "string",
+            "maxLength": MAX_EPISODE_GOAL_CHARS,
             "description": "The stable change in the world this Episode should achieve.",
         },
         "unit": {
             "type": "string",
+            "maxLength": MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
             "description": "One complete repeatable attempt-observe-learn cycle.",
         },
         "result": {
             "type": "string",
+            "maxLength": MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
             "description": "The concrete artifact, state, or typed outcome produced.",
         },
         "progress": {
@@ -398,7 +420,15 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
                 "unit": {"type": "string"},
                 "direction": {"type": "string", "enum": ["increase", "decrease"]},
                 "baseline": {"type": "number"},
-                "adapter_id": {"type": "string"},
+                "adapter_id": {
+                    "type": "string",
+                    "enum": list(_BLUEPRINT_PROGRESS_ADAPTER_IDS),
+                    "description": (
+                        "Select only a host-registered progress adapter. Creator Episodes "
+                        f"must use {CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER}; ordinary task "
+                        "Episodes must use one of the other listed adapters."
+                    ),
+                },
             },
             "required": sorted(_PROGRESS_FIELDS),
             "additionalProperties": False,

@@ -90,6 +90,34 @@ def test_shadow_review_parser_accepts_json_and_rejects_bad_verdict():
         )
 
 
+def test_host_records_exact_human_answer_for_duet_submission(tmp_path):
+    host = OpenChiaHost(
+        home=tmp_path,
+        session_id="20260930_120000_answer",
+        available_tool_names={"web_search"},
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    try:
+        answer = host.record_human_answer(
+            "goal",
+            "Design a measured nested Episode workflow.",
+        )
+        status = host.status()
+        assert status["pending_human_answer"]["answer_artifact_id"] == (
+            answer.answer_id.value
+        )
+        assert "goal" not in host.service.latest_draft(
+            host.identity.duet_id
+        ).materialized()
+
+        draft = host.service.submit_duet_answer(answer.answer_id)
+        goal = next(item for item in draft.fields if item.field_path == "goal")
+        assert goal.value == "Design a measured nested Episode workflow."
+        assert goal.human_fixed is True
+    finally:
+        host.close()
+
+
 def test_shadow_review_is_cached_by_exact_contract_hash(tmp_path, monkeypatch):
     host = OpenChiaHost(
         home=tmp_path,

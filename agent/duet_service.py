@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from typing import Any, Iterable, Mapping, Optional
 
@@ -40,6 +41,7 @@ from agent.episode_blueprints import (
     workflow_spec_from_blueprint,
 )
 from agent.episode_contracts import (
+    CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
     EpisodeCreationSpec,
     EpisodeCreatorStatusField,
     EpisodeMeasuredOutcome,
@@ -78,14 +80,37 @@ _FIELD_IMPACTS = {
 
 
 def _field_answer_schema(field_path: str) -> Mapping[str, Any]:
-    """Return the real blueprint schema for the unresolved top-level field."""
+    """Return the real blueprint schema for the exact unresolved field."""
 
-    root = field_path.split(".", 1)[0]
+    parts = field_path.split(".")
+    root = parts[0]
     properties = EPISODE_CREATION_BLUEPRINT_SCHEMA.get("properties")
     if not isinstance(properties, Mapping):
         return {"type": "object"}
     schema = properties.get(root)
-    return schema if isinstance(schema, Mapping) else {"type": "object"}
+    if not isinstance(schema, Mapping):
+        return {"type": "object"}
+    if root == "progress":
+        progress_schema = dict(schema)
+        progress_properties = dict(progress_schema.get("properties") or {})
+        progress_properties["adapter_id"] = {
+            "type": "string",
+            "const": CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+            "description": (
+                "Host-owned bootstrap adapter for the Creator Episode. The task-specific "
+                "measurement belongs to the workflow root designed by the Creator."
+            ),
+        }
+        progress_schema["properties"] = progress_properties
+        schema = progress_schema
+    for part in parts[1:]:
+        nested = schema.get("properties")
+        if not isinstance(nested, Mapping):
+            return {"type": "object"}
+        schema = nested.get(part)
+        if not isinstance(schema, Mapping):
+            return {"type": "object"}
+    return schema
 
 
 class DuetProtocolError(RuntimeError):
@@ -171,6 +196,13 @@ def _frozen_from_artifact(record: Mapping[str, Any]) -> FrozenCreatorContract:
 
 
 def _path_for_error(message: str) -> str:
+    nested_fields = {
+        "design_instructions": "creator_contract.design_instructions",
+        "design_scope": "creator_contract.design_scope",
+    }
+    for token, path in nested_fields.items():
+        if token in message:
+            return path
     for path in _REQUIRED_CREATOR_FIELDS:
         if path in message:
             return path
@@ -215,7 +247,17 @@ class DuetService:
         )
         existing = self.store.latest_draft(identity.duet_id.value)
         if existing is not None:
-            return _draft_from_record(existing)
+            draft = _draft_from_record(existing)
+            if self.store.latest_creator(identity.duet_id.value) is None:
+                _, deficits = self._materialize_contract(draft.fields)
+                if deficits != draft.deficits:
+                    return self._write_revision(
+                        identity.duet_id,
+                        prior=draft,
+                        fields=draft.fields,
+                        provenance=DuetProvenance.HOST_VALIDATION,
+                    )
+            return draft
         return self._write_revision(
             identity.duet_id,
             prior=None,
@@ -267,10 +309,15 @@ class DuetService:
                 identity_namespace="duet-creator-contract",
             )
         except (TypeError, ValueError) as exc:
+            message = str(exc)
             return None, (
                 ContractDeficit(
-                    "invalid_contract",
-                    _path_for_error(str(exc)),
+                    (
+                        "invalid_progress_adapter"
+                        if "progress adapter" in message
+                        else "invalid_contract"
+                    ),
+                    _path_for_error(message),
                 ),
             )
         task_caps = set(spec.execution_capability_names)
@@ -349,6 +396,41 @@ class DuetService:
             raise ValueError("patch provenance must match the authenticated actor")
         by_path = {item.field_path: item for item in prior.fields}
         for patch in patches:
+            while True:
+                ancestors = [
+                    path
+                    for path in by_path
+                    if patch.field_path.startswith(path + ".")
+                ]
+                if not ancestors:
+                    break
+                ancestor_path = max(ancestors, key=len)
+                ancestor = by_path.pop(ancestor_path)
+                if not isinstance(ancestor.value, Mapping):
+                    raise DuetProtocolError(
+                        f"field {ancestor_path} is not an object and cannot contain "
+                        f"{patch.field_path}"
+                    )
+                for key, value in ancestor.value.items():
+                    child_path = f"{ancestor_path}.{key}"
+                    by_path[child_path] = replace(
+                        ancestor,
+                        field_path=child_path,
+                        value=value,
+                    )
+
+            descendants = tuple(
+                item
+                for path, item in by_path.items()
+                if path.startswith(patch.field_path + ".")
+            )
+            if actor is DuetProvenance.LLM_PROPOSAL and any(
+                item.human_fixed for item in descendants
+            ):
+                raise DuetProtocolError(
+                    f"LLM proposal cannot replace human-fixed fields below "
+                    f"{patch.field_path}"
+                )
             existing = by_path.get(patch.field_path)
             if (
                 actor is DuetProvenance.LLM_PROPOSAL
@@ -359,6 +441,14 @@ class DuetService:
                 raise DuetProtocolError(
                     f"LLM proposal cannot replace human-fixed field {patch.field_path}"
                 )
+            if (
+                actor is DuetProvenance.LLM_PROPOSAL
+                and existing is not None
+                and existing.human_fixed
+            ):
+                continue
+            for item in descendants:
+                del by_path[item.field_path]
             by_path[patch.field_path] = patch
         return self._write_revision(
             duet_id,
@@ -1525,6 +1615,24 @@ class DuetService:
             == draft.content_hash.value
         ):
             contract_review = review_artifact["record"]
+        answer_artifact = self.store.latest_artifact(
+            duet_id=duet_id.value,
+            kind="duet_answer",
+        )
+        pending_human_answer = None
+        request_ids = {item.request_id.value for item in requests}
+        if answer_artifact is not None:
+            answer_record = answer_artifact["record"]
+            if (
+                answer_record.get("revision") == draft.revision
+                and answer_record.get("request_id") in request_ids
+            ):
+                pending_human_answer = {
+                    "answer_artifact_id": answer_artifact["artifact_id"],
+                    "request_id": answer_record["request_id"],
+                    "field_path": answer_record["field_path"],
+                    "revision": answer_record["revision"],
+                }
         configuration = draft.materialized()
         field_records = [item.as_record() for item in draft.fields]
         ledger = []
@@ -1564,6 +1672,7 @@ class DuetService:
             "field_records": field_records,
             "design_ledger": ledger,
             "open_questions": [item.as_record() for item in requests],
+            "pending_human_answer": pending_human_answer,
             "unconfirmed_proposal_ids": [
                 item.field_path
                 for item in draft.fields
@@ -1580,6 +1689,11 @@ class DuetService:
             "allowed_episode_capability_names": sorted(
                 self.allowed_episode_capabilities
             ),
+            "creator_progress_adapter": {
+                "adapter_id": CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+                "host_owned": True,
+                "measurement_boundary": "root_episode_progress",
+            },
         }
 
 
