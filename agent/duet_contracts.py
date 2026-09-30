@@ -30,6 +30,7 @@ from agent.episode_contracts import (
 
 DUET_SCHEMA_VERSION = 1
 DEFAULT_CREATOR_PROPOSAL_BOUND = 8
+MAX_DEFICIT_DETAIL_CHARS = 512
 
 _FIELD_PATH = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _CODE = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")
@@ -107,6 +108,17 @@ def _opaque(value: object, name: str) -> OpaqueId:
     if not isinstance(value, OpaqueId):
         raise ValueError(f"{name} must be an OpaqueId")
     return value
+
+
+def _host_detail(value: object) -> Optional[str]:
+    """Normalise host validation text: one line, NUL-free, bounded."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("detail must be text")
+    text = " ".join(value.replace("\x00", "").split())
+    return text[:MAX_DEFICIT_DETAIL_CHARS] or None
 
 
 class DuetProvenance(str, Enum):
@@ -377,9 +389,17 @@ class ContractFieldRecord:
 
 @dataclass(frozen=True)
 class ContractDeficit:
+    """One host validation failure anchored to a blueprint field.
+
+    ``detail`` is the host validator's own message so the Duet LLM can act on
+    *why* a field was rejected.  It is host-authored only: it comes from an
+    exception raised by host code, never from a model- or human-supplied field.
+    """
+
     code: str
     field_path: str
     blocking: bool = True
+    detail: Optional[str] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code", _identifier(self.code, "code"))
@@ -387,12 +407,14 @@ class ContractDeficit:
             raise ValueError("deficit field_path is invalid")
         if not isinstance(self.blocking, bool):
             raise ValueError("blocking must be boolean")
+        object.__setattr__(self, "detail", _host_detail(self.detail))
 
     def as_record(self) -> dict[str, Any]:
         return {
             "code": self.code,
             "field_path": self.field_path,
             "blocking": self.blocking,
+            "detail": self.detail,
         }
 
 
@@ -466,6 +488,7 @@ class InformationRequest:
     option_ids: tuple[str, ...] = ()
     impact: FieldImpact = FieldImpact.MEDIUM
     blocking: bool = True
+    detail: Optional[str] = None
 
     def __post_init__(self) -> None:
         _opaque(self.request_id, "request_id")
@@ -480,6 +503,7 @@ class InformationRequest:
             raise ValueError("impact must be a FieldImpact")
         if not isinstance(self.blocking, bool):
             raise ValueError("blocking must be boolean")
+        object.__setattr__(self, "detail", _host_detail(self.detail))
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -492,6 +516,7 @@ class InformationRequest:
             "option_ids": list(self.option_ids),
             "impact": self.impact.value,
             "blocking": self.blocking,
+            "detail": self.detail,
         }
 
 

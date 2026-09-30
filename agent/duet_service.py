@@ -44,6 +44,7 @@ from agent.episode_blueprints import (
 )
 from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+    EpisodeContractError,
     EpisodeCreationSpec,
     EpisodeCreatorContext,
     EpisodeCreatorContextReference,
@@ -193,6 +194,8 @@ def _deficit_from_record(record: Mapping[str, Any]) -> ContractDeficit:
         code=record["code"],
         field_path=record["field_path"],
         blocking=record["blocking"],
+        # Drafts persisted before ``detail`` existed carry no key.
+        detail=record.get("detail"),
     )
 
 
@@ -229,28 +232,28 @@ def _frozen_from_artifact(record: Mapping[str, Any]) -> FrozenCreatorContract:
     )
 
 
-def _path_for_error(message: str) -> str:
-    nested_fields = {
-        "design_context": "creator_contract.design_context",
-        "design_scope": "creator_contract.design_scope",
-        "design_instructions": "creator_contract",
-    }
-    for token, path in nested_fields.items():
-        if token in message:
-            return path
-    for path in _REQUIRED_CREATOR_FIELDS:
-        if path in message:
-            return path
-    if (
-        "creator contract" in message
-        or "credit" in message
-        or "evidence" in message
-        or "return_contract" in message
-    ):
-        return "creator_contract"
-    if "capability" in message:
-        return "execution_capability_names"
-    return "goal"
+def _deficit_for_error(exc: Exception) -> ContractDeficit:
+    """Anchor a blueprint validation failure to the field the host rejected.
+
+    ``EpisodeContractError`` carries the exact field path; the message is kept
+    as ``detail`` so the Duet LLM sees *why* instead of guessing.  Only a
+    host-side shape error (an internal record the host itself built) reaches
+    this without a path, and then the first required field is the anchor.
+    """
+
+    message = str(exc)
+    field_path = (
+        ".".join(exc.field_path) if isinstance(exc, EpisodeContractError) else ""
+    )
+    return ContractDeficit(
+        (
+            "invalid_progress_adapter"
+            if "progress adapter" in message
+            else "invalid_contract"
+        ),
+        field_path or _REQUIRED_CREATOR_FIELDS[0],
+        detail=message,
+    )
 
 
 class DuetService:
@@ -621,6 +624,14 @@ class DuetService:
             for field_path in _REQUIRED_CREATOR_FIELDS
             if field_path not in record
         ]
+        deficits.extend(
+            ContractDeficit(
+                "unknown_field",
+                field_path,
+                detail="not a Creator blueprint field",
+            )
+            for field_path in sorted(set(record) - set(_REQUIRED_CREATOR_FIELDS))
+        )
         if deficits:
             return None, tuple(deficits)
         try:
@@ -629,17 +640,7 @@ class DuetService:
                 identity_namespace="duet-creator-contract",
             )
         except (TypeError, ValueError) as exc:
-            message = str(exc)
-            return None, (
-                ContractDeficit(
-                    (
-                        "invalid_progress_adapter"
-                        if "progress adapter" in message
-                        else "invalid_contract"
-                    ),
-                    _path_for_error(message),
-                ),
-            )
+            return None, (_deficit_for_error(exc),)
         creator_contract = spec.creator_contract
         if creator_contract is None:
             return None, (
@@ -840,6 +841,7 @@ class DuetService:
                         FieldImpact.MEDIUM,
                     ),
                     blocking=deficit.blocking,
+                    detail=deficit.detail,
                 )
             )
         return tuple(requests)
@@ -2203,6 +2205,7 @@ class DuetService:
             "ready": draft.ready,
             "content_hash": draft.content_hash.value,
             "deficit_codes": [item.code for item in draft.deficits],
+            "deficits": [item.as_record() for item in draft.deficits],
             "requested_field_ids": [item.field_path for item in requests],
             "configuration": configuration,
             "creator_context_artifacts": list(

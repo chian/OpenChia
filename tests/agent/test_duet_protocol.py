@@ -38,7 +38,9 @@ from agent.episode_blueprints import (
     workflow_blueprint_from_spec,
 )
 from agent.episode_contracts import (
+    CREATOR_CONTEXT_SCHEMA_VERSION,
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+    MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
     EpisodeCreationSpec,
     EpisodeCreatorContract,
     EpisodeCreatorContext,
@@ -347,6 +349,112 @@ def test_nested_validation_deficit_accepts_one_exact_human_answer(duet):
             ),
             actor=DuetProvenance.LLM_PROPOSAL,
         )
+
+
+def _llm_patches(blueprint) -> tuple[ContractFieldRecord, ...]:
+    return tuple(
+        ContractFieldRecord(
+            field_path=path,
+            value=value,
+            provenance=DuetProvenance.LLM_PROPOSAL,
+        )
+        for path, value in blueprint.items()
+    )
+
+
+def test_creator_context_schema_version_mismatch_anchors_deficit_with_detail(duet):
+    """Regression: the LLM conflated ``design_context.schema_version`` with the
+    entrypoint artifact's revision; the host answered ``invalid_contract@goal``
+    with no text, and the Duet ran blind trials on unrelated fields."""
+
+    identity, policy, _store, service = duet
+    empty = service.open_duet(identity, policy)
+    blueprint = creation_blueprint_from_spec(
+        _creator_spec(_register_root_context(service, identity))
+    )
+    blueprint["creator_contract"]["design_context"]["schema_version"] = (
+        CREATOR_CONTEXT_SCHEMA_VERSION + 2
+    )
+
+    draft = service.patch_contract(
+        identity.duet_id,
+        expected_revision=empty.revision,
+        patches=_llm_patches(blueprint),
+        actor=DuetProvenance.LLM_PROPOSAL,
+    )
+
+    [deficit] = draft.deficits
+    assert (deficit.code, deficit.field_path) == (
+        "invalid_contract",
+        "creator_contract.design_context",
+    )
+    assert "schema version" in deficit.detail
+    # The projection the LLM reads carries the host's text, not just the code.
+    assert draft.as_record()["deficits"][0]["detail"] == deficit.detail
+    status = service.duet_status(identity.duet_id)
+    assert status["deficits"] == [deficit.as_record()]
+    [question] = status["open_questions"]
+    assert question["field_path"] == "creator_contract.design_context"
+    assert question["detail"] == deficit.detail
+    # The answer schema names the value the host will accept.
+    assert question["answer_schema"]["properties"]["schema_version"] == {
+        "const": CREATOR_CONTEXT_SCHEMA_VERSION
+    }
+
+
+@pytest.mark.parametrize("field_path", ["unit", "result"])
+def test_over_length_blueprint_text_anchors_deficit_at_its_own_field(duet, field_path):
+    identity, policy, _store, service = duet
+    empty = service.open_duet(identity, policy)
+    blueprint = creation_blueprint_from_spec(
+        _creator_spec(_register_root_context(service, identity))
+    )
+    blueprint[field_path] = "x" * (MAX_EPISODE_BLUEPRINT_TEXT_CHARS + 1)
+
+    draft = service.patch_contract(
+        identity.duet_id,
+        expected_revision=empty.revision,
+        patches=_llm_patches(blueprint),
+        actor=DuetProvenance.LLM_PROPOSAL,
+    )
+
+    [deficit] = draft.deficits
+    assert (deficit.code, deficit.field_path) == ("invalid_contract", field_path)
+    assert str(MAX_EPISODE_BLUEPRINT_TEXT_CHARS) in deficit.detail
+    [request] = service.information_requests(identity.duet_id)
+    assert request.field_path == field_path
+    assert request.detail == deficit.detail
+
+
+def test_deficit_detail_survives_persisted_records_without_it(duet):
+    """Drafts written before ``detail`` existed still load."""
+
+    identity, policy, store, service = duet
+    draft = service.open_duet(identity, policy)
+    record = draft.as_record()
+    for item in record["deficits"]:
+        item.pop("detail", None)
+    stale = CreatorContractDraft(
+        draft_id=draft.draft_id,
+        duet_id=draft.duet_id,
+        revision=draft.revision + 1,
+        fields=draft.fields,
+        deficits=draft.deficits,
+    )
+    record["revision"] = stale.revision
+    store.put_draft(
+        duet_id=identity.duet_id.value,
+        draft_id=stale.draft_id.value,
+        revision=stale.revision,
+        content_hash=stale.content_hash.value,
+        ready=stale.ready,
+        record=record,
+        expected_previous_revision=draft.revision,
+    )
+
+    loaded = service.latest_draft(identity.duet_id)
+    assert loaded.revision == stale.revision
+    assert all(item.detail is None for item in loaded.deficits)
 
 
 def test_llm_cannot_replace_human_field_and_exact_approval_is_required(duet):
