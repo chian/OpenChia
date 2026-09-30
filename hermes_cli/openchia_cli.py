@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
-import shlex
-import subprocess
-import tempfile
 import threading
 import time
 import uuid
@@ -19,7 +15,7 @@ from rich.markup import escape
 
 from agent.duet_contracts import OPENCHIA_CONTROL_PLANE_TOOLS, DuetMessageKind
 from agent.episode_blueprints import CREATION_BLUEPRINT_FIELDS
-from agent.openchia_host import OpenChiaHost
+from agent.openchia_host import EPISODE_FIELD_PLACEHOLDER, OpenChiaHost
 from cli import HermesCLI
 from hermes_constants import get_hermes_home
 
@@ -308,7 +304,7 @@ class OpenChiaCLI(HermesCLI):
         "welcome": "OpenChia Duet ready.",
     }
     _openchia_commands = {
-        "/episode": "Show or directly edit the Creator Episode configuration",
+        "/episode": "Inspect or tree-edit the Creator Episode configuration",
         "/duet": "Show closed Duet, Creator, and Run state",
         "/openchia": "Alias for /duet",
         "/creator": "Show Creator stages, failure evidence, and next action",
@@ -580,44 +576,6 @@ class OpenChiaCLI(HermesCLI):
         return self._openchia_host
 
     @staticmethod
-    def _edit_json_document(document: dict[str, Any]) -> dict[str, Any] | None:
-        editor = (
-            os.environ.get("VISUAL")
-            or os.environ.get("EDITOR")
-            or ("notepad" if os.name == "nt" else "nano")
-        )
-        descriptor, path = tempfile.mkstemp(
-            suffix=".json",
-            prefix="openchia_episode_",
-        )
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                json.dump(document, handle, indent=2, ensure_ascii=False)
-                handle.write("\n")
-            try:
-                return_code = subprocess.call([*shlex.split(editor), path])
-            except Exception:
-                return_code = subprocess.call(
-                    f"{editor} {shlex.quote(path)}",
-                    shell=True,
-                )
-            if return_code != 0:
-                raise RuntimeError(f"editor exited with status {return_code}")
-            with open(path, "r", encoding="utf-8-sig") as handle:
-                edited = handle.read().strip()
-            if not edited:
-                return None
-            value = json.loads(edited)
-            if not isinstance(value, dict):
-                raise ValueError("Episode editor document must remain a JSON object")
-            return value
-        finally:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
-
-    @staticmethod
     def _json_value(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
@@ -730,7 +688,12 @@ class OpenChiaCLI(HermesCLI):
         if action == "edit":
             with host.episode_edit_session() as (revision, document):
                 self._show_episode_changes()
-                edited = self._edit_json_document(document)
+                from hermes_cli.openchia_episode_editor import edit_episode_document
+
+                edited = edit_episode_document(
+                    document,
+                    missing_value=EPISODE_FIELD_PLACEHOLDER,
+                )
                 if edited is None or edited == document:
                     self._remember_episode_view(host.episode_configuration())
                     self._print_openchia("Episode configuration unchanged.")
@@ -1109,7 +1072,7 @@ class OpenChiaCLI(HermesCLI):
             self._print_openchia(
                 "OpenChia controls:\n"
                 "  /episode          show the complete editable Creator configuration\n"
-                "  /episode edit     edit the complete configuration as JSON\n"
+                "  /episode edit     navigate the Episode tree and edit one section\n"
                 "  /episode diff     show exact changes since the last view\n"
                 "  /episode set FIELD JSON_VALUE   set one field or dotted path\n"
                 "  /episode unset FIELD            remove one field or dotted path\n"

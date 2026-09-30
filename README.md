@@ -50,7 +50,7 @@ visible. Use these controls while specifying the Episode:
 
 ```text
 /episode                         show the full configuration and provenance
-/episode edit                    edit the complete configuration as JSON
+/episode edit                    navigate and edit the Episode section tree
 /episode set FIELD JSON_VALUE    set a field or dotted path
 /episode unset FIELD             remove a field or dotted path
 /episode capabilities            list capabilities Episodes may be assigned
@@ -62,8 +62,11 @@ visible. Use these controls while specifying the Episode:
 
 Direct edits are recorded as human-authored draft revisions and pass through the
 same schema, capability, and contract validation as conversational proposals.
-Missing values appear in the editor as `<OPENCHIA: value required>`. Replace a
-placeholder with a JSON value or leave it unchanged to keep that field missing.
+The editor presents Episodes as a nested, clickable tree. Expand an Episode,
+choose a bounded section such as Goal, Planning, Task, Credit assignment, or
+Rarefaction, and edit only that section in the focused pane. Mouse navigation and
+the arrow keys are both supported. Missing values are marked with `!` and appear
+as `<OPENCHIA: value required>` in their focused section.
 
 After contract approval, the conversational LLM submits the exact approved
 artifact to the host. The Creator then runs design experiments in the
