@@ -477,6 +477,14 @@ class OpenChiaCLI(HermesCLI):
         self._openchia_status_cache = None
         return self._openchia_host.bind_duet(agent)
 
+    @staticmethod
+    def _agent_init_failure_message(error: BaseException) -> str:
+        from hermes_cli.cli_chat_error_copy import (
+            openchia_duet_init_failure_message,
+        )
+
+        return openchia_duet_init_failure_message(error)
+
     def show_banner(self) -> None:
         """Show the OpenChia work path without inherited agent-workflow framing."""
 

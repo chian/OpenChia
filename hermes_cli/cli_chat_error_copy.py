@@ -64,3 +64,14 @@ def agent_init_failure_message(error: BaseException) -> str:
         "Your message was not sent. Run `hermes doctor` to check the setup, "
         "or /model to pick a different provider."
     )
+
+
+def openchia_duet_init_failure_message(error: BaseException) -> str:
+    """OpenChia-owned copy for failures while binding its Duet host or model."""
+
+    return (
+        f"OpenChia Duet couldn't initialize: "
+        f"{_short(str(error)) or type(error).__name__}. "
+        "Your message was not sent. Retry with `openchia --verbose` for diagnostics, "
+        "or use /model if the detail identifies a provider problem."
+    )

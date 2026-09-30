@@ -28,12 +28,18 @@ The role inputs and result envelopes are registered in
 `agent/generic_creator_templates.py`. Domain terminology belongs in a task
 specification, never in the registry or engine.
 
-Every host-bound Duet and Creator can call `openchia_scope` to inspect its
-actual role boundary. The response distinguishes tools callable by that model
-from capabilities it may assign to children and includes recursion and resource
-bounds from the frozen contract. This host-derived record takes precedence over
-conversation text. A Duet admits the root Creator; a Creator proposes the
-descendant work graph; only the host admits and launches descendants.
+Every Duet and Creator admitted under the current policy can call
+`openchia_scope` to inspect its actual role boundary. The response distinguishes
+tools callable by that model from capabilities it may assign to children and
+includes recursion and resource bounds from the frozen contract. This
+host-derived record takes precedence over conversation text. A Duet admits the
+root Creator; a Creator proposes the descendant work graph; only the host
+admits and launches descendants.
+
+Duet policy identity is content-derived. Resuming a Duet reloads its exact
+stored identity and policy instead of reconstructing them from the current tool
+catalog. Newly installed capabilities therefore apply to new Duets; a resume
+never mutates an existing authority grant or collides under the same Duet ID.
 
 ## Admission and execution
 

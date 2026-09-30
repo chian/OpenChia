@@ -244,6 +244,23 @@ class DuetIdentity:
             "conversation_id": self.conversation_id.value,
         }
 
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> "DuetIdentity":
+        required = {
+            "duet_id",
+            "human_authority_id",
+            "policy_id",
+            "conversation_id",
+        }
+        if not isinstance(record, Mapping) or set(record) != required:
+            raise ValueError("stored Duet identity has an invalid shape")
+        return cls(
+            duet_id=OpaqueId(record["duet_id"]),
+            human_authority_id=OpaqueId(record["human_authority_id"]),
+            policy_id=OpaqueId(record["policy_id"]),
+            conversation_id=OpaqueId(record["conversation_id"]),
+        )
+
 
 @dataclass(frozen=True)
 class DuetPolicy:
@@ -287,6 +304,28 @@ class DuetPolicy:
             "creator_proposal_bound": self.creator_proposal_bound,
             "maximum_creator_depth": self.maximum_creator_depth,
         }
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> "DuetPolicy":
+        required = {
+            "policy_id",
+            "capability_allowlist",
+            "minimum_method_credit",
+            "creator_proposal_bound",
+            "maximum_creator_depth",
+        }
+        if not isinstance(record, Mapping) or set(record) != required:
+            raise ValueError("stored Duet policy has an invalid shape")
+        allowlist = record["capability_allowlist"]
+        if not isinstance(allowlist, list):
+            raise ValueError("stored Duet capability_allowlist must be a list")
+        return cls(
+            policy_id=OpaqueId(record["policy_id"]),
+            capability_allowlist=tuple(allowlist),
+            minimum_method_credit=record["minimum_method_credit"],
+            creator_proposal_bound=record["creator_proposal_bound"],
+            maximum_creator_depth=record["maximum_creator_depth"],
+        )
 
 
 @dataclass(frozen=True)

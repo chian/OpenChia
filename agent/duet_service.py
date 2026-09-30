@@ -173,13 +173,7 @@ class WorkflowAdmissionError(DuetProtocolError):
 
 
 def _policy_from_record(record: Mapping[str, Any]) -> DuetPolicy:
-    return DuetPolicy(
-        policy_id=OpaqueId(record["policy_id"]),
-        capability_allowlist=tuple(record["capability_allowlist"]),
-        minimum_method_credit=record["minimum_method_credit"],
-        creator_proposal_bound=record["creator_proposal_bound"],
-        maximum_creator_depth=record["maximum_creator_depth"],
-    )
+    return DuetPolicy.from_record(record)
 
 
 def _field_from_record(record: Mapping[str, Any]) -> ContractFieldRecord:

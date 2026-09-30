@@ -141,28 +141,69 @@ class OpenChiaHost:
             )
         )
         self.agent_kwargs_factory = agent_kwargs_factory
-        policy_id = OpaqueId.mint("policy", "openchia-interactive-v1")
-        self.identity = DuetIdentity(
+        duet_tools = DUET_PROTOCOL_TOOLS | (
+            DUET_SEARCH_TOOLS & self.available_tool_names
+        )
+        policy_fields = {
+            "capability_allowlist": sorted(duet_tools),
+            "minimum_method_credit": 0.0,
+            "creator_proposal_bound": 8,
+            "maximum_creator_depth": 4,
+        }
+        policy_id = content_id("policy", policy_fields)
+        requested_policy = DuetPolicy(
+            policy_id=policy_id,
+            capability_allowlist=tuple(policy_fields["capability_allowlist"]),
+            minimum_method_credit=policy_fields["minimum_method_credit"],
+            creator_proposal_bound=policy_fields["creator_proposal_bound"],
+            maximum_creator_depth=policy_fields["maximum_creator_depth"],
+        )
+        requested_identity = DuetIdentity(
             duet_id=OpaqueId.mint("duet", session_id),
             human_authority_id=OpaqueId.mint("human", f"local:{self.root}"),
             policy_id=policy_id,
             conversation_id=OpaqueId.mint("conversation", session_id),
         )
-        duet_tools = DUET_PROTOCOL_TOOLS | (
-            DUET_SEARCH_TOOLS & self.available_tool_names
-        )
-        self.policy = DuetPolicy(
-            policy_id=policy_id,
-            capability_allowlist=tuple(sorted(duet_tools)),
-            minimum_method_credit=0.0,
-            creator_proposal_bound=8,
-            maximum_creator_depth=4,
-        )
         self.service = DuetService(
             self.store,
             allowed_episode_capabilities=self.available_tool_names,
         )
-        self.service.open_duet(self.identity, self.policy)
+        try:
+            existing = self.store.get_duet(requested_identity.duet_id.value)
+            if existing is None:
+                self.identity = requested_identity
+                self.policy = requested_policy
+            else:
+                self.identity = DuetIdentity.from_record(existing["identity"])
+                self.policy = DuetPolicy.from_record(existing["policy"])
+                expected_authority = (
+                    requested_identity.duet_id,
+                    requested_identity.human_authority_id,
+                    requested_identity.conversation_id,
+                )
+                stored_authority = (
+                    self.identity.duet_id,
+                    self.identity.human_authority_id,
+                    self.identity.conversation_id,
+                )
+                if stored_authority != expected_authority:
+                    raise OpenChiaHostError(
+                        "the resumed Duet ID belongs to different immutable authority"
+                    )
+                if self.identity.policy_id != self.policy.policy_id:
+                    raise OpenChiaHostError(
+                        "the resumed Duet identity and policy IDs differ"
+                    )
+                unavailable = set(self.policy.capability_allowlist) - duet_tools
+                if unavailable:
+                    raise OpenChiaHostError(
+                        "the resumed Duet requires unavailable capabilities: "
+                        f"{sorted(unavailable)}"
+                    )
+            self.service.open_duet(self.identity, self.policy)
+        except Exception:
+            self.store.close()
+            raise
         self.creator_bindings = CreatorRuntimeBindings()
         self.task_bindings = TaskRuntimeBindings()
         self._lock = threading.RLock()

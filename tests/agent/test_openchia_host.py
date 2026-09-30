@@ -4,7 +4,14 @@ from types import SimpleNamespace
 import pytest
 
 from agent.creator_design_session import CreatorDesignCycleError
-from agent.duet_contracts import ContractFieldRecord, DuetProvenance
+from agent.duet_contracts import (
+    ContractFieldRecord,
+    DuetIdentity,
+    DuetPolicy,
+    DuetProvenance,
+)
+from agent.duet_service import DuetService
+from agent.duet_store import DuetStore
 from agent.episode_blueprints import creation_blueprint_from_spec
 from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
@@ -133,6 +140,65 @@ def test_host_never_treats_control_plane_tools_as_child_capabilities(tmp_path):
         )
     finally:
         host.close()
+
+
+def test_host_resumes_the_stored_immutable_policy_after_tools_are_added(tmp_path):
+    root = tmp_path / "openchia"
+    root.mkdir()
+    store = DuetStore(root / "duet.sqlite3")
+    session_id = "20260930_120000_policy_resume"
+    policy_id = OpaqueId.mint("policy", "openchia-interactive-v1")
+    identity = DuetIdentity(
+        duet_id=OpaqueId.mint("duet", session_id),
+        human_authority_id=OpaqueId.mint("human", f"local:{root.resolve()}"),
+        policy_id=policy_id,
+        conversation_id=OpaqueId.mint("conversation", session_id),
+    )
+    stored_policy = DuetPolicy(
+        policy_id=policy_id,
+        capability_allowlist=("duet_status",),
+        maximum_creator_depth=4,
+    )
+    service = DuetService(store, allowed_episode_capabilities=("web_search",))
+    original = service.open_duet(identity, stored_policy)
+    store.close()
+
+    host = OpenChiaHost(
+        home=tmp_path,
+        session_id=session_id,
+        available_tool_names={"web_search"},
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    try:
+        assert host.identity == identity
+        assert host.policy == stored_policy
+        assert host.service.latest_draft(identity.duet_id).content_hash == (
+            original.content_hash
+        )
+    finally:
+        host.close()
+
+
+def test_new_duet_policy_identity_is_derived_from_immutable_content(tmp_path):
+    without_search = OpenChiaHost(
+        home=tmp_path / "without-search",
+        session_id="20260930_120000_policy_content",
+        available_tool_names=set(),
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    with_search = OpenChiaHost(
+        home=tmp_path / "with-search",
+        session_id="20260930_120000_policy_content",
+        available_tool_names={"web_search"},
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    try:
+        assert without_search.policy.policy_id != with_search.policy.policy_id
+        assert without_search.identity.policy_id == without_search.policy.policy_id
+        assert with_search.identity.policy_id == with_search.policy.policy_id
+    finally:
+        without_search.close()
+        with_search.close()
 
 
 def test_auxiliary_critic_is_owned_closed_and_inherits_pending_stop():

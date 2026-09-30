@@ -284,6 +284,17 @@ def test_background_context_is_bound_through_an_openchia_host(monkeypatch):
     assert observed["bound"] is context.agent
 
 
+def test_openchia_agent_init_failure_copy_owns_the_surface():
+    message = OpenChiaCLI._agent_init_failure_message(
+        RuntimeError("stored Duet policy conflict")
+    )
+
+    assert message.startswith("OpenChia Duet couldn't initialize:")
+    assert "stored Duet policy conflict" in message
+    assert "Hermes" not in message
+    assert "model connection" not in message
+
+
 def test_episode_configuration_changes_are_path_level_and_keep_provenance():
     changes = episode_configuration_changes(
         {
