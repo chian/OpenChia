@@ -17,7 +17,18 @@
 # recorded tool digest instead of re-hashing every entry. `hermes pm
 # install` and `hermes update` keep that check.
 # ============================================================================
-_HERMES_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# This file is sourced by bash and zsh. zsh differs where it matters here: an
+# unmatched glob aborts the script (nomatch), unquoted expansions do not
+# word-split (no sh_word_split), and BASH_SOURCE / PROMPT_COMMAND do not
+# exist. Option changes are scoped to functions via local_options so the
+# caller's shell options are never altered.
+if [ -n "${ZSH_VERSION-}" ]; then
+    eval '_HERMES_SOURCE="${(%):-%x}"'
+else
+    _HERMES_SOURCE="${BASH_SOURCE[0]}"
+fi
+_HERMES_REPO="$(cd "$(dirname "$_HERMES_SOURCE")" && pwd)"
+unset _HERMES_SOURCE
 # Options: `--test-extras a,b` selects the test environment's runtime extras
 # (default: [all]); `--` ends options.
 # A bare `source ./activate` inherits the caller's positional parameters.
@@ -58,26 +69,30 @@ unset _hermes_arg _hermes_test_env _hermes_expect_extras
 # no-op re-save; we keep it idempotent by deactivating first). Key on the
 # function, not the sentinel: child shells inherit __HERMES_ACTIVATED from an
 # activated parent but never the function, and there is nothing to undo there.
-if [ "$(type -t deactivate 2>/dev/null)" = "function" ]; then
+if declare -f deactivate >/dev/null 2>&1; then
     deactivate
 fi
 
 # Bootstrap Python only emits the environment; it does not install anything.
 _hermes_repo="$_HERMES_REPO"
-_hermes_py=""
-for _hermes_candidate in "$_hermes_repo/.venv/bin/python" "$_hermes_repo/.venv/Scripts/python.exe" \
-                         "$_hermes_repo/venv/bin/python" "$_hermes_repo/venv/Scripts/python.exe"; do
-    [ -x "$_hermes_candidate" ] && { _hermes_py="$_hermes_candidate"; break; }
-done
-if [ -z "$_hermes_py" ]; then
+_hermes_find_bootstrap_python() {
+    # An unmatched store glob must fall through: bash leaves the pattern
+    # literal (rejected by -x); zsh needs null_glob or it aborts the script.
+    [ -n "${ZSH_VERSION-}" ] && setopt local_options null_glob
+    for _hermes_candidate in "$_hermes_repo/.venv/bin/python" "$_hermes_repo/.venv/Scripts/python.exe" \
+                             "$_hermes_repo/venv/bin/python" "$_hermes_repo/venv/Scripts/python.exe"; do
+        [ -x "$_hermes_candidate" ] && { printf '%s' "$_hermes_candidate"; return 0; }
+    done
     for _hermes_store in "${HERMES_RUNTIME_DIR:-}" "$_hermes_repo/../tools" "${HERMES_HOME:-$HOME/.hermes}/tools"; do
         [ -n "$_hermes_store" ] || continue
         for _hermes_candidate in "$_hermes_store"/python-*/bin/python3 "$_hermes_store"/python-*/python.exe "$_hermes_store"/python-*/bin/python "$_hermes_store"/python-*/bin/python.exe; do
-            [ -x "$_hermes_candidate" ] && { _hermes_py="$_hermes_candidate"; break; }
+            [ -x "$_hermes_candidate" ] && { printf '%s' "$_hermes_candidate"; return 0; }
         done
-        [ -n "$_hermes_py" ] && break
     done
-fi
+    return 1
+}
+_hermes_py="$(_hermes_find_bootstrap_python)"
+unset -f _hermes_find_bootstrap_python
 if [ -z "$_hermes_py" ]; then
     echo "activate: no bootstrap Python found; run setup-hermes.sh" >&2
     return 1 2>/dev/null || exit 1
@@ -100,10 +115,16 @@ _hermes_keys="$(printf '%s' "$_hermes_json" | "$_hermes_py" -c 'import json,sys;
 # installed-state path this environment was built from), so it is snapshotted
 # and exported with every other key — no separate assignment here.
 __HERMES_SAVED_PATH="$PATH"
-for _hermes_k in $_hermes_keys; do
-    eval "__HERMES_SAVED_$_hermes_k=\"\${$_hermes_k+set}\""
-    eval "__HERMES_PRIOR_$_hermes_k=\${$_hermes_k-__HERMES_UNSET__}"
-done
+_hermes_snapshot_keys() {
+    # The key list is space-separated; zsh only splits it with sh_word_split.
+    [ -n "${ZSH_VERSION-}" ] && setopt local_options sh_word_split
+    for _hermes_k in $_hermes_keys; do
+        eval "__HERMES_SAVED_$_hermes_k=\"\${$_hermes_k+set}\""
+        eval "__HERMES_PRIOR_$_hermes_k=\${$_hermes_k-__HERMES_UNSET__}"
+    done
+}
+_hermes_snapshot_keys
+unset -f _hermes_snapshot_keys
 
 # Resolved before the export below replaces PATH.
 _hermes_cygpath="$(command -v cygpath 2>/dev/null || :)"
@@ -204,7 +225,10 @@ _hermes_prompt() {
     fi
 }
 
-if [ -n "${PROMPT_COMMAND-}" ]; then
+if [ -n "${ZSH_VERSION-}" ]; then
+    # zsh runs precmd_functions before each prompt; PROMPT_COMMAND is bash-only.
+    precmd_functions+=(_hermes_prompt)
+elif [ -n "${PROMPT_COMMAND-}" ]; then
     PROMPT_COMMAND="_hermes_prompt; ${PROMPT_COMMAND}"
 else
     PROMPT_COMMAND=_hermes_prompt
@@ -212,6 +236,7 @@ fi
 _hermes_prompt
 
 deactivate() {
+    [ -n "${ZSH_VERSION-}" ] && setopt local_options sh_word_split
     export PATH="$__HERMES_SAVED_PATH"
     for _hermes_k in $__HERMES_KEY_LIST; do
         eval "_hermes_was=\"\$__HERMES_SAVED_$_hermes_k\""
@@ -228,7 +253,9 @@ deactivate() {
     else
         PS1="$__HERMES_SAVED_PS1"
     fi
-    if [ "$__HERMES_SAVED_PROMPT_COMMAND" = "__HERMES_UNSET__" ]; then
+    if [ -n "${ZSH_VERSION-}" ]; then
+        eval 'precmd_functions=("${precmd_functions[@]:#_hermes_prompt}")'
+    elif [ "$__HERMES_SAVED_PROMPT_COMMAND" = "__HERMES_UNSET__" ]; then
         unset PROMPT_COMMAND
     else
         PROMPT_COMMAND="$__HERMES_SAVED_PROMPT_COMMAND"
