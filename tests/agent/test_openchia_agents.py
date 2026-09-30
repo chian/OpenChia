@@ -1,8 +1,6 @@
 from types import SimpleNamespace
 
 from agent.duet_contracts import (
-    CreatorLaunchReceipt,
-    CreatorLaunchState,
     DuetIdentity,
     DuetPolicy,
 )
@@ -39,16 +37,14 @@ def test_duet_agent_surface_is_exact_and_search_cannot_expand_it(tmp_path):
             service=service,
             identity=identity,
             policy=policy,
-            creator_launcher=lambda creator_id: CreatorLaunchReceipt(
-                creator_episode_id=creator_id,
-                execution_id=OpaqueId.mint("execution", creator_id.value),
-                state=CreatorLaunchState.LAUNCHED,
-            ),
         )
 
     assert agent.valid_tool_names == set(policy.capability_allowlist)
     assert "web_search" in agent.valid_tool_names
-    assert "episode_creator" in agent.valid_tool_names
+    assert "episode_workflow_update" in agent.valid_tool_names
+    assert "episode_creator" not in agent.valid_tool_names
+    assert "duet_contract_review" not in agent.valid_tool_names
+    assert "workflow_review" not in agent.valid_tool_names
     assert "openchia_scope" in agent.valid_tool_names
     assert "tool_search" not in agent.valid_tool_names
     assert "terminal" not in agent.valid_tool_names
@@ -66,9 +62,10 @@ def test_duet_agent_surface_is_exact_and_search_cannot_expand_it(tmp_path):
         "assignable_child_capability_names"
     ] == ["web_search"]
     assert agent._openchia_authority_scope["tree_boundary"] == {
-        "owns": "commission_and_admission_of_exactly_one_root_creator",
-        "may_design_or_launch_descendant_task_tree": False,
+        "owns": "human_facing_design_of_the_episode_workflow",
+        "may_design_descendant_task_tree": True,
+        "may_launch_descendant_task_tree": False,
         "maximum_creator_depth": policy.maximum_creator_depth,
-        "creator_builds_descendant_work_graph": True,
-        "host_admits_and_launches_descendants": True,
+        "creator_builds_approved_descendant_work_graph": True,
+        "host_admits_and_launches_the_approved_tree": True,
     }

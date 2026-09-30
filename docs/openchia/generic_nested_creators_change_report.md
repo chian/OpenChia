@@ -59,11 +59,12 @@ secrets are rejected without rejecting legitimate policy fields such as
 `openchia_scope` exposes host-derived callable tools, child-assignable
 capabilities, recursion permission, bounds, role ownership, and prohibitions.
 Control-plane tools are removed from the child capability catalog at both CLI
-discovery and host construction. `/stop` is available on the OpenChia surface,
-and active contract/workflow critics are registered beneath their parent so a
-hard stop reaches their model requests. Known Codex reasoning-model streams now
-receive a 120-second implicit event-gap floor; explicit operator overrides still
-win.
+discovery and host construction. Semantic workflow critics are outside the
+Creator surface: only the trusted human `/review` command may start their
+bounded, interruptible fan-out. Ordinary Duet revisions, point edits, and
+Creator execution cannot launch critics. `/stop` remains available on the
+OpenChia surface. Known Codex reasoning-model streams receive a 120-second
+implicit event-gap floor; explicit operator overrides still win.
 
 ## Test results
 

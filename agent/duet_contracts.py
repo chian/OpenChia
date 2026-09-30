@@ -136,7 +136,6 @@ class DuetDesignState(str, Enum):
     CREATOR_ADMITTED = "creator_admitted"
     DESIGNING = "designing"
     WAITING_ON_DUET = "waiting_on_duet"
-    VALIDATING_WORKFLOW = "validating_workflow"
     EXPERIMENTING = "experimenting"
     REFINING = "refining"
     AWAITING_WORKFLOW_APPROVAL = "awaiting_workflow_approval"
@@ -162,21 +161,12 @@ class DuetMessageKind(str, Enum):
     RETRY = "retry"
 
 
-class CreatorLaunchState(str, Enum):
-    """Closed acknowledgement from the task-specific Creator launcher."""
-
-    LAUNCHED = "launched"
-    RUNNING = "running"
-    COMPLETED = "completed"
-
-
 class CreatorActivityStage(str, Enum):
     """Host-observed stage of one Creator execution attempt."""
 
     INITIALIZING = "initializing"
     GATHERING_CONTEXT = "gathering_context"
     DESIGNING = "designing"
-    REVIEWING = "reviewing"
     REVISING = "revising"
     SUBMITTING = "submitting"
     RUNNING_CANDIDATE = "running_candidate"
@@ -196,12 +186,11 @@ DUET_PROTOCOL_TOOLS = frozenset(
     {
         "openchia_scope",
         "duet_contract_patch",
-        "duet_contract_review",
         "duet_status",
         "episode_workflow_read",
+        "episode_workflow_update",
         "duet_answer",
         "duet_decision",
-        "episode_creator",
         "creator_context_artifact",
         "creator_context_read",
     }
@@ -209,6 +198,10 @@ DUET_PROTOCOL_TOOLS = frozenset(
 DUET_ALLOWED_TOOLS = DUET_SEARCH_TOOLS | DUET_PROTOCOL_TOOLS
 OPENCHIA_CONTROL_PLANE_TOOLS = DUET_PROTOCOL_TOOLS | frozenset(
     {
+        # Reserved control-plane names remain unassignable even though model
+        # agents no longer receive these review/launch operations.
+        "duet_contract_review",
+        "episode_creator",
         "creator_log_read",
         "workflow_review",
         "workflow_candidate",
@@ -760,28 +753,6 @@ class CreatorActivityEnvelope:
 
 
 @dataclass(frozen=True)
-class CreatorLaunchReceipt:
-    """Host-produced receipt proving that admission reached an execution host."""
-
-    creator_episode_id: OpaqueId
-    execution_id: OpaqueId
-    state: CreatorLaunchState
-
-    def __post_init__(self) -> None:
-        _opaque(self.creator_episode_id, "creator_episode_id")
-        _opaque(self.execution_id, "execution_id")
-        if not isinstance(self.state, CreatorLaunchState):
-            raise ValueError("state must be a CreatorLaunchState")
-
-    def as_record(self) -> dict[str, str]:
-        return {
-            "creator_episode_id": self.creator_episode_id.value,
-            "execution_id": self.execution_id.value,
-            "state": self.state.value,
-        }
-
-
-@dataclass(frozen=True)
 class FrozenWorkflowDesign:
     """A host-validated workflow design frozen before its Run Episode starts."""
 
@@ -939,8 +910,6 @@ __all__ = [
     "CreatorActivityEnvelope",
     "CreatorActivityStage",
     "CreatorGuidance",
-    "CreatorLaunchReceipt",
-    "CreatorLaunchState",
     "CreatorContractDraft",
     "CreatorProgressEnvelope",
     "DEFAULT_CREATOR_PROPOSAL_BOUND",

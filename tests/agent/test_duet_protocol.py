@@ -227,7 +227,7 @@ def test_incomplete_contract_requests_fields_and_creates_nothing(duet):
     )
     status = service.duet_status(identity.duet_id)
     assert status["configuration"] == {}
-    assert status["contract_review"] is None
+    assert "contract_review" not in status
     assert status["creator_progress_adapter"] == {
         "adapter_id": CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
         "host_owned": True,
@@ -1224,11 +1224,11 @@ def test_creator_activity_is_typed_durable_and_visible_as_recent_history(duet):
         creator_episode_id=creator_id,
         attempt=1,
         event_index=2,
-        stage=CreatorActivityStage.REVIEWING,
-        activity_code="workflow_review_started",
+        stage=CreatorActivityStage.EVALUATING,
+        activity_code="candidate_run_evaluating",
         attempt_started_at=100.0,
         observed_at=104.0,
-        details={"lenses": ["contract_alignment"]},
+        details={"candidate_revision": 1},
     )
 
     service.publish_creator_activity(first)

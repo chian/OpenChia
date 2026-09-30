@@ -1,7 +1,6 @@
 import json
 from types import SimpleNamespace
 
-from agent.duet_contracts import CreatorLaunchReceipt, CreatorLaunchState
 from agent.episode_contracts import OpaqueId, Sha256Digest
 from agent.inline_tool_executors import INLINE_TOOL_EXECUTORS, InlineToolContext
 
@@ -43,21 +42,24 @@ def test_episode_progress_accepts_registered_evidence_not_model_scores():
 def test_duet_protocol_tools_are_agent_bound_and_delegate_is_absent():
     expected = {
         "duet_contract_patch",
-        "duet_contract_review",
         "duet_status",
         "episode_workflow_read",
+        "episode_workflow_update",
         "duet_answer",
         "duet_decision",
-        "episode_creator",
         "creator_context_artifact",
         "creator_context_read",
         "openchia_scope",
         "creator_log_read",
-        "workflow_review",
         "workflow_candidate",
         "episode_progress",
     }
     assert expected <= set(INLINE_TOOL_EXECUTORS)
+    assert {
+        "duet_contract_review",
+        "workflow_review",
+        "episode_creator",
+    }.isdisjoint(INLINE_TOOL_EXECUTORS)
     assert "delegate_task" not in INLINE_TOOL_EXECUTORS
 
 
@@ -112,37 +114,36 @@ def test_openchia_scope_fails_closed_without_host_binding():
     }
 
 
-def test_workflow_review_is_advisory_and_marks_the_exact_blueprint():
+def test_episode_workflow_update_persists_without_review_or_execution():
     calls = []
-    drafts = []
-
-    def review(workflow, lenses):
-        calls.append((workflow, lenses))
-        return {
-            "accepted": True,
-            "workflow_blueprint_hash": "sha256:" + "1" * 64,
-            "lenses": {},
-        }
 
     agent = SimpleNamespace(
-        _creator_workflow_reviewer=review,
-        _creator_workflow_draft_recorder=(
-            lambda workflow, stage: drafts.append((workflow, stage))
-        ),
-        _creator_reviewed_workflow_hashes=set(),
+        _duet_workflow_updater=lambda workflow, **kwargs: (
+            calls.append((workflow, kwargs))
+            or {
+                "revision": 1,
+                "artifact_id": "artifact_" + "a" * 64,
+                "content_hash": "sha256:" + "1" * 64,
+                "ready": True,
+                "validation_deficits": [],
+            }
+        )
     )
     workflow = {"episodes": []}
     result = json.loads(
-        INLINE_TOOL_EXECUTORS["workflow_review"](
+        INLINE_TOOL_EXECUTORS["episode_workflow_update"](
             agent,
-            {"workflow": workflow, "lenses": ["contract_alignment"]},
-            InlineToolContext(effective_task_id="creator"),
+            {"workflow": workflow, "expected_workflow_hash": None},
+            InlineToolContext(effective_task_id="duet"),
         )
     )
     assert result["accepted"] is True
-    assert calls == [(workflow, ("contract_alignment",))]
-    assert drafts == [(workflow, "review")]
-    assert len(agent._creator_reviewed_workflow_hashes) == 1
+    assert calls == [
+        (
+            workflow,
+            {"expected_workflow_hash": None, "source_stage": "duet"},
+        )
+    ]
 
 
 def test_workflow_candidate_preserves_validation_message_and_activity():
@@ -184,18 +185,29 @@ def test_workflow_candidate_preserves_validation_message_and_activity():
     ]
 
 
-def test_workflow_candidate_requires_review_of_the_exact_blueprint_hash():
+def test_workflow_candidate_does_not_require_a_semantic_review():
     submitted = []
     drafts = []
     workflow = {"episodes": []}
+
+    def submit(value):
+        submitted.append(value)
+        return SimpleNamespace(
+            artifact_id=OpaqueId.mint("design", "candidate"),
+            revision=1,
+            workflow=SimpleNamespace(
+                workflow_hash=Sha256Digest.of_record(value),
+                episodes=(),
+            ),
+        )
+
     agent = SimpleNamespace(
-        _creator_workflow_submit=lambda value: submitted.append(value),
+        _creator_workflow_submit=submit,
         _creator_workflow_draft_recorder=(
             lambda value, stage: drafts.append((value, stage))
         ),
         _creator_required_context_ids=frozenset(),
         _creator_context_read_ids=set(),
-        _creator_reviewed_workflow_hashes=set(),
     )
 
     result = json.loads(
@@ -206,16 +218,13 @@ def test_workflow_candidate_requires_review_of_the_exact_blueprint_hash():
         )
     )
 
-    assert result["accepted"] is False
-    assert result["reason"] == "workflow_review_required"
-    assert result["workflow_blueprint_hash"] == (
-        Sha256Digest.of_record(workflow).value
-    )
-    assert submitted == []
+    assert result["accepted"] is True
+    assert result["shadow_reviewed"] is False
+    assert submitted == [workflow]
     assert drafts == [(workflow, "candidate")]
 
 
-def test_required_context_is_delivered_exactly_before_workflow_review():
+def test_required_context_is_delivered_exactly_before_workflow_candidate():
     artifact_id = OpaqueId.mint("context", "required-context").value
     content = {
         "interface": {
@@ -225,13 +234,19 @@ def test_required_context_is_delivered_exactly_before_workflow_review():
     }
     calls = []
 
-    def review(workflow, lenses):
-        calls.append((workflow, lenses))
-        return {"accepted": True}
+    def submit(workflow):
+        calls.append(workflow)
+        return SimpleNamespace(
+            artifact_id=OpaqueId.mint("design", "with-context"),
+            revision=1,
+            workflow=SimpleNamespace(
+                workflow_hash=Sha256Digest.of_record(workflow),
+                episodes=(),
+            ),
+        )
 
     agent = SimpleNamespace(
-        _creator_workflow_reviewer=review,
-        _creator_reviewed_workflow_hashes=set(),
+        _creator_workflow_submit=submit,
         _creator_context_artifacts={
             artifact_id: {
                 "reference": {
@@ -250,9 +265,9 @@ def test_required_context_is_delivered_exactly_before_workflow_review():
     )
     context = InlineToolContext(effective_task_id="creator")
     blocked = json.loads(
-        INLINE_TOOL_EXECUTORS["workflow_review"](
+        INLINE_TOOL_EXECUTORS["workflow_candidate"](
             agent,
-            {"workflow": {"episodes": []}, "lenses": ["contract_alignment"]},
+            {"workflow": {"episodes": []}},
             context,
         )
     )
@@ -273,62 +288,11 @@ def test_required_context_is_delivered_exactly_before_workflow_review():
     assert delivered["content"] == content
 
     accepted = json.loads(
-        INLINE_TOOL_EXECUTORS["workflow_review"](
+        INLINE_TOOL_EXECUTORS["workflow_candidate"](
             agent,
-            {"workflow": {"episodes": []}, "lenses": ["contract_alignment"]},
+            {"workflow": {"episodes": []}},
             context,
         )
     )
     assert accepted["accepted"] is True
     assert len(calls) == 1
-
-
-def test_episode_creator_admission_must_reach_the_bound_launcher():
-    creator_id = OpaqueId.mint("episode", "admitted-creator")
-    calls = []
-
-    class _Service:
-        def submit_episode_creator(self, **kwargs):
-            calls.append(("admit", kwargs))
-            return creator_id
-
-    def launch(value):
-        calls.append(("launch", value))
-        return CreatorLaunchReceipt(
-            creator_episode_id=value,
-            execution_id=OpaqueId.mint("execution", value.value),
-            state=CreatorLaunchState.LAUNCHED,
-        )
-
-    agent = SimpleNamespace(
-        _duet_service=_Service(),
-        _duet_identity=object(),
-        _duet_creator_launcher=launch,
-    )
-    result = json.loads(
-        INLINE_TOOL_EXECUTORS["episode_creator"](
-            agent,
-            {
-                "contract_artifact_id": OpaqueId.mint("contract", "one").value,
-                "content_hash": "sha256:" + "1" * 64,
-                "human_approval_id": OpaqueId.mint("approval", "one").value,
-            },
-            InlineToolContext(effective_task_id="duet"),
-        )
-    )
-    repeated = json.loads(
-        INLINE_TOOL_EXECUTORS["episode_creator"](
-            agent,
-            {
-                "contract_artifact_id": OpaqueId.mint("contract", "one").value,
-                "content_hash": "sha256:" + "1" * 64,
-                "human_approval_id": OpaqueId.mint("approval", "one").value,
-            },
-            InlineToolContext(effective_task_id="duet"),
-        )
-    )
-
-    assert result["accepted"] is True
-    assert repeated == result
-    assert result["creator_episode_id"] == creator_id.value
-    assert [item[0] for item in calls] == ["admit", "launch", "admit"]

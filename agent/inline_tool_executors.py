@@ -381,15 +381,26 @@ def _episode_workflow_read(agent, args: dict, ctx: InlineToolContext) -> Any:
         )
 
 
-def _duet_contract_review(agent, args: dict, ctx: InlineToolContext) -> Any:
+def _episode_workflow_update(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
-        reviewer = getattr(agent, "_duet_contract_reviewer", None)
-        if not callable(reviewer):
-            raise RuntimeError("no shadow contract reviewer is bound")
-        return json.dumps(reviewer(), sort_keys=True)
+        updater = getattr(agent, "_duet_workflow_updater", None)
+        if not callable(updater):
+            raise RuntimeError("no host-bound Episode workflow updater")
+        with _duet_draft_write(agent):
+            result = updater(
+                args.get("workflow"),
+                expected_workflow_hash=args.get("expected_workflow_hash"),
+                source_stage="duet",
+            )
+        return json.dumps({"accepted": True, **result}, sort_keys=True)
     except Exception as exc:
         return json.dumps(
-            {"accepted": False, "reason": type(exc).__name__}, sort_keys=True
+            {
+                "accepted": False,
+                "reason": type(exc).__name__,
+                "message": str(exc)[:2048],
+            },
+            sort_keys=True,
         )
 
 
@@ -424,41 +435,6 @@ def _duet_decision(agent, args: dict, ctx: InlineToolContext) -> Any:
             OpaqueId(args.get("decision_artifact_id"))
         )
         return json.dumps({"accepted": accepted}, sort_keys=True)
-    except Exception as exc:
-        return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
-
-
-def _episode_creator(agent, args: dict, ctx: InlineToolContext) -> Any:
-    from agent.episode_contracts import OpaqueId, Sha256Digest
-    from agent.duet_contracts import CreatorLaunchReceipt
-
-    try:
-        service, _identity = _duet_context(agent)
-        launcher = getattr(agent, "_duet_creator_launcher", None)
-        if not callable(launcher):
-            raise RuntimeError("no task-specific Creator launcher is bound")
-        with _duet_draft_write(agent):
-            episode_id = service.submit_episode_creator(
-                contract_artifact_id=OpaqueId(args.get("contract_artifact_id")),
-                content_hash=Sha256Digest(args.get("content_hash")),
-                human_approval_id=OpaqueId(args.get("human_approval_id")),
-            )
-        receipts = getattr(agent, "_duet_creator_receipts", None)
-        if not isinstance(receipts, dict):
-            receipts = {}
-            agent._duet_creator_receipts = receipts
-        receipt = receipts.get(episode_id.value)
-        if receipt is None:
-            receipt = launcher(episode_id)
-        if not isinstance(receipt, CreatorLaunchReceipt):
-            raise TypeError("Creator launcher must return CreatorLaunchReceipt")
-        if receipt.creator_episode_id != episode_id:
-            raise ValueError("Creator launch receipt identifies another admission")
-        receipts[episode_id.value] = receipt
-        return json.dumps(
-            {"accepted": True, **receipt.as_record()},
-            sort_keys=True,
-        )
     except Exception as exc:
         return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
 
@@ -668,24 +644,6 @@ def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
                 },
             )
     blueprint_hash = Sha256Digest.of_record(workflow).value
-    reviewed_hashes = getattr(agent, "_creator_reviewed_workflow_hashes", set())
-    if blueprint_hash not in reviewed_hashes:
-        result = {
-            "accepted": False,
-            "reason": "workflow_review_required",
-            "workflow_blueprint_hash": blueprint_hash,
-        }
-        _publish_creator_activity(
-            agent,
-            "revising",
-            "workflow_candidate_rejected",
-            {"reason": result["reason"]},
-        )
-        return _creator_protocol_result(
-            agent,
-            "_creator_last_candidate_result",
-            result,
-        )
     _publish_creator_activity(
         agent,
         "submitting",
@@ -696,7 +654,7 @@ def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
         candidate = submit(workflow)
         result = {
             "accepted": True,
-            "shadow_reviewed": blueprint_hash in reviewed_hashes,
+            "shadow_reviewed": False,
             "candidate_artifact_id": candidate.artifact_id.value,
             "revision": candidate.revision,
             "workflow_hash": candidate.workflow.workflow_hash.value,
@@ -756,100 +714,6 @@ def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
         )
 
 
-def _workflow_review(agent, args: dict, ctx: InlineToolContext) -> Any:
-    from agent.episode_contracts import Sha256Digest
-
-    reviewer = getattr(agent, "_creator_workflow_reviewer", None)
-    if not callable(reviewer):
-        return json.dumps(
-            {"accepted": False, "reason": "no_active_workflow_reviewer"},
-            sort_keys=True,
-        )
-    unread_context = _required_creator_context_unread(agent)
-    if unread_context:
-        return json.dumps(
-            {
-                "accepted": False,
-                "reason": "required_context_unread",
-                "artifact_ids": unread_context,
-            },
-            sort_keys=True,
-        )
-    workflow = args.get("workflow")
-    lenses = args.get("lenses")
-    if not isinstance(workflow, dict) or not isinstance(lenses, list):
-        return json.dumps(
-            {"accepted": False, "reason": "invalid_review_request"},
-            sort_keys=True,
-        )
-    recorder = getattr(agent, "_creator_workflow_draft_recorder", None)
-    if callable(recorder):
-        try:
-            recorder(workflow, "review")
-        except Exception as exc:
-            return json.dumps(
-                {
-                    "accepted": False,
-                    "reason": "workflow_draft_persistence_failed",
-                    "message": str(exc)[:2048],
-                },
-                sort_keys=True,
-            )
-    blueprint_hash = Sha256Digest.of_record(workflow).value
-    _publish_creator_activity(
-        agent,
-        "reviewing",
-        "workflow_review_started",
-        {
-            "workflow_blueprint_hash": blueprint_hash,
-            "lenses": list(lenses),
-        },
-    )
-    try:
-        result = reviewer(workflow, tuple(lenses))
-        if isinstance(result, dict) and result.get("accepted") is True:
-            reviewed = getattr(agent, "_creator_reviewed_workflow_hashes", None)
-            if isinstance(reviewed, set):
-                reviewed.add(blueprint_hash)
-        lens_results = result.get("lenses") if isinstance(result, dict) else None
-        finding_count = 0
-        blocking_lenses = []
-        if isinstance(lens_results, dict):
-            for lens, review in lens_results.items():
-                if not isinstance(review, dict):
-                    continue
-                finding_count += len(review.get("findings") or ())
-                if review.get("verdict") == "block":
-                    blocking_lenses.append(lens)
-        _publish_creator_activity(
-            agent,
-            "revising" if finding_count else "designing",
-            "workflow_review_completed",
-            {
-                "workflow_blueprint_hash": blueprint_hash,
-                "finding_count": finding_count,
-                "blocking_lenses": sorted(blocking_lenses),
-            },
-        )
-        if isinstance(result, dict):
-            agent._creator_last_review_result = dict(result)
-        return json.dumps(result, sort_keys=True)
-    except Exception as exc:
-        result = {
-            "accepted": False,
-            "reason": type(exc).__name__,
-            "message": str(exc)[:2048],
-        }
-        agent._creator_last_review_result = dict(result)
-        _publish_creator_activity(
-            agent,
-            "revising",
-            "workflow_review_failed",
-            {"reason": result["reason"], "message": result["message"]},
-        )
-        return json.dumps(result, sort_keys=True)
-
-
 # Order is the historical if/elif order of ``execute_tool_calls_sequential``.
 INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "todo_list": _tool(
@@ -897,16 +761,14 @@ INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "setup_mcp": _setup_mcp_shim,
     "openchia_scope": _openchia_scope,
     "duet_contract_patch": _duet_contract_patch,
-    "duet_contract_review": _duet_contract_review,
     "duet_status": _duet_status,
     "episode_workflow_read": _episode_workflow_read,
+    "episode_workflow_update": _episode_workflow_update,
     "duet_answer": _duet_answer,
     "duet_decision": _duet_decision,
-    "episode_creator": _episode_creator,
     "creator_context_artifact": _creator_context_artifact,
     "creator_context_read": _creator_context_read,
     "creator_log_read": _creator_log_read,
-    "workflow_review": _workflow_review,
     "workflow_candidate": _workflow_candidate,
     "episode_progress": _episode_progress,
 }

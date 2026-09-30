@@ -14,16 +14,17 @@ free-form instruction-string alternative.
    secret-shaped values,
    stores it immutably, and returns its ID, digest, kind, schema version,
    purpose, and required flag.
-3. The Creator contract carries only those exact references in a
-   `design_context` manifest. One required artifact is the entry point.
+3. The internal build-authority contract carries only those exact references
+   in a `design_context` manifest. One required artifact is the entry point.
 4. Admission verifies existence, Duet ownership, producer ancestry, metadata,
    hashes, and byte budgets. Missing or stale context is a blocking contract
    deficit.
-5. The Creator reads whole artifacts with `creator_context_read`. There is no
-   offset, pagination, or model-generated summary in the authoritative path.
-6. Workflow review and submission remain blocked until every required artifact
-   has an exact host-recorded read receipt. The frozen workflow design records
-   the references actually consumed.
+5. The Duet reads whole artifacts with `creator_context_read` while designing.
+   There is no offset, pagination, or model-generated summary in the
+   authoritative path.
+6. Approval freezes the exact referenced artifacts with the workflow. The
+   internal Creator/build boundary records those receipts without asking a
+   second model to reconstruct or summarize the design.
 7. A Creator may commit new structured artifacts for nested Creator contracts.
    Descendants may consume Duet-owned artifacts and artifacts produced in their
    authority lineage, but not unrelated branch artifacts.
@@ -43,13 +44,12 @@ It deliberately reports two different sets:
 - `assignable_child_capability_names` are the ceiling from which a Creator may
   grant a subset to child Episodes.
 
-The Duet coaches the human, preserves context, proposes the root contract, and
-may submit the exact human-approved root Creator for admission. It neither
-designs nor launches the descendant Episode tree. The Creator designs that
-tree within its inherited capabilities, recursion permission, and safety
-bounds, but cannot launch it directly. The host validates, admits, and launches
-submitted descendants. Neither prompt text nor a context artifact can expand
-either role's authority.
+The Duet coaches the human, preserves context, and designs the descendant
+Episode tree. It may persist revisions but cannot review, approve, or launch
+them. Human `/approve` lets the host invoke the internal Creator/build boundary
+for that exact tree. The build boundary may construct only the approved design
+within inherited capabilities, recursion permission, and safety bounds.
+Neither prompt text nor a context artifact can expand either role's authority.
 
 ## Bounds
 

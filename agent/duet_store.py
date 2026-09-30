@@ -396,12 +396,19 @@ class DuetStore:
         duet_id: str,
         kind: str,
         creator_episode_id: Optional[str] = None,
+        unowned_only: bool = False,
     ) -> Optional[dict[str, Any]]:
+        if creator_episode_id is not None and unowned_only:
+            raise ValueError(
+                "creator_episode_id and unowned_only are mutually exclusive"
+            )
         clauses = ["duet_id = ?", "kind = ?"]
         parameters: list[Any] = [duet_id, kind]
         if creator_episode_id is not None:
             clauses.append("creator_episode_id = ?")
             parameters.append(creator_episode_id)
+        elif unowned_only:
+            clauses.append("creator_episode_id IS NULL")
         query = (
             "SELECT * FROM artifacts WHERE "
             + " AND ".join(clauses)

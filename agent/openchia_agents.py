@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from agent.creator_episode import CreatorRunLogStore, RunLogReference
-from agent.duet_contracts import CreatorLaunchReceipt, DuetIdentity, DuetPolicy
+from agent.duet_contracts import DuetIdentity, DuetPolicy
 from agent.duet_service import DuetService
 from agent.episode_contracts import EpisodeCreationSpec, OpaqueId
 from agent.generic_creator_models import GenericCreatorInstanceSpec
@@ -74,11 +74,12 @@ def _duet_authority_scope(
             service.allowed_episode_capabilities
         ),
         "tree_boundary": {
-            "owns": "commission_and_admission_of_exactly_one_root_creator",
-            "may_design_or_launch_descendant_task_tree": False,
+            "owns": "human_facing_design_of_the_episode_workflow",
+            "may_design_descendant_task_tree": True,
+            "may_launch_descendant_task_tree": False,
             "maximum_creator_depth": policy.maximum_creator_depth,
-            "creator_builds_descendant_work_graph": True,
-            "host_admits_and_launches_descendants": True,
+            "creator_builds_approved_descendant_work_graph": True,
+            "host_admits_and_launches_the_approved_tree": True,
         },
         "allowed_operations": [
             "inspect_scope",
@@ -87,14 +88,13 @@ def _duet_authority_scope(
             "commit_root_context_artifact",
             "read_context_artifact",
             "propose_creator_contract_patch",
-            "request_contract_review",
+            "persist_complete_episode_workflow_revision",
             "submit_host_recorded_human_answer_or_decision",
-            "launch_human_approved_root_creator",
         ],
         "prohibited_operations": [
             "execute_task_work",
-            "submit_workflow_candidate",
-            "design_or_launch_descendant_task_tree",
+            "execute_task_work",
+            "launch_descendant_task_tree",
             "self_approve_or_mint_approval",
             "modify_contract_approval_evidence_or_credit_policy",
             "assign_capabilities_outside_host_ceiling",
@@ -154,7 +154,6 @@ def _creator_authority_scope(
     allowed_operations = [
         "inspect_scope",
         "read_owned_run_logs",
-        "request_advisory_workflow_review",
         "submit_complete_workflow_candidate",
     ]
     if "creator_context_read" in callable_tools:
@@ -197,19 +196,16 @@ def bind_duet_agent(
     service: DuetService,
     identity: DuetIdentity,
     policy: DuetPolicy,
-    creator_launcher: Callable[[OpaqueId], CreatorLaunchReceipt],
 ) -> Any:
     """Turn an initialized AIAgent into the restricted LLM half of one Duet.
 
-    ``creator_launcher`` is keyed by the admitted Creator ID and must be
-    idempotent: an exact tool-call retry must return the same execution claim,
-    never start a duplicate design loop.
+    Workflow launch is deliberately absent from the model tool surface. Human
+    approval freezes the exact Duet-owned workflow and lets the host invoke the
+    internal Creator/build boundary directly.
     """
 
     if identity.policy_id != policy.policy_id:
         raise ValueError("Duet identity and policy IDs differ")
-    if not callable(creator_launcher):
-        raise TypeError("Duet binding requires a task-specific Creator launcher")
     _install_exact_tools(agent, policy.capability_allowlist)
     agent._openchia_role = "duet"
     agent._openchia_authority_scope = _duet_authority_scope(
@@ -221,8 +217,6 @@ def bind_duet_agent(
     agent._duet_prompt_isolated = True
     agent._duet_service = service
     agent._duet_identity = identity
-    agent._duet_creator_launcher = creator_launcher
-    agent._duet_creator_receipts = {}
     agent.skip_context_files = True
     agent.load_soul_identity = False
     agent.skip_background_review = True
@@ -236,7 +230,6 @@ def build_duet_agent(
     service: DuetService,
     identity: DuetIdentity,
     policy: DuetPolicy,
-    creator_launcher: Callable[[OpaqueId], CreatorLaunchReceipt],
     **agent_kwargs: Any,
 ) -> Any:
     """Construct the conversational LLM with search plus Duet protocol only."""
@@ -257,32 +250,7 @@ def build_duet_agent(
         service=service,
         identity=identity,
         policy=policy,
-        creator_launcher=creator_launcher,
     )
-
-
-def build_duet_contract_critic_agent(**agent_kwargs: Any) -> Any:
-    """Construct a stateless, tool-free semantic reviewer for one Duet draft."""
-
-    from run_agent import AIAgent
-
-    agent = AIAgent(
-        **{
-            **agent_kwargs,
-            "enabled_toolsets": [],
-            "disabled_toolsets": [],
-            "skip_context_files": True,
-            "load_soul_identity": False,
-            "skip_memory": True,
-            "skip_background_review": True,
-        }
-    )
-    _install_exact_tools(agent, ())
-    agent._openchia_role = "duet_contract_critic"
-    agent._duet_contract_critic_prompt_isolated = True
-    agent._persist_disabled = True
-    agent._end_session_on_close = False
-    return agent
 
 
 def build_creator_agent(
@@ -290,7 +258,6 @@ def build_creator_agent(
     capability_names: Iterable[str],
     log_store: CreatorRunLogStore,
     log_references: Iterable[RunLogReference] = (),
-    workflow_reviewer: Optional[Callable[[dict[str, Any], tuple[str, ...]], dict[str, Any]]] = None,
     workflow_draft_recorder: Optional[
         Callable[[dict[str, Any], str], dict[str, Any]]
     ] = None,
@@ -320,7 +287,6 @@ def build_creator_agent(
     protocol_tools = {
         "openchia_scope",
         "creator_log_read",
-        "workflow_review",
         "workflow_candidate",
     }
     if context_service is not None and creator_episode_id is not None:
@@ -340,13 +306,9 @@ def build_creator_agent(
     agent._creator_log_references = {
         item.artifact_id.value: item for item in log_references
     }
-    if workflow_reviewer is not None and not callable(workflow_reviewer):
-        raise TypeError("workflow_reviewer must be callable")
     if workflow_draft_recorder is not None and not callable(workflow_draft_recorder):
         raise TypeError("workflow_draft_recorder must be callable")
-    agent._creator_workflow_reviewer = workflow_reviewer
     agent._creator_workflow_draft_recorder = workflow_draft_recorder
-    agent._creator_reviewed_workflow_hashes = set()
     agent._creator_context_service = context_service
     agent._creator_episode_id = creator_episode_id
     agent._creator_context_artifacts = {
@@ -400,7 +362,6 @@ def build_generic_creator_agent(
     owned_process_sessions: Iterable[str] = (),
     log_store: CreatorRunLogStore,
     log_references: Iterable[RunLogReference] = (),
-    workflow_reviewer: Optional[Callable[[dict[str, Any], tuple[str, ...]], dict[str, Any]]] = None,
     workflow_draft_recorder: Optional[
         Callable[[dict[str, Any], str], dict[str, Any]]
     ] = None,
@@ -429,7 +390,6 @@ def build_generic_creator_agent(
         capability_names=creator_capabilities,
         log_store=log_store,
         log_references=log_references,
-        workflow_reviewer=workflow_reviewer,
         workflow_draft_recorder=workflow_draft_recorder,
         execution_boundary=boundary,
         generic_spec=spec,
@@ -526,7 +486,6 @@ __all__ = [
     "build_generic_creator_agent",
     "build_generic_task_episode_agent",
     "build_creator_workflow_critic_agent",
-    "build_duet_contract_critic_agent",
     "build_duet_agent",
     "build_task_episode_agent",
 ]

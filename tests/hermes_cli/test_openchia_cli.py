@@ -7,7 +7,6 @@ import pytest
 from hermes_cli.openchia_cli import (
     OpenChiaCLI,
     episode_configuration_changes,
-    render_creator_diagnostics,
     render_openchia_status,
 )
 from hermes_cli.openchia_main import main
@@ -56,88 +55,47 @@ def test_status_panel_is_compact_and_contextual():
             "field_count": 9,
             "requested_field_ids": [],
             "ready": True,
-            "contract_review": {"verdict": "concern"},
             "unconfirmed_proposal_ids": ["goal"],
         }
     )
-    assert "shadow review: concern" in ready
-    assert "/review · /approve" in ready
+    assert "build authority r3 ready" in ready
+    assert "Design and save the Episode workflow" in ready
 
-    running = render_openchia_status(
+    workflow_ready = render_openchia_status(
         {
-            "state": "designing",
-            "creator_episode_id": "episode_" + "a" * 64,
-            "creator_progress": {
-                "state": "designing",
-                "candidate_revision": 0,
-                "method_credit": None,
+            "episode_workflow": {
+                "revision": 4,
+                "validation_state": "ready",
+                "workflow_blueprint_hash": "sha256:" + "a" * 64,
             },
-            "creator_activity": {
-                "attempt": 1,
-                "stage": "reviewing",
-                "activity_code": "workflow_review_started",
-                "details": {
-                    "lenses": [
-                        "contract_alignment",
-                        "measurement_evidence",
-                        "capability_safety",
-                    ]
+            "workflow_review": {
+                "workflow_blueprint_hash": "sha256:" + "a" * 64,
+            },
+        }
+    )
+    assert "Episode workflow r4 · ready · independently reviewed" in workflow_ready
+    assert "/episode · /review · /approve" in workflow_ready
+
+    failed_run = render_openchia_status(
+        {
+            "launch": {"launch_id": "launch_" + "a" * 64},
+            "final_run_state": "failed",
+            "workflow_execution": {
+                "current_activity": {
+                    "activity_code": "approved_workflow_failed",
+                },
+                "failure": {
+                    "error_code": "NameError",
+                    "message": "missing runtime binding",
+                    "owner": "openchia_host",
+                    "suggested_action": "Fix the OpenChia runtime before relaunching.",
                 },
             },
         }
     )
-    assert "Stage 3/6" in running
-    assert "independent workflow review (3 lenses)" in running
-    assert "/design" in running
-
-
-def test_creator_diagnostics_explains_failure_and_recovery():
-    status = {
-        "state": "failed",
-        "creator_episode_id": "episode_" + "a" * 64,
-        "creator_progress": {"state": "failed", "candidate_revision": 0},
-        "creator_activity": {"attempt": 1},
-        "creator_activity_history": [
-            {
-                "stage": "reviewing",
-                "activity_code": "workflow_review_started",
-                "attempt_started_at": 100.0,
-                "observed_at": 104.0,
-                "details": {"lenses": ["contract_alignment"]},
-            }
-        ],
-        "creator_failure": {
-            "error_code": "candidate_rejected",
-            "owner": "creator",
-            "failed_stage": "submitting",
-            "message": "No admissible candidate",
-            "retryable": True,
-            "contract_change_required": False,
-            "details": {
-                "candidate_submission": {
-                    "reason": "ValueError",
-                    "message": "result_schema is required",
-                }
-            },
-        },
-        "workflow_review": {
-            "lenses": [
-                {
-                    "lens": "contract_alignment",
-                    "verdict": "block",
-                    "finding_codes": ["CAPABILITY_INHERITANCE_ESCALATION"],
-                }
-            ]
-        },
-    }
-
-    rendered = render_creator_diagnostics(status)
-
-    assert "Code: candidate_rejected" in rendered
-    assert "Validation detail: result_schema is required" in rendered
-    assert "Approved design-brief change required: no" in rendered
-    assert "CAPABILITY_INHERITANCE_ESCALATION" in rendered
-    assert "/retry" in rendered
+    assert "Run · failed · approved workflow failed" in failed_run
+    assert "NameError: missing runtime binding" in failed_run
+    assert "owner: openchia_host" in failed_run
 
 
 def test_running_prompt_advertises_only_openchia_commands():
@@ -361,27 +319,18 @@ def test_episode_read_uses_terminal_tree_during_duet_turn(monkeypatch):
     ]
 
 
-def test_answer_command_records_and_exposes_exact_artifact_to_duet():
-    observed = {}
-
-    class Host:
-        def record_human_answer(self, field_path, value):
-            observed["answer"] = (field_path, value)
-            return SimpleNamespace(
-                field_path=field_path,
-                answer_id=SimpleNamespace(value="answer_" + "a" * 64),
-            )
-
+def test_review_rejects_arguments_without_falling_through_to_general_agent(
+    monkeypatch,
+):
+    printed = []
+    delegated = []
     cli = OpenChiaCLI.__new__(OpenChiaCLI)
-    cli._openchia_host = Host()
-    cli._pending_agent_seed = None
-    cli._print_openchia = lambda text: observed.setdefault("printed", text)
-    cli._refresh_openchia = lambda: observed.setdefault("refreshed", True)
+    cli._print_openchia = printed.append
+    monkeypatch.setattr(
+        "cli.HermesCLI.process_command",
+        lambda self, command: delegated.append(command) or True,
+    )
 
-    assert OpenChiaCLI.process_command(
-        cli,
-        '/answer goal "Design the measured workflow."',
-    ) is True
-    assert observed["answer"] == ("goal", "Design the measured workflow.")
-    assert "answer_" + "a" * 64 in cli._pending_agent_seed
-    assert "duet_answer" in cli._pending_agent_seed
+    assert OpenChiaCLI.process_command(cli, "/review this point edit") is True
+    assert printed == ["Usage: /review"]
+    assert delegated == []

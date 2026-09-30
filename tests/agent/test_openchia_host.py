@@ -3,14 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.creator_design_session import CreatorDesignCycleError
 from agent.duet_contracts import (
     ContractFieldRecord,
     DuetIdentity,
     DuetPolicy,
     DuetProvenance,
 )
-from agent.duet_service import DuetProtocolError, DuetService, StaleDuetApprovalError
+from agent.duet_service import DuetProtocolError, DuetService
 from agent.duet_store import DuetStore
 from agent.episode_blueprints import (
     creation_blueprint_from_spec,
@@ -34,7 +33,11 @@ from agent.episode_contracts import (
     ProgressStopCriteria,
     Sha256Digest,
 )
-from agent.openchia_host import OpenChiaHost, ROOT_PROGRESS_MEASUREMENT_ID
+from agent.openchia_host import (
+    OpenChiaHost,
+    ROOT_PROGRESS_MEASUREMENT_ID,
+    WORKFLOW_REVIEW_LENSES,
+)
 
 
 def _creator_spec(context: EpisodeCreatorContext) -> EpisodeCreationSpec:
@@ -293,7 +296,9 @@ def test_host_records_exact_human_answer_for_duet_submission(tmp_path):
         host.close()
 
 
-def test_shadow_review_is_cached_by_exact_contract_hash(tmp_path, monkeypatch):
+def test_critics_run_only_for_explicit_review_and_cache_exact_design(
+    tmp_path, monkeypatch
+):
     host = OpenChiaHost(
         home=tmp_path,
         session_id="20260929_120000_review",
@@ -308,7 +313,7 @@ def test_shadow_review_is_cached_by_exact_contract_hash(tmp_path, monkeypatch):
             return '{"verdict":"pass","summary":"Coherent.","findings":[]}'
 
     monkeypatch.setattr(
-        "agent.openchia_host.build_duet_contract_critic_agent",
+        "agent.openchia_host.build_creator_workflow_critic_agent",
         lambda **_kwargs: Critic(),
     )
     try:
@@ -330,19 +335,30 @@ def test_shadow_review_is_cached_by_exact_contract_hash(tmp_path, monkeypatch):
             ),
             actor=DuetProvenance.HUMAN_INPUT,
         )
-        first = host.review_contract()
-        second = host.review_contract()
-        assert first["verdict"] == "pass"
+        workflow = workflow_blueprint_from_spec(
+            EpisodeWorkflowSpec(
+                (EpisodeDesignSpec("root", None, _workflow_task("Build")),)
+            )
+        )
+        host.record_duet_workflow_revision(
+            workflow,
+            expected_workflow_hash=None,
+        )
+        assert calls == []
+
+        first = host.review_episode_design()
+        second = host.review_episode_design()
         assert first["cached"] is False
         assert second["cached"] is True
-        assert len(calls) == 1
-        assert host.status()["contract_review"]["verdict"] == "pass"
+        assert len(calls) == 5
+        assert set(first["lenses"]) == set(WORKFLOW_REVIEW_LENSES)
+        assert len(host.status()["workflow_review"]["lenses"]) == 5
     finally:
         host.close()
 
 
-def test_human_approval_is_visible_to_duet_and_creator_launch_is_idempotent(
-    tmp_path,
+def test_human_approval_builds_exact_duet_workflow_without_designer_agent(
+    tmp_path, monkeypatch
 ):
     host = OpenChiaHost(
         home=tmp_path,
@@ -379,64 +395,93 @@ def test_human_approval_is_visible_to_duet_and_creator_launch_is_idempotent(
             actor=DuetProvenance.HUMAN_INPUT,
         )
         assert draft.ready is True
+        workflow = EpisodeWorkflowSpec(
+            (
+                EpisodeDesignSpec("root_episode", None, _workflow_task("Coordinate")),
+                EpisodeDesignSpec(
+                    "worker_episode",
+                    "root_episode",
+                    _workflow_task("Build one item"),
+                ),
+            )
+        )
+        workflow_blueprint = workflow_blueprint_from_spec(workflow)
+        saved = host.record_duet_workflow_revision(
+            workflow_blueprint,
+            expected_workflow_hash=None,
+        )
+        assert saved["ready"] is True
+
+        executions = []
+        host._run_frozen_workflow = (
+            lambda design, run_id, artifact_id: executions.append(
+                (design, run_id, artifact_id)
+            )
+        )
         approval = host.approve_current()
+        host._final_threads[approval.launch_id.value].join(timeout=2)
         status = host.status()
-        assert status["creator_contract_approval"]["approval_id"] == (
-            approval.approval_id.value
+        assert approval.kind == "workflow"
+        assert status["workflow_approval"]["approval_id"] == approval.approval_id.value
+        assert status["launch"]["launch_id"] == approval.launch_id.value
+        assert len(executions) == 1
+        assert workflow_blueprint_from_spec(executions[0][0].workflow) == (
+            workflow_blueprint
         )
-        frozen = host.store.get_artifact(approval.artifact_id.value)["record"]
-        creator_id = host.service.submit_episode_creator(
-            contract_artifact_id=approval.artifact_id,
-            content_hash=Sha256Digest(frozen["content_hash"]),
-            human_approval_id=approval.approval_id,
-        )
-        assert frozen["contract"]["goal"] == creator_spec.goal
+        assert not hasattr(host, "_creator_threads")
 
-        calls = []
-        host._run_creator = lambda value, execution: calls.append(
-            (value.value, execution.value)
-        )
-        first = host.launch_creator(creator_id)
-        host._creator_threads[creator_id.value].join(timeout=2)
-        second = host.launch_creator(creator_id)
-        assert first.execution_id == second.execution_id
-        assert len(calls) == 1
-        assert second.state.value == "completed"
+        observed_run = {}
 
-        host._record_execution_error(
-            creator_id,
-            CreatorDesignCycleError(
-                "Creator submitted no admissible workflow candidate: ValueError",
-                code="candidate_rejected",
-                details={
-                    "candidate_submission": {
-                        "accepted": False,
-                        "reason": "ValueError",
-                        "message": "episodes[2].contract.result_schema is required",
-                    }
-                },
-            ),
+        class BoundEpisode:
+            def __init__(self, **kwargs):
+                observed_run.update(kwargs)
+
+            def run(self, context):
+                observed_run["context"] = context
+
+        monkeypatch.setattr("agent.openchia_host.Episode", BoundEpisode)
+        host._workflow_runtime = lambda **_kwargs: SimpleNamespace(
+            source_for_candidate=lambda design, goal: (design, goal)
+        )
+        host._run_frozen_workflow = OpenChiaHost._run_frozen_workflow.__get__(
+            host,
+            OpenChiaHost,
+        )
+        design = executions[0][0]
+        host._run_frozen_workflow(
+            design,
+            "run_" + "c" * 64,
+            design.artifact_id,
+        )
+        assert observed_run["key"] == (
+            f"approved-{design.artifact_id.value[-12:]}"
+        )
+
+        def broken_runtime(*_args):
+            raise NameError("missing runtime binding")
+
+        host._run_frozen_workflow = broken_runtime
+        host._run_frozen_workflow_tracked(
+            design,
+            "run_" + "d" * 64,
+            approval.launch_id,
         )
         failed = host.status()
-        assert failed["creator_progress"]["validation_codes"] == [
-            "candidate_rejected"
-        ]
-        assert failed["creator_failure"]["owner"] == "creator"
-        assert failed["creator_failure"]["contract_change_required"] is False
-        assert failed["creator_failure"]["details"]["candidate_submission"][
-            "message"
-        ] == "episodes[2].contract.result_schema is required"
-
-        _decision_id, retry = host.retry_creator()
-        assert retry is not None
-        host._creator_threads[creator_id.value].join(timeout=2)
-        assert retry.execution_id != first.execution_id
-        assert len(calls) == 2
+        assert failed["final_run_state"] == "failed"
+        assert failed["final_error_code"] == "NameError"
+        assert failed["workflow_execution"]["failure"]["message"] == (
+            "missing runtime binding"
+        )
+        assert failed["workflow_execution"]["failure"]["owner"] == (
+            "openchia_host"
+        )
     finally:
         host.close()
 
 
-def test_terminal_creator_can_be_revised_with_exact_recovery_context(tmp_path):
+def test_point_edit_supersedes_review_and_approval_without_automatic_agents(
+    tmp_path, monkeypatch
+):
     host = OpenChiaHost(
         home=tmp_path,
         session_id="20260930_120000_creator_revision",
@@ -452,76 +497,56 @@ def test_terminal_creator_can_be_revised_with_exact_recovery_context(tmp_path):
             blueprint,
             expected_revision=initial.revision,
         )
+        workflow = workflow_blueprint_from_spec(
+            EpisodeWorkflowSpec(
+                (EpisodeDesignSpec("root", None, _workflow_task("Build")),)
+            )
+        )
+        saved = host.record_duet_workflow_revision(
+            workflow,
+            expected_workflow_hash=None,
+        )
+        host._run_frozen_workflow = lambda *_args: None
         approval = host.approve_current()
-        frozen_record = host.store.get_artifact(approval.artifact_id.value)["record"]
-        creator_id = host.service.submit_episode_creator(
-            contract_artifact_id=approval.artifact_id,
-            content_hash=Sha256Digest(frozen_record["content_hash"]),
-            human_approval_id=approval.approval_id,
+        host._final_threads[approval.launch_id.value].join(timeout=2)
+
+        def unexpected_agent(**_kwargs):
+            raise AssertionError("a point edit must not construct any model worker")
+
+        monkeypatch.setattr(
+            "agent.openchia_host.build_creator_workflow_critic_agent",
+            unexpected_agent,
         )
-        host._record_execution_error(
-            creator_id,
-            CreatorDesignCycleError(
-                "Creator ended without an admitted workflow candidate",
-                code="candidate_missing",
-            ),
+        monkeypatch.setattr(
+            "agent.openchia_host.build_creator_agent",
+            unexpected_agent,
+        )
+        monkeypatch.setattr(
+            "agent.openchia_host.build_task_episode_agent",
+            unexpected_agent,
         )
 
-        with host.episode_edit_session() as (revision, document):
-            document["goal"] = "Design a repaired and independently tested workflow."
-            document["creator_contract"]["design_instructions"] = (
-                "Retest the failed integration edge before qualification."
-            )
-            revised = host.replace_episode_configuration(
-                document,
-                expected_revision=revision,
-            )
+        snapshot = host.episode_workflow_configuration()
+        edited = snapshot["configuration"]
+        edited["episodes"][0]["contract"]["goal"] = "Build precisely"
+        revised = host.record_episode_workflow_revision(
+            edited,
+            source_artifact_id=snapshot["source_artifact_id"],
+            expected_workflow_hash=snapshot["content_hash"],
+        )
 
-        assert revised["revision"] == revision + 1
+        assert revised["revision"] == saved["revision"] + 1
         assert revised["ready"] is True
+        assert not hasattr(host, "_creator_threads")
+        assert host.has_active_work() is False
+        assert host.store.get_artifact(approval.artifact_id.value) is not None
         status = host.status()
-        assert status["creator_episode_id"] is None
-        assert status["superseded_creator"]["creator_episode_id"] == creator_id.value
-        assert status["creator_contract_approval"] is None
-        assert status["superseded_creator_contract_approval"]["approval_id"] == (
+        assert status["workflow_approval"] is None
+        assert status["superseded_workflow_approval"]["approval_id"] == (
             approval.approval_id.value
         )
-
-        materialized = host.service.latest_draft(
-            host.identity.duet_id
-        ).materialized()
-        context = EpisodeCreatorContext.from_record(
-            materialized["creator_contract"]["design_context"]
-        )
-        resolved = host.service.resolve_creator_context(
-            host.identity.duet_id,
-            context,
-        )
-        assert {
-            item["reference"]["artifact_kind"] for item in resolved.values()
-        } >= {
-            "task_design_brief",
-            "creator_contract_history",
-            "creator_failure_history",
-        }
-        task_brief = next(
-            item
-            for item in resolved.values()
-            if item["reference"]["artifact_kind"] == "task_design_brief"
-        )
-        assert task_brief["content"]["configuration"]["creator_contract"][
-            "design_instructions"
-        ] == "Retest the failed integration edge before qualification."
-        assert "design_instructions" not in materialized["creator_contract"]
-        assert host.store.get_artifact(approval.artifact_id.value)["record"] == (
-            frozen_record
-        )
-        with pytest.raises(StaleDuetApprovalError, match="later draft revision"):
-            host.service.submit_episode_creator(
-                contract_artifact_id=approval.artifact_id,
-                content_hash=Sha256Digest(frozen_record["content_hash"]),
-                human_approval_id=approval.approval_id,
-            )
+        assert status["launch"] is None
+        assert status["superseded_launch"]["launch_id"] == approval.launch_id.value
     finally:
         host.close()
 
@@ -541,26 +566,15 @@ def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_pa
             blueprint,
             expected_revision=initial.revision,
         )
-        approval = host.approve_current()
-        frozen_record = host.store.get_artifact(approval.artifact_id.value)["record"]
-        owner_id = host.service.submit_episode_creator(
-            contract_artifact_id=approval.artifact_id,
-            content_hash=Sha256Digest(frozen_record["content_hash"]),
-            human_approval_id=approval.approval_id,
-        )
-
         with pytest.raises(DuetProtocolError, match="no Episode workflow draft"):
             host.episode_workflow_configuration()
 
         rejected_blueprint = {"episodes": []}
-        with pytest.raises(ValueError, match="non-empty array"):
-            host.service.freeze_workflow_design(
-                creator_episode_id=owner_id,
-                workflow_blueprint=rejected_blueprint,
-                consumed_context_artifact_ids=(
-                    context.entrypoint_artifact_id.value,
-                ),
-            )
+        rejected_receipt = host.record_duet_workflow_revision(
+            rejected_blueprint,
+            expected_workflow_hash=None,
+        )
+        assert rejected_receipt["ready"] is False
         rejected = host.episode_workflow_configuration()
         assert rejected["configuration"] == rejected_blueprint
         assert rejected["source_kind"] == "episode_workflow_draft"
@@ -577,10 +591,9 @@ def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_pa
             )
         )
         workflow_blueprint = workflow_blueprint_from_spec(workflow)
-        design = host.service.freeze_workflow_design(
-            creator_episode_id=owner_id,
-            workflow_blueprint=workflow_blueprint,
-            consumed_context_artifact_ids=(context.entrypoint_artifact_id.value,),
+        saved = host.record_duet_workflow_revision(
+            workflow_blueprint,
+            expected_workflow_hash=rejected["content_hash"],
         )
         snapshot = host.episode_workflow_configuration()
         assert [
@@ -592,7 +605,7 @@ def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_pa
         assert snapshot["content_hash"] == Sha256Digest.of_record(
             workflow_blueprint
         ).value
-        assert snapshot["workflow_hash"] == design.workflow_hash.value
+        assert snapshot["workflow_hash"] == saved["workflow_hash"]
         status_reference = host.service.duet_status(host.identity.duet_id)[
             "episode_workflow_draft"
         ]
@@ -603,15 +616,6 @@ def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_pa
         )
         assert exact_workflow["workflow"] == workflow_blueprint
         assert exact_workflow["content_hash"] == snapshot["content_hash"]
-        with pytest.raises(DuetProtocolError, match="no Episode workflow is ready"):
-            host.approve_current()
-
-        validations = []
-        host._run_episode_workflow_validation = (
-            lambda owner, revised, validation: validations.append(
-                (owner, revised, validation)
-            )
-        )
         edited = snapshot["configuration"]
         edited["episodes"][1]["contract"]["goal"] = "Build and verify one item"
         receipt = host.record_episode_workflow_revision(
@@ -619,13 +623,13 @@ def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_pa
             source_artifact_id=snapshot["source_artifact_id"],
             expected_workflow_hash=snapshot["content_hash"],
         )
-        host._episode_validation_threads[receipt["artifact_id"]].join(timeout=2)
-
         revised = host.episode_workflow_configuration()
-        assert receipt["revision"] == design.revision + 1
+        assert receipt["revision"] == saved["revision"] + 1
         assert revised["configuration"]["episodes"][1]["contract"]["goal"] == (
             "Build and verify one item"
         )
-        assert len(validations) == 1
+        assert receipt["ready"] is True
+        assert not hasattr(host, "_creator_threads")
+        assert host.has_active_work() is False
     finally:
         host.close()

@@ -398,32 +398,21 @@ class TestOpenChiaRolePrompts:
     def test_duet_is_not_an_episode_and_uses_exact_hash_protocol(self):
         prompt = _prompt_parts(
             _make_agent(
-                valid_tool_names=["web_search", "episode_creator"],
+                valid_tool_names=["web_search", "episode_workflow_update"],
                 _duet_prompt_isolated=True,
             )
         )
         combined = "\n".join(prompt.values())
-        assert "conversational LLM participant" in combined
-        assert "You are not an Episode" in combined
+        assert "sole conversational design partner" in combined
+        assert "not an Episode" in combined
         assert "# Duet protocol" in combined
-        assert "exact hash" in combined
-        assert "human approval ID" in combined
+        assert "current workflow hash" in combined
+        assert "episode_workflow_update" in combined
         assert "responsive design conversation, not a form" in combined
         assert "Do not repeatedly describe an Episode while leaving its draft empty" in combined
-        assert "duet_contract_review" in combined
+        assert "only the human's trusted /review command" in combined
+        assert "duet_contract_review" not in combined
         assert "persistent orchestration Episode" not in combined
-
-    def test_contract_critic_has_a_tool_free_advisory_identity(self):
-        prompt = _prompt_parts(
-            _make_agent(
-                valid_tool_names=[],
-                _duet_contract_critic_prompt_isolated=True,
-            )
-        )
-        combined = "\n".join(prompt.values())
-        assert "advisory OpenChia contract critic" in combined
-        assert "Do not redesign the human's objective" in combined
-        assert "Duet protocol" not in combined
 
     def test_workflow_critic_is_narrow_and_cannot_approve(self):
         prompt = _prompt_parts(
@@ -447,7 +436,8 @@ class TestOpenChiaRolePrompts:
         combined = "\n".join(prompt.values())
         assert "design--run--inspect cycle" in combined
         assert "mandatory run log" in combined
-        assert "workflow_review lenses" in combined
+        assert "only when the human explicitly requests /review" in combined
+        assert "workflow_review" not in combined
         assert "do not approve or launch" in combined
 
     def test_task_prompt_has_no_creation_authority(self):

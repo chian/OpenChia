@@ -3,8 +3,9 @@
 OpenChia replaces unconstrained agent delegation with explicit, measured
 Episodes. The human-facing authority is the **Duet**: a human, a restricted
 conversational LLM, and the host protocol that joins them. The Duet is not an
-Episode. It commissions a task-specific Creator Episode only after the human
-has approved an exact frozen contract.
+Episode. It owns the human-facing design conversation and the persistent nested
+Episode workflow. Only after the human approves that exact workflow does the
+host admit the internal Creator/build boundary and launch it.
 
 There is no persistent head Episode. Ordinary user conversation belongs to the
 Duet. Repeated task execution belongs to Episodes.
@@ -14,20 +15,18 @@ Duet. Repeated task execution belongs to Episodes.
 The three parts of a Duet have different jobs:
 
 - The human supplies intent, corrections, guidance, and approvals.
-- The conversational LLM searches, synthesizes, proposes contract fields, and
-  submits exact host-recorded artifact IDs.
+- The conversational LLM searches, synthesizes, proposes the actual Episode
+  topology and contracts, and persists complete hash-guarded workflow revisions.
 - The host validates schemas and capabilities, mints identities, persists
   revisions, applies numerical rules, and launches approved work.
 
 The Duet LLM has read-only search plus the typed Duet protocol. It has no
 terminal, file editing, code execution, plugin management, tool discovery, or
-delegation surface. Its final `episode_creator` call contains only the frozen
-Creator contract artifact ID, exact content hash, and exact human approval ID.
-The host reloads all content; a later draft revision invalidates the approval.
-Admission alone is not reported as success: the bound task-specific launcher
-must accept the Creator identity and return a closed execution receipt. The
-launcher is idempotent on that identity so an exact tool-call retry cannot
-start a duplicate Creator loop.
+delegation or review surface. `episode_workflow_update` is a compare-and-swap
+write of one complete workflow body. It performs deterministic host validation
+only. Human `/approve`, not a model tool, freezes the exact workflow and invokes
+the internal Creator/build boundary. A later design revision invalidates the
+relevance of earlier review and approval artifacts.
 
 The conversational role is governed by the bundled `agent/duet_coaching.md`
 guide. It describes design dimensions and interviewing behavior without fixing
@@ -36,10 +35,10 @@ the materialized draft, per-field provenance and disposition, typed open
 questions, and unconfirmed proposal paths, so conversational flexibility does
 not require relying on model memory alone.
 
-Once a contract is complete, `duet_contract_review` can run one stateless,
-tool-free semantic critic against that exact contract hash. The critic is
-advisory: it cannot patch, approve, or launch work, and a changed draft makes
-the prior review stale.
+Independent semantic criticism is opt-in. The trusted `/review` command runs
+the tool-free workflow lenses against the exact current authority and workflow
+hashes. No conversational model or Creator model can call that path. A point
+edit never starts critics; it merely makes a prior review stale.
 
 Human answers, guidance, decisions, and approvals enter through trusted host
 operations. The LLM may submit their opaque artifact IDs but cannot invent
@@ -66,19 +65,17 @@ deliverable, safety bounds, and workflow topology. The host then:
 
 This keeps ergonomic model JSON separate from authority-bearing runtime JSON.
 
-## Creator Episodes
+## Design and Creator/build boundary
 
-A Creator Episode is the Duet's internal task-specific workflow experimenter;
-it is not the user-facing design object. The nested Episode workflow is that
-object. Creation authority is off by default and exists exactly when the
-internal Episode has an approved `EpisodeCreatorContract`.
+The nested Episode workflow is the primary user-facing design object. The Duet
+creates it before Creator launch. Creation authority remains off by default and
+is derived from the validated internal `EpisodeCreatorContract`, but that
+contract is a host authority envelope—not a second design conversation.
 
-Every complete workflow body crossing the review or submission boundary is
-first appended to the `episode_workflow_draft` ledger with its canonical
-content hash and exact structured blueprint. This write happens before schema,
-admission, or critic checks. A rejected review or failed design cycle therefore
-annotates or supersedes a durable Episode workflow draft; it can never leave
-only a hash, summary, critic finding, or internal Creator failure behind.
+Every complete workflow body from the Duet or editor is appended to the
+`episode_workflow_draft` ledger with its canonical content hash and exact
+structured blueprint. Deterministic validation deficits are attached to that
+revision. There is no automatic semantic critic or task execution on this path.
 `workflow_design`, review, Run, evidence, and approval artifacts refer to this
 primary design object and do not replace it. `/episode` reads this ledger.
 The Duet's status projection carries only the latest artifact reference;
@@ -86,44 +83,30 @@ The Duet's status projection carries only the latest artifact reference;
 the exact structured body on demand. This keeps recovery lossless without
 injecting a large workflow into every status response.
 
-One Creator unit is one complete experiment:
+At `/approve`, the host revalidates the latest contract and workflow, records
+exact human approvals, admits the internal Creator identity, freezes the design
+under that authority, materializes stable Episode identities and parent edges,
+and starts one Run of the approved tree. The Creator does not make model calls
+or alter the design during this root build step.
 
-1. inspect prior typed Run outcomes and, when useful, their scoped logs;
-2. draft one complete nested workflow blueprint;
-3. request independent advisory review lenses and revise when their findings
-   are sound;
-4. submit the complete blueprint and let the host translate, validate, and
-   freeze the workflow;
-5. launch one child Run Episode for that exact artifact and hash;
-6. receive the Run log reference plus typed goal information; and
-7. let the numerical Creator controller measure improvement and decide whether
-   to continue.
+The launch writes durable workflow-execution activity records for queued,
+constructing, completed, and failed stages. Failure records preserve the exact
+workflow and launch identities, exception code and message, an ownership
+classification, and a bounded next action. The terminal renders these records
+instead of collapsing every failure to `runtime_error`. Relaunching an unchanged
+approved workflow clears only the active failure view; the prior audit artifacts
+remain append-only.
 
-Each `workflow_review` lens receives only the frozen Creator contract, proposed
-blueprint, host validation facts, and its narrow rubric. Reviewers have no tools
-or shared conversation and return typed findings. They do not vote, approve, or
-contribute method credit; host-observed Run evidence remains authoritative.
-
-The Creator model uses `workflow_candidate` to submit a design. It cannot
-approve or launch the adopted workflow. Invalid proposals may be corrected
-inside the same design conversation; only a host-admitted frozen design starts
-a Run Episode and consumes a Creator experimental unit.
-
-The Creator controller stops successfully when a complete Run reaches the
-approved method-credit threshold. It stops for no progress after the declared
-number of consecutive completed Runs fail to improve the best observed credit
-by the declared minimum delta. Oscillation between old scores is not progress.
-A proposal safety bound reports `bound_hit`; it is not convergence.
-
-Low-credit Runs remain persisted because they are experimental evidence. The
-minimum-credit threshold is enforced when the Duet approves a workflow for
-adoption, not when the Creator records a failed or partial experiment.
+Recursive Creator Episodes remain possible only when the already-approved tree
+contains an explicit Creator contract. Their authority, depth, capabilities,
+budgets, and context are inherited mechanically. They cannot reach the critic
+path; only a future explicit human `/review` of a Duet-owned design can do so.
 
 ## Run Episodes and mandatory logs
 
-A Run Episode launches the exact frozen nested workflow selected for one
-Creator experiment. Before it returns, the host atomically writes the complete
-recursive `EpisodeRecord` to the Creator's log store. Its result must contain:
+A Run Episode launches the exact human-approved frozen nested workflow. Before
+it returns, the host atomically writes the complete recursive `EpisodeRecord`.
+Its result must contain:
 
 - the frozen design artifact ID, revision, and workflow hash;
 - Run and Goal identities;

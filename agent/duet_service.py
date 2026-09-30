@@ -90,7 +90,7 @@ _CREATOR_CONTEXT_ARTIFACT_KIND = "creator_context"
 EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND = "episode_workflow_draft"
 _EPISODE_WORKFLOW_DRAFT_SCHEMA_VERSION = 1
 _EPISODE_WORKFLOW_DRAFT_SOURCE_STAGES = frozenset(
-    {"review", "candidate", "human_edit", "frozen"}
+    {"duet", "candidate", "human_edit", "frozen"}
 )
 _SECRET_CONTEXT_KEY = re.compile(
     r"(?:^|[_-])(?:password|passwd|secret|api[_-]?key|private[_-]?key|"
@@ -1378,7 +1378,32 @@ class DuetService:
         workflow: EpisodeWorkflowSpec,
     ) -> tuple[ContractDeficit, ...]:
         frozen = self._creator_frozen_contract(creator_episode_id)
-        creator = frozen.contract.creator_contract
+        return self._workflow_deficits_for_authority(
+            duet_id=frozen.duet_id,
+            authority_contract=frozen.contract,
+            workflow=workflow,
+            authority_depth=self._creator_authority_depth(creator_episode_id),
+            consumer_creator_episode_id=creator_episode_id,
+        )
+
+    def _workflow_deficits_for_authority(
+        self,
+        *,
+        duet_id: OpaqueId,
+        authority_contract: EpisodeCreationSpec,
+        workflow: EpisodeWorkflowSpec,
+        authority_depth: int,
+        consumer_creator_episode_id: Optional[OpaqueId],
+    ) -> tuple[ContractDeficit, ...]:
+        """Validate a workflow without requiring a running design agent.
+
+        A Duet-owned draft reserves the future root Creator at depth one. An
+        admitted recursive Creator supplies its actual lineage depth. The
+        checks themselves are identical, so moving design ownership to the
+        Duet does not weaken capability, context, topology, or depth gates.
+        """
+
+        creator = authority_contract.creator_contract
         if creator is None:
             raise DuetProtocolError("Creator Episode lacks its Creator contract")
         deficits: list[ContractDeficit] = []
@@ -1425,9 +1450,9 @@ class DuetService:
                 else:
                     try:
                         self.resolve_creator_context(
-                            frozen.duet_id,
+                            duet_id,
                             item.contract.creator_contract.design_context,
-                            consumer_creator_episode_id=creator_episode_id,
+                            consumer_creator_episode_id=consumer_creator_episode_id,
                         )
                     except CreatorContextValidationError as exc:
                         deficits.append(
@@ -1447,9 +1472,8 @@ class DuetService:
                         "creator_contract",
                     )
                 )
-        policy = self.policy(frozen.duet_id)
+        policy = self.policy(duet_id)
         depths = self._workflow_depths(workflow)
-        authority_depth = self._creator_authority_depth(creator_episode_id)
         creator_depth = max(
             (
                 authority_depth + depths[item.local_id] + 1
@@ -1464,8 +1488,8 @@ class DuetService:
             )
         max_depth = (
             None
-            if frozen.contract.safety_bounds is None
-            else frozen.contract.safety_bounds.max_depth
+            if authority_contract.safety_bounds is None
+            else authority_contract.safety_bounds.max_depth
         )
         if max_depth is not None and depths and max(depths.values()) + 1 > max_depth:
             deficits.append(ContractDeficit("workflow_depth_exceeded", "safety_bounds"))
@@ -1473,6 +1497,59 @@ class DuetService:
             (item.code, item.field_path, item.blocking): item for item in deficits
         }
         return tuple(unique[key] for key in sorted(unique))
+
+    def validate_duet_workflow(
+        self,
+        duet_id: OpaqueId,
+        workflow_blueprint: Mapping[str, Any],
+    ) -> tuple[Optional[EpisodeWorkflowSpec], tuple[ContractDeficit, ...]]:
+        """Run deterministic validation for a Duet-authored workflow draft."""
+
+        if not isinstance(workflow_blueprint, Mapping):
+            return None, (
+                ContractDeficit(
+                    "invalid_workflow",
+                    "goal",
+                    detail="Episode workflow must be a JSON object",
+                ),
+            )
+        try:
+            workflow = workflow_spec_from_blueprint(
+                workflow_blueprint,
+                identity_namespace=f"{duet_id.value}:duet-workflow",
+            )
+        except (EpisodeContractError, TypeError, ValueError) as exc:
+            return None, (
+                ContractDeficit(
+                    "invalid_workflow",
+                    "goal",
+                    detail=str(exc),
+                ),
+            )
+        draft = self.latest_draft(duet_id)
+        authority, authority_deficits = self._materialize_contract(
+            draft.fields,
+            duet_id=duet_id,
+        )
+        if authority is None or authority_deficits:
+            detail = ", ".join(
+                sorted({item.code for item in authority_deficits})
+            ) or "internal design authority is incomplete"
+            return workflow, (
+                ContractDeficit(
+                    "design_authority_incomplete",
+                    "creator_contract",
+                    detail=detail,
+                ),
+            )
+        return workflow, self._workflow_deficits_for_authority(
+            duet_id=duet_id,
+            authority_contract=authority,
+            workflow=workflow,
+            # The approved design will be owned by one admitted root Creator.
+            authority_depth=1,
+            consumer_creator_episode_id=None,
+        )
 
     def _validate_registered_evidence(
         self,
@@ -1537,6 +1614,97 @@ class DuetService:
             "workflow_hash": artifact["record"].get("workflow_hash"),
             "workflow": json.loads(canonical_json(blueprint)),
         }
+
+    def record_duet_workflow_draft(
+        self,
+        *,
+        duet_id: OpaqueId,
+        workflow_blueprint: Mapping[str, Any],
+        expected_workflow_hash: Optional[str],
+        source_stage: str,
+    ) -> dict[str, Any]:
+        """Append a Duet-owned workflow revision without running any model.
+
+        Persistence precedes semantic readiness so a human can repair a
+        structurally valid but authority-incomplete design. The returned
+        deficits come exclusively from deterministic host validators.
+        """
+
+        self._duet_row(duet_id)
+        if source_stage not in {"duet", "human_edit"}:
+            raise ValueError("Duet workflow source must be duet or human_edit")
+        if not isinstance(workflow_blueprint, Mapping):
+            raise ValueError("Episode workflow draft must be an object")
+        blueprint = json.loads(canonical_json(workflow_blueprint))
+        blueprint_hash = Sha256Digest.of_record(blueprint)
+        with self._workflow_draft_lock:
+            prior = self.store.latest_artifact(
+                duet_id=duet_id.value,
+                kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
+                unowned_only=True,
+            )
+            actual_hash = None if prior is None else prior["content_hash"]
+            if expected_workflow_hash != actual_hash:
+                raise DuetConflictError(
+                    "Episode workflow changed while it was being edited"
+                )
+            if prior is not None and prior["content_hash"] == blueprint_hash.value:
+                return prior
+            workflow, deficits = self.validate_duet_workflow(
+                duet_id,
+                blueprint,
+            )
+            revision = 1 if prior is None else int(prior["revision"]) + 1
+            record = {
+                "schema_version": _EPISODE_WORKFLOW_DRAFT_SCHEMA_VERSION,
+                "duet_id": duet_id.value,
+                "creator_episode_id": None,
+                "revision": revision,
+                "source_stage": source_stage,
+                "workflow_blueprint_hash": blueprint_hash.value,
+                "workflow_blueprint": blueprint,
+                "workflow_hash": (
+                    None if workflow is None else workflow.workflow_hash.value
+                ),
+                "validation_deficits": [item.as_record() for item in deficits],
+                "ready": not deficits,
+            }
+            artifact_id = content_id("episode_workflow_draft", record)
+            self.store.put_artifact(
+                artifact_id=artifact_id.value,
+                duet_id=duet_id.value,
+                kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
+                revision=revision,
+                content_hash=blueprint_hash.value,
+                record=record,
+            )
+            self.store.set_state(
+                duet_id.value,
+                (
+                    DuetDesignState.AWAITING_WORKFLOW_APPROVAL.value
+                    if not deficits
+                    else DuetDesignState.DESIGNING.value
+                ),
+            )
+            self.store.append_event(
+                duet_id=duet_id.value,
+                event_type="episode_workflow_revision",
+                provenance=(
+                    DuetProvenance.HUMAN_INPUT.value
+                    if source_stage == "human_edit"
+                    else DuetProvenance.LLM_PROPOSAL.value
+                ),
+                record={
+                    "artifact_id": artifact_id.value,
+                    "revision": revision,
+                    "content_hash": blueprint_hash.value,
+                    "deficit_codes": [item.code for item in deficits],
+                },
+            )
+        artifact = self.store.get_artifact(artifact_id.value)
+        if artifact is None:
+            raise DuetProtocolError("Episode workflow draft was not durably stored")
+        return artifact
 
     def record_episode_workflow_draft(
         self,
@@ -1636,6 +1804,7 @@ class DuetService:
         workflow_blueprint: Mapping[str, Any],
         consumed_context_artifact_ids: tuple[str, ...] = (),
         source_stage: str = "candidate",
+        identity_namespace: Optional[str] = None,
     ) -> FrozenWorkflowDesign:
         """Translate, admit, and freeze one design before its Run Episode."""
 
@@ -1700,6 +1869,8 @@ class DuetService:
             workflow_blueprint,
             identity_namespace=(
                 f"{creator_episode_id.value}:candidate:{revision}"
+                if identity_namespace is None
+                else identity_namespace
             ),
         )
         deficits = self.workflow_deficits(
@@ -1885,7 +2056,10 @@ class DuetService:
         run_id: str,
     ) -> OpaqueId:
         artifact = self.store.get_artifact(workflow_artifact_id.value)
-        if artifact is None or artifact["kind"] != ApprovalKind.WORKFLOW.value:
+        if artifact is None or artifact["kind"] not in {
+            ApprovalKind.WORKFLOW.value,
+            "workflow_design",
+        }:
             raise DuetNotFoundError("approved workflow artifact not found")
         record = artifact["record"]
         workflow = self._workflow_from_artifact(record)
@@ -1893,7 +2067,7 @@ class DuetService:
             raise StaleDuetApprovalError("workflow content hash is stale")
         latest = self.store.latest_artifact(
             duet_id=record["duet_id"],
-            kind=ApprovalKind.WORKFLOW.value,
+            kind=artifact["kind"],
             creator_episode_id=record["creator_episode_id"],
         )
         if latest is None or latest["artifact_id"] != workflow_artifact_id.value:
@@ -2239,37 +2413,6 @@ class DuetService:
                     )
                 ):
                     failure = None
-            review_artifact = self.store.latest_artifact(
-                duet_id=duet_id.value,
-                kind="workflow_shadow_review",
-                creator_episode_id=creator_episode_id,
-            )
-            if review_artifact is not None:
-                review_record = review_artifact["record"]
-                lens_summaries = []
-                for lens, review in sorted(
-                    (review_record.get("lenses") or {}).items()
-                ):
-                    findings = review.get("findings") or []
-                    lens_summaries.append(
-                        {
-                            "lens": lens,
-                            "verdict": review.get("verdict", "unknown"),
-                            "finding_codes": [
-                                item.get("code")
-                                for item in findings
-                                if isinstance(item, Mapping)
-                                and isinstance(item.get("code"), str)
-                            ],
-                        }
-                    )
-                workflow_review = {
-                    "review_artifact_id": review_artifact["artifact_id"],
-                    "workflow_blueprint_hash": review_record.get(
-                        "workflow_blueprint_hash"
-                    ),
-                    "lenses": lens_summaries,
-                }
         creator_approval = self.store.latest_approval(
             duet_id=duet_id.value,
             kind=ApprovalKind.CREATOR_CONTRACT.value,
@@ -2285,18 +2428,9 @@ class DuetService:
             duet_id=duet_id.value,
             kind=ApprovalKind.WORKFLOW.value,
         )
+        superseded_workflow_approval = None
         launch = self.store.latest_launch(duet_id.value)
-        review_artifact = self.store.latest_artifact(
-            duet_id=duet_id.value,
-            kind="contract_shadow_review",
-        )
-        contract_review = None
-        if (
-            review_artifact is not None
-            and review_artifact["record"].get("contract_hash")
-            == draft.content_hash.value
-        ):
-            contract_review = review_artifact["record"]
+        superseded_launch = None
         answer_artifact = self.store.latest_artifact(
             duet_id=duet_id.value,
             kind="duet_answer",
@@ -2319,10 +2453,25 @@ class DuetService:
         episode_workflow_artifact = self.store.latest_artifact(
             duet_id=duet_id.value,
             kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
+            unowned_only=True,
         )
         episode_workflow_draft = None
         if episode_workflow_artifact is not None:
             workflow_record = episode_workflow_artifact["record"]
+            if (
+                workflow_approval is not None
+                and workflow_approval.get("content_hash")
+                != workflow_record.get("workflow_hash")
+            ):
+                superseded_workflow_approval = workflow_approval
+                workflow_approval = None
+            if (
+                launch is not None
+                and launch.get("workflow_hash")
+                != workflow_record.get("workflow_hash")
+            ):
+                superseded_launch = launch
+                launch = None
             episode_workflow_draft = {
                 "artifact_id": episode_workflow_artifact["artifact_id"],
                 "revision": episode_workflow_artifact["revision"],
@@ -2332,7 +2481,45 @@ class DuetService:
                 "creator_episode_id": episode_workflow_artifact[
                     "creator_episode_id"
                 ],
+                "ready": bool(workflow_record.get("ready")),
+                "validation_deficits": list(
+                    workflow_record.get("validation_deficits") or ()
+                ),
             }
+            explicit_review = self.store.latest_artifact(
+                duet_id=duet_id.value,
+                kind="workflow_shadow_review",
+                unowned_only=True,
+            )
+            if (
+                explicit_review is not None
+                and explicit_review["record"].get("workflow_blueprint_hash")
+                == episode_workflow_artifact["content_hash"]
+                and explicit_review["record"].get("creator_contract_hash")
+                == draft.content_hash.value
+            ):
+                review_record = explicit_review["record"]
+                workflow_review = {
+                    "review_artifact_id": explicit_review["artifact_id"],
+                    "workflow_blueprint_hash": review_record.get(
+                        "workflow_blueprint_hash"
+                    ),
+                    "lenses": [
+                        {
+                            "lens": lens,
+                            "verdict": review.get("verdict", "unknown"),
+                            "finding_codes": [
+                                item.get("code")
+                                for item in review.get("findings") or ()
+                                if isinstance(item, Mapping)
+                                and isinstance(item.get("code"), str)
+                            ],
+                        }
+                        for lens, review in sorted(
+                            (review_record.get("lenses") or {}).items()
+                        )
+                    ],
+                }
         field_records = [item.as_record() for item in draft.fields]
         ledger = []
         for field_path in _REQUIRED_CREATOR_FIELDS:
@@ -2381,7 +2568,6 @@ class DuetService:
                 for item in draft.fields
                 if not item.human_fixed
             ],
-            "contract_review": contract_review,
             "creator_episode_id": (
                 None if creator is None else creator["creator_episode_id"]
             ),
@@ -2395,7 +2581,9 @@ class DuetService:
             "creator_contract_approval": creator_approval,
             "superseded_creator_contract_approval": superseded_creator_approval,
             "workflow_approval": workflow_approval,
+            "superseded_workflow_approval": superseded_workflow_approval,
             "launch": launch,
+            "superseded_launch": superseded_launch,
             "allowed_episode_capability_names": sorted(
                 self.allowed_episode_capabilities
             ),

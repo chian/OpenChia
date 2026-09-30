@@ -219,9 +219,9 @@ class TestOpenChiaProtocolToolSelection:
         duet = {
             "duet_contract_patch",
             "duet_status",
+            "episode_workflow_update",
             "duet_answer",
             "duet_decision",
-            "episode_creator",
         }
         assert duet <= names(
             enabled_toolsets=["duet"]
@@ -249,9 +249,9 @@ class TestOpenChiaProtocolToolSelection:
         controls = {
             "duet_contract_patch",
             "duet_status",
+            "episode_workflow_update",
             "duet_answer",
             "duet_decision",
-            "episode_creator",
             "creator_log_read",
             "workflow_candidate",
             "episode_progress",

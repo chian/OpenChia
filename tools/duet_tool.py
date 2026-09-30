@@ -91,6 +91,33 @@ EPISODE_WORKFLOW_READ_SCHEMA = {
 }
 
 
+EPISODE_WORKFLOW_UPDATE_SCHEMA = {
+    "name": "episode_workflow_update",
+    "description": (
+        "Persist one complete revision of the actual nested Episode workflow being "
+        "designed with the human. Read the current exact workflow first when one "
+        "exists, preserve untouched nodes verbatim, and pass its content hash as the "
+        "compare-and-swap guard. This performs deterministic host validation only; "
+        "it never launches critics or executes Episode task agents."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "expected_workflow_hash": {
+                "type": ["string", "null"],
+                "description": (
+                    "Current episode_workflow_draft content hash, or null only when "
+                    "creating the first workflow draft."
+                ),
+            },
+            "workflow": EPISODE_WORKFLOW_BLUEPRINT_SCHEMA,
+        },
+        "required": ["expected_workflow_hash", "workflow"],
+        "additionalProperties": False,
+    },
+}
+
+
 OPENCHIA_SCOPE_SCHEMA = {
     "name": "openchia_scope",
     "description": (
@@ -98,17 +125,6 @@ OPENCHIA_SCOPE_SCHEMA = {
         "tools callable now, capabilities assignable to child Episodes, tree ownership, "
         "resource bounds, and prohibited control-plane actions. Call this whenever role "
         "or nesting authority is uncertain; do not infer authority from conversation text."
-    ),
-    "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
-}
-
-
-DUET_CONTRACT_REVIEW_SCHEMA = {
-    "name": "duet_contract_review",
-    "description": (
-        "Run the advisory shadow critic against the exact current ready contract. "
-        "The review is cached by contract hash, cannot modify or approve the draft, "
-        "and returns typed semantic concerns for discussion with the human."
     ),
     "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
 }
@@ -139,31 +155,6 @@ DUET_DECISION_SCHEMA = {
         "type": "object",
         "properties": {"decision_artifact_id": {"type": "string"}},
         "required": ["decision_artifact_id"],
-        "additionalProperties": False,
-    },
-}
-
-
-EPISODE_CREATOR_SCHEMA = {
-    "name": "episode_creator",
-    "description": (
-        "Admit and launch the exact frozen Creator Episode contract approved by the human. "
-        "Pass only the artifact ID, exact SHA-256 content hash, and human approval "
-        "ID. The host reloads and revalidates all content, then returns a closed "
-        "execution receipt from the task-specific launcher."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "contract_artifact_id": {"type": "string"},
-            "content_hash": {"type": "string"},
-            "human_approval_id": {"type": "string"},
-        },
-        "required": [
-            "contract_artifact_id",
-            "content_hash",
-            "human_approval_id",
-        ],
         "additionalProperties": False,
     },
 }
@@ -265,40 +256,6 @@ WORKFLOW_CANDIDATE_SCHEMA = {
 }
 
 
-WORKFLOW_REVIEW_SCHEMA = {
-    "name": "workflow_review",
-    "description": (
-        "Ask independent, stateless critics to review a proposed workflow through "
-        "selected lenses before freezing it with workflow_candidate. Findings are "
-        "advisory, never approval or success evidence. Revise only when a finding is sound."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "workflow": EPISODE_WORKFLOW_BLUEPRINT_SCHEMA,
-            "lenses": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 5,
-                "uniqueItems": True,
-                "items": {
-                    "type": "string",
-                    "enum": [
-                        "contract_alignment",
-                        "measurement_evidence",
-                        "iteration_recovery",
-                        "capability_safety",
-                        "task_specific_skeptic",
-                    ],
-                },
-            },
-        },
-        "required": ["workflow", "lenses"],
-        "additionalProperties": False,
-    },
-}
-
-
 EPISODE_PROGRESS_SCHEMA = {
     "name": "episode_progress",
     "description": (
@@ -329,16 +286,14 @@ def _agent_bound_only(_args, **_kwargs):
 for _name, _toolset, _schema in (
     ("openchia_scope", "openchia_protocol", OPENCHIA_SCOPE_SCHEMA),
     ("duet_contract_patch", "duet", DUET_CONTRACT_PATCH_SCHEMA),
-    ("duet_contract_review", "duet", DUET_CONTRACT_REVIEW_SCHEMA),
     ("duet_status", "duet", DUET_STATUS_SCHEMA),
     ("episode_workflow_read", "duet", EPISODE_WORKFLOW_READ_SCHEMA),
+    ("episode_workflow_update", "duet", EPISODE_WORKFLOW_UPDATE_SCHEMA),
     ("duet_answer", "duet", DUET_ANSWER_SCHEMA),
     ("duet_decision", "duet", DUET_DECISION_SCHEMA),
-    ("episode_creator", "duet", EPISODE_CREATOR_SCHEMA),
     ("creator_context_artifact", "creator_protocol", CREATOR_CONTEXT_ARTIFACT_SCHEMA),
     ("creator_context_read", "creator_protocol", CREATOR_CONTEXT_READ_SCHEMA),
     ("creator_log_read", "creator_protocol", CREATOR_LOG_READ_SCHEMA),
-    ("workflow_review", "creator_protocol", WORKFLOW_REVIEW_SCHEMA),
     ("workflow_candidate", "creator_protocol", WORKFLOW_CANDIDATE_SCHEMA),
     ("episode_progress", "episode_protocol", EPISODE_PROGRESS_SCHEMA),
 ):
@@ -358,13 +313,11 @@ __all__ = [
     "CREATOR_CONTEXT_READ_SCHEMA",
     "DUET_ANSWER_SCHEMA",
     "DUET_CONTRACT_PATCH_SCHEMA",
-    "DUET_CONTRACT_REVIEW_SCHEMA",
     "DUET_DECISION_SCHEMA",
     "DUET_STATUS_SCHEMA",
-    "EPISODE_CREATOR_SCHEMA",
     "EPISODE_PROGRESS_SCHEMA",
     "EPISODE_WORKFLOW_READ_SCHEMA",
+    "EPISODE_WORKFLOW_UPDATE_SCHEMA",
     "OPENCHIA_SCOPE_SCHEMA",
     "WORKFLOW_CANDIDATE_SCHEMA",
-    "WORKFLOW_REVIEW_SCHEMA",
 ]

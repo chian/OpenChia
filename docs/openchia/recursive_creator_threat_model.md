@@ -41,9 +41,11 @@ as hostile conditions even when accidental.
   admitted contract. Protocol/control-plane tools are removed from the child
   capability catalog both during CLI discovery and again at host construction.
   Conversation text cannot expand either set.
-- Contract and workflow critics are registered as interruptible children of
-  the Duet or Creator while active. A hard stop propagates into their provider
-  requests, and the host closes and unregisters them on every exit path.
+- Critics are absent from Duet and Creator model tool surfaces. Only the trusted
+  human `/review` command may create the bounded workflow-critic fan-out for an
+  exact authority/workflow hash pair. Those temporary critics are interruptible
+  children of the Duet while active, and the host closes and unregisters them
+  on every exit path.
 - Platform patches are proposal artifacts only and require stopped-host human
   review, tests, migration notes, and a new frozen runtime identity.
 

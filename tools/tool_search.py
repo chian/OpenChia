@@ -39,9 +39,9 @@ _EPISODE_CONTROL_TOOLS = frozenset(
     {
         "duet_contract_patch",
         "duet_status",
+        "episode_workflow_update",
         "duet_answer",
         "duet_decision",
-        "episode_creator",
         "creator_log_read",
         "workflow_candidate",
         "episode_progress",

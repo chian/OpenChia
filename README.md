@@ -4,18 +4,15 @@ OpenChia is a terminal environment for building persistent, nested Episode
 workflows through a human–LLM Duet.
 
 ```text
-[DUET] -- approved contract --> [CREATOR]
-   ^                                |
-   | closed progress                | frozen design
-   +---------------------------- [RUN]
-                          typed measures + log
+[DUET DESIGN] -- exact approval --> [CREATOR/BUILD] --> [RUN]
+      |                                  |
+      +-- persistent Episode tree -------+
 ```
 
 The Duet is the human, a restricted conversational LLM, and the host protocol
-that joins them. Together they specify a Creator Episode. The Creator repeatedly
-designs a complete nested workflow, launches one frozen design through a child
-Run Episode, inspects the persisted Run log and typed measurements, and uses
-host-computed credit to decide whether another design experiment is warranted.
+that joins them. Together they design and persist the actual nested Episode
+workflow. After exact human approval, the internal Creator/build boundary
+constructs and launches that frozen tree. It does not redesign it.
 
 Ordinary task Episodes have a fixed goal, repeated unit, numerical progress
 measure, progress-based stopping criteria, declared result, and an explicit
@@ -36,9 +33,9 @@ already configured.
 
 ## Work with the Duet
 
-Describe the outcome you want conversationally. The Duet can search for context
-and propose Creator configuration fields, but it cannot approve its own contract
-or execute the task directly.
+Describe the outcome you want conversationally. The Duet can search for context,
+propose the actual Episode topology and contracts, and persist complete workflow
+revisions, but it cannot approve or execute the task directly.
 
 The Duet follows a bundled design-coaching guide rather than a fixed interview
 script. It can answer conceptual questions, follow useful tangents, recommend
@@ -51,13 +48,10 @@ visible. Use these controls while specifying the Episode:
 ```text
 /episode                         show the full configuration and provenance
 /episode edit                    navigate and edit the Episode section tree
-/episode set FIELD JSON_VALUE    set a field or dotted path
-/episode unset FIELD             remove a field or dotted path
-/episode capabilities            list capabilities Episodes may be assigned
-/duet                            show Duet, Creator, and Run state
-/creator                         show live Creator stages or failure diagnostics
-/review                          run or show the advisory shadow contract review
-/approve                         approve the ready contract or measured workflow
+/episode diff                    show exact changes since the last view
+/duet                            show design and Run state
+/review                          explicitly run independent Episode-design critics
+/approve                         approve, build, and launch the exact ready workflow
 ```
 
 Direct edits are recorded as human-authored draft revisions and pass through the
@@ -68,50 +62,47 @@ Rarefaction, and edit only that section in the focused pane. Mouse navigation an
 the arrow keys are both supported. Missing values are marked with `!` and appear
 as `<OPENCHIA: value required>` in their focused section.
 
-After contract approval, the conversational LLM submits the exact approved
-artifact to the host. The Creator then runs design experiments in the
-background. Before freezing each proposed workflow, the Creator can ask
-independent, tool-free critics to inspect contract alignment, measurement and
-evidence, iteration and recovery, capability safety, and task-specific risks.
-Their findings are advisory, but the exact candidate hash must be reviewed before
-submission; a post-review edit must be reviewed again. Only host-measured Run
-evidence contributes method credit. During that work, the status panel shows the
-current structured stage without exposing private model reasoning:
+Saving a conversational or editor revision runs deterministic schema, topology,
+capability, context, and depth checks only. It does not start critics and does
+not execute task Episodes. `/review` is the sole critic entry point; it fans out
+the independent, tool-free lenses against the exact current design. Findings are
+advisory. A later edit makes that review stale but does not rerun it.
 
 ```text
-/guide TEXT    queue guidance for the next Creator boundary
-/pause         stop at the next Creator boundary
-/cancel        cancel at the next Creator boundary
-/creator       show recent stages, exact failure code, owner, and next action
-/retry         queue a live-boundary retry or restart a retryable failed Creator
+/episode edit  make a point edit without spawning model workers
+/review        explicitly run the five semantic critic lenses
+/approve       freeze the design, build its Episodes, and start the Run
 /logs          list persisted Run Episode logs
 ```
 
-Creator tool validation failures preserve their structured reason, message, and
-deficits. A schema-invalid workflow is reported as a Creator-owned design failure,
-not a generic runtime error. Platform-owned faults remain non-retryable until the
-runtime is fixed.
-
-When a measured workflow awaits adoption, `/approve` approves and launches that
-exact frozen workflow.
+Human approval binds the exact workflow and internal authority hashes. The host
+admits the internal Creator/build identity, freezes the approved design, creates
+the declared Episode identities, and starts the Run. Task agents appear only at
+this launch boundary. The status surface follows durable queued, constructing,
+completed, and failed stages. A failure includes its exact exception code and
+message, likely owner, a persisted diagnostic artifact, and a next action; a
+host-owned failure can be relaunched unchanged after the runtime is fixed,
+whereas a contractual failure should be repaired as a new workflow revision.
 
 ## Architecture and boundaries
 
-- The Duet LLM has search and typed Duet protocol operations only.
-- A Creator Episode specializes in designing and evaluating nested Episode
-  workflows.
+- The Duet LLM owns the design conversation and persistent Episode workflow.
+- Critics are inaccessible to models and run only from trusted `/review`.
+- The root Creator is an internal post-approval construction boundary.
 - A task Episode executes its immutable contract and has no creation authority.
 - A nested Creator is possible only when its containing workflow explicitly
   defines its contract, evidence requirements, credit assignment, and return
   projection.
 - Child-to-parent communication is typed. Raw task prose and Run log contents do
   not become parent instructions.
-- Every Creator experiment persists its Run log before its measured candidate is
-  admitted.
+- Every approved Run persists typed results and evidence through the host-owned
+  execution path.
 - Human approval is exact-artifact and exact-hash based.
 
 See [OPENCHIA_ARCHITECTURE.md](OPENCHIA_ARCHITECTURE.md) for the executable
-contracts and ownership boundaries.
+contracts and ownership boundaries, and
+[Duet-owned Episode design](docs/openchia/duet_owned_episode_design.md) for the
+review and launch call graph.
 
 ## Development checks
 

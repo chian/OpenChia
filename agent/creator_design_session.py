@@ -147,28 +147,20 @@ class CreatorDesignSession(CandidateDesigner):
                 self.service.creator_boundary_records(boundary_messages)
             ),
             "review_policy": {
-                "required_before_submission": True,
-                "core_lenses": [
-                    "contract_alignment",
-                    "measurement_evidence",
-                    "capability_safety",
-                ],
-                "optional_lenses": [
-                    "iteration_recovery",
-                    "task_specific_skeptic",
-                ],
+                "required_before_submission": False,
+                "invocation": "human_slash_review_only",
                 "authority": (
-                    "Reviews are advisory diagnostics. Host measurements, not critic "
-                    "opinion, determine method credit."
+                    "This agent cannot invoke critics. Deterministic host validation "
+                    "and measurements, not critic opinion, govern admission and credit."
                 ),
             },
             "required_action": (
                 "Read every required Creator context artifact exactly with "
                 "creator_context_read, inspect any useful prior Run log with "
                 "creator_log_read, then "
-                "draft a complete workflow, call workflow_review with the three core "
-                "lenses and any relevant optional lenses, revise when findings are "
-                "sound, then submit exactly one complete blueprint with workflow_candidate. "
+                "draft a complete workflow and submit exactly one complete blueprint "
+                "with workflow_candidate. Do not invoke or simulate a semantic review; "
+                "only the human-facing /review command may launch critics. "
                 "A tool result with accepted=false is a structured repair request: read "
                 "its reason, message, and deficits, correct only the candidate, and call "
                 "the tool again. Do not end this conversation until workflow_candidate "
