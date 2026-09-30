@@ -552,6 +552,20 @@ def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_pa
         with pytest.raises(DuetProtocolError, match="no Episode workflow draft"):
             host.episode_workflow_configuration()
 
+        rejected_blueprint = {"episodes": []}
+        with pytest.raises(ValueError, match="non-empty array"):
+            host.service.freeze_workflow_design(
+                creator_episode_id=owner_id,
+                workflow_blueprint=rejected_blueprint,
+                consumed_context_artifact_ids=(
+                    context.entrypoint_artifact_id.value,
+                ),
+            )
+        rejected = host.episode_workflow_configuration()
+        assert rejected["configuration"] == rejected_blueprint
+        assert rejected["source_kind"] == "episode_workflow_draft"
+        assert rejected["validation_error"] is not None
+
         workflow = EpisodeWorkflowSpec(
             (
                 EpisodeDesignSpec("root_episode", None, _workflow_task("Coordinate")),
@@ -562,9 +576,10 @@ def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_pa
                 ),
             )
         )
+        workflow_blueprint = workflow_blueprint_from_spec(workflow)
         design = host.service.freeze_workflow_design(
             creator_episode_id=owner_id,
-            workflow_blueprint=workflow_blueprint_from_spec(workflow),
+            workflow_blueprint=workflow_blueprint,
             consumed_context_artifact_ids=(context.entrypoint_artifact_id.value,),
         )
         snapshot = host.episode_workflow_configuration()
@@ -574,7 +589,20 @@ def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_pa
         assert snapshot["configuration"]["episodes"][1]["contract"]["goal"] == (
             "Build one item"
         )
-        assert snapshot["content_hash"] == design.workflow_hash.value
+        assert snapshot["content_hash"] == Sha256Digest.of_record(
+            workflow_blueprint
+        ).value
+        assert snapshot["workflow_hash"] == design.workflow_hash.value
+        status_reference = host.service.duet_status(host.identity.duet_id)[
+            "episode_workflow_draft"
+        ]
+        assert status_reference["artifact_id"] == snapshot["source_artifact_id"]
+        exact_workflow = host.service.read_episode_workflow_draft(
+            host.identity.duet_id,
+            OpaqueId(status_reference["artifact_id"]),
+        )
+        assert exact_workflow["workflow"] == workflow_blueprint
+        assert exact_workflow["content_hash"] == snapshot["content_hash"]
         with pytest.raises(DuetProtocolError, match="no Episode workflow is ready"):
             host.approve_current()
 

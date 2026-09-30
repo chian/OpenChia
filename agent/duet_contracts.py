@@ -186,6 +186,7 @@ DUET_PROTOCOL_TOOLS = frozenset(
         "duet_contract_patch",
         "duet_contract_review",
         "duet_status",
+        "episode_workflow_read",
         "duet_answer",
         "duet_decision",
         "episode_creator",

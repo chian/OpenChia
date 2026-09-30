@@ -291,6 +291,9 @@ def build_creator_agent(
     log_store: CreatorRunLogStore,
     log_references: Iterable[RunLogReference] = (),
     workflow_reviewer: Optional[Callable[[dict[str, Any], tuple[str, ...]], dict[str, Any]]] = None,
+    workflow_draft_recorder: Optional[
+        Callable[[dict[str, Any], str], dict[str, Any]]
+    ] = None,
     execution_boundary: Any = None,
     context_service: Any = None,
     creator_episode_id: Optional[OpaqueId] = None,
@@ -339,7 +342,10 @@ def build_creator_agent(
     }
     if workflow_reviewer is not None and not callable(workflow_reviewer):
         raise TypeError("workflow_reviewer must be callable")
+    if workflow_draft_recorder is not None and not callable(workflow_draft_recorder):
+        raise TypeError("workflow_draft_recorder must be callable")
     agent._creator_workflow_reviewer = workflow_reviewer
+    agent._creator_workflow_draft_recorder = workflow_draft_recorder
     agent._creator_reviewed_workflow_hashes = set()
     agent._creator_context_service = context_service
     agent._creator_episode_id = creator_episode_id
@@ -395,6 +401,9 @@ def build_generic_creator_agent(
     log_store: CreatorRunLogStore,
     log_references: Iterable[RunLogReference] = (),
     workflow_reviewer: Optional[Callable[[dict[str, Any], tuple[str, ...]], dict[str, Any]]] = None,
+    workflow_draft_recorder: Optional[
+        Callable[[dict[str, Any], str], dict[str, Any]]
+    ] = None,
     **agent_kwargs: Any,
 ) -> Any:
     """Construct a generic Creator with a mandatory mechanical boundary."""
@@ -421,6 +430,7 @@ def build_generic_creator_agent(
         log_store=log_store,
         log_references=log_references,
         workflow_reviewer=workflow_reviewer,
+        workflow_draft_recorder=workflow_draft_recorder,
         execution_boundary=boundary,
         generic_spec=spec,
         **agent_kwargs,

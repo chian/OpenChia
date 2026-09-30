@@ -68,9 +68,23 @@ This keeps ergonomic model JSON separate from authority-bearing runtime JSON.
 
 ## Creator Episodes
 
-A Creator Episode is a task-specific workflow experimenter. Creation authority
-is off by default and exists exactly when the Episode has an approved
-`EpisodeCreatorContract`.
+A Creator Episode is the Duet's internal task-specific workflow experimenter;
+it is not the user-facing design object. The nested Episode workflow is that
+object. Creation authority is off by default and exists exactly when the
+internal Episode has an approved `EpisodeCreatorContract`.
+
+Every complete workflow body crossing the review or submission boundary is
+first appended to the `episode_workflow_draft` ledger with its canonical
+content hash and exact structured blueprint. This write happens before schema,
+admission, or critic checks. A rejected review or failed design cycle therefore
+annotates or supersedes a durable Episode workflow draft; it can never leave
+only a hash, summary, critic finding, or internal Creator failure behind.
+`workflow_design`, review, Run, evidence, and approval artifacts refer to this
+primary design object and do not replace it. `/episode` reads this ledger.
+The Duet's status projection carries only the latest artifact reference;
+`episode_workflow_read` verifies Duet ownership and the hash before returning
+the exact structured body on demand. This keeps recovery lossless without
+injecting a large workflow into every status response.
 
 One Creator unit is one complete experiment:
 
@@ -210,14 +224,15 @@ continue talking to the Duet and can steer the next experimental boundary.
 The terminal panel reads only `duet_status`; it never reads a task transcript
 or Run log to summarize progress.
 
-The terminal also exposes the current Creator draft directly through
-`/episode`. The human may inspect the complete configuration and provenance,
-edit the whole JSON document, or set and unset individual dotted paths. Each
-saved edit creates one real human-authored draft revision and goes through the
-same schema, capability, and contract validation as a conversational proposal.
-Editing closes when the Creator contract is frozen. The OpenChia command
-palette and completion list expose this Episode surface rather than inherited
-delegation and automation commands.
+The terminal exposes the current nested Episode workflow directly through
+`/episode`; the internal Creator contract is not the editor's root. View and
+edit modes use the same expandable Episode tree, with bounded Goal, Planning,
+Task, Credit assignment, Rarefaction, authority, and safety sections beneath
+each Episode. Each saved edit appends one exact human-authored workflow draft
+and runs it through the same schema, capability, and execution validation as a
+model proposal. A failed validation leaves that workflow editable. The
+OpenChia command palette and completion list expose this Episode surface rather
+than inherited delegation and automation commands.
 
 The initial concrete measurement adapter is deliberately mechanical. It
 normalizes the frozen workflow root's typed progress value from its declared

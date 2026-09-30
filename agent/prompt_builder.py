@@ -492,6 +492,8 @@ DUET_PROTOCOL_GUIDANCE = (
     "/answer FIELD JSON_VALUE. Put complex design material in complete structured artifacts through "
     "creator_context_artifact, then reference their exact IDs and hashes from creator_contract.design_context. "
     "There is no prose instruction side channel: required artifacts must remain exact and referenced. "
+    "When duet_status exposes episode_workflow_draft, read that exact artifact with episode_workflow_read before "
+    "discussing or diagnosing the nested Episode design; never substitute an internal Creator status or review summary. "
     "The final episode_creator "
     "call contains only the frozen contract artifact ID, its exact hash, and the exact human approval ID. Never "
     "reconstruct contract prose in that call. A later revision invalidates prior approval. After the human uses "

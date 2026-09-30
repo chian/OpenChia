@@ -45,6 +45,7 @@ def test_duet_protocol_tools_are_agent_bound_and_delegate_is_absent():
         "duet_contract_patch",
         "duet_contract_review",
         "duet_status",
+        "episode_workflow_read",
         "duet_answer",
         "duet_decision",
         "episode_creator",
@@ -113,6 +114,7 @@ def test_openchia_scope_fails_closed_without_host_binding():
 
 def test_workflow_review_is_advisory_and_marks_the_exact_blueprint():
     calls = []
+    drafts = []
 
     def review(workflow, lenses):
         calls.append((workflow, lenses))
@@ -124,6 +126,9 @@ def test_workflow_review_is_advisory_and_marks_the_exact_blueprint():
 
     agent = SimpleNamespace(
         _creator_workflow_reviewer=review,
+        _creator_workflow_draft_recorder=(
+            lambda workflow, stage: drafts.append((workflow, stage))
+        ),
         _creator_reviewed_workflow_hashes=set(),
     )
     workflow = {"episodes": []}
@@ -136,6 +141,7 @@ def test_workflow_review_is_advisory_and_marks_the_exact_blueprint():
     )
     assert result["accepted"] is True
     assert calls == [(workflow, ("contract_alignment",))]
+    assert drafts == [(workflow, "review")]
     assert len(agent._creator_reviewed_workflow_hashes) == 1
 
 
@@ -180,9 +186,13 @@ def test_workflow_candidate_preserves_validation_message_and_activity():
 
 def test_workflow_candidate_requires_review_of_the_exact_blueprint_hash():
     submitted = []
+    drafts = []
     workflow = {"episodes": []}
     agent = SimpleNamespace(
         _creator_workflow_submit=lambda value: submitted.append(value),
+        _creator_workflow_draft_recorder=(
+            lambda value, stage: drafts.append((value, stage))
+        ),
         _creator_required_context_ids=frozenset(),
         _creator_context_read_ids=set(),
         _creator_reviewed_workflow_hashes=set(),
@@ -202,6 +212,7 @@ def test_workflow_candidate_requires_review_of_the_exact_blueprint_hash():
         Sha256Digest.of_record(workflow).value
     )
     assert submitted == []
+    assert drafts == [(workflow, "candidate")]
 
 
 def test_required_context_is_delivered_exactly_before_workflow_review():

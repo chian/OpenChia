@@ -362,6 +362,25 @@ def _duet_status(agent, args: dict, ctx: InlineToolContext) -> Any:
         return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
 
 
+def _episode_workflow_read(agent, args: dict, ctx: InlineToolContext) -> Any:
+    from agent.episode_contracts import OpaqueId
+
+    try:
+        service, identity = _duet_context(agent)
+        return json.dumps(
+            service.read_episode_workflow_draft(
+                identity.duet_id,
+                OpaqueId(args.get("artifact_id")),
+            ),
+            sort_keys=True,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {"accepted": False, "reason": type(exc).__name__},
+            sort_keys=True,
+        )
+
+
 def _duet_contract_review(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
         reviewer = getattr(agent, "_duet_contract_reviewer", None)
@@ -634,6 +653,20 @@ def _workflow_candidate(agent, args: dict, ctx: InlineToolContext) -> Any:
             "_creator_last_candidate_result",
             {"accepted": False, "reason": "invalid_workflow_blueprint"},
         )
+    recorder = getattr(agent, "_creator_workflow_draft_recorder", None)
+    if callable(recorder):
+        try:
+            recorder(workflow, "candidate")
+        except Exception as exc:
+            return _creator_protocol_result(
+                agent,
+                "_creator_last_candidate_result",
+                {
+                    "accepted": False,
+                    "reason": "workflow_draft_persistence_failed",
+                    "message": str(exc)[:2048],
+                },
+            )
     blueprint_hash = Sha256Digest.of_record(workflow).value
     reviewed_hashes = getattr(agent, "_creator_reviewed_workflow_hashes", set())
     if blueprint_hash not in reviewed_hashes:
@@ -749,6 +782,19 @@ def _workflow_review(agent, args: dict, ctx: InlineToolContext) -> Any:
             {"accepted": False, "reason": "invalid_review_request"},
             sort_keys=True,
         )
+    recorder = getattr(agent, "_creator_workflow_draft_recorder", None)
+    if callable(recorder):
+        try:
+            recorder(workflow, "review")
+        except Exception as exc:
+            return json.dumps(
+                {
+                    "accepted": False,
+                    "reason": "workflow_draft_persistence_failed",
+                    "message": str(exc)[:2048],
+                },
+                sort_keys=True,
+            )
     blueprint_hash = Sha256Digest.of_record(workflow).value
     _publish_creator_activity(
         agent,
@@ -853,6 +899,7 @@ INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "duet_contract_patch": _duet_contract_patch,
     "duet_contract_review": _duet_contract_review,
     "duet_status": _duet_status,
+    "episode_workflow_read": _episode_workflow_read,
     "duet_answer": _duet_answer,
     "duet_decision": _duet_decision,
     "episode_creator": _episode_creator,

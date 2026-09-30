@@ -59,6 +59,7 @@ from agent.episode_blueprints import (
 from agent.duet_service import (
     DuetProtocolError,
     DuetService,
+    EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
     WorkflowAdmissionError,
 )
 from agent.duet_store import DuetStore
@@ -69,7 +70,6 @@ from agent.episode_contracts import (
     EpisodeCreatorContext,
     EpisodeEvidenceMeasurement,
     EpisodeMeasuredOutcome,
-    EpisodeWorkflowSpec,
     MAX_CREATOR_CONTEXT_TOTAL_BYTES,
     OpaqueId,
     ProgressDirection,
@@ -399,6 +399,23 @@ class OpenChiaHost:
             **record,
         }
 
+    def record_episode_workflow_draft(
+        self,
+        creator_episode_id: OpaqueId,
+        workflow_blueprint: Mapping[str, Any],
+        source_stage: str,
+        *,
+        consumed_context_artifact_ids: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Durably append the exact Episode workflow crossing a design boundary."""
+
+        return self.service.record_episode_workflow_draft(
+            creator_episode_id=creator_episode_id,
+            workflow_blueprint=workflow_blueprint,
+            source_stage=source_stage,
+            consumed_context_artifact_ids=consumed_context_artifact_ids,
+        )
+
     def review_workflow_blueprint(
         self,
         creator_episode_id: OpaqueId,
@@ -409,6 +426,17 @@ class OpenChiaHost:
     ) -> dict[str, Any]:
         """Run independent advisory lenses before a Creator freezes a candidate."""
 
+        consumed_context_artifact_ids = tuple(
+            sorted(
+                getattr(parent_agent, "_creator_context_read_ids", set())
+            )
+        )
+        self.record_episode_workflow_draft(
+            creator_episode_id,
+            workflow_blueprint,
+            "review",
+            consumed_context_artifact_ids=consumed_context_artifact_ids,
+        )
         if not lenses or len(set(lenses)) != len(lenses):
             raise ValueError("workflow review lenses must be non-empty and unique")
         unknown = set(lenses) - WORKFLOW_REVIEW_LENSES
@@ -549,65 +577,61 @@ class OpenChiaHost:
                 "has not produced one"
             )
         creator_id = creator["creator_episode_id"]
-        design = self.store.latest_artifact(
+        draft = self.store.latest_artifact(
             duet_id=self.identity.duet_id.value,
-            kind="workflow_design",
+            kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
             creator_episode_id=creator_id,
         )
-        review = self.store.latest_artifact(
-            duet_id=self.identity.duet_id.value,
-            kind="workflow_shadow_review",
-            creator_episode_id=creator_id,
-        )
-        source = design
-        workflow = (
-            None
-            if design is None
-            else EpisodeWorkflowSpec.from_record(design["record"]["workflow"])
-        )
-        if (
-            review is not None
-            and isinstance(review["record"].get("workflow_blueprint"), Mapping)
-            and (
-                design is None
-                or review["record"].get("workflow_hash")
-                != design["content_hash"]
-            )
-        ):
-            workflow = workflow_spec_from_blueprint(
-                review["record"]["workflow_blueprint"],
-                identity_namespace=f"episode-draft:{review['artifact_id']}",
-            )
-            source = review
-        if source is None or workflow is None:
+        if draft is None:
             raise DuetProtocolError(
-                "no Episode workflow draft exists; the internal design pass failed "
-                "before preserving a structured draft"
+                "no Episode workflow draft exists; this run predates durable Episode "
+                "workflow capture and must be designed again"
             )
+        blueprint = draft["record"].get("workflow_blueprint")
+        if not isinstance(blueprint, Mapping):
+            raise OpenChiaHostError(
+                "stored Episode workflow draft has no structured workflow body"
+            )
+        validation_error = None
+        try:
+            workflow_spec_from_blueprint(
+                blueprint,
+                identity_namespace=f"episode-draft:{draft['artifact_id']}",
+            )
+        except (TypeError, ValueError) as exc:
+            validation_error = str(exc)
 
         candidate = self.store.latest_artifact(
             duet_id=self.identity.duet_id.value,
             kind=ApprovalKind.WORKFLOW.value,
             creator_episode_id=creator_id,
         )
+        normalized_workflow_hash = draft["record"].get("workflow_hash")
         measured = bool(
             candidate is not None
-            and candidate["content_hash"] == workflow.workflow_hash.value
+            and isinstance(normalized_workflow_hash, str)
+            and candidate["content_hash"] == normalized_workflow_hash
         )
         active_creator = self.service.duet_status(self.identity.duet_id).get(
             "creator_episode_id"
         )
         return {
-            "revision": int(source["revision"]),
+            "revision": int(draft["revision"]),
             "ready": measured,
-            "content_hash": workflow.workflow_hash.value,
-            "configuration": workflow_blueprint_from_spec(workflow),
+            "content_hash": draft["record"]["workflow_blueprint_hash"],
+            "workflow_hash": normalized_workflow_hash,
+            "configuration": json.loads(canonical_json(blueprint)),
             "fields": {},
-            "source_artifact_id": source["artifact_id"],
-            "source_kind": source["kind"],
+            "source_artifact_id": draft["artifact_id"],
+            "source_kind": draft["kind"],
+            "source_stage": draft["record"]["source_stage"],
             "editable": active_creator == creator_id,
             "_owner_id": creator_id,
+            "_workflow_design_artifact_id": draft["record"].get(
+                "workflow_design_artifact_id"
+            ),
             "measured": measured,
+            "validation_error": validation_error,
         }
 
     @contextmanager
@@ -645,18 +669,16 @@ class OpenChiaHost:
                     "Episode workflow changed or was superseded while it was edited"
                 )
             source = self.store.get_artifact(source_artifact_id)
-            if source is None or source["kind"] not in {
-                "workflow_design",
-                "workflow_shadow_review",
-            }:
+            if (
+                source is None
+                or source["kind"] != EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND
+            ):
                 raise DuetProtocolError("Episode workflow source artifact is missing")
             owner_id = OpaqueId(current["_owner_id"])
-            if source["kind"] == "workflow_design":
-                context_receipt_ids = tuple(
-                    item["artifact_id"]
-                    for item in source["record"]["context_receipts"]
-                )
-            else:
+            context_receipt_ids = tuple(
+                source["record"].get("consumed_context_artifact_ids") or ()
+            )
+            if not context_receipt_ids:
                 frozen = self.service.creator_contract(owner_id)
                 context_receipt_ids = tuple(
                     reference.artifact_id.value
@@ -668,6 +690,7 @@ class OpenChiaHost:
                 creator_episode_id=owner_id,
                 workflow_blueprint=workflow_blueprint,
                 consumed_context_artifact_ids=context_receipt_ids,
+                source_stage="human_edit",
             )
             self.store.set_state(
                 self.identity.duet_id.value,
@@ -1334,6 +1357,22 @@ class OpenChiaHost:
                 lenses,
                 parent_agent=agent_slot.get("agent"),
             ),
+            workflow_draft_recorder=lambda workflow, stage: (
+                self.record_episode_workflow_draft(
+                    creator_episode_id,
+                    workflow,
+                    stage,
+                    consumed_context_artifact_ids=tuple(
+                        sorted(
+                            getattr(
+                                agent_slot.get("agent"),
+                                "_creator_context_read_ids",
+                                set(),
+                            )
+                        )
+                    ),
+                )
+            ),
             context_service=self.service,
             creator_episode_id=creator_episode_id,
             context_artifacts=context_artifacts,
@@ -1897,9 +1936,17 @@ class OpenChiaHost:
             workflow_snapshot = None
         if workflow_snapshot is not None:
             source_id = workflow_snapshot["source_artifact_id"]
+            validation_source_id = (
+                workflow_snapshot.get("_workflow_design_artifact_id")
+                or source_id
+            )
             with self._lock:
-                validation_thread = self._episode_validation_threads.get(source_id)
-                validation_error = self._episode_validation_errors.get(source_id)
+                validation_thread = self._episode_validation_threads.get(
+                    validation_source_id
+                )
+                validation_error = self._episode_validation_errors.get(
+                    validation_source_id
+                )
             if validation_error is None:
                 persisted_validation_error = self.store.latest_artifact(
                     duet_id=self.identity.duet_id.value,
@@ -1910,7 +1957,7 @@ class OpenChiaHost:
                     and persisted_validation_error["record"].get(
                         "workflow_artifact_id"
                     )
-                    == source_id
+                    == validation_source_id
                 ):
                     validation_error = persisted_validation_error["record"].get(
                         "error_class"
@@ -1928,7 +1975,8 @@ class OpenChiaHost:
             status["episode_workflow"] = {
                 "artifact_id": source_id,
                 "revision": workflow_snapshot["revision"],
-                "workflow_hash": workflow_snapshot["content_hash"],
+                "workflow_blueprint_hash": workflow_snapshot["content_hash"],
+                "workflow_hash": workflow_snapshot["workflow_hash"],
                 "validation_state": validation_state,
                 "error_code": validation_error,
             }

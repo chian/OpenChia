@@ -75,6 +75,22 @@ DUET_STATUS_SCHEMA = {
 }
 
 
+EPISODE_WORKFLOW_READ_SCHEMA = {
+    "name": "episode_workflow_read",
+    "description": (
+        "Read one complete, immutable Episode workflow draft referenced by "
+        "duet_status. The host verifies Duet ownership and the content hash, then "
+        "returns the exact structured workflow without summarization."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"artifact_id": {"type": "string"}},
+        "required": ["artifact_id"],
+        "additionalProperties": False,
+    },
+}
+
+
 OPENCHIA_SCOPE_SCHEMA = {
     "name": "openchia_scope",
     "description": (
@@ -315,6 +331,7 @@ for _name, _toolset, _schema in (
     ("duet_contract_patch", "duet", DUET_CONTRACT_PATCH_SCHEMA),
     ("duet_contract_review", "duet", DUET_CONTRACT_REVIEW_SCHEMA),
     ("duet_status", "duet", DUET_STATUS_SCHEMA),
+    ("episode_workflow_read", "duet", EPISODE_WORKFLOW_READ_SCHEMA),
     ("duet_answer", "duet", DUET_ANSWER_SCHEMA),
     ("duet_decision", "duet", DUET_DECISION_SCHEMA),
     ("episode_creator", "duet", EPISODE_CREATOR_SCHEMA),
@@ -346,6 +363,7 @@ __all__ = [
     "DUET_STATUS_SCHEMA",
     "EPISODE_CREATOR_SCHEMA",
     "EPISODE_PROGRESS_SCHEMA",
+    "EPISODE_WORKFLOW_READ_SCHEMA",
     "OPENCHIA_SCOPE_SCHEMA",
     "WORKFLOW_CANDIDATE_SCHEMA",
     "WORKFLOW_REVIEW_SCHEMA",
