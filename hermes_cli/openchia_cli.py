@@ -14,13 +14,13 @@ from prompt_toolkit.layout import FormattedTextControl, Window
 from rich.markup import escape
 
 from agent.duet_contracts import OPENCHIA_CONTROL_PLANE_TOOLS
-from agent.episode_blueprints import CREATION_BLUEPRINT_FIELDS
-from agent.openchia_host import EPISODE_FIELD_PLACEHOLDER, OpenChiaHost
+from agent.openchia_host import OpenChiaHost
 from cli import HermesCLI
 from hermes_constants import get_hermes_home
 
 
 _MISSING = object()
+_MISSING_EPISODE_VALUE = "<OPENCHIA: value required>"
 
 
 @dataclass
@@ -89,9 +89,6 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
 
     if not status:
         return "Duet · describe the outcome you want · /help"
-    revision = int(status.get("revision") or 0)
-    field_count = int(status.get("field_count") or 0)
-    deficits = tuple(status.get("requested_field_ids") or ())
     if status.get("launch"):
         run_state = str(status.get("final_run_state") or "launched")
         execution = status.get("workflow_execution") or {}
@@ -139,32 +136,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
             f"{error} · /episode"
         )
 
-    if status.get("ready"):
-        proposals = len(status.get("unconfirmed_proposal_ids") or ())
-        assumption_note = f" · {proposals} unconfirmed proposal(s)" if proposals else ""
-        return (
-            f"Duet · build authority r{revision} ready{assumption_note}\n"
-            "Design and save the Episode workflow"
-        )
-
-    labels = {
-        "goal": "intended outcome",
-        "creator_contract.design_context": "structured design context",
-        "creator_contract.design_scope": "workflow design scope",
-        "result": "concrete result",
-        "unit": "repeatable cycle",
-        "progress": "success evidence",
-        "stopping": "stopping behavior",
-        "execution_capability_names": "needed tools",
-        "creator_contract": "workflow design scope",
-        "deliverable": "deliverable boundary",
-        "safety_bounds": "safety limits",
-    }
-    focus = labels.get(deficits[0], deficits[0]) if deficits else "contract coherence"
-    return (
-        f"Duet · shaping contract · {field_count}/{len(CREATION_BLUEPRINT_FIELDS)} fields · gap: {focus}\n"
-        "/help"
-    )
+    return "Duet · designing Episode workflow · /episode · /help"
 
 
 class OpenChiaCLI(HermesCLI):
@@ -187,7 +159,7 @@ class OpenChiaCLI(HermesCLI):
         "/openchia": "Alias for /duet",
         "/queue": "Queue a message for the foreground Duet's next turn",
         "/bg": "Start or continue a separate background Duet",
-        "/approve": "Approve the ready design brief or measured Episode workflow",
+        "/approve": "Approve and launch the ready Episode workflow",
         "/review": "Explicitly review the current Episode workflow with critics",
         "/logs": "List persisted Run Episode logs",
         "/stop": "Interrupt the current turn and stop owned background work",
@@ -397,12 +369,6 @@ class OpenChiaCLI(HermesCLI):
             or now - self._openchia_status_at >= 0.5
         ):
             status = host.status()
-            draft = host.service.latest_draft(host.identity.duet_id)
-            configuration = draft.materialized()
-            status["field_count"] = sum(
-                field in configuration for field in CREATION_BLUEPRINT_FIELDS
-            )
-            status["configuration"] = configuration
             self._openchia_status_cache = status
             self._openchia_status_at = now
         return self._openchia_status_cache
@@ -499,7 +465,7 @@ class OpenChiaCLI(HermesCLI):
 
         view_episode_document(
             snapshot["configuration"],
-            missing_value=EPISODE_FIELD_PLACEHOLDER,
+            missing_value=_MISSING_EPISODE_VALUE,
         )
         self._remember_episode_view(snapshot)
 
@@ -561,7 +527,7 @@ class OpenChiaCLI(HermesCLI):
 
                 edited = edit_episode_document(
                     document,
-                    missing_value=EPISODE_FIELD_PLACEHOLDER,
+                    missing_value=_MISSING_EPISODE_VALUE,
                 )
                 if edited is None or edited == document:
                     self._remember_episode_view(
@@ -932,7 +898,7 @@ class OpenChiaCLI(HermesCLI):
                 "  /bg list           list background Duets open in this process\n"
                 "  /bg status ID      inspect a background Duet's state\n"
                 "  /bg close ID       close its live context while keeping persisted state\n"
-                "  /approve          approve the ready brief or measured Episode workflow\n"
+                "  /approve          approve and launch the ready Episode workflow\n"
                 "  /review           explicitly run or show the Episode design critics\n"
                 "  /logs             list persisted Run Episode logs\n"
                 "  /stop             interrupt the current turn and stop owned background work\n"
@@ -952,7 +918,9 @@ class OpenChiaCLI(HermesCLI):
             return True
         if lower == "/approve":
             if self._openchia_host is None:
-                self._print_openchia("Send a message first so the Duet can form a contract.")
+                self._print_openchia(
+                    "Send a message first so the Duet can design an Episode workflow."
+                )
                 return True
             try:
                 receipt = self._openchia_host.approve_current()

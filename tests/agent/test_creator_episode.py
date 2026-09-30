@@ -362,7 +362,7 @@ def test_creator_unit_is_design_run_log_inspect_cycle(tmp_path):
     assert result.log.artifact_id.value in Path(result.log.location).name
     assert "creator_episode" in log_store.read(result.log)
     envelope = creator_progress_envelope(record)
-    assert envelope.state is DuetDesignState.AWAITING_WORKFLOW_APPROVAL
+    assert envelope.state is DuetDesignState.SEALED
     assert envelope.method_credit == 1
     assert envelope.accepted_evidence_ids == result.accepted_evidence_ids
 

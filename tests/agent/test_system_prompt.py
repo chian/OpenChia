@@ -409,9 +409,8 @@ class TestOpenChiaRolePrompts:
         assert "current workflow hash" in combined
         assert "episode_workflow_update" in combined
         assert "responsive design conversation, not a form" in combined
-        assert "Do not repeatedly describe an Episode while leaving its draft empty" in combined
+        assert "As soon as a coherent part of the Episode tree is settled" in combined
         assert "only the human's trusted /review command" in combined
-        assert "duet_contract_review" not in combined
         assert "persistent orchestration Episode" not in combined
 
     def test_workflow_critic_is_narrow_and_cannot_approve(self):
@@ -438,7 +437,8 @@ class TestOpenChiaRolePrompts:
         assert "mandatory run log" in combined
         assert "only when the human explicitly requests /review" in combined
         assert "workflow_review" not in combined
-        assert "do not approve or launch" in combined
+        assert "do not approve or directly launch a child candidate" in combined
+        assert "already approved parent workflow" in combined
 
     def test_task_prompt_has_no_creation_authority(self):
         prompt = _prompt_parts(

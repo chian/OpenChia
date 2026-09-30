@@ -34,32 +34,11 @@ def test_openchia_forces_the_ascii_classic_surface(monkeypatch):
 
 
 def test_status_panel_is_compact_and_contextual():
-    shaping = render_openchia_status(
-        {
-            "state": "needs_duet_input",
-            "revision": 2,
-            "field_count": 4,
-            "requested_field_ids": ["progress", "stopping"],
-            "ready": False,
-        }
+    shaping = render_openchia_status({"state": "designing"})
+    assert shaping == (
+        "Duet · designing Episode workflow · /episode · /help"
     )
-    assert shaping.count("\n") == 1
-    assert "gap: success evidence" in shaping
-    assert "[DUET] -> [CREATOR]" not in shaping
-    assert "/guide" not in shaping
-
-    ready = render_openchia_status(
-        {
-            "state": "contract_candidate",
-            "revision": 3,
-            "field_count": 9,
-            "requested_field_ids": [],
-            "ready": True,
-            "unconfirmed_proposal_ids": ["goal"],
-        }
-    )
-    assert "build authority r3 ready" in ready
-    assert "Design and save the Episode workflow" in ready
+    assert "CREATOR" not in shaping
 
     workflow_ready = render_openchia_status(
         {
@@ -133,11 +112,12 @@ def test_episode_capability_ceiling_excludes_every_control_plane_tool(monkeypatc
     protocol_names = {
         "openchia_scope",
         "duet_status",
-        "duet_contract_review",
+        "episode_workflow_read",
+        "episode_workflow_update",
+        "duet_decision",
         "creator_context_artifact",
         "creator_context_read",
         "creator_log_read",
-        "workflow_review",
         "workflow_candidate",
         "episode_progress",
     }

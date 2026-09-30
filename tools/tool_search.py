@@ -37,11 +37,13 @@ _MAX_QUERIES_PER_CALL = 7
 _MAX_DESCRIBE_NAMES_PER_CALL = 10
 _EPISODE_CONTROL_TOOLS = frozenset(
     {
-        "duet_contract_patch",
+        "openchia_scope",
         "duet_status",
+        "episode_workflow_read",
         "episode_workflow_update",
-        "duet_answer",
         "duet_decision",
+        "creator_context_artifact",
+        "creator_context_read",
         "creator_log_read",
         "workflow_candidate",
         "episode_progress",

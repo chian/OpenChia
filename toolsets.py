@@ -159,15 +159,19 @@ TOOLSETS = {
     "clarify": _ts("Ask the user clarifying questions (multiple-choice or open-ended)", ["clarify"]),
     "code_execution": _ts("Run Python scripts that call tools programmatically (reduces LLM round trips)", ["execute_code"]),
     "duet": _ts(
-        "Restricted human--LLM Duet for designing and admitting Creator Episodes",
+        "Restricted human--LLM Duet for designing Episode workflows",
         [
-            "web_search", "web_extract", "duet_contract_patch", "duet_status",
-            "duet_answer", "duet_decision", "episode_creator",
+            "web_search", "web_extract", "openchia_scope", "duet_status",
+            "episode_workflow_read", "episode_workflow_update", "duet_decision",
+            "creator_context_artifact", "creator_context_read",
         ],
     ),
     "creator_protocol": _ts(
         "Creator-only design submission and access to its own Run Episode logs",
-        ["creator_log_read", "workflow_candidate"],
+        [
+            "openchia_scope", "creator_context_artifact", "creator_context_read",
+            "creator_log_read", "workflow_candidate",
+        ],
     ),
     "episode_protocol": _ts(
         "Task Episode evidence reporting to the host-owned controller",

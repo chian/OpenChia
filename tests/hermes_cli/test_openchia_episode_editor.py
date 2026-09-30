@@ -119,7 +119,16 @@ def test_editor_projects_nested_episode_hierarchy_and_scoped_sections():
 def test_editor_rejects_partial_section_replacement_and_marks_missing_values():
     contract = _contract("Design a workflow", creator=True)
     contract["progress"] = MISSING
-    model = EpisodeEditorModel(contract, missing_value=MISSING)
+    document = {
+        "episodes": [
+            {
+                "local_id": "designer",
+                "workflow_parent_local_id": None,
+                "contract": contract,
+            }
+        ]
+    }
+    model = EpisodeEditorModel(document, missing_value=MISSING)
     episode = model.roots[0]
     sections = {section.key: section for section in model.sections_for(episode)}
 
@@ -127,13 +136,15 @@ def test_editor_rejects_partial_section_replacement_and_marks_missing_values():
     assert model.section_complete(episode, sections["planning"]) is False
     with pytest.raises(ValueError, match="fields must be exactly"):
         model.apply_section(episode, sections["goal"], {"goal": "changed"})
-    assert model.result()["goal"] == "Design a workflow"
+    assert model.result()["episodes"][0]["contract"]["goal"] == (
+        "Design a workflow"
+    )
 
-    editor = EpisodeTreeEditor(contract, missing_value=MISSING)
+    editor = EpisodeTreeEditor(document, missing_value=MISSING)
     assert editor.application.mouse_support() is True
     assert all(callable(fragment[2]) for fragment in editor._tree_fragments())
 
-    viewer = EpisodeTreeEditor(contract, missing_value=MISSING, read_only=True)
+    viewer = EpisodeTreeEditor(document, missing_value=MISSING, read_only=True)
     section_index = next(
         index
         for index, entry in enumerate(viewer._entries())
@@ -141,4 +152,12 @@ def test_editor_rejects_partial_section_replacement_and_marks_missing_values():
     )
     viewer._select_index(section_index)
     assert viewer.editor.read_only() is True
-    assert viewer.model.result() == contract
+    assert viewer.model.result() == document
+
+
+def test_editor_rejects_a_standalone_creator_contract():
+    with pytest.raises(ValueError, match="workflow document"):
+        EpisodeEditorModel(
+            _contract("Not a workflow", creator=True),
+            missing_value=MISSING,
+        )

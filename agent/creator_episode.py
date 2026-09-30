@@ -687,7 +687,7 @@ def creator_progress_envelope(
     elif waiting_on_duet:
         phase = DuetDesignState.WAITING_ON_DUET
     elif getattr(state, "successful_candidate", False):
-        phase = DuetDesignState.AWAITING_WORKFLOW_APPROVAL
+        phase = DuetDesignState.SEALED
     elif record.ended_by == "bound_hit":
         phase = DuetDesignState.BOUND_HIT
     elif getattr(state, "no_progress", False):
@@ -736,7 +736,7 @@ def creator_unit_progress_envelope(
     if not isinstance(step, CreatorControllerStep):
         raise TypeError("step must be a CreatorControllerStep")
     if step.successful_candidate:
-        state = DuetDesignState.AWAITING_WORKFLOW_APPROVAL
+        state = DuetDesignState.SEALED
     elif step.no_progress:
         state = DuetDesignState.NO_PROGRESS
     elif proposal_bound and sequence >= proposal_bound:

@@ -43,6 +43,7 @@ class CreatorNodeBuilder(Protocol):
         *,
         node: EpisodeDesignSpec,
         goal: EpisodeGoal,
+        runtime_key: str,
     ) -> Episode: ...
 
 
@@ -159,6 +160,7 @@ class WorkflowRuntime:
                 "spec_hash": node.contract.spec_hash.value,
             },
         )
+        runtime_key = f"{key_namespace}:{node.local_id}"
         if node.contract.can_create_episodes:
             if children_by_parent.get(node.local_id):
                 raise WorkflowRuntimeError(
@@ -171,6 +173,7 @@ class WorkflowRuntime:
             return self.creator_node_builder(
                 node=node,
                 goal=goal,
+                runtime_key=runtime_key,
             )
         children = tuple(
             self._build_node(
@@ -184,7 +187,6 @@ class WorkflowRuntime:
         evidence_ids = tuple(self.evidence_ids_for_node(node))
         if any(not isinstance(item, OpaqueId) for item in evidence_ids):
             raise TypeError("evidence_ids_for_node must return OpaqueIds")
-        runtime_key = f"{key_namespace}:{node.local_id}"
         return bind_task_episode(
             key=runtime_key,
             goal=goal,

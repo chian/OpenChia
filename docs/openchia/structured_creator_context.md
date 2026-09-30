@@ -14,24 +14,27 @@ free-form instruction-string alternative.
    secret-shaped values,
    stores it immutably, and returns its ID, digest, kind, schema version,
    purpose, and required flag.
-3. The internal build-authority contract carries only those exact references
-   in a `design_context` manifest. One required artifact is the entry point.
+3. Each explicit Creator Episode contract carries only those exact references
+   in its `design_context` manifest. One required artifact is the entry point.
 4. Admission verifies existence, Duet ownership, producer ancestry, metadata,
    hashes, and byte budgets. Missing or stale context is a blocking contract
    deficit.
 5. The Duet reads whole artifacts with `creator_context_read` while designing.
    There is no offset, pagination, or model-generated summary in the
    authoritative path.
-6. Approval freezes the exact referenced artifacts with the workflow. The
-   internal Creator/build boundary records those receipts without asking a
-   second model to reconstruct or summarize the design.
+6. Approval freezes the exact referenced artifacts with the workflow. The host
+   delivers them only if execution reaches that Creator node; no second model
+   reconstructs or summarizes the design.
 7. A Creator may commit new structured artifacts for nested Creator contracts.
    Descendants may consume Duet-owned artifacts and artifacts produced in their
    authority lineage, but not unrelated branch artifacts.
 
 `duet_status` exposes artifact metadata so an interrupted Duet can recover the
 exact document with `creator_context_read`. It does not repeat all artifact
-content on every turn.
+content on every turn. It also exposes `creator_context_policy`: an empty
+artifact list is valid for workflows containing only ordinary task Episodes.
+Context is required only for an explicit Creator node. Workflow, approval, and
+prior Creator-contract artifacts are not interchangeable with context receipts.
 
 ## Role and capability scope
 
@@ -46,9 +49,9 @@ It deliberately reports two different sets:
 
 The Duet coaches the human, preserves context, and designs the descendant
 Episode tree. It may persist revisions but cannot review, approve, or launch
-them. Human `/approve` lets the host invoke the internal Creator/build boundary
-for that exact tree. The build boundary may construct only the approved design
-within inherited capabilities, recursion permission, and safety bounds.
+them. Human `/approve` lets the host freeze and launch that exact tree directly.
+An explicit Creator node may construct descendants only within inherited
+capabilities, recursion permission, and safety bounds.
 Neither prompt text nor a context artifact can expand either role's authority.
 
 ## Bounds
@@ -67,11 +70,11 @@ summary of the parent commission.
 
 ## Authority and migration
 
-Human approval binds the Creator contract hash, which transitively binds every
-referenced artifact hash. Context artifacts cannot grant capabilities, change
-success criteria, modify approval state, or carry raw credentials. Summaries
-may be produced for display, but they have no authority and cannot satisfy a
-required context reference.
+Human approval binds the exact workflow hash, which transitively binds every
+explicit Creator contract and every referenced artifact hash. Context artifacts
+cannot grant capabilities, change success criteria, modify approval state, or
+carry raw credentials. Summaries may be produced for display, but they have no
+authority and cannot satisfy a required context reference.
 
 Pre-structured Creator contracts are intentionally unsupported. Recreate them
 by committing their complete design information as one or more structured

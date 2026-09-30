@@ -78,21 +78,20 @@ def _duet_authority_scope(
             "may_design_descendant_task_tree": True,
             "may_launch_descendant_task_tree": False,
             "maximum_creator_depth": policy.maximum_creator_depth,
-            "creator_builds_approved_descendant_work_graph": True,
-            "host_admits_and_launches_the_approved_tree": True,
+            "implicit_root_creator": False,
+            "host_validates_freezes_and_launches_approved_workflow": True,
+            "creator_contracts_apply_only_to_explicit_creator_nodes": True,
         },
         "allowed_operations": [
             "inspect_scope",
             "read_duet_status",
             "gather_read_only_information",
-            "commit_root_context_artifact",
+            "commit_creator_node_context_artifact",
             "read_context_artifact",
-            "propose_creator_contract_patch",
             "persist_complete_episode_workflow_revision",
-            "submit_host_recorded_human_answer_or_decision",
+            "submit_host_recorded_creator_boundary_decision",
         ],
         "prohibited_operations": [
-            "execute_task_work",
             "execute_task_work",
             "launch_descendant_task_tree",
             "self_approve_or_mint_approval",
@@ -200,8 +199,8 @@ def bind_duet_agent(
     """Turn an initialized AIAgent into the restricted LLM half of one Duet.
 
     Workflow launch is deliberately absent from the model tool surface. Human
-    approval freezes the exact Duet-owned workflow and lets the host invoke the
-    internal Creator/build boundary directly.
+    approval freezes the exact Duet-owned workflow and lets the host execute it
+    directly. Creator agents exist only for Creator nodes declared in that workflow.
     """
 
     if identity.policy_id != policy.policy_id:

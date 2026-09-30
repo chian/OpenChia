@@ -92,19 +92,6 @@ class DuetStore:
                     updated_at REAL NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS drafts (
-                    duet_id TEXT NOT NULL,
-                    draft_id TEXT NOT NULL,
-                    revision INTEGER NOT NULL,
-                    content_hash TEXT NOT NULL,
-                    ready INTEGER NOT NULL,
-                    record_json TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    PRIMARY KEY (duet_id, revision),
-                    UNIQUE (draft_id, revision),
-                    FOREIGN KEY (duet_id) REFERENCES duets(duet_id)
-                );
-
                 CREATE TABLE IF NOT EXISTS artifacts (
                     artifact_id TEXT PRIMARY KEY,
                     duet_id TEXT NOT NULL,
@@ -132,7 +119,7 @@ class DuetStore:
                     FOREIGN KEY (artifact_id) REFERENCES artifacts(artifact_id)
                 );
 
-                CREATE TABLE IF NOT EXISTS creators (
+                CREATE TABLE IF NOT EXISTS creator_instances (
                     creator_episode_id TEXT PRIMARY KEY,
                     duet_id TEXT NOT NULL,
                     contract_artifact_id TEXT NOT NULL UNIQUE,
@@ -140,6 +127,7 @@ class DuetStore:
                     approval_id TEXT NOT NULL,
                     parent_creator_episode_id TEXT,
                     design_artifact_id TEXT,
+                    node_local_id TEXT NOT NULL,
                     state TEXT NOT NULL,
                     units_consumed INTEGER NOT NULL DEFAULT 0,
                     created_at REAL NOT NULL,
@@ -149,7 +137,7 @@ class DuetStore:
                     FOREIGN KEY (approval_id) REFERENCES approvals(approval_id)
                 );
 
-                CREATE TABLE IF NOT EXISTS evidence (
+                CREATE TABLE IF NOT EXISTS accepted_evidence (
                     evidence_id TEXT PRIMARY KEY,
                     duet_id TEXT NOT NULL,
                     creator_episode_id TEXT NOT NULL,
@@ -159,10 +147,10 @@ class DuetStore:
                     source_artifact_id TEXT,
                     created_at REAL NOT NULL,
                     FOREIGN KEY (duet_id) REFERENCES duets(duet_id),
-                    FOREIGN KEY (creator_episode_id) REFERENCES creators(creator_episode_id)
+                    FOREIGN KEY (creator_episode_id) REFERENCES creator_instances(creator_episode_id)
                 );
 
-                CREATE TABLE IF NOT EXISTS duet_inbox (
+                CREATE TABLE IF NOT EXISTS creator_inbox (
                     message_id TEXT PRIMARY KEY,
                     duet_id TEXT NOT NULL,
                     creator_episode_id TEXT NOT NULL,
@@ -173,34 +161,38 @@ class DuetStore:
                     created_at REAL NOT NULL,
                     applied_at REAL,
                     FOREIGN KEY (duet_id) REFERENCES duets(duet_id),
-                    FOREIGN KEY (creator_episode_id) REFERENCES creators(creator_episode_id)
+                    FOREIGN KEY (creator_episode_id) REFERENCES creator_instances(creator_episode_id)
                 );
 
-                CREATE TABLE IF NOT EXISTS launches (
+                CREATE TABLE IF NOT EXISTS workflow_launches (
                     launch_id TEXT PRIMARY KEY,
                     duet_id TEXT NOT NULL,
-                    workflow_artifact_id TEXT NOT NULL UNIQUE,
+                    workflow_artifact_id TEXT NOT NULL,
                     workflow_hash TEXT NOT NULL,
                     approval_id TEXT NOT NULL,
                     run_id TEXT NOT NULL,
+                    attempt INTEGER NOT NULL,
+                    status TEXT NOT NULL,
                     created_at REAL NOT NULL,
+                    UNIQUE (workflow_artifact_id, attempt),
                     FOREIGN KEY (duet_id) REFERENCES duets(duet_id),
                     FOREIGN KEY (workflow_artifact_id) REFERENCES artifacts(artifact_id),
                     FOREIGN KEY (approval_id) REFERENCES approvals(approval_id)
                 );
 
-                CREATE TABLE IF NOT EXISTS launched_episodes (
+                CREATE TABLE IF NOT EXISTS workflow_launch_nodes (
                     episode_id TEXT PRIMARY KEY,
                     launch_id TEXT NOT NULL,
                     duet_id TEXT NOT NULL,
-                    designed_by_episode_id TEXT NOT NULL,
+                    design_artifact_id TEXT NOT NULL,
                     workflow_parent_episode_id TEXT,
                     local_id TEXT NOT NULL,
+                    runtime_key TEXT NOT NULL,
                     depth INTEGER NOT NULL,
                     contract_hash TEXT NOT NULL,
                     contract_json TEXT NOT NULL,
                     UNIQUE (launch_id, local_id),
-                    FOREIGN KEY (launch_id) REFERENCES launches(launch_id),
+                    FOREIGN KEY (launch_id) REFERENCES workflow_launches(launch_id),
                     FOREIGN KEY (duet_id) REFERENCES duets(duet_id)
                 );
 
@@ -215,20 +207,6 @@ class DuetStore:
                 );
                 """
             )
-            columns = {
-                row["name"]
-                for row in self._connection.execute(
-                    "PRAGMA table_info(creators)"
-                ).fetchall()
-            }
-            if "parent_creator_episode_id" not in columns:
-                self._connection.execute(
-                    "ALTER TABLE creators ADD COLUMN parent_creator_episode_id TEXT"
-                )
-            if "design_artifact_id" not in columns:
-                self._connection.execute(
-                    "ALTER TABLE creators ADD COLUMN design_artifact_id TEXT"
-                )
 
     @staticmethod
     def _decode(row: sqlite3.Row, column: str = "record_json") -> dict[str, Any]:
@@ -281,32 +259,24 @@ class DuetStore:
             "updated_at": row["updated_at"],
         }
 
-    def migrate_duet_policy(
+    def rebind_duet_policy(
         self,
         *,
         duet_id: str,
-        expected_identity: Mapping[str, Any],
-        expected_policy: Mapping[str, Any],
         identity: Mapping[str, Any],
         policy: Mapping[str, Any],
-        migration_record: Mapping[str, Any],
     ) -> None:
-        """Atomically replace one exact stored policy and audit the migration.
+        """Bind a resumed Duet to the host's current policy.
 
-        This compare-and-swap boundary is intentionally narrower than a general
-        policy update API. It exists for host-owned schema/capability migrations;
+        The Duet, human, and conversation identities are permanent. The policy
+        is a host-version input and is replaced only through this host-only API;
         model tools have no route to it.
         """
 
-        expected_identity_json = canonical_json(
-            _object(expected_identity, "expected identity")
-        )
-        expected_policy_json = canonical_json(
-            _object(expected_policy, "expected policy")
-        )
-        identity_json = canonical_json(_object(identity, "identity"))
-        policy_json = canonical_json(_object(policy, "policy"))
-        event_json = canonical_json(_object(migration_record, "migration record"))
+        new_identity = _object(identity, "identity")
+        new_policy = _object(policy, "policy")
+        identity_json = canonical_json(new_identity)
+        policy_json = canonical_json(new_policy)
         now = time.time()
         with self.transaction() as connection:
             existing = connection.execute(
@@ -315,12 +285,18 @@ class DuetStore:
             ).fetchone()
             if existing is None:
                 raise DuetNotFoundError("unknown duet_id")
-            if (
-                existing["identity_json"] != expected_identity_json
-                or existing["policy_json"] != expected_policy_json
+            old_identity = json.loads(existing["identity_json"])
+            immutable_names = (
+                "duet_id",
+                "human_authority_id",
+                "conversation_id",
+            )
+            if any(
+                old_identity.get(name) != new_identity.get(name)
+                for name in immutable_names
             ):
                 raise DuetConflictError(
-                    "Duet authority changed while its policy was being migrated"
+                    "duet_id already names different immutable authority"
                 )
             connection.execute(
                 "UPDATE duets SET identity_json = ?, policy_json = ?, updated_at = ? "
@@ -333,9 +309,14 @@ class DuetStore:
                 "VALUES (?, ?, ?, ?, ?)",
                 (
                     duet_id,
-                    "duet_policy_migration",
+                    "duet_policy_rebound",
                     "host_validation",
-                    event_json,
+                    canonical_json(
+                        {
+                            "old_policy_id": old_identity.get("policy_id"),
+                            "new_policy_id": new_identity.get("policy_id"),
+                        }
+                    ),
                     now,
                 ),
             )
@@ -348,51 +329,6 @@ class DuetStore:
             ).rowcount
             if changed != 1:
                 raise DuetNotFoundError("unknown duet_id")
-
-    def put_draft(
-        self,
-        *,
-        duet_id: str,
-        draft_id: str,
-        revision: int,
-        content_hash: str,
-        ready: bool,
-        record: Mapping[str, Any],
-        expected_previous_revision: Optional[int],
-    ) -> None:
-        payload = canonical_json(_object(record, "draft"))
-        with self.transaction() as connection:
-            row = connection.execute(
-                "SELECT revision FROM drafts WHERE duet_id = ? ORDER BY revision DESC LIMIT 1",
-                (duet_id,),
-            ).fetchone()
-            actual = None if row is None else int(row["revision"])
-            if actual != expected_previous_revision:
-                raise DuetConflictError(
-                    f"draft revision changed: expected {expected_previous_revision}, found {actual}"
-                )
-            if revision != (0 if actual is None else actual + 1):
-                raise DuetConflictError("draft revisions must be contiguous")
-            connection.execute(
-                "INSERT INTO drafts VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    duet_id,
-                    draft_id,
-                    revision,
-                    content_hash,
-                    int(ready),
-                    payload,
-                    time.time(),
-                ),
-            )
-
-    def latest_draft(self, duet_id: str) -> Optional[dict[str, Any]]:
-        with self._lock:
-            row = self._connection.execute(
-                "SELECT record_json FROM drafts WHERE duet_id = ? ORDER BY revision DESC LIMIT 1",
-                (duet_id,),
-            ).fetchone()
-        return None if row is None else self._decode(row)
 
     def put_artifact(
         self,
@@ -623,13 +559,14 @@ class DuetStore:
         contract_hash: str,
         approval_id: str,
         state: str,
+        node_local_id: str,
         parent_creator_episode_id: Optional[str] = None,
         design_artifact_id: Optional[str] = None,
     ) -> bool:
         now = time.time()
         with self.transaction() as connection:
             existing = connection.execute(
-                "SELECT * FROM creators WHERE contract_artifact_id = ?",
+                "SELECT * FROM creator_instances WHERE contract_artifact_id = ?",
                 (contract_artifact_id,),
             ).fetchone()
             if existing is not None:
@@ -640,6 +577,7 @@ class DuetStore:
                     approval_id,
                     parent_creator_episode_id,
                     design_artifact_id,
+                    node_local_id,
                 )
                 actual = (
                     existing["creator_episode_id"],
@@ -648,16 +586,17 @@ class DuetStore:
                     existing["approval_id"],
                     existing["parent_creator_episode_id"],
                     existing["design_artifact_id"],
+                    existing["node_local_id"],
                 )
                 if actual != expected:
                     raise DuetConflictError("creator admission conflicts with persisted content")
                 return False
             connection.execute(
-                "INSERT INTO creators "
+                "INSERT INTO creator_instances "
                 "(creator_episode_id, duet_id, contract_artifact_id, "
                 "contract_hash, approval_id, parent_creator_episode_id, "
-                "design_artifact_id, state, units_consumed, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+                "design_artifact_id, node_local_id, state, units_consumed, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
                 (
                     creator_episode_id,
                     duet_id,
@@ -666,6 +605,7 @@ class DuetStore:
                     approval_id,
                     parent_creator_episode_id,
                     design_artifact_id,
+                    node_local_id,
                     state,
                     now,
                     now,
@@ -676,20 +616,19 @@ class DuetStore:
     def get_creator(self, creator_episode_id: str) -> Optional[dict[str, Any]]:
         with self._lock:
             row = self._connection.execute(
-                "SELECT * FROM creators WHERE creator_episode_id = ?",
+                "SELECT * FROM creator_instances WHERE creator_episode_id = ?",
                 (creator_episode_id,),
             ).fetchone()
         return None if row is None else dict(row)
 
-    def latest_creator(self, duet_id: str) -> Optional[dict[str, Any]]:
+    def creators(self, duet_id: str) -> tuple[dict[str, Any], ...]:
         with self._lock:
-            row = self._connection.execute(
-                "SELECT * FROM creators WHERE duet_id = ? "
-                "AND parent_creator_episode_id IS NULL "
-                "ORDER BY created_at DESC, creator_episode_id DESC LIMIT 1",
+            rows = self._connection.execute(
+                "SELECT * FROM creator_instances WHERE duet_id = ? "
+                "ORDER BY created_at, creator_episode_id",
                 (duet_id,),
-            ).fetchone()
-        return None if row is None else dict(row)
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
 
     def put_creator_progress(
         self,
@@ -709,8 +648,7 @@ class DuetStore:
         now = time.time()
         with self.transaction() as connection:
             creator = connection.execute(
-                "SELECT duet_id, units_consumed, parent_creator_episode_id "
-                "FROM creators "
+                "SELECT duet_id, units_consumed FROM creator_instances "
                 "WHERE creator_episode_id = ?",
                 (creator_episode_id,),
             ).fetchone()
@@ -754,15 +692,10 @@ class DuetStore:
                 ),
             )
             connection.execute(
-                "UPDATE creators SET state = ?, units_consumed = ?, updated_at = ? "
+                "UPDATE creator_instances SET state = ?, units_consumed = ?, updated_at = ? "
                 "WHERE creator_episode_id = ?",
                 (state, sequence, now, creator_episode_id),
             )
-            if creator["parent_creator_episode_id"] is None:
-                connection.execute(
-                    "UPDATE duets SET state = ?, updated_at = ? WHERE duet_id = ?",
-                    (state, now, duet_id),
-                )
             connection.execute(
                 "INSERT INTO duet_events "
                 "(duet_id, event_type, provenance, record_json, created_at) "
@@ -785,7 +718,7 @@ class DuetStore:
         payload = canonical_json(_object(observation, "evidence observation"))
         with self.transaction() as connection:
             existing = connection.execute(
-                "SELECT * FROM evidence WHERE evidence_id = ?", (evidence_id,)
+                "SELECT * FROM accepted_evidence WHERE evidence_id = ?", (evidence_id,)
             ).fetchone()
             if existing is not None:
                 immutable = (
@@ -811,7 +744,7 @@ class DuetStore:
                     raise DuetConflictError("evidence_id already names different content")
                 return
             connection.execute(
-                "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO accepted_evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     evidence_id,
                     duet_id,
@@ -827,7 +760,7 @@ class DuetStore:
     def get_evidence(self, evidence_id: str) -> Optional[dict[str, Any]]:
         with self._lock:
             row = self._connection.execute(
-                "SELECT * FROM evidence WHERE evidence_id = ?", (evidence_id,)
+                "SELECT * FROM accepted_evidence WHERE evidence_id = ?", (evidence_id,)
             ).fetchone()
         return None if row is None else {
             **dict(row),
@@ -839,7 +772,7 @@ class DuetStore:
         payload = canonical_json(record)
         with self.transaction() as connection:
             existing = connection.execute(
-                "SELECT record_json FROM duet_inbox WHERE message_id = ?",
+                "SELECT record_json FROM creator_inbox WHERE message_id = ?",
                 (record["message_id"],),
             ).fetchone()
             if existing is not None:
@@ -847,7 +780,7 @@ class DuetStore:
                     raise DuetConflictError("message_id already names different content")
                 return False
             connection.execute(
-                "INSERT INTO duet_inbox VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL)",
+                "INSERT INTO creator_inbox VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL)",
                 (
                     record["message_id"],
                     record["duet_id"],
@@ -868,7 +801,7 @@ class DuetStore:
     ) -> tuple[dict[str, Any], ...]:
         with self.transaction() as connection:
             rows = connection.execute(
-                "SELECT message_id, record_json FROM duet_inbox "
+                "SELECT message_id, record_json FROM creator_inbox "
                 "WHERE creator_episode_id = ? AND applied_at IS NULL "
                 "AND expected_unit_index <= ? ORDER BY created_at, message_id",
                 (creator_episode_id, unit_index),
@@ -876,7 +809,7 @@ class DuetStore:
             now = time.time()
             for row in rows:
                 connection.execute(
-                    "UPDATE duet_inbox SET applied_unit_index = ?, applied_at = ? "
+                    "UPDATE creator_inbox SET applied_unit_index = ?, applied_at = ? "
                     "WHERE message_id = ? AND applied_at IS NULL",
                     (unit_index, now, row["message_id"]),
                 )
@@ -892,15 +825,34 @@ class DuetStore:
         episodes = tuple(_object(item, "launched Episode") for item in episode_records)
         with self.transaction() as connection:
             existing = connection.execute(
-                "SELECT * FROM launches WHERE workflow_artifact_id = ?",
-                (launch["workflow_artifact_id"],),
+                "SELECT * FROM workflow_launches WHERE launch_id = ?",
+                (launch["launch_id"],),
             ).fetchone()
             if existing is not None:
-                if existing["launch_id"] != launch["launch_id"]:
-                    raise DuetConflictError("workflow was already launched differently")
+                immutable = (
+                    launch["duet_id"],
+                    launch["workflow_artifact_id"],
+                    launch["workflow_hash"],
+                    launch["approval_id"],
+                    launch["run_id"],
+                    launch["attempt"],
+                )
+                actual = tuple(
+                    existing[name]
+                    for name in (
+                        "duet_id",
+                        "workflow_artifact_id",
+                        "workflow_hash",
+                        "approval_id",
+                        "run_id",
+                        "attempt",
+                    )
+                )
+                if actual != immutable:
+                    raise DuetConflictError("launch_id already names different content")
                 return False
             connection.execute(
-                "INSERT INTO launches VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO workflow_launches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     launch["launch_id"],
                     launch["duet_id"],
@@ -908,19 +860,22 @@ class DuetStore:
                     launch["workflow_hash"],
                     launch["approval_id"],
                     launch["run_id"],
+                    launch["attempt"],
+                    "queued",
                     time.time(),
                 ),
             )
             for item in episodes:
                 connection.execute(
-                    "INSERT INTO launched_episodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO workflow_launch_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         item["episode_id"],
                         launch["launch_id"],
                         launch["duet_id"],
-                        item["designed_by_episode_id"],
+                        item["design_artifact_id"],
                         item["workflow_parent_episode_id"],
                         item["local_id"],
+                        item["runtime_key"],
                         item["depth"],
                         item["contract_hash"],
                         canonical_json(item["contract"]),
@@ -935,7 +890,7 @@ class DuetStore:
     def launched_episodes(self, launch_id: str) -> tuple[dict[str, Any], ...]:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM launched_episodes WHERE launch_id = ? ORDER BY depth, local_id",
+                "SELECT * FROM workflow_launch_nodes WHERE launch_id = ? ORDER BY depth, local_id",
                 (launch_id,),
             ).fetchall()
         return tuple(
@@ -946,11 +901,29 @@ class DuetStore:
     def latest_launch(self, duet_id: str) -> Optional[dict[str, Any]]:
         with self._lock:
             row = self._connection.execute(
-                "SELECT * FROM launches WHERE duet_id = ? "
+                "SELECT * FROM workflow_launches WHERE duet_id = ? "
                 "ORDER BY created_at DESC, launch_id DESC LIMIT 1",
                 (duet_id,),
             ).fetchone()
         return None if row is None else dict(row)
+
+    def launch_count(self, *, duet_id: str, workflow_artifact_id: str) -> int:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT COUNT(*) AS count FROM workflow_launches "
+                "WHERE duet_id = ? AND workflow_artifact_id = ?",
+                (duet_id, workflow_artifact_id),
+            ).fetchone()
+        return int(row["count"])
+
+    def set_launch_status(self, launch_id: str, status: str) -> None:
+        with self.transaction() as connection:
+            changed = connection.execute(
+                "UPDATE workflow_launches SET status = ? WHERE launch_id = ?",
+                (status, launch_id),
+            ).rowcount
+            if changed != 1:
+                raise DuetNotFoundError("unknown workflow launch")
 
     def append_event(
         self,

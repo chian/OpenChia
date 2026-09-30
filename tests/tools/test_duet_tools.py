@@ -41,11 +41,9 @@ def test_episode_progress_accepts_registered_evidence_not_model_scores():
 
 def test_duet_protocol_tools_are_agent_bound_and_delegate_is_absent():
     expected = {
-        "duet_contract_patch",
         "duet_status",
         "episode_workflow_read",
         "episode_workflow_update",
-        "duet_answer",
         "duet_decision",
         "creator_context_artifact",
         "creator_context_read",
@@ -55,11 +53,6 @@ def test_duet_protocol_tools_are_agent_bound_and_delegate_is_absent():
         "episode_progress",
     }
     assert expected <= set(INLINE_TOOL_EXECUTORS)
-    assert {
-        "duet_contract_review",
-        "workflow_review",
-        "episode_creator",
-    }.isdisjoint(INLINE_TOOL_EXECUTORS)
     assert "delegate_task" not in INLINE_TOOL_EXECUTORS
 
 

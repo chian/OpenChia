@@ -3,7 +3,8 @@
 The method loop asks this adapter for one frozen workflow candidate at a time.
 The conversational model may inspect logs from earlier Run Episodes and submit
 several invalid proposals, but exactly one host-admitted design can close a
-design cycle.  Approval and final workflow launch remain Duet operations.
+design cycle. The host freezes and runs that candidate under the already
+approved parent workflow; the Creator cannot approve or launch it itself.
 """
 
 from __future__ import annotations

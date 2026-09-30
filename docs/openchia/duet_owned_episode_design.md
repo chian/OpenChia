@@ -33,15 +33,17 @@ background-review facility for these roles.
 ## Approval and construction
 
 `/approve` revalidates the current authority and workflow, records exact human
-approvals, admits an internal root Creator/build identity, freezes the approved
-workflow under that authority, materializes stable Episode identities and
-parent edges, and starts the Run. The root Creator/build step does not use a
-designer model and cannot alter the workflow.
+approval, freezes the approved workflow under the host admission authority,
+materializes stable Episode identities and parent edges, and starts the Run
+directly. No implicit Creator Episode or second design object is inserted.
 
 Task agents are created lazily only after this launch boundary when execution
 reaches their fixed Episode nodes. An explicitly designed recursive Creator
 node may construct descendants during the Run, but it inherits the approved
-capability, context, budget, and depth bounds and has no critic tool.
+capability, context, budget, and depth bounds and has no critic tool. Its child
+candidate is frozen, run, and measured by the host under that existing parent
+authority; a successful Creator seals and returns a typed update instead of
+waiting for another human workflow approval.
 
 Launch status is a durable stage stream, not a single success/failure bit. The
 host records queued, constructing, completed, and failed events. A failure
@@ -61,17 +63,20 @@ Human /review
              `-- five isolated critic lenses (explicit and advisory)
 
 Human /approve
-             `-- internal Creator/build (no designer model)
+             `-- host freezes exact workflow + approval
                     `-- approved Run
-                           `-- one task agent per reached Episode node
+                           |-- one task agent per reached task Episode
+                           `-- Creator runtime only for explicit Creator nodes
 ```
 
-## Pre-beta transition
+The host admission authority is not an Episode and does not have an Episode
+contract or `design_context`. Every Creator Episode explicitly designed inside
+the workflow requires its own scoped, immutable
+`creator_contract.design_context` because that node runs a design model.
 
-Older conversational workflow strings and automatic-review artifacts are not
-promoted into new design revisions. One narrow host migration does allow an
-existing Duet to reopen: it atomically removes the retired
-`duet_contract_review` and `episode_creator` capabilities, adds
-`episode_workflow_update`, rebinds the policy identity, and records an audit
-event. It never restores the retired tools or converts old prose into a workflow.
-Existing run/evidence ledgers remain auditable.
+## Pre-beta persistence
+
+The workflow ledger is the only design source of truth. Host upgrades may
+rebind a resumed Duet to the current host-owned tool policy while preserving the
+same Duet, human, and conversation identities. No retired tool surface or prose
+contract is reconstructed.

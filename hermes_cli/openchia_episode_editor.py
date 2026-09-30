@@ -175,13 +175,9 @@ class EpisodeEditorModel:
     def _episode_roots(self) -> list[EpisodeNode]:
         raw_episodes = self.document.get("episodes")
         if not isinstance(raw_episodes, list):
-            return [
-                EpisodeNode(
-                    node_id="__creator_root__",
-                    name="Creator Episode",
-                    contract=self.document,
-                )
-            ]
+            raise ValueError(
+                "Episode editor requires a workflow document with an episodes array"
+            )
         if not raw_episodes:
             raise ValueError("Episode workflow must contain at least one Episode")
 

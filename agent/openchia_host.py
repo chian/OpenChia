@@ -1,9 +1,9 @@
-"""Concrete host for the interactive Duet-design -> Creator/build -> Run path.
+"""Concrete host for the interactive Duet-design -> approved workflow path.
 
 The host owns persistence, human approvals, background execution, mechanical
 measurement, and role-specific agent construction. The Duet model persists the
-actual workflow; critics are explicit `/review` workers; the internal root
-Creator builds only the human-approved tree.
+actual workflow; critics are explicit `/review` workers; the host validates,
+freezes, and executes exactly the human-approved tree.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from agent.creator_design_session import CreatorDesignSession
 from agent.creator_episode import (
     CreatorRunLogStore,
     RunEpisodeStopReason,
+    RunLogReference,
     WorkflowCandidateDesign,
 )
 from agent.creator_runtime import (
@@ -31,37 +32,28 @@ from agent.creator_runtime import (
 )
 from agent.duet_contracts import (
     ApprovalKind,
-    ContractFieldRecord,
     CreatorActivityEnvelope,
     CreatorActivityStage,
     DUET_PROTOCOL_TOOLS,
     DUET_SEARCH_TOOLS,
     OPENCHIA_CONTROL_PLANE_TOOLS,
-    DuetAnswer,
-    DuetDesignState,
     DuetIdentity,
     DuetPolicy,
-    DuetProvenance,
-    FrozenWorkflowDesign,
+    FrozenDuetWorkflow,
     canonical_json,
     content_id,
 )
-from agent.episode_blueprints import (
-    CREATION_BLUEPRINT_FIELDS,
-    workflow_blueprint_from_spec,
-)
+from agent.episode_blueprints import workflow_blueprint_from_spec
 from agent.duet_service import (
     DuetProtocolError,
     DuetService,
     EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
-    WorkflowAdmissionError,
 )
 from agent.duet_store import DuetStore
 from agent.episode_contracts import (
     ChildEpisodeStopReason,
     ChildEpisodeUpdate,
     EpisodeCreationSpec,
-    EpisodeCreatorContext,
     EpisodeEvidenceMeasurement,
     EpisodeMeasuredOutcome,
     MAX_CREATOR_CONTEXT_TOTAL_BYTES,
@@ -83,7 +75,6 @@ from method_loop import Context, Episode, EpisodeGoal, EpisodeRequest, EpisodeTr
 
 ROOT_PROGRESS_MEASUREMENT_ID = "root_episode_progress"
 RUN_EVIDENCE_ACCEPTANCE_SOURCE_ID = "run_episode_host"
-EPISODE_FIELD_PLACEHOLDER = "<OPENCHIA: value required>"
 WORKFLOW_REVIEW_LENSES = frozenset(
     {
         "contract_alignment",
@@ -93,15 +84,27 @@ WORKFLOW_REVIEW_LENSES = frozenset(
         "task_specific_skeptic",
     }
 )
-_RETIRED_DUET_PROTOCOL_TOOLS = frozenset(
-    {"duet_contract_review", "episode_creator"}
-)
-
 logger = logging.getLogger(__name__)
 
 
 class OpenChiaHostError(RuntimeError):
     """The concrete OpenChia execution host cannot honor a frozen contract."""
+
+
+class _ApprovedWorkflowOutcomeError(RuntimeError):
+    """The approved tree terminated cleanly without satisfying its root goal."""
+
+    def __init__(
+        self,
+        update: ChildEpisodeUpdate,
+        log: RunLogReference,
+    ) -> None:
+        self.update = update
+        self.log = log
+        super().__init__(
+            "approved workflow stopped without reaching its goal: "
+            f"{update.stop_reason.value} at progress {update.progress_value}"
+        )
 
 
 @dataclass(frozen=True)
@@ -114,96 +117,6 @@ class HumanActionReceipt:
 
 class OpenChiaHost:
     """Persistent authority and execution host for one interactive Duet."""
-
-    @staticmethod
-    def _migrate_retired_duet_policy(
-        store: DuetStore,
-        existing: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Replace the removed review/launch surface in one persisted policy."""
-
-        raw_identity = existing.get("identity")
-        raw_policy = existing.get("policy")
-        if not isinstance(raw_identity, Mapping) or not isinstance(
-            raw_policy,
-            Mapping,
-        ):
-            raise OpenChiaHostError("stored Duet authority has an invalid shape")
-        if set(raw_policy) != {
-            "policy_id",
-            "capability_allowlist",
-            "minimum_method_credit",
-            "creator_proposal_bound",
-            "maximum_creator_depth",
-        }:
-            raise OpenChiaHostError("stored Duet policy has an invalid shape")
-        stored_identity = DuetIdentity.from_record(raw_identity)
-        if raw_policy.get("policy_id") != stored_identity.policy_id.value:
-            raise OpenChiaHostError(
-                "stored Duet identity and policy IDs differ"
-            )
-        raw_allowlist = raw_policy.get("capability_allowlist")
-        if not isinstance(raw_allowlist, list) or any(
-            not isinstance(name, str) or not name for name in raw_allowlist
-        ):
-            raise OpenChiaHostError(
-                "stored Duet capability allowlist has an invalid shape"
-            )
-        retired = set(raw_allowlist) & _RETIRED_DUET_PROTOCOL_TOOLS
-        if not retired:
-            return dict(existing)
-        unknown = set(raw_allowlist) - (
-            DUET_PROTOCOL_TOOLS
-            | DUET_SEARCH_TOOLS
-            | _RETIRED_DUET_PROTOCOL_TOOLS
-        )
-        if unknown:
-            raise OpenChiaHostError(
-                "stored Duet policy contains unknown capabilities and cannot be "
-                f"migrated safely: {sorted(unknown)}"
-            )
-        replacement_capabilities = {"episode_workflow_update"}
-        added = replacement_capabilities - set(raw_allowlist)
-        migrated_allowlist = (
-            set(raw_allowlist) - _RETIRED_DUET_PROTOCOL_TOOLS
-        ) | replacement_capabilities
-        policy_fields = {
-            "capability_allowlist": sorted(migrated_allowlist),
-            "minimum_method_credit": raw_policy.get("minimum_method_credit"),
-            "creator_proposal_bound": raw_policy.get("creator_proposal_bound"),
-            "maximum_creator_depth": raw_policy.get("maximum_creator_depth"),
-        }
-        migrated_policy_id = content_id("policy", policy_fields)
-        migrated_policy = DuetPolicy(
-            policy_id=migrated_policy_id,
-            capability_allowlist=tuple(policy_fields["capability_allowlist"]),
-            minimum_method_credit=policy_fields["minimum_method_credit"],
-            creator_proposal_bound=policy_fields["creator_proposal_bound"],
-            maximum_creator_depth=policy_fields["maximum_creator_depth"],
-        )
-        migrated_identity = DuetIdentity.from_record({
-            **dict(raw_identity),
-            "policy_id": migrated_policy_id.value,
-        })
-        store.migrate_duet_policy(
-            duet_id=existing["duet_id"],
-            expected_identity=raw_identity,
-            expected_policy=raw_policy,
-            identity=migrated_identity.as_record(),
-            policy=migrated_policy.as_record(),
-            migration_record={
-                "schema_version": 1,
-                "old_policy_id": raw_policy.get("policy_id"),
-                "new_policy_id": migrated_policy_id.value,
-                "removed_capability_names": sorted(retired),
-                "added_capability_names": sorted(added),
-                "authority_change": "retired_protocol_replacement",
-            },
-        )
-        migrated = store.get_duet(existing["duet_id"])
-        if migrated is None:
-            raise OpenChiaHostError("migrated Duet disappeared from its store")
-        return migrated
 
     def __init__(
         self,
@@ -258,41 +171,8 @@ class OpenChiaHost:
             allowed_episode_capabilities=self.available_tool_names,
         )
         try:
-            existing = self.store.get_duet(requested_identity.duet_id.value)
-            if existing is None:
-                self.identity = requested_identity
-                self.policy = requested_policy
-            else:
-                existing = self._migrate_retired_duet_policy(
-                    self.store,
-                    existing,
-                )
-                self.identity = DuetIdentity.from_record(existing["identity"])
-                self.policy = DuetPolicy.from_record(existing["policy"])
-                expected_authority = (
-                    requested_identity.duet_id,
-                    requested_identity.human_authority_id,
-                    requested_identity.conversation_id,
-                )
-                stored_authority = (
-                    self.identity.duet_id,
-                    self.identity.human_authority_id,
-                    self.identity.conversation_id,
-                )
-                if stored_authority != expected_authority:
-                    raise OpenChiaHostError(
-                        "the resumed Duet ID belongs to different immutable authority"
-                    )
-                if self.identity.policy_id != self.policy.policy_id:
-                    raise OpenChiaHostError(
-                        "the resumed Duet identity and policy IDs differ"
-                    )
-                unavailable = set(self.policy.capability_allowlist) - duet_tools
-                if unavailable:
-                    raise OpenChiaHostError(
-                        "the resumed Duet requires unavailable capabilities: "
-                        f"{sorted(unavailable)}"
-                    )
+            self.identity = requested_identity
+            self.policy = requested_policy
             self.service.open_duet(self.identity, self.policy)
         except Exception:
             self.store.close()
@@ -432,9 +312,11 @@ class OpenChiaHost:
             raise DuetProtocolError(
                 "design review requires a deterministically valid Episode workflow"
             )
-        draft = self.service.latest_draft(self.identity.duet_id)
         blueprint = snapshot["configuration"]
         blueprint_hash = Sha256Digest.of_record(blueprint)
+        authority = self.service.workflow_admission_authority(
+            self.identity.duet_id
+        )
         latest = self.store.latest_artifact(
             duet_id=self.identity.duet_id.value,
             kind="workflow_shadow_review",
@@ -444,8 +326,8 @@ class OpenChiaHost:
             latest is not None
             and latest["record"].get("workflow_blueprint_hash")
             == blueprint_hash.value
-            and latest["record"].get("creator_contract_hash")
-            == draft.content_hash.value
+            and latest["record"].get("admission_authority_hash")
+            == authority.content_hash.value
         ):
             return {"accepted": True, "cached": True, **latest["record"]}
 
@@ -459,18 +341,7 @@ class OpenChiaHost:
                 "reason": "workflow_admission_failed",
                 "deficits": [item.as_record() for item in deficits],
             }
-        materialized = draft.materialized()
-        creator_record = materialized.get("creator_contract")
         review_context_artifacts: dict[str, dict[str, Any]] = {}
-        if isinstance(creator_record, Mapping):
-            review_context_artifacts.update(
-                self.service.resolve_creator_context(
-                    self.identity.duet_id,
-                    EpisodeCreatorContext.from_record(
-                        creator_record["design_context"]
-                    ),
-                )
-            )
         for node in workflow.episodes:
             child_contract = node.contract.creator_contract
             if child_contract is not None:
@@ -500,8 +371,7 @@ class OpenChiaHost:
             request = {
                 "operation": "review_duet_episode_design",
                 "lens": lens,
-                "creator_contract_hash": draft.content_hash.value,
-                "creator_contract": materialized,
+                "admission_authority": authority.as_record(),
                 "creator_context_artifacts": review_context_artifacts,
                 "workflow_blueprint_hash": blueprint_hash.value,
                 "workflow": blueprint,
@@ -521,8 +391,7 @@ class OpenChiaHost:
         ) as pool:
             reviews = dict(pool.map(review_lens, lenses))
         record = {
-            "creator_episode_id": None,
-            "creator_contract_hash": draft.content_hash.value,
+            "admission_authority_hash": authority.content_hash.value,
             "workflow_blueprint_hash": blueprint_hash.value,
             "workflow_hash": workflow.workflow_hash.value,
             "workflow_blueprint": workflow_blueprint_from_spec(workflow),
@@ -560,27 +429,6 @@ class OpenChiaHost:
             source_stage=source_stage,
             consumed_context_artifact_ids=consumed_context_artifact_ids,
         )
-
-    def episode_configuration(self) -> dict[str, Any]:
-        """Return the editable Creator draft plus validation and provenance."""
-
-        draft = self.service.latest_draft(self.identity.duet_id)
-        return {
-            "revision": draft.revision,
-            "ready": draft.ready,
-            "content_hash": draft.content_hash.value,
-            "deficits": [item.as_record() for item in draft.deficits],
-            "configuration": draft.materialized(),
-            "fields": {
-                item.field_path: {
-                    "provenance": item.provenance.value,
-                    "approved": item.approved,
-                    "validation_codes": list(item.validation_codes),
-                }
-                for item in draft.fields
-            },
-            "allowed_capabilities": sorted(self.available_tool_names),
-        }
 
     def episode_workflow_configuration(self) -> dict[str, Any]:
         """Return the newest Duet-owned nested Episode workflow draft."""
@@ -717,55 +565,6 @@ class OpenChiaHost:
                 ),
             }
 
-    def episode_editor_document(self) -> tuple[int, dict[str, Any]]:
-        """Build a complete top-level document suitable for direct editing."""
-
-        draft = self.service.latest_draft(self.identity.duet_id)
-        current = draft.materialized()
-        return draft.revision, {
-            field: current.get(field, EPISODE_FIELD_PLACEHOLDER)
-            for field in CREATION_BLUEPRINT_FIELDS
-        }
-
-    def episode_has_creator_history(self) -> bool:
-        """Return whether Save must cross a fresh approval boundary."""
-
-        return self.store.latest_creator(self.identity.duet_id.value) is not None
-
-    @contextmanager
-    def episode_edit_session(self):
-        """Give the human exclusive draft-write ownership for one editor session.
-
-        An admitted contract is immutable, but it is not the mutable draft.  A
-        later human edit creates a new revision whose exact hash must be
-        approved and admitted independently.
-        """
-
-        with self._draft_write_lock:
-            self._assert_revision_write_safe()
-            yield self.episode_editor_document()
-
-    def record_human_answer(self, field_path: str, value: Any) -> DuetAnswer:
-        """Record one exact answer through the trusted human host boundary."""
-
-        self._assert_revision_write_safe()
-        requests = {
-            request.field_path: request
-            for request in self.service.information_requests(self.identity.duet_id)
-        }
-        request = requests.get(field_path)
-        if request is None:
-            available = ", ".join(sorted(requests)) or "none"
-            raise DuetProtocolError(
-                f"{field_path} is not an open information request; open fields: "
-                f"{available}"
-            )
-        return self.service.record_human_answer(
-            self.identity,
-            request_id=request.request_id,
-            value=value,
-        )
-
     def _assert_revision_write_safe(self) -> None:
         """Reject only concurrent writes, never a revision after terminal work."""
 
@@ -778,239 +577,28 @@ class OpenChiaHost:
                 "Episode configuration cannot be revised while execution is running"
             )
 
-    def _configuration_with_revision_context(
-        self,
-        configuration: Mapping[str, Any],
-        *,
-        expected_revision: int,
-    ) -> dict[str, Any]:
-        """Attach exact recovery inputs when revising an admitted contract."""
-
-        normalized = json.loads(canonical_json(configuration))
-        creator = self.store.latest_creator(self.identity.duet_id.value)
-        if creator is None:
-            return normalized
-
-        contract_artifact = self.store.get_artifact(creator["contract_artifact_id"])
-        if contract_artifact is None:
-            raise OpenChiaHostError("the prior Creator contract artifact is missing")
-
-        creator_contract = normalized.get("creator_contract")
-        if not isinstance(creator_contract, dict):
-            return normalized
-
-        configured_context = creator_contract.get("design_context")
-        existing_context: Optional[EpisodeCreatorContext] = None
-        try:
-            existing_context = EpisodeCreatorContext.from_record(configured_context)
-            self.service.resolve_creator_context(
-                self.identity.duet_id,
-                existing_context,
-            )
-        except (TypeError, ValueError, DuetProtocolError):
-            existing_context = None
-
-        brief_contract = dict(creator_contract)
-        brief_contract.pop("design_context", None)
-        # Supplemental design instructions are context, not executable
-        # authority.  Preserve them exactly in the task brief instead of
-        # admitting an unknown control-plane field.
-        creator_contract.pop("design_instructions", None)
-        brief = self.service.register_creator_context_artifact(
-            self.identity.duet_id,
-            artifact_kind="task_design_brief",
-            schema_version=1,
-            purpose="revision_entrypoint",
-            required=True,
-            provenance=DuetProvenance.HOST_VALIDATION,
-            content={
-                "schema_version": 1,
-                "source_draft_revision": expected_revision,
-                "superseded_creator_episode_id": creator["creator_episode_id"],
-                "configuration": {
-                    **normalized,
-                    "creator_contract": brief_contract,
-                },
-            },
-        )
-        prior_contract = self.service.register_creator_context_artifact(
-            self.identity.duet_id,
-            artifact_kind="creator_contract_history",
-            schema_version=1,
-            purpose="prior_contract",
-            required=True,
-            provenance=DuetProvenance.HOST_VALIDATION,
-            content={
-                "source_artifact_id": contract_artifact["artifact_id"],
-                "source_content_hash": contract_artifact["content_hash"],
-                "record": contract_artifact["record"],
-            },
-        )
-        recovery_references = [brief, prior_contract]
-        for kind, artifact_kind, purpose in (
-            ("creator_execution_error", "creator_failure_history", "prior_failure"),
-        ):
-            artifact = self.store.latest_artifact(
-                duet_id=self.identity.duet_id.value,
-                kind=kind,
-                creator_episode_id=creator["creator_episode_id"],
-            )
-            if artifact is None:
-                continue
-            recovery_references.append(
-                self.service.register_creator_context_artifact(
-                    self.identity.duet_id,
-                    artifact_kind=artifact_kind,
-                    schema_version=1,
-                    purpose=purpose,
-                    required=True,
-                    provenance=DuetProvenance.HOST_VALIDATION,
-                    content={
-                        "source_artifact_id": artifact["artifact_id"],
-                        "source_content_hash": artifact["content_hash"],
-                        "record": artifact["record"],
-                    },
-                )
-            )
-
-        references = []
-        entrypoint_id = brief.artifact_id
-        if existing_context is not None:
-            revision_artifact_kinds = {
-                "task_design_brief",
-                "creator_contract_history",
-                "creator_failure_history",
-            }
-            preserved_references = tuple(
-                reference
-                for reference in existing_context.artifact_references
-                if reference.artifact_kind not in revision_artifact_kinds
-            )
-            references.extend(preserved_references)
-            if existing_context.entrypoint_artifact_id in {
-                reference.artifact_id for reference in preserved_references
-            }:
-                entrypoint_id = existing_context.entrypoint_artifact_id
-        references.extend(recovery_references)
-        references_by_id = {
-            reference.artifact_id.value: reference for reference in references
-        }
-        creator_contract["design_context"] = EpisodeCreatorContext(
-            entrypoint_artifact_id=entrypoint_id,
-            artifact_references=tuple(references_by_id.values()),
-            unresolved_question_ids=(
-                ()
-                if existing_context is None
-                else existing_context.unresolved_question_ids
-            ),
-        ).as_record()
-        return normalized
-
-    def replace_episode_configuration(
-        self,
-        configuration: Mapping[str, Any],
-        *,
-        expected_revision: int,
-    ) -> dict[str, Any]:
-        """Replace the draft exactly with a directly edited human configuration."""
-
-        with self._draft_write_lock:
-            self._assert_revision_write_safe()
-            if not isinstance(configuration, Mapping):
-                raise TypeError("Episode configuration must be a JSON object")
-            unknown = sorted(set(configuration) - set(CREATION_BLUEPRINT_FIELDS))
-            if unknown:
-                raise ValueError(f"unknown Episode configuration fields: {unknown}")
-            configuration = self._configuration_with_revision_context(
-                configuration,
-                expected_revision=expected_revision,
-            )
-            fields = tuple(
-                ContractFieldRecord(
-                    field_path=field,
-                    value=value,
-                    provenance=DuetProvenance.HUMAN_INPUT,
-                    approved=True,
-                )
-                for field in CREATION_BLUEPRINT_FIELDS
-                if (value := configuration.get(field, EPISODE_FIELD_PLACEHOLDER))
-                != EPISODE_FIELD_PLACEHOLDER
-            )
-            draft = self.service.replace_contract(
-                self.identity.duet_id,
-                expected_revision=expected_revision,
-                fields=fields,
-            )
-            return draft.as_record()
-
-    def update_episode_configuration(
-        self,
-        field_path: str,
-        *,
-        value: Any = None,
-        remove: bool = False,
-    ) -> dict[str, Any]:
-        """Set or remove one dotted path, committing one human-authored revision."""
-
-        with self._draft_write_lock:
-            if not isinstance(field_path, str) or not field_path.strip():
-                raise ValueError("field path must be non-empty")
-            parts = field_path.strip().split(".")
-            if parts[0] not in CREATION_BLUEPRINT_FIELDS:
-                raise ValueError(f"unknown Episode configuration field: {parts[0]}")
-            revision, document = self.episode_editor_document()
-            current = {
-                key: item
-                for key, item in document.items()
-                if item != EPISODE_FIELD_PLACEHOLDER
-            }
-            if len(parts) == 1:
-                if remove:
-                    if parts[0] not in current:
-                        raise KeyError(f"Episode field is not set: {field_path}")
-                    del current[parts[0]]
-                else:
-                    current[parts[0]] = value
-            else:
-                root = current.get(parts[0])
-                if root is None and not remove:
-                    root = {}
-                    current[parts[0]] = root
-                if not isinstance(root, dict):
-                    raise ValueError(
-                        f"Episode field {parts[0]} is not an object; replace it first"
-                    )
-                cursor = root
-                for part in parts[1:-1]:
-                    child = cursor.get(part)
-                    if child is None and not remove:
-                        child = {}
-                        cursor[part] = child
-                    if not isinstance(child, dict):
-                        raise ValueError(f"Episode path is not an object: {part}")
-                    cursor = child
-                leaf = parts[-1]
-                if remove:
-                    if leaf not in cursor:
-                        raise KeyError(f"Episode field is not set: {field_path}")
-                    del cursor[leaf]
-                else:
-                    cursor[leaf] = value
-            return self.replace_episode_configuration(
-                current,
-                expected_revision=revision,
-            )
-
     def _role_agent_kwargs(self, role: str, identity: str) -> dict[str, Any]:
+        """Resolve one role-specific model configuration from the CLI host."""
+
         kwargs = self.agent_kwargs_factory(role, identity)
         if not isinstance(kwargs, dict):
             raise TypeError("agent_kwargs_factory must return a dictionary")
         return kwargs
 
-    def _creator_log_store(self, creator_episode_id: OpaqueId) -> CreatorRunLogStore:
+    def _creator_log_store(
+        self,
+        creator_episode_id: OpaqueId,
+    ) -> CreatorRunLogStore:
+        """Return the immutable log namespace for one explicit Creator node."""
+
         return CreatorRunLogStore(
             self.root / "run_logs" / creator_episode_id.value
         )
+
+    def _workflow_log_store(self, launch_id: OpaqueId) -> CreatorRunLogStore:
+        """Return the immutable log namespace for one directly approved Run."""
+
+        return CreatorRunLogStore(self.root / "run_logs" / launch_id.value)
 
     def _validate_host_measurement_contract(
         self,
@@ -1155,22 +743,28 @@ class OpenChiaHost:
 
     def _persist_task_result(
         self,
-        creator_episode_id: OpaqueId,
         *,
+        duet_id: OpaqueId,
+        design_artifact_id: OpaqueId,
+        creator_episode_id: Optional[OpaqueId],
         episode_id: str,
         result: dict[str, Any],
     ) -> OpaqueId:
-        frozen = self.service.creator_contract(creator_episode_id)
         record = {
             "episode_id": episode_id,
-            "creator_episode_id": creator_episode_id.value,
+            "design_artifact_id": design_artifact_id.value,
+            "producer_creator_episode_id": (
+                None if creator_episode_id is None else creator_episode_id.value
+            ),
             "result": result,
         }
         artifact_id = content_id("result", record)
         self.store.put_artifact(
             artifact_id=artifact_id.value,
-            duet_id=frozen.duet_id.value,
-            creator_episode_id=creator_episode_id.value,
+            duet_id=duet_id.value,
+            creator_episode_id=(
+                None if creator_episode_id is None else creator_episode_id.value
+            ),
             kind="task_result",
             revision=0,
             content_hash=Sha256Digest.of_record(record).value,
@@ -1195,23 +789,50 @@ class OpenChiaHost:
     def _workflow_runtime(
         self,
         *,
-        creator_episode_id: OpaqueId,
-        candidate: WorkflowCandidateDesign,
+        design: FrozenDuetWorkflow | WorkflowCandidateDesign,
+        owner_creator_episode_id: Optional[OpaqueId],
+        workflow_approval_id: Optional[OpaqueId] = None,
     ) -> WorkflowRuntime:
-        def nested_creator(*, node: Any, goal: EpisodeGoal) -> Episode:
-            nested_id = self.service.admit_nested_creator(
-                parent_creator_episode_id=creator_episode_id,
-                workflow_design_artifact_id=candidate.artifact_id,
-                node_local_id=node.local_id,
-            )
+        def nested_creator(
+            *,
+            node: Any,
+            goal: EpisodeGoal,
+            runtime_key: str,
+        ) -> Episode:
+            if owner_creator_episode_id is None:
+                if not isinstance(design, FrozenDuetWorkflow) or workflow_approval_id is None:
+                    raise OpenChiaHostError(
+                        "top-level Creator admission lacks workflow approval authority"
+                    )
+                nested_id = self.service.admit_workflow_creator(
+                    frozen_workflow=design,
+                    workflow_approval_id=workflow_approval_id,
+                    node_local_id=node.local_id,
+                )
+            else:
+                nested_id = self.service.admit_nested_creator(
+                    parent_creator_episode_id=owner_creator_episode_id,
+                    workflow_design_artifact_id=design.artifact_id,
+                    node_local_id=node.local_id,
+                )
             self._begin_creator_attempt(nested_id)
             runtime = self._creator_runtime(nested_id)
-            return runtime.bind(goal=goal, nested=True)
+            return runtime.bind(
+                goal=goal,
+                nested=True,
+                runtime_key=runtime_key,
+            )
 
         return WorkflowRuntime(
             agent_factory=self._task_agent,
             result_sink=lambda *, episode_id, result: self._persist_task_result(
-                creator_episode_id,
+                duet_id=(
+                    design.duet_id
+                    if isinstance(design, FrozenDuetWorkflow)
+                    else self.identity.duet_id
+                ),
+                design_artifact_id=design.artifact_id,
+                creator_episode_id=owner_creator_episode_id,
                 episode_id=episode_id,
                 result=result,
             ),
@@ -1297,8 +918,8 @@ class OpenChiaHost:
             },
         )
         return self._workflow_runtime(
-            creator_episode_id=creator_episode_id,
-            candidate=candidate,
+            design=candidate,
+            owner_creator_episode_id=creator_episode_id,
         ).source_for_candidate(candidate, run_goal)
 
     def _evaluate_candidate_run(
@@ -1418,36 +1039,62 @@ class OpenChiaHost:
 
     def _run_frozen_workflow(
         self,
-        design: FrozenWorkflowDesign,
+        design: FrozenDuetWorkflow,
         run_id: str,
-        approved_artifact_id: OpaqueId,
-    ) -> None:
+        workflow_approval_id: OpaqueId,
+        launch_id: OpaqueId,
+    ) -> RunLogReference:
         """Build and execute exactly one human-approved workflow design."""
 
-        creator_id = design.creator_episode_id
         workflow = self._workflow_runtime(
-            creator_episode_id=creator_id,
-            candidate=design,
+            design=design,
+            owner_creator_episode_id=None,
+            workflow_approval_id=workflow_approval_id,
         )
         run_grain = self.creator_bindings.run_grain
         goal = EpisodeGoal.root(
             objective={
                 "kind": "execute_approved_workflow",
-                "workflow_artifact_id": approved_artifact_id.value,
+                "workflow_artifact_id": design.artifact_id.value,
             },
             result_contract={"kind": "typed_episode_result"},
         )
         source = workflow.source_for_candidate(design, goal)
-        root_spec = self.service.creator_contract(creator_id).contract
-        bounds = root_spec.safety_bounds
-        max_depth = 8 if bounds is None else bounds.max_depth
-        Episode(
+        declared_depths = [
+            item.contract.safety_bounds.max_depth
+            for item in design.workflow.episodes
+            if item.contract.safety_bounds is not None
+        ]
+        max_depth = max([8, *declared_depths])
+        record = Episode(
             grain=run_grain,
             key=f"approved-{design.artifact_id.value[-12:]}",
             source=source,
             request=EpisodeRequest(goal=goal),
             bound=1,
         ).run(Context(tree=self._final_tree(max_depth), run_id=run_id))
+        log = self._workflow_log_store(launch_id).persist(record)
+        log_record = {
+            "schema_version": 1,
+            "launch_id": launch_id.value,
+            "workflow_artifact_id": design.artifact_id.value,
+            "workflow_hash": design.workflow_hash.value,
+            "execution_run_id": run_id,
+            "log": log.as_record(),
+        }
+        self.store.put_artifact(
+            artifact_id=log.artifact_id.value,
+            duet_id=design.duet_id.value,
+            creator_episode_id=None,
+            kind="workflow_run_log",
+            revision=0,
+            content_hash=log.digest.value,
+            record=log_record,
+        )
+        update = self._root_update(record)
+        if not update.goal_reached:
+            raise _ApprovedWorkflowOutcomeError(update, log)
+        return log
 
     def _workflow_events(
         self,
@@ -1466,7 +1113,7 @@ class OpenChiaHost:
     def _publish_workflow_activity(
         self,
         *,
-        design: FrozenWorkflowDesign,
+        design: FrozenDuetWorkflow,
         launch_id: OpaqueId,
         stage: str,
         activity_code: str,
@@ -1498,7 +1145,7 @@ class OpenChiaHost:
         self.store.put_artifact(
             artifact_id=artifact_id.value,
             duet_id=self.identity.duet_id.value,
-            creator_episode_id=design.creator_episode_id.value,
+            creator_episode_id=None,
             kind="workflow_execution_activity",
             revision=event_index,
             content_hash=Sha256Digest.of_record(record).value,
@@ -1509,7 +1156,7 @@ class OpenChiaHost:
     @staticmethod
     def _workflow_failure_record(
         *,
-        design: FrozenWorkflowDesign,
+        design: FrozenDuetWorkflow,
         launch_id: OpaqueId,
         exc: Exception,
     ) -> dict[str, Any]:
@@ -1523,13 +1170,20 @@ class OpenChiaHost:
                 AssertionError,
             ),
         )
-        return {
+        outcome_error = (
+            exc if isinstance(exc, _ApprovedWorkflowOutcomeError) else None
+        )
+        record = {
             "schema_version": 1,
             "launch_id": launch_id.value,
             "workflow_artifact_id": design.artifact_id.value,
             "workflow_hash": design.workflow_hash.value,
             "failed_stage": "execute_approved_workflow",
-            "error_code": type(exc).__name__,
+            "error_code": (
+                "workflow_goal_not_reached"
+                if outcome_error is not None
+                else type(exc).__name__
+            ),
             "message": (str(exc).strip() or repr(exc))[:4096],
             "owner": "openchia_host" if host_error else "episode_execution",
             "design_change_required": False if host_error else None,
@@ -1539,11 +1193,15 @@ class OpenChiaHost:
                 else "Inspect the failed Episode and its run log; edit the design only if the failure is contractual."
             ),
         }
+        if outcome_error is not None:
+            record["root_update"] = outcome_error.update.as_record()
+            record["run_log"] = outcome_error.log.as_record()
+        return record
 
     def _record_workflow_failure(
         self,
         *,
-        design: FrozenWorkflowDesign,
+        design: FrozenDuetWorkflow,
         launch_id: OpaqueId,
         exc: Exception,
     ) -> dict[str, Any]:
@@ -1565,7 +1223,7 @@ class OpenChiaHost:
         self.store.put_artifact(
             artifact_id=artifact_id.value,
             duet_id=self.identity.duet_id.value,
-            creator_episode_id=design.creator_episode_id.value,
+            creator_episode_id=None,
             kind="workflow_execution_error",
             revision=record["failure_index"],
             content_hash=Sha256Digest.of_record(record).value,
@@ -1575,9 +1233,10 @@ class OpenChiaHost:
 
     def _run_frozen_workflow_tracked(
         self,
-        design: FrozenWorkflowDesign,
+        design: FrozenDuetWorkflow,
         run_id: str,
         launch_id: OpaqueId,
+        workflow_approval_id: OpaqueId,
     ) -> None:
         self._publish_workflow_activity(
             design=design,
@@ -1586,7 +1245,13 @@ class OpenChiaHost:
             activity_code="materializing_approved_episode_tree",
         )
         try:
-            self._run_frozen_workflow(design, run_id, design.artifact_id)
+            self.store.set_launch_status(launch_id.value, "running")
+            log = self._run_frozen_workflow(
+                design,
+                run_id,
+                workflow_approval_id,
+                launch_id,
+            )
         except Exception as exc:
             logger.exception(
                 "Approved Episode workflow failed: artifact_id=%s",
@@ -1610,95 +1275,77 @@ class OpenChiaHost:
             )
             with self._lock:
                 self._final_errors[launch_id.value] = failure
+            self.store.set_launch_status(launch_id.value, "failed")
         else:
             self._publish_workflow_activity(
                 design=design,
                 launch_id=launch_id,
                 stage="completed",
                 activity_code="approved_workflow_completed",
+                details={
+                    "run_log_artifact_id": log.artifact_id.value,
+                    "run_log_digest": log.digest.value,
+                },
             )
             with self._lock:
                 self._final_completed.add(launch_id.value)
+            self.store.set_launch_status(launch_id.value, "completed")
 
     def approve_current(self) -> HumanActionReceipt:
-        """Approve, build, and launch the exact Duet-designed Episode tree."""
+        """Freeze, approve, and launch the exact Duet-owned Episode workflow."""
 
-        workflow_snapshot = self.episode_workflow_configuration()
-        if not workflow_snapshot["ready"]:
+        snapshot = self.episode_workflow_configuration()
+        if not snapshot["ready"]:
             codes = [
                 item.get("code", "invalid_workflow")
-                for item in workflow_snapshot.get("validation_deficits") or ()
+                for item in snapshot.get("validation_deficits") or ()
             ]
             raise DuetProtocolError(
                 "Episode workflow still has blocking deterministic deficits: "
                 + ", ".join(codes)
             )
-        draft = self.service.latest_draft(self.identity.duet_id)
-        if not draft.ready:
-            raise DuetProtocolError(
-                "internal build authority still has blocking deficits"
-            )
-        frozen = self.service.freeze_creator_contract(
-            self.identity.duet_id,
-            expected_revision=draft.revision,
+        frozen = self.service.freeze_duet_workflow(
+            duet_id=self.identity.duet_id,
+            source_draft_artifact_id=OpaqueId(snapshot["source_artifact_id"]),
+            source_draft_hash=Sha256Digest(snapshot["content_hash"]),
         )
-        self._validate_host_measurement_contract(frozen.contract)
         approval = self.service.record_human_approval(
             self.identity,
-            kind=ApprovalKind.CREATOR_CONTRACT,
+            kind=ApprovalKind.WORKFLOW,
             artifact_id=frozen.artifact_id,
-            content_hash=frozen.content_hash,
+            content_hash=frozen.workflow_hash,
             revision=frozen.revision,
         )
-        creator_id = self.service.submit_episode_creator(
-            contract_artifact_id=frozen.artifact_id,
-            content_hash=frozen.content_hash,
-            human_approval_id=approval.approval_id,
-        )
-        creator_contract = frozen.contract.creator_contract
-        if creator_contract is None:
-            raise OpenChiaHostError("internal build authority is missing")
-        context_receipts = tuple(
-            reference.artifact_id.value
-            for reference in creator_contract.design_context.artifact_references
-        )
-        design = self.service.freeze_workflow_design(
-            creator_episode_id=creator_id,
-            workflow_blueprint=workflow_snapshot["configuration"],
-            consumed_context_artifact_ids=context_receipts,
-            source_stage="frozen",
-            identity_namespace=f"{self.identity.duet_id.value}:duet-workflow",
-        )
-        workflow_approval = self.service.record_human_approval(
-            self.identity,
-            kind=ApprovalKind.WORKFLOW,
-            artifact_id=design.artifact_id,
-            content_hash=design.workflow_hash,
-            revision=design.revision,
-        )
+        attempt = self.store.launch_count(
+            duet_id=self.identity.duet_id.value,
+            workflow_artifact_id=frozen.artifact_id.value,
+        ) + 1
         run_id = content_id(
             "run",
-            {"approved_workflow": design.artifact_id.value},
+            {
+                "approved_workflow": frozen.artifact_id.value,
+                "approval_id": approval.approval_id.value,
+                "attempt": attempt,
+            },
         ).value
-        launch_id = self.service.launch_workflow(
-            workflow_artifact_id=design.artifact_id,
-            workflow_hash=design.workflow_hash,
-            workflow_approval_id=workflow_approval.approval_id,
+        launch_id = self.service.launch_duet_workflow(
+            frozen=frozen,
+            workflow_approval_id=approval.approval_id,
             run_id=run_id,
         )
         with self._lock:
             self._final_errors.pop(launch_id.value, None)
             self._final_completed.discard(launch_id.value)
         self._publish_workflow_activity(
-            design=design,
+            design=frozen,
             launch_id=launch_id,
             stage="queued",
             activity_code="approved_workflow_queued",
         )
         thread = threading.Thread(
             target=self._run_frozen_workflow_tracked,
-            args=(design, run_id, launch_id),
-            name=f"openchia-workflow-{design.artifact_id.value[-12:]}",
+            args=(frozen, run_id, launch_id, approval.approval_id),
+            name=f"openchia-workflow-{launch_id.value[-12:]}",
             daemon=True,
         )
         with self._lock:
@@ -1706,8 +1353,8 @@ class OpenChiaHost:
             thread.start()
         return HumanActionReceipt(
             kind=ApprovalKind.WORKFLOW.value,
-            artifact_id=design.artifact_id,
-            approval_id=workflow_approval.approval_id,
+            artifact_id=frozen.artifact_id,
+            approval_id=approval.approval_id,
             launch_id=launch_id,
         )
 
@@ -1736,6 +1383,7 @@ class OpenChiaHost:
         launch = status.get("launch") or {}
         launch_id = launch.get("launch_id")
         if launch_id:
+            persisted_launch_state = str(launch.get("status") or "")
             event_artifacts = self._workflow_events(launch_id)
             activity_history = [item["record"] for item in event_artifacts[-8:]]
             activity = activity_history[-1] if activity_history else None
@@ -1767,6 +1415,13 @@ class OpenChiaHost:
                     final_state = "failed"
                 elif launch_id in self._final_completed:
                     final_state = "completed"
+                elif persisted_launch_state in {
+                    "queued",
+                    "running",
+                    "failed",
+                    "completed",
+                }:
+                    final_state = persisted_launch_state
                 else:
                     final_state = "persisted_launch"
                 failure = self._final_errors.get(launch_id) or persisted_failure
@@ -1808,7 +1463,6 @@ class OpenChiaHost:
 
 
 __all__ = [
-    "EPISODE_FIELD_PLACEHOLDER",
     "HumanActionReceipt",
     "OpenChiaHost",
     "OpenChiaHostError",

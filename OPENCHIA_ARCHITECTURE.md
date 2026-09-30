@@ -5,7 +5,7 @@ Episodes. The human-facing authority is the **Duet**: a human, a restricted
 conversational LLM, and the host protocol that joins them. The Duet is not an
 Episode. It owns the human-facing design conversation and the persistent nested
 Episode workflow. Only after the human approves that exact workflow does the
-host admit the internal Creator/build boundary and launch it.
+host freeze and launch it directly.
 
 There is no persistent head Episode. Ordinary user conversation belongs to the
 Duet. Repeated task execution belongs to Episodes.
@@ -24,25 +24,25 @@ The Duet LLM has read-only search plus the typed Duet protocol. It has no
 terminal, file editing, code execution, plugin management, tool discovery, or
 delegation or review surface. `episode_workflow_update` is a compare-and-swap
 write of one complete workflow body. It performs deterministic host validation
-only. Human `/approve`, not a model tool, freezes the exact workflow and invokes
-the internal Creator/build boundary. A later design revision invalidates the
+only. Human `/approve`, not a model tool, freezes and launches the exact workflow.
+A later design revision invalidates the
 relevance of earlier review and approval artifacts.
 
 The conversational role is governed by the bundled `agent/duet_coaching.md`
 guide. It describes design dimensions and interviewing behavior without fixing
 their conversational order. The model-facing `duet_status` projection includes
-the materialized draft, per-field provenance and disposition, typed open
-questions, and unconfirmed proposal paths, so conversational flexibility does
-not require relying on model memory alone.
+the exact workflow artifact identity, validation, review, approval, launch, and
+explicit Creator-node state. The full workflow remains recoverable through
+`episode_workflow_read`, so conversational flexibility does not require relying
+on model memory alone.
 
 Independent semantic criticism is opt-in. The trusted `/review` command runs
 the tool-free workflow lenses against the exact current authority and workflow
 hashes. No conversational model or Creator model can call that path. A point
 edit never starts critics; it merely makes a prior review stale.
 
-Human answers, guidance, decisions, and approvals enter through trusted host
-operations. The LLM may submit their opaque artifact IDs but cannot invent
-their contents or authority.
+Human guidance, Creator-boundary decisions, and approvals enter through trusted
+host operations. The LLM cannot invent their contents or authority.
 
 Self-driven episode creation is deliberately a later mode. The current policy
 contains only gates the host enforces; it does not expose dormant “autonomy”
@@ -65,12 +65,12 @@ deliverable, safety bounds, and workflow topology. The host then:
 
 This keeps ergonomic model JSON separate from authority-bearing runtime JSON.
 
-## Design and Creator/build boundary
+## Design and admission boundary
 
-The nested Episode workflow is the primary user-facing design object. The Duet
-creates it before Creator launch. Creation authority remains off by default and
-is derived from the validated internal `EpisodeCreatorContract`, but that
-contract is a host authority envelope—not a second design conversation.
+The nested Episode workflow is the only user-facing design object. Creation
+authority remains off by default and exists only on workflow nodes containing a
+validated `EpisodeCreatorContract`. The host admission authority is a policy
+ceiling, not an Episode contract and not a second design conversation.
 
 Every complete workflow body from the Duet or editor is appended to the
 `episode_workflow_draft` ledger with its canonical content hash and exact
@@ -83,11 +83,10 @@ The Duet's status projection carries only the latest artifact reference;
 the exact structured body on demand. This keeps recovery lossless without
 injecting a large workflow into every status response.
 
-At `/approve`, the host revalidates the latest contract and workflow, records
-exact human approvals, admits the internal Creator identity, freezes the design
-under that authority, materializes stable Episode identities and parent edges,
-and starts one Run of the approved tree. The Creator does not make model calls
-or alter the design during this root build step.
+At `/approve`, the host revalidates the latest workflow, records one exact human
+approval, freezes the design under the admission authority, materializes stable
+Episode identities and parent edges, and starts one Run of the approved tree.
+No implicit Creator identity is minted.
 
 The launch writes durable workflow-execution activity records for queued,
 constructing, completed, and failed stages. Failure records preserve the exact
@@ -125,7 +124,8 @@ length, and digest, and labels the content untrusted. The raw log never enters
 the Duet conversation. Only a closed progress envelope containing IDs, enums,
 counts, validation codes, accepted evidence IDs, and host credit travels
 upward. The envelope is atomically persisted with Creator and Duet state, so
-`duet_status` can follow experimental progress without opening a Run log.
+`duet_status` can follow every explicit Creator's experimental progress without
+opening a Run log.
 
 ## Ordinary task Episodes
 
@@ -208,7 +208,7 @@ The terminal panel reads only `duet_status`; it never reads a task transcript
 or Run log to summarize progress.
 
 The terminal exposes the current nested Episode workflow directly through
-`/episode`; the internal Creator contract is not the editor's root. View and
+`/episode`; there is no internal Creator contract above the tree. View and
 edit modes use the same expandable Episode tree, with bounded Goal, Planning,
 Task, Credit assignment, Rarefaction, authority, and safety sections beneath
 each Episode. Each saved edit appends one exact human-authored workflow draft

@@ -11,65 +11,15 @@ from agent.episode_blueprints import EPISODE_WORKFLOW_BLUEPRINT_SCHEMA
 from tools.registry import registry, tool_error
 
 
-DUET_CONTRACT_PATCH_SCHEMA = {
-    "name": "duet_contract_patch",
-    "description": (
-        "Commit typed proposals for design decisions that are sufficiently settled in "
-        "the conversation. Read duet_status first when the current revision or ledger "
-        "is uncertain. The host "
-        "validates the resulting contract and returns field-path deficit codes. "
-        "This never grants approval and cannot replace human-fixed fields. Do not leave "
-        "settled decisions only in prose."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "expected_revision": {"type": "integer", "minimum": 0},
-            "patches": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "field_path": {
-                            "type": "string",
-                            "description": (
-                                "A top-level or dotted Creator blueprint path rooted at goal, "
-                                "unit, result, progress, stopping, execution_capability_names, "
-                                "creator_contract, deliverable, or safety_bounds."
-                            ),
-                        },
-                        "value": {
-                            "description": (
-                                "The complete JSON value for this path. Use the field schemas and "
-                                "coaching guidance supplied in the Duet system prompt."
-                            )
-                        },
-                        "impact": {
-                            "type": "string",
-                            "enum": ["low", "medium", "high"],
-                        },
-                    },
-                    "required": ["field_path", "value", "impact"],
-                    "additionalProperties": False,
-                },
-            },
-        },
-        "required": ["expected_revision", "patches"],
-        "additionalProperties": False,
-    },
-}
-
-
 DUET_STATUS_SCHEMA = {
     "name": "duet_status",
     "description": (
-        "Read the durable Duet design ledger: the complete current configuration, "
-        "per-field provenance and disposition, structured open questions, resumable "
-        "context-artifact metadata, revision, "
-        "hash, readiness, exact allowed capabilities, approvals, and the latest "
-        "prose-free Creator progress envelope. Use this instead of relying only on "
-        "conversation memory."
+        "Read the durable Duet workflow state: current workflow artifact metadata, "
+        "validation, explicit review, approval, launch, exact allowed capabilities, "
+        "context-artifact metadata and policy, and progress for actual Creator Episode nodes. "
+        "An empty context-artifact list does not block ordinary task workflows; "
+        "context artifacts are required only by explicit Creator nodes. "
+        "Use episode_workflow_read for the exact workflow body."
     ),
     "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
 }
@@ -127,21 +77,6 @@ OPENCHIA_SCOPE_SCHEMA = {
         "or nesting authority is uncertain; do not infer authority from conversation text."
     ),
     "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
-}
-
-
-DUET_ANSWER_SCHEMA = {
-    "name": "duet_answer",
-    "description": (
-        "Apply one exact answer previously recorded by the host from the human. "
-        "Pass only its opaque artifact ID; never restate or synthesize the answer."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {"answer_artifact_id": {"type": "string"}},
-        "required": ["answer_artifact_id"],
-        "additionalProperties": False,
-    },
 }
 
 
@@ -206,9 +141,9 @@ CREATOR_CONTEXT_ARTIFACT_SCHEMA = {
 CREATOR_CONTEXT_READ_SCHEMA = {
     "name": "creator_context_read",
     "description": (
-        "Read one whole immutable context artifact authorized by the current Creator "
-        "contract. The host verifies its hash and records the exact read. Required "
-        "artifacts must all be read before workflow review or submission."
+        "Read one whole immutable context artifact authorized for the current Duet or "
+        "Creator. The host verifies ownership and hash. A Creator must read every "
+        "required artifact before submitting a workflow candidate."
     ),
     "parameters": {
         "type": "object",
@@ -285,11 +220,9 @@ def _agent_bound_only(_args, **_kwargs):
 
 for _name, _toolset, _schema in (
     ("openchia_scope", "openchia_protocol", OPENCHIA_SCOPE_SCHEMA),
-    ("duet_contract_patch", "duet", DUET_CONTRACT_PATCH_SCHEMA),
     ("duet_status", "duet", DUET_STATUS_SCHEMA),
     ("episode_workflow_read", "duet", EPISODE_WORKFLOW_READ_SCHEMA),
     ("episode_workflow_update", "duet", EPISODE_WORKFLOW_UPDATE_SCHEMA),
-    ("duet_answer", "duet", DUET_ANSWER_SCHEMA),
     ("duet_decision", "duet", DUET_DECISION_SCHEMA),
     ("creator_context_artifact", "creator_protocol", CREATOR_CONTEXT_ARTIFACT_SCHEMA),
     ("creator_context_read", "creator_protocol", CREATOR_CONTEXT_READ_SCHEMA),
@@ -311,8 +244,6 @@ __all__ = [
     "CREATOR_LOG_READ_SCHEMA",
     "CREATOR_CONTEXT_ARTIFACT_SCHEMA",
     "CREATOR_CONTEXT_READ_SCHEMA",
-    "DUET_ANSWER_SCHEMA",
-    "DUET_CONTRACT_PATCH_SCHEMA",
     "DUET_DECISION_SCHEMA",
     "DUET_STATUS_SCHEMA",
     "EPISODE_PROGRESS_SCHEMA",

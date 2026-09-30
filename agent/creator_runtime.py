@@ -144,17 +144,18 @@ class CreatorRuntimeBindings:
 
     def register(
         self,
-        creator_episode_id: OpaqueId,
+        runtime_key: OpaqueId | str,
         spec: EpisodeCreationSpec,
     ) -> None:
-        if not isinstance(creator_episode_id, OpaqueId):
-            raise TypeError("creator_episode_id must be an OpaqueId")
+        key = runtime_key.value if isinstance(runtime_key, OpaqueId) else runtime_key
+        if not isinstance(key, str) or not key:
+            raise TypeError("Creator runtime key must be non-empty text")
         if not isinstance(spec, EpisodeCreationSpec) or not spec.can_create_episodes:
             raise TypeError("Creator bindings require a Creator Episode spec")
-        prior = self._specs.get(creator_episode_id.value)
+        prior = self._specs.get(key)
         if prior is not None and prior != spec:
             raise ValueError("Creator identity was registered with another contract")
-        self._specs[creator_episode_id.value] = spec
+        self._specs[key] = spec
 
     def _creator_controller(
         self,
@@ -253,8 +254,16 @@ class CreatorRuntime:
             bound=1,
         )
 
-    def bind(self, *, goal: EpisodeGoal, nested: bool = False) -> Episode:
+    def bind(
+        self,
+        *,
+        goal: EpisodeGoal,
+        nested: bool = False,
+        runtime_key: str | None = None,
+    ) -> Episode:
         policy = self.service.policy(self.frozen_contract.duet_id)
+        key = runtime_key or self.creator_episode_id.value
+        self.bindings.register(key, self.frozen_contract.contract)
 
         def publish_unit(_item: Any, contribution: Any, unit_view: Any) -> None:
             result = contribution.controller_input
@@ -298,7 +307,7 @@ class CreatorRuntime:
             )
 
         return bind_creator_episode(
-            key=self.creator_episode_id.value,
+            key=key,
             goal=goal,
             grain=self.creator_grain,
             designer=self.designer,

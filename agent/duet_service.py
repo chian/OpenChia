@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 import re
 import threading
 from typing import Any, Iterable, Mapping, Optional
 
 from agent.duet_contracts import (
+    AdmittedCreatorContract,
     ApprovalKind,
     ContractDeficit,
-    ContractFieldRecord,
     CreatorActivityEnvelope,
-    CreatorContractDraft,
     CreatorGuidance,
     CreatorProgressEnvelope,
-    DuetAnswer,
     DuetApproval,
     DuetDecision,
     DuetDesignState,
@@ -24,11 +21,9 @@ from agent.duet_contracts import (
     DuetMessageKind,
     DuetPolicy,
     DuetProvenance,
-    FieldImpact,
-    FrozenCreatorContract,
+    FrozenDuetWorkflow,
     FrozenWorkflowDesign,
-    InformationRequest,
-    WorkflowApproval,
+    WorkflowAdmissionAuthority,
     WorkflowCandidate,
     canonical_json,
     content_id,
@@ -39,8 +34,6 @@ from agent.duet_store import (
     DuetStore,
 )
 from agent.episode_blueprints import (
-    EPISODE_CREATION_BLUEPRINT_SCHEMA,
-    creation_spec_from_blueprint,
     workflow_spec_from_blueprint,
 )
 from agent.episode_contracts import (
@@ -61,30 +54,6 @@ from agent.episode_contracts import (
 )
 from method_loop.identities import EpisodeRef
 
-
-_REQUIRED_CREATOR_FIELDS = (
-    "goal",
-    "unit",
-    "result",
-    "progress",
-    "stopping",
-    "execution_capability_names",
-    "creator_contract",
-    "deliverable",
-    "safety_bounds",
-)
-
-_FIELD_IMPACTS = {
-    "goal": FieldImpact.HIGH,
-    "unit": FieldImpact.HIGH,
-    "result": FieldImpact.HIGH,
-    "progress": FieldImpact.HIGH,
-    "stopping": FieldImpact.HIGH,
-    "execution_capability_names": FieldImpact.MEDIUM,
-    "creator_contract": FieldImpact.HIGH,
-    "deliverable": FieldImpact.MEDIUM,
-    "safety_bounds": FieldImpact.HIGH,
-}
 
 _CREATOR_CONTEXT_ARTIFACT_KIND = "creator_context"
 EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND = "episode_workflow_draft"
@@ -118,40 +87,6 @@ def _reject_raw_context_secrets(value: object, path: str = "$") -> None:
         raise ValueError(f"Creator context cannot contain a raw secret at {path}")
 
 
-def _field_answer_schema(field_path: str) -> Mapping[str, Any]:
-    """Return the real blueprint schema for the exact unresolved field."""
-
-    parts = field_path.split(".")
-    root = parts[0]
-    properties = EPISODE_CREATION_BLUEPRINT_SCHEMA.get("properties")
-    if not isinstance(properties, Mapping):
-        return {"type": "object"}
-    schema = properties.get(root)
-    if not isinstance(schema, Mapping):
-        return {"type": "object"}
-    if root == "progress":
-        progress_schema = dict(schema)
-        progress_properties = dict(progress_schema.get("properties") or {})
-        progress_properties["adapter_id"] = {
-            "type": "string",
-            "const": CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
-            "description": (
-                "Host-owned bootstrap adapter for the Creator Episode. The task-specific "
-                "measurement belongs to the workflow root designed by the Creator."
-            ),
-        }
-        progress_schema["properties"] = progress_properties
-        schema = progress_schema
-    for part in parts[1:]:
-        nested = schema.get("properties")
-        if not isinstance(nested, Mapping):
-            return {"type": "object"}
-        schema = nested.get(part)
-        if not isinstance(schema, Mapping):
-            return {"type": "object"}
-    return schema
-
-
 class DuetProtocolError(RuntimeError):
     """The requested operation violates the typed Duet protocol."""
 
@@ -183,38 +118,6 @@ def _policy_from_record(record: Mapping[str, Any]) -> DuetPolicy:
     return DuetPolicy.from_record(record)
 
 
-def _field_from_record(record: Mapping[str, Any]) -> ContractFieldRecord:
-    return ContractFieldRecord(
-        field_path=record["field_path"],
-        value=record["value"],
-        provenance=DuetProvenance(record["provenance"]),
-        source_ids=tuple(OpaqueId(item) for item in record["source_ids"]),
-        validation_codes=tuple(record["validation_codes"]),
-        approved=record["approved"],
-        impact=FieldImpact(record["impact"]),
-    )
-
-
-def _deficit_from_record(record: Mapping[str, Any]) -> ContractDeficit:
-    return ContractDeficit(
-        code=record["code"],
-        field_path=record["field_path"],
-        blocking=record["blocking"],
-        # Drafts persisted before ``detail`` existed carry no key.
-        detail=record.get("detail"),
-    )
-
-
-def _draft_from_record(record: Mapping[str, Any]) -> CreatorContractDraft:
-    return CreatorContractDraft(
-        draft_id=OpaqueId(record["draft_id"]),
-        duet_id=OpaqueId(record["duet_id"]),
-        revision=record["revision"],
-        fields=tuple(_field_from_record(item) for item in record["fields"]),
-        deficits=tuple(_deficit_from_record(item) for item in record["deficits"]),
-    )
-
-
 def _approval_from_record(record: Mapping[str, Any]) -> DuetApproval:
     return DuetApproval(
         approval_id=OpaqueId(record["approval_id"]),
@@ -227,39 +130,10 @@ def _approval_from_record(record: Mapping[str, Any]) -> DuetApproval:
     )
 
 
-def _frozen_from_artifact(record: Mapping[str, Any]) -> FrozenCreatorContract:
-    return FrozenCreatorContract(
-        artifact_id=OpaqueId(record["artifact_id"]),
-        duet_id=OpaqueId(record["duet_id"]),
-        draft_id=OpaqueId(record["draft_id"]),
-        revision=record["revision"],
-        content_hash=Sha256Digest(record["content_hash"]),
-        contract=EpisodeCreationSpec.from_record(record["contract"]),
-    )
-
-
-def _deficit_for_error(exc: Exception) -> ContractDeficit:
-    """Anchor a blueprint validation failure to the field the host rejected.
-
-    ``EpisodeContractError`` carries the exact field path; the message is kept
-    as ``detail`` so the Duet LLM sees *why* instead of guessing.  Only a
-    host-side shape error (an internal record the host itself built) reaches
-    this without a path, and then the first required field is the anchor.
-    """
-
-    message = str(exc)
-    field_path = (
-        ".".join(exc.field_path) if isinstance(exc, EpisodeContractError) else ""
-    )
-    return ContractDeficit(
-        (
-            "invalid_progress_adapter"
-            if "progress adapter" in message
-            else "invalid_contract"
-        ),
-        field_path or _REQUIRED_CREATOR_FIELDS[0],
-        detail=message,
-    )
+def _admitted_creator_from_artifact(
+    record: Mapping[str, Any],
+) -> AdmittedCreatorContract:
+    return AdmittedCreatorContract.from_record(record)
 
 
 class DuetService:
@@ -284,39 +158,27 @@ class DuetService:
         self,
         identity: DuetIdentity,
         policy: DuetPolicy,
-        *,
-        initial_fields: tuple[ContractFieldRecord, ...] = (),
-    ) -> CreatorContractDraft:
+    ) -> None:
         if identity.policy_id != policy.policy_id:
             raise ValueError("Duet identity and policy IDs differ")
-        self.store.create_duet(
-            duet_id=identity.duet_id.value,
-            identity=identity.as_record(),
-            policy=policy.as_record(),
-            state=DuetDesignState.COLLECTING_CONTRACT.value,
-        )
-        existing = self.store.latest_draft(identity.duet_id.value)
-        if existing is not None:
-            draft = _draft_from_record(existing)
-            if self.store.latest_creator(identity.duet_id.value) is None:
-                _, deficits = self._materialize_contract(
-                    draft.fields,
-                    duet_id=identity.duet_id,
-                )
-                if deficits != draft.deficits:
-                    return self._write_revision(
-                        identity.duet_id,
-                        prior=draft,
-                        fields=draft.fields,
-                        provenance=DuetProvenance.HOST_VALIDATION,
-                    )
-            return draft
-        return self._write_revision(
-            identity.duet_id,
-            prior=None,
-            fields=initial_fields,
-            provenance=DuetProvenance.HUMAN_INPUT,
-        )
+        existing = self.store.get_duet(identity.duet_id.value)
+        if existing is None:
+            self.store.create_duet(
+                duet_id=identity.duet_id.value,
+                identity=identity.as_record(),
+                policy=policy.as_record(),
+                state=DuetDesignState.DESIGNING.value,
+            )
+            return
+        if (
+            existing["identity"] != identity.as_record()
+            or existing["policy"] != policy.as_record()
+        ):
+            self.store.rebind_duet_policy(
+                duet_id=identity.duet_id.value,
+                identity=identity.as_record(),
+                policy=policy.as_record(),
+            )
 
     def _duet_row(self, duet_id: OpaqueId) -> dict[str, Any]:
         row = self.store.get_duet(duet_id.value)
@@ -326,12 +188,6 @@ class DuetService:
 
     def policy(self, duet_id: OpaqueId) -> DuetPolicy:
         return _policy_from_record(self._duet_row(duet_id)["policy"])
-
-    def latest_draft(self, duet_id: OpaqueId) -> CreatorContractDraft:
-        record = self.store.latest_draft(duet_id.value)
-        if record is None:
-            raise DuetNotFoundError("Duet has no Creator contract draft")
-        return _draft_from_record(record)
 
     def register_creator_context_artifact(
         self,
@@ -531,13 +387,17 @@ class DuetService:
                     "context_artifact_missing",
                     f"missing Creator context artifact {reference.artifact_id.value}",
                 )
-            if (
-                artifact["duet_id"] != duet_id.value
-                or artifact["kind"] != _CREATOR_CONTEXT_ARTIFACT_KIND
-            ):
+            if artifact["duet_id"] != duet_id.value:
                 raise CreatorContextValidationError(
                     "context_artifact_scope_violation",
                     "Creator context artifact is outside the contract's Duet",
+                )
+            if artifact["kind"] != _CREATOR_CONTEXT_ARTIFACT_KIND:
+                raise CreatorContextValidationError(
+                    "context_artifact_kind_mismatch",
+                    "Only an artifact committed through creator_context_artifact "
+                    "may appear in creator_contract.design_context; workflow, "
+                    "approval, and prior contract artifacts are not context receipts",
                 )
             owner = artifact["creator_episode_id"]
             if owner is not None and owner not in allowed_owners:
@@ -608,374 +468,6 @@ class DuetService:
             consumer_creator_episode_id=creator_episode_id,
         )
 
-    def _materialize_contract(
-        self,
-        fields: tuple[ContractFieldRecord, ...],
-        *,
-        duet_id: OpaqueId,
-    ) -> tuple[Optional[EpisodeCreationSpec], tuple[ContractDeficit, ...]]:
-        draft = CreatorContractDraft(
-            draft_id=OpaqueId.mint("draft", "validation"),
-            duet_id=OpaqueId.mint("duet", "validation"),
-            revision=0,
-            fields=fields,
-        )
-        try:
-            record = draft.materialized()
-        except ValueError:
-            return None, (
-                ContractDeficit("overlapping_paths", "goal"),
-            )
-        deficits = [
-            ContractDeficit("required", field_path)
-            for field_path in _REQUIRED_CREATOR_FIELDS
-            if field_path not in record
-        ]
-        deficits.extend(
-            ContractDeficit(
-                "unknown_field",
-                field_path,
-                detail="not a Creator blueprint field",
-            )
-            for field_path in sorted(set(record) - set(_REQUIRED_CREATOR_FIELDS))
-        )
-        if deficits:
-            return None, tuple(deficits)
-        try:
-            spec = creation_spec_from_blueprint(
-                record,
-                identity_namespace="duet-creator-contract",
-            )
-        except (TypeError, ValueError) as exc:
-            return None, (_deficit_for_error(exc),)
-        creator_contract = spec.creator_contract
-        if creator_contract is None:
-            return None, (
-                ContractDeficit("invalid_contract", "creator_contract"),
-            )
-        try:
-            self.resolve_creator_context(duet_id, creator_contract.design_context)
-        except CreatorContextValidationError as exc:
-            return None, (
-                ContractDeficit(
-                    exc.code,
-                    "creator_contract.design_context",
-                ),
-            )
-        task_caps = set(spec.execution_capability_names)
-        assignable = set(creator_contract.assignable_capability_names)
-        unknown = (task_caps | assignable) - self.allowed_episode_capabilities
-        if unknown:
-            return None, (
-                ContractDeficit("capability_not_allowed", "execution_capability_names"),
-            )
-        return spec, ()
-
-    def _write_revision(
-        self,
-        duet_id: OpaqueId,
-        *,
-        prior: Optional[CreatorContractDraft],
-        fields: tuple[ContractFieldRecord, ...],
-        provenance: DuetProvenance,
-    ) -> CreatorContractDraft:
-        _, deficits = self._materialize_contract(fields, duet_id=duet_id)
-        revision = 0 if prior is None else prior.revision + 1
-        draft_id = (
-            OpaqueId.mint("draft", f"{duet_id.value}:creator-contract")
-            if prior is None
-            else prior.draft_id
-        )
-        draft = CreatorContractDraft(
-            draft_id=draft_id,
-            duet_id=duet_id,
-            revision=revision,
-            fields=tuple(sorted(fields, key=lambda item: item.field_path)),
-            deficits=deficits,
-        )
-        self.store.put_draft(
-            duet_id=duet_id.value,
-            draft_id=draft.draft_id.value,
-            revision=draft.revision,
-            content_hash=draft.content_hash.value,
-            ready=draft.ready,
-            record=draft.as_record(),
-            expected_previous_revision=None if prior is None else prior.revision,
-        )
-        state = (
-            DuetDesignState.CONTRACT_CANDIDATE
-            if draft.ready
-            else DuetDesignState.NEEDS_DUET_INPUT
-        )
-        self.store.set_state(duet_id.value, state.value)
-        self.store.append_event(
-            duet_id=duet_id.value,
-            event_type="creator_contract_revision",
-            provenance=provenance.value,
-            record={
-                "draft_id": draft.draft_id.value,
-                "revision": draft.revision,
-                "content_hash": draft.content_hash.value,
-                "deficit_codes": [item.code for item in draft.deficits],
-            },
-        )
-        return draft
-
-    def patch_contract(
-        self,
-        duet_id: OpaqueId,
-        *,
-        expected_revision: int,
-        patches: tuple[ContractFieldRecord, ...],
-        actor: DuetProvenance,
-    ) -> CreatorContractDraft:
-        if actor not in {DuetProvenance.HUMAN_INPUT, DuetProvenance.LLM_PROPOSAL}:
-            raise ValueError("only human input or LLM proposals may patch a draft")
-        prior = self.latest_draft(duet_id)
-        if prior.revision != expected_revision:
-            raise DuetConflictError("Creator contract draft revision is stale")
-        if any(item.provenance is not actor for item in patches):
-            raise ValueError("patch provenance must match the authenticated actor")
-        by_path = {item.field_path: item for item in prior.fields}
-        for patch in patches:
-            while True:
-                ancestors = [
-                    path
-                    for path in by_path
-                    if patch.field_path.startswith(path + ".")
-                ]
-                if not ancestors:
-                    break
-                ancestor_path = max(ancestors, key=len)
-                ancestor = by_path.pop(ancestor_path)
-                if not isinstance(ancestor.value, Mapping):
-                    raise DuetProtocolError(
-                        f"field {ancestor_path} is not an object and cannot contain "
-                        f"{patch.field_path}"
-                    )
-                for key, value in ancestor.value.items():
-                    child_path = f"{ancestor_path}.{key}"
-                    by_path[child_path] = replace(
-                        ancestor,
-                        field_path=child_path,
-                        value=value,
-                    )
-
-            descendants = tuple(
-                item
-                for path, item in by_path.items()
-                if path.startswith(patch.field_path + ".")
-            )
-            if actor is DuetProvenance.LLM_PROPOSAL and any(
-                item.human_fixed for item in descendants
-            ):
-                raise DuetProtocolError(
-                    f"LLM proposal cannot replace human-fixed fields below "
-                    f"{patch.field_path}"
-                )
-            existing = by_path.get(patch.field_path)
-            if (
-                actor is DuetProvenance.LLM_PROPOSAL
-                and existing is not None
-                and existing.human_fixed
-                and existing.value != patch.value
-            ):
-                raise DuetProtocolError(
-                    f"LLM proposal cannot replace human-fixed field {patch.field_path}"
-                )
-            if (
-                actor is DuetProvenance.LLM_PROPOSAL
-                and existing is not None
-                and existing.human_fixed
-            ):
-                continue
-            for item in descendants:
-                del by_path[item.field_path]
-            by_path[patch.field_path] = patch
-        return self._write_revision(
-            duet_id,
-            prior=prior,
-            fields=tuple(by_path.values()),
-            provenance=actor,
-        )
-
-    def replace_contract(
-        self,
-        duet_id: OpaqueId,
-        *,
-        expected_revision: int,
-        fields: tuple[ContractFieldRecord, ...],
-    ) -> CreatorContractDraft:
-        """Replace a mutable draft with one exact human-authored field set."""
-
-        prior = self.latest_draft(duet_id)
-        if prior.revision != expected_revision:
-            raise DuetConflictError("Creator contract draft revision is stale")
-        if any(item.provenance is not DuetProvenance.HUMAN_INPUT for item in fields):
-            raise ValueError("direct draft replacement requires human provenance")
-        return self._write_revision(
-            duet_id,
-            prior=prior,
-            fields=fields,
-            provenance=DuetProvenance.HUMAN_INPUT,
-        )
-
-    def information_requests(
-        self, duet_id: OpaqueId
-    ) -> tuple[InformationRequest, ...]:
-        draft = self.latest_draft(duet_id)
-        requests = []
-        for deficit in draft.deficits:
-            request_id = content_id(
-                "request",
-                {
-                    "duet_id": duet_id.value,
-                    "revision": draft.revision,
-                    "field_path": deficit.field_path,
-                    "code": deficit.code,
-                },
-            )
-            requests.append(
-                InformationRequest(
-                    request_id=request_id,
-                    duet_id=duet_id,
-                    revision=draft.revision,
-                    field_path=deficit.field_path,
-                    reason_code=deficit.code,
-                    answer_schema=_field_answer_schema(deficit.field_path),
-                    impact=_FIELD_IMPACTS.get(
-                        deficit.field_path.split(".", 1)[0],
-                        FieldImpact.MEDIUM,
-                    ),
-                    blocking=deficit.blocking,
-                    detail=deficit.detail,
-                )
-            )
-        return tuple(requests)
-
-    def record_human_answer(
-        self,
-        identity: DuetIdentity,
-        *,
-        request_id: OpaqueId,
-        value: Any,
-    ) -> DuetAnswer:
-        """Persist an answer from a trusted human UI without applying it yet."""
-
-        if self._duet_row(identity.duet_id)["identity"] != identity.as_record():
-            raise DuetProtocolError("human answer authority does not match the Duet")
-        requests = {
-            item.request_id: item for item in self.information_requests(identity.duet_id)
-        }
-        request = requests.get(request_id)
-        if request is None:
-            raise DuetNotFoundError("information request is stale or unknown")
-        answer_id = content_id(
-            "answer",
-            {
-                "request_id": request_id.value,
-                "duet_id": identity.duet_id.value,
-                "revision": request.revision,
-                "field_path": request.field_path,
-                "value": value,
-                "human_authority_id": identity.human_authority_id.value,
-            },
-        )
-        answer = DuetAnswer(
-            answer_id=answer_id,
-            request_id=request_id,
-            duet_id=identity.duet_id,
-            revision=request.revision,
-            field_path=request.field_path,
-            value=value,
-            human_authority_id=identity.human_authority_id,
-        )
-        self.store.put_artifact(
-            artifact_id=answer_id.value,
-            duet_id=identity.duet_id.value,
-            kind="duet_answer",
-            revision=request.revision,
-            content_hash=Sha256Digest.of_record(answer.as_record()).value,
-            record=answer.as_record(),
-        )
-        return answer
-
-    def submit_duet_answer(self, answer_artifact_id: OpaqueId) -> CreatorContractDraft:
-        """Apply one exact host-recorded human answer; no answer prose is accepted."""
-
-        artifact = self.store.get_artifact(answer_artifact_id.value)
-        if artifact is None or artifact["kind"] != "duet_answer":
-            raise DuetNotFoundError("human answer artifact not found")
-        record = artifact["record"]
-        answer = DuetAnswer(
-            answer_id=OpaqueId(record["answer_id"]),
-            request_id=OpaqueId(record["request_id"]),
-            duet_id=OpaqueId(record["duet_id"]),
-            revision=record["revision"],
-            field_path=record["field_path"],
-            value=record["value"],
-            human_authority_id=OpaqueId(record["human_authority_id"]),
-        )
-        return self.patch_contract(
-            answer.duet_id,
-            expected_revision=answer.revision,
-            patches=(
-                ContractFieldRecord(
-                    field_path=answer.field_path,
-                    value=answer.value,
-                    provenance=DuetProvenance.HUMAN_INPUT,
-                    source_ids=(answer.answer_id,),
-                    approved=True,
-                ),
-            ),
-            actor=DuetProvenance.HUMAN_INPUT,
-        )
-
-    def freeze_creator_contract(
-        self,
-        duet_id: OpaqueId,
-        *,
-        expected_revision: int,
-    ) -> FrozenCreatorContract:
-        draft = self.latest_draft(duet_id)
-        if draft.revision != expected_revision:
-            raise DuetConflictError("cannot freeze a stale draft revision")
-        spec, deficits = self._materialize_contract(
-            draft.fields,
-            duet_id=duet_id,
-        )
-        if spec is None or deficits:
-            raise DuetProtocolError("Creator contract is not complete and valid")
-        artifact_id = content_id(
-            "contract",
-            {
-                "duet_id": duet_id.value,
-                "draft_id": draft.draft_id.value,
-                "revision": draft.revision,
-                "contract": spec.as_record(),
-            },
-        )
-        frozen = FrozenCreatorContract(
-            artifact_id=artifact_id,
-            duet_id=duet_id,
-            draft_id=draft.draft_id,
-            revision=draft.revision,
-            content_hash=spec.spec_hash,
-            contract=spec,
-        )
-        self.store.put_artifact(
-            artifact_id=artifact_id.value,
-            duet_id=duet_id.value,
-            kind=ApprovalKind.CREATOR_CONTRACT.value,
-            revision=draft.revision,
-            content_hash=frozen.content_hash.value,
-            record=frozen.as_record(),
-        )
-        self.store.set_state(
-            duet_id.value, DuetDesignState.AWAITING_CREATOR_APPROVAL.value
-        )
-        return frozen
-
     def record_human_approval(
         self,
         identity: DuetIdentity,
@@ -1042,53 +534,138 @@ class DuetService:
             )
         return approval
 
-    def submit_episode_creator(
+    def _admit_creator_node(
         self,
         *,
-        contract_artifact_id: OpaqueId,
-        content_hash: Sha256Digest,
-        human_approval_id: OpaqueId,
+        duet_id: OpaqueId,
+        source_design_artifact_id: OpaqueId,
+        source_design_hash: Sha256Digest,
+        workflow_approval_id: OpaqueId,
+        node_local_id: str,
+        contract: EpisodeCreationSpec,
+        source_revision: int,
+        parent_creator_episode_id: Optional[OpaqueId] = None,
     ) -> OpaqueId:
-        """The LLM's final call: identifiers only, followed by host reload."""
-
-        artifact = self.store.get_artifact(contract_artifact_id.value)
-        if artifact is None or artifact["kind"] != ApprovalKind.CREATOR_CONTRACT.value:
-            raise DuetNotFoundError("frozen Creator contract artifact not found")
-        frozen = _frozen_from_artifact(artifact["record"])
-        if frozen.content_hash != content_hash:
-            raise StaleDuetApprovalError("submitted Creator contract hash is stale")
-        latest_draft = self.latest_draft(frozen.duet_id)
-        if latest_draft.revision != frozen.revision:
-            raise StaleDuetApprovalError(
-                "Creator contract approval was invalidated by a later draft revision"
-            )
-        approval = self._require_exact_approval(
-            approval_id=human_approval_id,
-            kind=ApprovalKind.CREATOR_CONTRACT,
-            artifact_id=frozen.artifact_id,
-            content_hash=frozen.content_hash,
-            revision=frozen.revision,
-        )
+        if not contract.can_create_episodes or contract.creator_contract is None:
+            raise DuetProtocolError("selected workflow node is not a Creator Episode")
         creator_episode_id = content_id(
-            "episode",
+            "creator",
             {
-                "duet_id": frozen.duet_id.value,
-                "contract_artifact_id": frozen.artifact_id.value,
-                "contract_hash": frozen.content_hash.value,
+                "duet_id": duet_id.value,
+                "source_design_artifact_id": source_design_artifact_id.value,
+                "source_design_hash": source_design_hash.value,
+                "node_local_id": node_local_id,
+                "contract_hash": contract.spec_hash.value,
+                "parent_creator_episode_id": (
+                    None
+                    if parent_creator_episode_id is None
+                    else parent_creator_episode_id.value
+                ),
             },
+        )
+        contract_artifact_id = content_id(
+            "creator_contract",
+            {
+                "creator_episode_id": creator_episode_id.value,
+                "source_design_artifact_id": source_design_artifact_id.value,
+                "node_local_id": node_local_id,
+                "contract_hash": contract.spec_hash.value,
+            },
+        )
+        admitted = AdmittedCreatorContract(
+            artifact_id=contract_artifact_id,
+            duet_id=duet_id,
+            source_design_artifact_id=source_design_artifact_id,
+            source_design_hash=source_design_hash,
+            workflow_approval_id=workflow_approval_id,
+            node_local_id=node_local_id,
+            content_hash=contract.spec_hash,
+            contract=contract,
+        )
+        self.store.put_artifact(
+            artifact_id=contract_artifact_id.value,
+            duet_id=duet_id.value,
+            creator_episode_id=creator_episode_id.value,
+            kind="admitted_creator_contract",
+            revision=source_revision,
+            content_hash=contract.spec_hash.value,
+            record=admitted.as_record(),
         )
         self.store.admit_creator(
             creator_episode_id=creator_episode_id.value,
-            duet_id=frozen.duet_id.value,
-            contract_artifact_id=frozen.artifact_id.value,
-            contract_hash=frozen.content_hash.value,
-            approval_id=approval.approval_id.value,
-            state=DuetDesignState.CREATOR_ADMITTED.value,
+            duet_id=duet_id.value,
+            contract_artifact_id=contract_artifact_id.value,
+            contract_hash=contract.spec_hash.value,
+            approval_id=workflow_approval_id.value,
+            parent_creator_episode_id=(
+                None
+                if parent_creator_episode_id is None
+                else parent_creator_episode_id.value
+            ),
+            design_artifact_id=source_design_artifact_id.value,
+            node_local_id=node_local_id,
+            state=DuetDesignState.DESIGNING.value,
         )
-        self.store.set_state(
-            frozen.duet_id.value, DuetDesignState.CREATOR_ADMITTED.value
+        self.store.append_event(
+            duet_id=duet_id.value,
+            event_type="creator_episode_admitted",
+            provenance=DuetProvenance.HOST_VALIDATION.value,
+            record={
+                "creator_episode_id": creator_episode_id.value,
+                "parent_creator_episode_id": (
+                    None
+                    if parent_creator_episode_id is None
+                    else parent_creator_episode_id.value
+                ),
+                "source_design_artifact_id": source_design_artifact_id.value,
+                "node_local_id": node_local_id,
+                "contract_hash": contract.spec_hash.value,
+            },
         )
         return creator_episode_id
+
+    def admit_workflow_creator(
+        self,
+        *,
+        frozen_workflow: FrozenDuetWorkflow,
+        workflow_approval_id: OpaqueId,
+        node_local_id: str,
+    ) -> OpaqueId:
+        """Admit a Creator node explicitly present in an approved Duet workflow."""
+
+        artifact = self.store.get_artifact(frozen_workflow.artifact_id.value)
+        if (
+            artifact is None
+            or artifact["kind"] != "duet_workflow"
+            or artifact["record"] != frozen_workflow.as_record()
+        ):
+            raise DuetNotFoundError("frozen Duet workflow artifact not found")
+        self._require_exact_approval(
+            approval_id=workflow_approval_id,
+            kind=ApprovalKind.WORKFLOW,
+            artifact_id=frozen_workflow.artifact_id,
+            content_hash=frozen_workflow.workflow_hash,
+            revision=frozen_workflow.revision,
+        )
+        node = next(
+            (
+                item
+                for item in frozen_workflow.workflow.episodes
+                if item.local_id == node_local_id
+            ),
+            None,
+        )
+        if node is None:
+            raise DuetNotFoundError("Creator node is absent from the approved workflow")
+        return self._admit_creator_node(
+            duet_id=frozen_workflow.duet_id,
+            source_design_artifact_id=frozen_workflow.artifact_id,
+            source_design_hash=frozen_workflow.workflow_hash,
+            workflow_approval_id=workflow_approval_id,
+            node_local_id=node_local_id,
+            contract=node.contract,
+            source_revision=frozen_workflow.revision,
+        )
 
     def admit_nested_creator(
         self,
@@ -1097,7 +674,7 @@ class DuetService:
         workflow_design_artifact_id: OpaqueId,
         node_local_id: str,
     ) -> OpaqueId:
-        """Admit one Creator node through its exact parent design authority."""
+        """Admit one Creator node through its parent's frozen design authority."""
 
         parent = self.store.get_creator(parent_creator_episode_id.value)
         if parent is None:
@@ -1128,82 +705,22 @@ class DuetService:
         )
         if deficits:
             raise WorkflowAdmissionError(deficits)
-        nodes = {
-            item.local_id: item
-            for item in workflow.episodes
-            if item.local_id == node_local_id
-        }
-        if len(nodes) != 1:
+        node = next(
+            (item for item in workflow.episodes if item.local_id == node_local_id),
+            None,
+        )
+        if node is None:
             raise DuetNotFoundError("nested Creator node is absent from the design")
-        contract = nodes[node_local_id].contract
-        if not contract.can_create_episodes or contract.creator_contract is None:
-            raise DuetProtocolError("selected workflow node is not a Creator")
-        contract_artifact_id = content_id(
-            "contract",
-            {
-                "duet_id": parent["duet_id"],
-                "parent_creator_episode_id": parent_creator_episode_id.value,
-                "workflow_design_artifact_id": workflow_design_artifact_id.value,
-                "node_local_id": node_local_id,
-                "contract": contract.as_record(),
-            },
-        )
-        frozen = FrozenCreatorContract(
-            artifact_id=contract_artifact_id,
+        return self._admit_creator_node(
             duet_id=OpaqueId(parent["duet_id"]),
-            draft_id=content_id(
-                "draft",
-                {
-                    "workflow_design_artifact_id": workflow_design_artifact_id.value,
-                    "node_local_id": node_local_id,
-                },
-            ),
-            revision=artifact["revision"],
-            content_hash=contract.spec_hash,
-            contract=contract,
+            source_design_artifact_id=workflow_design_artifact_id,
+            source_design_hash=Sha256Digest(artifact["content_hash"]),
+            workflow_approval_id=OpaqueId(parent["approval_id"]),
+            node_local_id=node_local_id,
+            contract=node.contract,
+            source_revision=int(artifact["revision"]),
+            parent_creator_episode_id=parent_creator_episode_id,
         )
-        creator_episode_id = content_id(
-            "episode",
-            {
-                "duet_id": parent["duet_id"],
-                "parent_creator_episode_id": parent_creator_episode_id.value,
-                "workflow_design_artifact_id": workflow_design_artifact_id.value,
-                "node_local_id": node_local_id,
-                "contract_hash": frozen.content_hash.value,
-            },
-        )
-        self.store.put_artifact(
-            artifact_id=frozen.artifact_id.value,
-            duet_id=parent["duet_id"],
-            creator_episode_id=creator_episode_id.value,
-            kind="nested_creator_contract",
-            revision=frozen.revision,
-            content_hash=frozen.content_hash.value,
-            record=frozen.as_record(),
-        )
-        self.store.admit_creator(
-            creator_episode_id=creator_episode_id.value,
-            duet_id=parent["duet_id"],
-            contract_artifact_id=frozen.artifact_id.value,
-            contract_hash=frozen.content_hash.value,
-            approval_id=parent["approval_id"],
-            parent_creator_episode_id=parent_creator_episode_id.value,
-            design_artifact_id=workflow_design_artifact_id.value,
-            state=DuetDesignState.CREATOR_ADMITTED.value,
-        )
-        self.store.append_event(
-            duet_id=parent["duet_id"],
-            event_type="nested_creator_admitted",
-            provenance=DuetProvenance.HOST_VALIDATION.value,
-            record={
-                "creator_episode_id": creator_episode_id.value,
-                "parent_creator_episode_id": parent_creator_episode_id.value,
-                "workflow_design_artifact_id": workflow_design_artifact_id.value,
-                "node_local_id": node_local_id,
-                "contract_hash": frozen.content_hash.value,
-            },
-        )
-        return creator_episode_id
 
     def register_evidence(
         self,
@@ -1243,18 +760,18 @@ class DuetService:
 
     def _creator_frozen_contract(
         self, creator_episode_id: OpaqueId
-    ) -> FrozenCreatorContract:
+    ) -> AdmittedCreatorContract:
         creator = self.store.get_creator(creator_episode_id.value)
         if creator is None:
             raise DuetNotFoundError("unknown Creator Episode")
         artifact = self.store.get_artifact(creator["contract_artifact_id"])
         if artifact is None:
             raise DuetNotFoundError("Creator contract artifact is missing")
-        return _frozen_from_artifact(artifact["record"])
+        return _admitted_creator_from_artifact(artifact["record"])
 
     def creator_contract(
         self, creator_episode_id: OpaqueId
-    ) -> FrozenCreatorContract:
+    ) -> AdmittedCreatorContract:
         """Return the exact admitted contract for a Creator runtime."""
 
         return self._creator_frozen_contract(creator_episode_id)
@@ -1378,34 +895,55 @@ class DuetService:
         workflow: EpisodeWorkflowSpec,
     ) -> tuple[ContractDeficit, ...]:
         frozen = self._creator_frozen_contract(creator_episode_id)
+        creator = frozen.contract.creator_contract
+        if creator is None:
+            raise DuetProtocolError("Creator Episode lacks its Creator contract")
         return self._workflow_deficits_for_authority(
             duet_id=frozen.duet_id,
-            authority_contract=frozen.contract,
             workflow=workflow,
             authority_depth=self._creator_authority_depth(creator_episode_id),
             consumer_creator_episode_id=creator_episode_id,
+            assignable_capability_names=creator.assignable_capability_names,
+            may_assign_creator_capability=creator.may_assign_creator_capability,
+            maximum_creator_depth=self.policy(
+                frozen.duet_id
+            ).maximum_creator_depth,
+            maximum_workflow_depth=(
+                None
+                if frozen.contract.safety_bounds is None
+                else frozen.contract.safety_bounds.max_depth
+            ),
+        )
+
+    def workflow_admission_authority(
+        self,
+        duet_id: OpaqueId,
+    ) -> WorkflowAdmissionAuthority:
+        """Return the host-owned, model-free admission ceiling."""
+
+        self._duet_row(duet_id)
+        return WorkflowAdmissionAuthority(
+            duet_id=duet_id,
+            assignable_capability_names=tuple(
+                sorted(self.allowed_episode_capabilities)
+            ),
+            maximum_creator_depth=self.policy(duet_id).maximum_creator_depth,
         )
 
     def _workflow_deficits_for_authority(
         self,
         *,
         duet_id: OpaqueId,
-        authority_contract: EpisodeCreationSpec,
         workflow: EpisodeWorkflowSpec,
         authority_depth: int,
         consumer_creator_episode_id: Optional[OpaqueId],
+        assignable_capability_names: tuple[str, ...],
+        may_assign_creator_capability: bool,
+        maximum_creator_depth: int,
+        maximum_workflow_depth: Optional[int],
     ) -> tuple[ContractDeficit, ...]:
-        """Validate a workflow without requiring a running design agent.
+        """Validate one work graph under an exact authority-tree parent."""
 
-        A Duet-owned draft reserves the future root Creator at depth one. An
-        admitted recursive Creator supplies its actual lineage depth. The
-        checks themselves are identical, so moving design ownership to the
-        Duet does not weaken capability, context, topology, or depth gates.
-        """
-
-        creator = authority_contract.creator_contract
-        if creator is None:
-            raise DuetProtocolError("Creator Episode lacks its Creator contract")
         deficits: list[ContractDeficit] = []
         roots = [
             item for item in workflow.episodes
@@ -1413,7 +951,7 @@ class DuetService:
         ]
         if len(roots) != 1:
             deficits.append(ContractDeficit("single_root_required", "goal"))
-        allowed = set(creator.assignable_capability_names)
+        allowed = set(assignable_capability_names)
         by_local_id = {item.local_id: item for item in workflow.episodes}
         for item in workflow.episodes:
             if not set(item.contract.execution_capability_names).issubset(allowed):
@@ -1424,7 +962,7 @@ class DuetService:
                     )
                 )
             if item.contract.can_create_episodes:
-                if not creator.may_assign_creator_capability:
+                if not may_assign_creator_capability:
                     deficits.append(
                         ContractDeficit(
                             "recursive_creator_not_authorized",
@@ -1459,6 +997,7 @@ class DuetService:
                             ContractDeficit(
                                 exc.code,
                                 "creator_contract.design_context",
+                                detail=str(exc),
                             )
                         )
             parent_id = item.workflow_parent_local_id
@@ -1472,26 +1011,19 @@ class DuetService:
                         "creator_contract",
                     )
                 )
-        policy = self.policy(duet_id)
         depths = self._workflow_depths(workflow)
-        creator_depth = max(
-            (
-                authority_depth + depths[item.local_id] + 1
-                for item in workflow.episodes
-                if item.contract.can_create_episodes
-            ),
-            default=authority_depth,
+        creator_depth = authority_depth + (
+            1 if any(item.contract.can_create_episodes for item in workflow.episodes) else 0
         )
-        if creator_depth > policy.maximum_creator_depth:
+        if creator_depth > maximum_creator_depth:
             deficits.append(
                 ContractDeficit("creator_depth_exceeded", "creator_contract")
             )
-        max_depth = (
-            None
-            if authority_contract.safety_bounds is None
-            else authority_contract.safety_bounds.max_depth
-        )
-        if max_depth is not None and depths and max(depths.values()) + 1 > max_depth:
+        if (
+            maximum_workflow_depth is not None
+            and depths
+            and max(depths.values()) + 1 > maximum_workflow_depth
+        ):
             deficits.append(ContractDeficit("workflow_depth_exceeded", "safety_bounds"))
         unique = {
             (item.code, item.field_path, item.blocking): item for item in deficits
@@ -1526,29 +1058,16 @@ class DuetService:
                     detail=str(exc),
                 ),
             )
-        draft = self.latest_draft(duet_id)
-        authority, authority_deficits = self._materialize_contract(
-            draft.fields,
-            duet_id=duet_id,
-        )
-        if authority is None or authority_deficits:
-            detail = ", ".join(
-                sorted({item.code for item in authority_deficits})
-            ) or "internal design authority is incomplete"
-            return workflow, (
-                ContractDeficit(
-                    "design_authority_incomplete",
-                    "creator_contract",
-                    detail=detail,
-                ),
-            )
+        authority = self.workflow_admission_authority(duet_id)
         return workflow, self._workflow_deficits_for_authority(
             duet_id=duet_id,
-            authority_contract=authority,
             workflow=workflow,
-            # The approved design will be owned by one admitted root Creator.
-            authority_depth=1,
+            authority_depth=0,
             consumer_creator_episode_id=None,
+            assignable_capability_names=authority.assignable_capability_names,
+            may_assign_creator_capability=True,
+            maximum_creator_depth=authority.maximum_creator_depth,
+            maximum_workflow_depth=None,
         )
 
     def _validate_registered_evidence(
@@ -1705,6 +1224,77 @@ class DuetService:
         if artifact is None:
             raise DuetProtocolError("Episode workflow draft was not durably stored")
         return artifact
+
+    def freeze_duet_workflow(
+        self,
+        *,
+        duet_id: OpaqueId,
+        source_draft_artifact_id: OpaqueId,
+        source_draft_hash: Sha256Digest,
+    ) -> FrozenDuetWorkflow:
+        """Freeze the exact Duet-owned workflow under host admission authority."""
+
+        source = self.store.get_artifact(source_draft_artifact_id.value)
+        latest = self.store.latest_artifact(
+            duet_id=duet_id.value,
+            kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
+            unowned_only=True,
+        )
+        if (
+            source is None
+            or source["duet_id"] != duet_id.value
+            or source["kind"] != EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND
+            or source["creator_episode_id"] is not None
+            or source["content_hash"] != source_draft_hash.value
+            or latest is None
+            or latest["artifact_id"] != source["artifact_id"]
+        ):
+            raise StaleDuetApprovalError(
+                "Episode workflow draft changed before it could be frozen"
+            )
+        blueprint = source["record"].get("workflow_blueprint")
+        workflow, deficits = self.validate_duet_workflow(duet_id, blueprint)
+        if workflow is None or deficits:
+            raise WorkflowAdmissionError(deficits)
+        authority = self.workflow_admission_authority(duet_id)
+        self.store.put_artifact(
+            artifact_id=authority.authority_id.value,
+            duet_id=duet_id.value,
+            kind="workflow_admission_authority",
+            revision=0,
+            content_hash=authority.content_hash.value,
+            record=authority.as_record(),
+        )
+        identity_record = {
+            "duet_id": duet_id.value,
+            "source_draft_artifact_id": source_draft_artifact_id.value,
+            "source_draft_hash": source_draft_hash.value,
+            "revision": int(source["revision"]),
+            "workflow_hash": workflow.workflow_hash.value,
+            "admission_authority_id": authority.authority_id.value,
+            "admission_authority_hash": authority.content_hash.value,
+        }
+        artifact_id = content_id("workflow", identity_record)
+        frozen = FrozenDuetWorkflow(
+            artifact_id=artifact_id,
+            duet_id=duet_id,
+            revision=int(source["revision"]),
+            workflow_hash=workflow.workflow_hash,
+            workflow=workflow,
+            admission_authority_id=authority.authority_id,
+            admission_authority_hash=authority.content_hash,
+            source_draft_artifact_id=source_draft_artifact_id,
+            source_draft_hash=source_draft_hash,
+        )
+        self.store.put_artifact(
+            artifact_id=artifact_id.value,
+            duet_id=duet_id.value,
+            kind="duet_workflow",
+            revision=frozen.revision,
+            content_hash=frozen.workflow_hash.value,
+            record=frozen.as_record(),
+        )
+        return frozen
 
     def record_episode_workflow_draft(
         self,
@@ -1986,34 +1576,8 @@ class DuetService:
             content_hash=workflow.workflow_hash.value,
             record=candidate.as_record(),
         )
-        self.store.set_state(
-            frozen.duet_id.value,
-            DuetDesignState.AWAITING_WORKFLOW_APPROVAL.value,
-        )
         return candidate
 
-    def approve_workflow(
-        self,
-        identity: DuetIdentity,
-        candidate: WorkflowCandidate,
-    ) -> WorkflowApproval:
-        if candidate.duet_id != identity.duet_id:
-            raise DuetProtocolError("workflow candidate belongs to another Duet")
-        policy = self.policy(identity.duet_id)
-        if candidate.projection.method_credit < policy.minimum_method_credit:
-            raise WorkflowAdmissionError(
-                (ContractDeficit("credit_below_threshold", "creator_contract"),)
-            )
-        approval = self.record_human_approval(
-            identity,
-            kind=ApprovalKind.WORKFLOW,
-            artifact_id=candidate.artifact_id,
-            content_hash=candidate.workflow_hash,
-            revision=candidate.revision,
-        )
-        return WorkflowApproval(approval)
-
-    @staticmethod
     def _candidate_from_artifact(record: Mapping[str, Any]) -> WorkflowCandidate:
         return WorkflowCandidate(
             artifact_id=OpaqueId(record["artifact_id"]),
@@ -2043,121 +1607,142 @@ class DuetService:
             raise DuetNotFoundError("Creator Episode has no measured workflow candidate")
         return self._candidate_from_artifact(artifact["record"])
 
-    @staticmethod
-    def _workflow_from_artifact(record: Mapping[str, Any]) -> EpisodeWorkflowSpec:
-        return EpisodeWorkflowSpec.from_record(record["workflow"])
-
-    def launch_workflow(
+    def _launched_episode_records(
         self,
         *,
-        workflow_artifact_id: OpaqueId,
-        workflow_hash: Sha256Digest,
-        workflow_approval_id: OpaqueId,
+        workflow: EpisodeWorkflowSpec,
         run_id: str,
-    ) -> OpaqueId:
-        artifact = self.store.get_artifact(workflow_artifact_id.value)
-        if artifact is None or artifact["kind"] not in {
-            ApprovalKind.WORKFLOW.value,
-            "workflow_design",
-        }:
-            raise DuetNotFoundError("approved workflow artifact not found")
-        record = artifact["record"]
-        workflow = self._workflow_from_artifact(record)
-        if workflow.workflow_hash != workflow_hash:
-            raise StaleDuetApprovalError("workflow content hash is stale")
-        latest = self.store.latest_artifact(
-            duet_id=record["duet_id"],
-            kind=artifact["kind"],
-            creator_episode_id=record["creator_episode_id"],
-        )
-        if latest is None or latest["artifact_id"] != workflow_artifact_id.value:
-            raise StaleDuetApprovalError(
-                "workflow approval was invalidated by a later candidate revision"
-            )
-        approval = self._require_exact_approval(
-            approval_id=workflow_approval_id,
-            kind=ApprovalKind.WORKFLOW,
-            artifact_id=workflow_artifact_id,
-            content_hash=workflow_hash,
-            revision=record["revision"],
-        )
-        creator_episode_id = OpaqueId(record["creator_episode_id"])
-        deficits = self.workflow_deficits(
-            creator_episode_id=creator_episode_id,
-            workflow=workflow,
-        )
-        if deficits:
-            raise WorkflowAdmissionError(deficits)
-        launch_id = content_id(
-            "launch",
-            {
-                "workflow_artifact_id": workflow_artifact_id.value,
-                "workflow_hash": workflow_hash.value,
-                "approval_id": approval.approval_id.value,
-                "run_id": run_id,
-            },
-        )
+        design_artifact_id: OpaqueId,
+    ) -> tuple[dict[str, Any], ...]:
+        """Materialize stable Episode identities for one admitted workflow."""
+
         by_id = {item.local_id: item for item in workflow.episodes}
         depths = self._workflow_depths(workflow)
         episode_ids: dict[str, OpaqueId] = {}
-        ordered = sorted(workflow.episodes, key=lambda item: (depths[item.local_id], item.local_id))
+        ordered = sorted(
+            workflow.episodes,
+            key=lambda item: (depths[item.local_id], item.local_id),
+        )
+        run_key = f"approved-{design_artifact_id.value[-12:]}"
         for item in ordered:
-            parent = item.workflow_parent_local_id
-            if parent is not None:
-                # Reconstruct the structural path from local ancestry instead
-                # of smuggling an authority root into Episode identity.
-                ancestry = []
-                cursor: Optional[str] = item.local_id
-                while cursor is not None:
-                    ancestry.append(cursor)
-                    cursor = by_id[cursor].workflow_parent_local_id
-                path = tuple(
-                    (
-                        "creator_episode"
-                        if by_id[local_id].contract.can_create_episodes
-                        else "task_episode",
-                        local_id,
-                    )
-                    for local_id in reversed(ancestry)
+            ancestry = []
+            cursor: Optional[str] = item.local_id
+            while cursor is not None:
+                ancestry.append(cursor)
+                cursor = by_id[cursor].workflow_parent_local_id
+            path = (("run_episode", run_key),) + tuple(
+                (
+                    "creator_episode"
+                    if by_id[local_id].contract.can_create_episodes
+                    else "task_episode",
+                    f"{design_artifact_id.value}:{local_id}",
                 )
-            else:
-                path = (
-                    (
-                        "creator_episode"
-                        if item.contract.can_create_episodes
-                        else "task_episode",
-                        item.local_id,
-                    ),
-                )
+                for local_id in reversed(ancestry)
+            )
             episode_ids[item.local_id] = OpaqueId(
                 EpisodeRef(run_id=run_id, path=path).episode_id
             )
-        episode_records = tuple(
+        return tuple(
             {
                 "episode_id": episode_ids[item.local_id].value,
-                "designed_by_episode_id": creator_episode_id.value,
+                "design_artifact_id": design_artifact_id.value,
                 "workflow_parent_episode_id": (
                     None
                     if item.workflow_parent_local_id is None
                     else episode_ids[item.workflow_parent_local_id].value
                 ),
                 "local_id": item.local_id,
+                "runtime_key": f"{design_artifact_id.value}:{item.local_id}",
                 "depth": depths[item.local_id],
                 "contract_hash": item.contract.spec_hash.value,
                 "contract": item.contract.as_record(),
             }
             for item in ordered
         )
+
+    def launch_duet_workflow(
+        self,
+        *,
+        frozen: FrozenDuetWorkflow,
+        workflow_approval_id: OpaqueId,
+        run_id: str,
+    ) -> OpaqueId:
+        """Launch one approved Duet workflow without minting a fake Creator."""
+
+        artifact = self.store.get_artifact(frozen.artifact_id.value)
+        if (
+            artifact is None
+            or artifact["kind"] != "duet_workflow"
+            or artifact["creator_episode_id"] is not None
+            or artifact["record"] != frozen.as_record()
+        ):
+            raise DuetNotFoundError("frozen Duet workflow artifact not found")
+        latest_draft = self.store.latest_artifact(
+            duet_id=frozen.duet_id.value,
+            kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
+            unowned_only=True,
+        )
+        if (
+            latest_draft is None
+            or latest_draft["artifact_id"]
+            != frozen.source_draft_artifact_id.value
+            or latest_draft["content_hash"] != frozen.source_draft_hash.value
+        ):
+            raise StaleDuetApprovalError(
+                "workflow approval was invalidated by a later Duet revision"
+            )
+        current_authority = self.workflow_admission_authority(frozen.duet_id)
+        if (
+            current_authority.authority_id != frozen.admission_authority_id
+            or current_authority.content_hash != frozen.admission_authority_hash
+        ):
+            raise StaleDuetApprovalError(
+                "host admission authority changed after workflow validation"
+            )
+        workflow, deficits = self.validate_duet_workflow(
+            frozen.duet_id,
+            latest_draft["record"]["workflow_blueprint"],
+        )
+        if workflow is None or deficits or workflow != frozen.workflow:
+            raise WorkflowAdmissionError(deficits or (
+                ContractDeficit("workflow_changed", "goal"),
+            ))
+        approval = self._require_exact_approval(
+            approval_id=workflow_approval_id,
+            kind=ApprovalKind.WORKFLOW,
+            artifact_id=frozen.artifact_id,
+            content_hash=frozen.workflow_hash,
+            revision=frozen.revision,
+        )
+        attempt = self.store.launch_count(
+            duet_id=frozen.duet_id.value,
+            workflow_artifact_id=frozen.artifact_id.value,
+        ) + 1
+        launch_id = content_id(
+            "launch",
+            {
+                "workflow_artifact_id": frozen.artifact_id.value,
+                "workflow_hash": frozen.workflow_hash.value,
+                "approval_id": approval.approval_id.value,
+                "run_id": run_id,
+                "attempt": attempt,
+            },
+        )
         self.store.launch_workflow(
             launch_record={
                 "launch_id": launch_id.value,
-                "duet_id": record["duet_id"],
-                "workflow_artifact_id": workflow_artifact_id.value,
-                "workflow_hash": workflow_hash.value,
+                "duet_id": frozen.duet_id.value,
+                "workflow_artifact_id": frozen.artifact_id.value,
+                "workflow_hash": frozen.workflow_hash.value,
                 "approval_id": workflow_approval_id.value,
                 "run_id": run_id,
+                "attempt": attempt,
             },
-            episode_records=episode_records,
+            episode_records=self._launched_episode_records(
+                workflow=frozen.workflow,
+                run_id=run_id,
+                design_artifact_id=frozen.artifact_id,
+            ),
         )
         return launch_id
 
@@ -2348,242 +1933,154 @@ class DuetService:
         return tuple(resolved)
 
     def duet_status(self, duet_id: OpaqueId) -> dict[str, Any]:
-        """Closed, prose-free status projection suitable for the Duet LLM."""
+        """Closed status for workflow design, execution, and real Creator nodes."""
 
         row = self._duet_row(duet_id)
-        draft = self.latest_draft(duet_id)
-        requests = self.information_requests(duet_id)
-        creator = self.store.latest_creator(duet_id.value)
-        superseded_creator = None
-        if creator is not None:
-            contract_artifact = self.store.get_artifact(
-                creator["contract_artifact_id"]
-            )
-            if (
-                contract_artifact is not None
-                and draft.revision > int(contract_artifact["revision"])
-            ):
-                superseded_creator = {
-                    "creator_episode_id": creator["creator_episode_id"],
-                    "contract_artifact_id": creator["contract_artifact_id"],
-                    "contract_revision": int(contract_artifact["revision"]),
-                    "state": creator["state"],
-                }
-                creator = None
-        progress = None
-        activity = None
-        activity_history: list[dict[str, Any]] = []
-        failure = None
-        workflow_review = None
-        if creator is not None:
-            creator_episode_id = creator["creator_episode_id"]
-            latest = self.store.latest_artifact(
-                duet_id=duet_id.value,
-                kind="creator_progress",
-                creator_episode_id=creator_episode_id,
-            )
-            if latest is not None:
-                progress = latest["record"]
-            activity_artifacts = self.store.recent_artifacts_by_kind(
-                duet_id=duet_id.value,
-                kind="creator_activity",
-                creator_episode_id=creator_episode_id,
-                limit=8,
-            )
-            if activity_artifacts:
-                activity_history = [
-                    item["record"] for item in activity_artifacts[-8:]
-                ]
-                activity = activity_history[-1]
-            failure_artifact = self.store.latest_artifact(
-                duet_id=duet_id.value,
-                kind="creator_execution_error",
-                creator_episode_id=creator_episode_id,
-            )
-            if failure_artifact is not None:
-                failure = {
-                    "error_artifact_id": failure_artifact["artifact_id"],
-                    **failure_artifact["record"],
-                }
-                if (
-                    row["state"] != DuetDesignState.FAILED.value
-                    or (
-                        activity is not None
-                        and failure.get("attempt") != activity.get("attempt")
-                    )
-                ):
-                    failure = None
-        creator_approval = self.store.latest_approval(
-            duet_id=duet_id.value,
-            kind=ApprovalKind.CREATOR_CONTRACT.value,
-        )
-        superseded_creator_approval = None
-        if (
-            creator_approval is not None
-            and int(creator_approval["revision"]) != draft.revision
-        ):
-            superseded_creator_approval = creator_approval
-            creator_approval = None
-        workflow_approval = self.store.latest_approval(
-            duet_id=duet_id.value,
-            kind=ApprovalKind.WORKFLOW.value,
-        )
-        superseded_workflow_approval = None
-        launch = self.store.latest_launch(duet_id.value)
-        superseded_launch = None
-        answer_artifact = self.store.latest_artifact(
-            duet_id=duet_id.value,
-            kind="duet_answer",
-        )
-        pending_human_answer = None
-        request_ids = {item.request_id.value for item in requests}
-        if answer_artifact is not None:
-            answer_record = answer_artifact["record"]
-            if (
-                answer_record.get("revision") == draft.revision
-                and answer_record.get("request_id") in request_ids
-            ):
-                pending_human_answer = {
-                    "answer_artifact_id": answer_artifact["artifact_id"],
-                    "request_id": answer_record["request_id"],
-                    "field_path": answer_record["field_path"],
-                    "revision": answer_record["revision"],
-                }
-        configuration = draft.materialized()
-        episode_workflow_artifact = self.store.latest_artifact(
+        draft_artifact = self.store.latest_artifact(
             duet_id=duet_id.value,
             kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
             unowned_only=True,
         )
-        episode_workflow_draft = None
-        if episode_workflow_artifact is not None:
-            workflow_record = episode_workflow_artifact["record"]
-            if (
-                workflow_approval is not None
-                and workflow_approval.get("content_hash")
-                != workflow_record.get("workflow_hash")
-            ):
-                superseded_workflow_approval = workflow_approval
-                workflow_approval = None
-            if (
-                launch is not None
-                and launch.get("workflow_hash")
-                != workflow_record.get("workflow_hash")
-            ):
-                superseded_launch = launch
-                launch = None
-            episode_workflow_draft = {
-                "artifact_id": episode_workflow_artifact["artifact_id"],
-                "revision": episode_workflow_artifact["revision"],
-                "content_hash": episode_workflow_artifact["content_hash"],
-                "source_stage": workflow_record["source_stage"],
-                "workflow_hash": workflow_record.get("workflow_hash"),
-                "creator_episode_id": episode_workflow_artifact[
-                    "creator_episode_id"
-                ],
-                "ready": bool(workflow_record.get("ready")),
+        workflow_draft = None
+        if draft_artifact is not None:
+            draft_record = draft_artifact["record"]
+            workflow_draft = {
+                "artifact_id": draft_artifact["artifact_id"],
+                "revision": draft_artifact["revision"],
+                "content_hash": draft_artifact["content_hash"],
+                "source_stage": draft_record["source_stage"],
+                "workflow_hash": draft_record.get("workflow_hash"),
+                "ready": bool(draft_record.get("ready")),
                 "validation_deficits": list(
-                    workflow_record.get("validation_deficits") or ()
+                    draft_record.get("validation_deficits") or ()
                 ),
             }
-            explicit_review = self.store.latest_artifact(
+
+        approval = self.store.latest_approval(
+            duet_id=duet_id.value,
+            kind=ApprovalKind.WORKFLOW.value,
+        )
+        superseded_approval = None
+        if approval is not None:
+            approved_artifact = self.store.get_artifact(approval["artifact_id"])
+            source_id = (
+                None
+                if approved_artifact is None
+                else approved_artifact["record"].get("source_draft_artifact_id")
+            )
+            if (
+                draft_artifact is None
+                or source_id != draft_artifact["artifact_id"]
+                or approval.get("revoked")
+            ):
+                superseded_approval = approval
+                approval = None
+
+        review = None
+        if draft_artifact is not None:
+            review_artifact = self.store.latest_artifact(
                 duet_id=duet_id.value,
                 kind="workflow_shadow_review",
                 unowned_only=True,
             )
+            authority = self.workflow_admission_authority(duet_id)
             if (
-                explicit_review is not None
-                and explicit_review["record"].get("workflow_blueprint_hash")
-                == episode_workflow_artifact["content_hash"]
-                and explicit_review["record"].get("creator_contract_hash")
-                == draft.content_hash.value
+                review_artifact is not None
+                and review_artifact["record"].get("workflow_blueprint_hash")
+                == draft_artifact["content_hash"]
+                and review_artifact["record"].get("admission_authority_hash")
+                == authority.content_hash.value
             ):
-                review_record = explicit_review["record"]
-                workflow_review = {
-                    "review_artifact_id": explicit_review["artifact_id"],
-                    "workflow_blueprint_hash": review_record.get(
-                        "workflow_blueprint_hash"
-                    ),
+                review_record = review_artifact["record"]
+                review = {
+                    "review_artifact_id": review_artifact["artifact_id"],
+                    "workflow_blueprint_hash": review_record["workflow_blueprint_hash"],
                     "lenses": [
                         {
                             "lens": lens,
-                            "verdict": review.get("verdict", "unknown"),
+                            "verdict": result.get("verdict", "unknown"),
                             "finding_codes": [
-                                item.get("code")
-                                for item in review.get("findings") or ()
-                                if isinstance(item, Mapping)
-                                and isinstance(item.get("code"), str)
+                                finding.get("code")
+                                for finding in result.get("findings") or ()
+                                if isinstance(finding, Mapping)
+                                and isinstance(finding.get("code"), str)
                             ],
                         }
-                        for lens, review in sorted(
+                        for lens, result in sorted(
                             (review_record.get("lenses") or {}).items()
                         )
                     ],
                 }
-        field_records = [item.as_record() for item in draft.fields]
-        ledger = []
-        for field_path in _REQUIRED_CREATOR_FIELDS:
-            records = tuple(
-                item
-                for item in draft.fields
-                if item.field_path == field_path
-                or item.field_path.startswith(field_path + ".")
+
+        creator_statuses = []
+        for creator in self.store.creators(duet_id.value):
+            creator_id = creator["creator_episode_id"]
+            progress_artifact = self.store.latest_artifact(
+                duet_id=duet_id.value,
+                kind="creator_progress",
+                creator_episode_id=creator_id,
             )
-            if not records:
-                disposition = "unresolved"
-            elif all(item.human_fixed for item in records):
-                disposition = "human_confirmed"
-            elif any(item.human_fixed for item in records):
-                disposition = "mixed"
-            else:
-                disposition = "llm_proposed"
-            ledger.append(
+            activity_artifacts = self.store.recent_artifacts_by_kind(
+                duet_id=duet_id.value,
+                kind="creator_activity",
+                creator_episode_id=creator_id,
+                limit=8,
+            )
+            failure_artifact = self.store.latest_artifact(
+                duet_id=duet_id.value,
+                kind="creator_execution_error",
+                creator_episode_id=creator_id,
+            )
+            creator_statuses.append(
                 {
-                    "field_path": field_path,
-                    "disposition": disposition,
-                    "impact": _FIELD_IMPACTS[field_path].value,
-                    "record_count": len(records),
+                    "creator_episode_id": creator_id,
+                    "node_local_id": creator["node_local_id"],
+                    "parent_creator_episode_id": creator["parent_creator_episode_id"],
+                    "source_design_artifact_id": creator["design_artifact_id"],
+                    "state": creator["state"],
+                    "progress": (
+                        None if progress_artifact is None else progress_artifact["record"]
+                    ),
+                    "activity": (
+                        None
+                        if not activity_artifacts
+                        else activity_artifacts[-1]["record"]
+                    ),
+                    "activity_history": [
+                        item["record"] for item in activity_artifacts
+                    ],
+                    "failure": (
+                        None
+                        if failure_artifact is None
+                        else {
+                            "error_artifact_id": failure_artifact["artifact_id"],
+                            **failure_artifact["record"],
+                        }
+                    ),
                 }
             )
+
         return {
             "duet_id": duet_id.value,
             "state": row["state"],
-            "draft_id": draft.draft_id.value,
-            "revision": draft.revision,
-            "ready": draft.ready,
-            "content_hash": draft.content_hash.value,
-            "deficit_codes": [item.code for item in draft.deficits],
-            "deficits": [item.as_record() for item in draft.deficits],
-            "requested_field_ids": [item.field_path for item in requests],
-            "configuration": configuration,
+            "ready": bool(workflow_draft and workflow_draft["ready"]),
+            "episode_workflow_draft": workflow_draft,
+            "workflow_review": review,
+            "workflow_approval": approval,
+            "superseded_workflow_approval": superseded_approval,
+            "launch": self.store.latest_launch(duet_id.value),
+            "creator_episodes": creator_statuses,
             "creator_context_artifacts": list(
                 self.list_creator_context_artifacts(duet_id)
             ),
-            "field_records": field_records,
-            "design_ledger": ledger,
-            "open_questions": [item.as_record() for item in requests],
-            "pending_human_answer": pending_human_answer,
-            "unconfirmed_proposal_ids": [
-                item.field_path
-                for item in draft.fields
-                if not item.human_fixed
-            ],
-            "creator_episode_id": (
-                None if creator is None else creator["creator_episode_id"]
-            ),
-            "superseded_creator": superseded_creator,
-            "creator_progress": progress,
-            "creator_activity": activity,
-            "creator_activity_history": activity_history,
-            "creator_failure": failure,
-            "workflow_review": workflow_review,
-            "episode_workflow_draft": episode_workflow_draft,
-            "creator_contract_approval": creator_approval,
-            "superseded_creator_contract_approval": superseded_creator_approval,
-            "workflow_approval": workflow_approval,
-            "superseded_workflow_approval": superseded_workflow_approval,
-            "launch": launch,
-            "superseded_launch": superseded_launch,
+            "creator_context_policy": {
+                "required_for": "explicit_creator_episode_nodes_only",
+                "ordinary_task_workflows_require_context_artifacts": False,
+                "creation_tool": "creator_context_artifact",
+                "read_tool": "creator_context_read",
+                "accepted_artifact_kind": _CREATOR_CONTEXT_ARTIFACT_KIND,
+                "prior_workflow_approval_or_contract_is_context": False,
+            },
             "allowed_episode_capability_names": sorted(
                 self.allowed_episode_capabilities
             ),
@@ -2591,8 +2088,10 @@ class DuetService:
                 "adapter_id": CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
                 "host_owned": True,
                 "measurement_boundary": "root_episode_progress",
+                "applies_to": "explicit_creator_episode_nodes_only",
             },
         }
+
 
 
 __all__ = [

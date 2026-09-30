@@ -307,53 +307,6 @@ def _openchia_scope(agent, args: dict, ctx: InlineToolContext) -> Any:
     )
 
 
-def _duet_contract_patch(agent, args: dict, ctx: InlineToolContext) -> Any:
-    from agent.duet_contracts import (
-        ContractFieldRecord,
-        DuetProvenance,
-        FieldImpact,
-    )
-
-    try:
-        service, identity = _duet_context(agent)
-        raw_patches = args.get("patches")
-        if not isinstance(raw_patches, list) or not raw_patches:
-            raise ValueError("patches must be a non-empty array")
-        patches = tuple(
-            ContractFieldRecord(
-                field_path=item["field_path"],
-                value=item["value"],
-                provenance=DuetProvenance.LLM_PROPOSAL,
-                impact=FieldImpact(item["impact"]),
-            )
-            for item in raw_patches
-            if isinstance(item, dict)
-        )
-        if len(patches) != len(raw_patches):
-            raise ValueError("every patch must be an object")
-        with _duet_draft_write(agent):
-            draft = service.patch_contract(
-                identity.duet_id,
-                expected_revision=args.get("expected_revision"),
-                patches=patches,
-                actor=DuetProvenance.LLM_PROPOSAL,
-            )
-        return json.dumps(
-            {
-                "draft_id": draft.draft_id.value,
-                "revision": draft.revision,
-                "ready": draft.ready,
-                "content_hash": draft.content_hash.value,
-                "deficits": [item.as_record() for item in draft.deficits],
-            },
-            sort_keys=True,
-        )
-    except Exception as exc:
-        return json.dumps(
-            {"accepted": False, "reason": type(exc).__name__}, sort_keys=True
-        )
-
-
 def _duet_status(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
         service, identity = _duet_context(agent)
@@ -402,28 +355,6 @@ def _episode_workflow_update(agent, args: dict, ctx: InlineToolContext) -> Any:
             },
             sort_keys=True,
         )
-
-
-def _duet_answer(agent, args: dict, ctx: InlineToolContext) -> Any:
-    from agent.episode_contracts import OpaqueId
-
-    try:
-        service, _identity = _duet_context(agent)
-        with _duet_draft_write(agent):
-            draft = service.submit_duet_answer(
-                OpaqueId(args.get("answer_artifact_id"))
-            )
-        return json.dumps(
-            {
-                "accepted": True,
-                "revision": draft.revision,
-                "ready": draft.ready,
-                "deficit_codes": [item.code for item in draft.deficits],
-            },
-            sort_keys=True,
-        )
-    except Exception as exc:
-        return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
 
 
 def _duet_decision(agent, args: dict, ctx: InlineToolContext) -> Any:
@@ -760,11 +691,9 @@ INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "manage_catalog": _manage_catalog,
     "setup_mcp": _setup_mcp_shim,
     "openchia_scope": _openchia_scope,
-    "duet_contract_patch": _duet_contract_patch,
     "duet_status": _duet_status,
     "episode_workflow_read": _episode_workflow_read,
     "episode_workflow_update": _episode_workflow_update,
-    "duet_answer": _duet_answer,
     "duet_decision": _duet_decision,
     "creator_context_artifact": _creator_context_artifact,
     "creator_context_read": _creator_context_read,
