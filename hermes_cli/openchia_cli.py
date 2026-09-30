@@ -100,6 +100,33 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
             run_state += f" ({status['final_error_code']})"
         return f"Run · {run_state} · /logs"
 
+    episode_workflow = status.get("episode_workflow") or {}
+    if episode_workflow:
+        workflow_revision = int(episode_workflow.get("revision") or 0)
+        validation_state = str(
+            episode_workflow.get("validation_state") or "draft"
+        )
+        if validation_state == "running":
+            return (
+                f"Episode workflow r{workflow_revision} · validating\n"
+                "/episode · /duet"
+            )
+        if validation_state == "failed":
+            error = episode_workflow.get("error_code") or "validation_failed"
+            return (
+                f"Episode workflow r{workflow_revision} · validation failed\n"
+                f"Stopped: {error} · /episode · /design"
+            )
+        if validation_state == "measured":
+            return (
+                f"Episode workflow r{workflow_revision} · measured and ready\n"
+                "/episode · /approve · /logs"
+            )
+        return (
+            f"Episode workflow r{workflow_revision} · draft under validation\n"
+            "/episode · /design"
+        )
+
     if status.get("creator_episode_id"):
         creator_state = str(progress.get("state") or state)
         candidate = int(progress.get("candidate_revision") or 0)
@@ -113,12 +140,12 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
             failure = status["creator_failure"]
             code = failure.get("error_code") or failure.get("error_class") or "failed"
             commands = (
-                "/creator · /retry"
+                "/design · /retry"
                 if failure.get("retryable") is True
-                else "/creator"
+                else "/design"
             )
             return (
-                f"Creator · failed · {detail}\n"
+                f"Design pass · failed · {detail}\n"
                 f"Stopped: {code} · {commands}"
             )
         if activity:
@@ -127,17 +154,17 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
             )
             current = _creator_activity_text(activity)
             commands = (
-                "/approve · /creator · /logs"
+                "/approve · /design · /logs"
                 if state == "awaiting_workflow_approval"
-                else "/creator · /guide · /pause"
+                else "/design · /guide · /pause"
             )
             return (
-                f"Creator · {creator_state} · {detail}\n"
+                f"Design pass · {creator_state} · {detail}\n"
                 f"Stage {step}/{step_count}: {current} · {commands}"
             )
         return (
-            f"Creator · {creator_state} · {detail}\n"
-            "/creator · /guide · /pause"
+            f"Design pass · {creator_state} · {detail}\n"
+            "/design · /guide · /pause"
         )
 
     if status.get("ready"):
@@ -151,26 +178,26 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
         )
         return (
             f"Duet · contract r{revision} ready{assumption_note} · {review_note}\n"
-            "/episode · /review · /approve"
+            "/review · /approve"
         )
 
     labels = {
         "goal": "intended outcome",
-        "creator_contract.design_context": "structured Creator context",
-        "creator_contract.design_scope": "Creator design scope",
+        "creator_contract.design_context": "structured design context",
+        "creator_contract.design_scope": "workflow design scope",
         "result": "concrete result",
         "unit": "repeatable cycle",
         "progress": "success evidence",
         "stopping": "stopping behavior",
         "execution_capability_names": "needed tools",
-        "creator_contract": "Creator design scope",
+        "creator_contract": "workflow design scope",
         "deliverable": "deliverable boundary",
         "safety_bounds": "safety limits",
     }
     focus = labels.get(deficits[0], deficits[0]) if deficits else "contract coherence"
     return (
         f"Duet · shaping contract · {field_count}/{len(CREATION_BLUEPRINT_FIELDS)} fields · gap: {focus}\n"
-        "/episode · /help"
+        "/help"
     )
 
 
@@ -194,7 +221,7 @@ def _creator_activity_text(activity: Mapping[str, Any]) -> str:
     code = str(activity.get("activity_code") or "creator_working")
     details = activity.get("details") or {}
     labels = {
-        "creator_attempt_started": "initializing the Creator runtime",
+        "creator_attempt_started": "initializing the internal design runtime",
         "design_cycle_started": "drafting a workflow candidate",
         "creator_context_read": "reading approved design context",
         "creator_run_log_read": "inspecting a prior Run log",
@@ -206,8 +233,8 @@ def _creator_activity_text(activity: Mapping[str, Any]) -> str:
         "workflow_candidate_rejected": "repairing a rejected candidate",
         "candidate_run_started": "testing the candidate workflow",
         "candidate_run_evaluating": "evaluating host evidence",
-        "creator_attempt_completed": "Creator attempt complete",
-        "creator_attempt_failed": "Creator attempt stopped",
+        "creator_attempt_completed": "design attempt complete",
+        "creator_attempt_failed": "design attempt stopped",
     }
     text = labels.get(code, code.replace("_", " "))
     if code == "workflow_review_started" and isinstance(details.get("lenses"), list):
@@ -218,15 +245,15 @@ def _creator_activity_text(activity: Mapping[str, Any]) -> str:
 
 
 def render_creator_diagnostics(status: dict[str, Any] | None) -> str:
-    """Render a structured Creator trace and actionable terminal diagnosis."""
+    """Render a structured internal design trace and terminal diagnosis."""
 
     if not status or not status.get("creator_episode_id"):
-        return "No Creator Episode has been admitted."
+        return "No internal Episode design pass is active."
     progress = status.get("creator_progress") or {}
     activity = status.get("creator_activity") or {}
     attempt = int(activity.get("attempt") or 1)
     lines = [
-        f"Creator attempt {attempt}: {progress.get('state') or status.get('state', 'unknown')}",
+        f"Design attempt {attempt}: {progress.get('state') or status.get('state', 'unknown')}",
         f"Candidate revision: {int(progress.get('candidate_revision') or 0)}",
     ]
     history = status.get("creator_activity_history") or []
@@ -251,7 +278,12 @@ def render_creator_diagnostics(status: dict[str, Any] | None) -> str:
             [
                 "Failure:",
                 f"  Code: {error_code}",
-                f"  Owner: {failure.get('owner', 'unknown')}",
+                "  Owner: "
+                + (
+                    "internal design"
+                    if failure.get("owner") == "creator"
+                    else str(failure.get("owner", "unknown"))
+                ),
                 f"  Stage: {failure.get('failed_stage', 'unknown')}",
                 f"  Message: {failure.get('message') or 'No message recorded.'}",
             ]
@@ -265,7 +297,7 @@ def render_creator_diagnostics(status: dict[str, Any] | None) -> str:
             if submission.get("message"):
                 lines.append(f"  Validation detail: {submission['message']}")
         if failure.get("contract_change_required") is False:
-            lines.append("  Approved Creator contract change required: no")
+            lines.append("  Approved design-brief change required: no")
     review = status.get("workflow_review") or {}
     lenses = review.get("lenses") or []
     if lenses:
@@ -304,18 +336,18 @@ class OpenChiaCLI(HermesCLI):
         "welcome": "OpenChia Duet ready.",
     }
     _openchia_commands = {
-        "/episode": "Inspect or tree-edit the Creator Episode configuration",
-        "/duet": "Show closed Duet, Creator, and Run state",
+        "/episode": "Inspect or tree-edit the nested Episode workflow",
+        "/duet": "Show the current design, validation, and Run state",
         "/openchia": "Alias for /duet",
-        "/creator": "Show Creator stages, failure evidence, and next action",
+        "/design": "Show internal drafting stages, failure evidence, and next action",
         "/queue": "Queue a message for the foreground Duet's next turn",
         "/bg": "Start or continue a separate background Duet",
-        "/approve": "Approve the ready contract or measured workflow",
-        "/answer": "Record an exact human answer to an open contract field",
-        "/review": "Run or show the advisory shadow contract review",
-        "/guide": "Queue human guidance at the next Creator boundary",
-        "/pause": "Stop the Creator at its next boundary",
-        "/cancel": "Cancel the Creator at its next boundary",
+        "/approve": "Approve the ready design brief or measured Episode workflow",
+        "/answer": "Record an exact human answer to an open design field",
+        "/review": "Run or show the advisory design-brief review",
+        "/guide": "Queue human guidance at the next design boundary",
+        "/pause": "Stop the design pass at its next boundary",
+        "/cancel": "Cancel the design pass at its next boundary",
         "/retry": "Request another design attempt at the next boundary",
         "/logs": "List persisted Run Episode logs",
         "/stop": "Interrupt the current turn and stop owned background work",
@@ -466,10 +498,6 @@ class OpenChiaCLI(HermesCLI):
                 available_tool_names=self._tool_names(agent),
                 agent_kwargs_factory=self._agent_kwargs_for_episode,
             )
-        if self._episode_view_configuration is None:
-            snapshot = self._openchia_host.episode_configuration()
-            self._episode_view_revision = int(snapshot["revision"])
-            self._episode_view_configuration = dict(snapshot["configuration"])
         self._openchia_status_cache = None
         return self._openchia_host.bind_duet(agent)
 
@@ -487,11 +515,10 @@ class OpenChiaCLI(HermesCLI):
         self.console.clear()
         self._console_print("[bold #8fb9a8]OPENCHIA[/]  human + LLM = Duet")
         self._console_print()
-        self._console_print("  [DUET] -- approved contract --> [CREATOR]")
-        self._console_print("     ^                              |")
-        self._console_print("     | closed progress              | frozen design")
-        self._console_print("     +-------------------------- [RUN]")
-        self._console_print("                         typed measures + log")
+        self._console_print("  [DUET] -- draft --> [EPISODE WORKFLOW]")
+        self._console_print("                         | validate")
+        self._console_print("                         v")
+        self._console_print("                       [RUN]")
         self._console_print()
 
     def _tui_welcome_branding(self, welcome_skin: Any) -> tuple[str, str]:
@@ -505,7 +532,7 @@ class OpenChiaCLI(HermesCLI):
 
     def _print_random_tip(self) -> None:
         self._console_print(
-            "[dim]The Duet specifies; the Creator experiments; Run Episodes return typed progress and logs.[/]"
+            "[dim]The Duet shapes the workflow; validation Runs return typed progress and logs.[/]"
         )
 
     def _tui_background_ui_active(self) -> bool:
@@ -625,20 +652,19 @@ class OpenChiaCLI(HermesCLI):
 
     def _show_episode_configuration(self) -> None:
         host = self._episode_host()
-        snapshot = host.episode_configuration()
+        snapshot = host.episode_workflow_configuration()
         changes = self._current_episode_changes(snapshot)
         self._episode_last_changes = changes
-        _revision, document = host.episode_editor_document()
         from hermes_cli.openchia_episode_editor import view_episode_document
 
         view_episode_document(
-            document,
+            snapshot["configuration"],
             missing_value=EPISODE_FIELD_PLACEHOLDER,
         )
         self._remember_episode_view(snapshot)
 
     def _show_episode_changes(self) -> None:
-        snapshot = self._episode_host().episode_configuration()
+        snapshot = self._episode_host().episode_workflow_configuration()
         changes = self._current_episode_changes(snapshot)
         if changes[2]:
             self._episode_last_changes = changes
@@ -688,7 +714,8 @@ class OpenChiaCLI(HermesCLI):
             self._show_episode_changes()
             return True
         if action == "edit":
-            with host.episode_edit_session() as (revision, document):
+            with host.episode_workflow_edit_session() as snapshot:
+                document = snapshot["configuration"]
                 self._show_episode_changes()
                 from hermes_cli.openchia_episode_editor import edit_episode_document
 
@@ -696,52 +723,28 @@ class OpenChiaCLI(HermesCLI):
                     document,
                     missing_value=EPISODE_FIELD_PLACEHOLDER,
                 )
-                if edited is None or (
-                    edited == document and not host.episode_has_creator_history()
-                ):
-                    self._remember_episode_view(host.episode_configuration())
-                    self._print_openchia("Episode configuration unchanged.")
+                if edited is None or edited == document:
+                    self._remember_episode_view(
+                        host.episode_workflow_configuration()
+                    )
+                    self._print_openchia("Episode workflow unchanged.")
                     return True
-                draft = host.replace_episode_configuration(
+                revision = host.record_episode_workflow_revision(
                     edited,
-                    expected_revision=revision,
+                    source_artifact_id=snapshot["source_artifact_id"],
+                    expected_workflow_hash=snapshot["content_hash"],
                 )
-                self._remember_episode_view(host.episode_configuration())
+                self._remember_episode_view(
+                    host.episode_workflow_configuration()
+                )
             self._print_openchia(
-                f"Episode configuration saved as revision {draft['revision']}; "
-                f"ready={draft['ready']}."
+                f"Episode workflow saved as revision {revision['revision']}; "
+                "host validation is running."
             )
             self._refresh_openchia()
-            return True
-        if action == "set":
-            field_path, separator, raw_value = arguments.strip().partition(" ")
-            if not separator:
-                raise ValueError("Usage: /episode set FIELD JSON_VALUE")
-            value = json.loads(raw_value)
-            draft = host.update_episode_configuration(field_path, value=value)
-            self._print_openchia(
-                f"Set {field_path}; Episode configuration is revision "
-                f"{draft['revision']} (ready={draft['ready']})."
-            )
-            self._refresh_openchia()
-            return True
-        if action in {"unset", "remove"}:
-            field_path = arguments.strip()
-            if not field_path:
-                raise ValueError("Usage: /episode unset FIELD")
-            draft = host.update_episode_configuration(field_path, remove=True)
-            self._print_openchia(
-                f"Removed {field_path}; Episode configuration is revision "
-                f"{draft['revision']} (ready={draft['ready']})."
-            )
-            self._refresh_openchia()
-            return True
-        if action == "capabilities":
-            names = host.episode_configuration()["allowed_capabilities"]
-            self._print_openchia("Assignable Episode capabilities:\n" + "\n".join(names))
             return True
         raise ValueError(
-            "Usage: /episode [show|diff|edit|set FIELD JSON_VALUE|unset FIELD|capabilities]"
+            "Usage: /episode [show|diff|edit]"
         )
 
     def _background_duet_agent_kwargs(
@@ -1075,25 +1078,23 @@ class OpenChiaCLI(HermesCLI):
         if lower == "/help" or lower.startswith("/help "):
             self._print_openchia(
                 "OpenChia controls:\n"
-                "  /episode          inspect the Episode configuration as a nested tree\n"
-                "  /episode edit     navigate the Episode tree and edit one section\n"
-                "  /episode diff     show exact changes since the last view\n"
-                "  /episode set FIELD JSON_VALUE   set one field or dotted path\n"
-                "  /episode unset FIELD            remove one field or dotted path\n"
-                "  /duet             show the closed Duet -> Creator -> Run state\n"
-                "  /creator          show live Creator stages or failure diagnostics\n"
+                "  /episode          inspect the designed Episode workflow as a nested tree\n"
+                "  /episode edit     edit one bounded part of that Episode workflow\n"
+                "  /episode diff     show exact workflow changes since the last view\n"
+                "  /duet             show the current design, validation, and Run state\n"
+                "  /design           show drafting stages or failure diagnostics\n"
                 "  /queue PROMPT      queue a message for the foreground Duet's next turn\n"
                 "  /bg PROMPT         start a separate background Duet\n"
                 "  /bg send ID TEXT   continue a background Duet\n"
                 "  /bg list           list background Duets open in this process\n"
                 "  /bg status ID      inspect a background Duet's state\n"
                 "  /bg close ID       close its live context while keeping persisted state\n"
-                "  /approve          approve the ready contract or measured workflow\n"
-                "  /answer FIELD JSON_VALUE   record an exact human answer to an open field\n"
-                "  /review           run or show the advisory shadow contract review\n"
-                "  /guide TEXT       queue human guidance at the next Creator boundary\n"
-                "  /pause            stop the Creator at its next boundary\n"
-                "  /cancel           cancel the Creator at its next boundary\n"
+                "  /approve          approve the ready brief or measured Episode workflow\n"
+                "  /answer FIELD JSON_VALUE   record an exact answer to an open design field\n"
+                "  /review           run or show the advisory design-brief review\n"
+                "  /guide TEXT       queue human guidance at the next design boundary\n"
+                "  /pause            stop the design pass at its next boundary\n"
+                "  /cancel           cancel the design pass at its next boundary\n"
                 "  /retry            request another design attempt at the next boundary\n"
                 "  /logs             list persisted Run Episode logs\n"
                 "  /stop             interrupt the current turn and stop owned background work\n"
@@ -1106,12 +1107,12 @@ class OpenChiaCLI(HermesCLI):
             try:
                 return self._process_episode_command(stripped)
             except Exception as exc:
-                self._print_openchia(f"Episode configuration not changed: {exc}")
+                self._print_openchia(f"Episode workflow not changed: {exc}")
                 return True
         if lower in {"/duet", "/openchia"}:
             self._print_openchia(render_openchia_status(self._status(refresh=True)))
             return True
-        if lower == "/creator":
+        if lower == "/design":
             self._print_openchia(
                 render_creator_diagnostics(self._status(refresh=True))
             )
@@ -1150,7 +1151,7 @@ class OpenChiaCLI(HermesCLI):
                 )
                 if receipt.kind == "creator_contract":
                     self._pending_agent_seed = (
-                        "Host event: the human approved the current Creator contract. "
+                        "Host event: the human approved the internal design brief. "
                         "Read duet_status, then submit that exact approved artifact with "
                         "episode_creator."
                     )
@@ -1174,7 +1175,7 @@ class OpenChiaCLI(HermesCLI):
             try:
                 decision_id = self._openchia_host.guide_creator(instruction)
                 self._print_openchia(
-                    f"Guidance queued for the next Creator boundary: {decision_id.value}"
+                    f"Guidance queued for the next design boundary: {decision_id.value}"
                 )
             except Exception as exc:
                 self._print_openchia(f"Guidance not queued: {exc}")
@@ -1188,7 +1189,7 @@ class OpenChiaCLI(HermesCLI):
             try:
                 decision_id = self._openchia_host.decide_creator(decisions[lower])
                 self._print_openchia(
-                    f"{decisions[lower].value} queued for the next Creator boundary: "
+                    f"{decisions[lower].value} queued for the next design boundary: "
                     f"{decision_id.value}"
                 )
             except Exception as exc:
@@ -1200,18 +1201,18 @@ class OpenChiaCLI(HermesCLI):
                 decision_id, receipt = self._openchia_host.retry_creator()
                 if receipt is None:
                     message = (
-                        "Retry queued for the next live Creator boundary: "
+                        "Retry queued for the next live design boundary: "
                         f"{decision_id.value}"
                     )
                 else:
                     message = (
-                        "Creator retry started: "
+                        "Design retry started: "
                         f"{receipt.execution_id.value} "
                         f"(decision {decision_id.value})"
                     )
                 self._print_openchia(message)
             except Exception as exc:
-                self._print_openchia(f"Creator retry not started: {exc}")
+                self._print_openchia(f"Design retry not started: {exc}")
             self._refresh_openchia()
             return True
         if lower == "/logs":

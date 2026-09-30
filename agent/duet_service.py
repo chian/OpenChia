@@ -2089,8 +2089,11 @@ class DuetService:
                     **failure_artifact["record"],
                 }
                 if (
-                    activity is not None
-                    and failure.get("attempt") != activity.get("attempt")
+                    row["state"] != DuetDesignState.FAILED.value
+                    or (
+                        activity is not None
+                        and failure.get("attempt") != activity.get("attempt")
+                    )
                 ):
                     failure = None
             review_artifact = self.store.latest_artifact(

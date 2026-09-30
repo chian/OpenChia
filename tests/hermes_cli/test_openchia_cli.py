@@ -88,7 +88,7 @@ def test_status_panel_is_compact_and_contextual():
     )
     assert "Stage 3/6" in running
     assert "independent workflow review (3 lenses)" in running
-    assert "/creator" in running
+    assert "/design" in running
 
 
 def test_creator_diagnostics_explains_failure_and_recovery():
@@ -135,7 +135,7 @@ def test_creator_diagnostics_explains_failure_and_recovery():
 
     assert "Code: candidate_rejected" in rendered
     assert "Validation detail: result_schema is required" in rendered
-    assert "Approved Creator contract change required: no" in rendered
+    assert "Approved design-brief change required: no" in rendered
     assert "CAPABILITY_INHERITANCE_ESCALATION" in rendered
     assert "/retry" in rendered
 

@@ -10,9 +10,12 @@ from agent.duet_contracts import (
     DuetPolicy,
     DuetProvenance,
 )
-from agent.duet_service import DuetService, StaleDuetApprovalError
+from agent.duet_service import DuetProtocolError, DuetService, StaleDuetApprovalError
 from agent.duet_store import DuetStore
-from agent.episode_blueprints import creation_blueprint_from_spec
+from agent.episode_blueprints import (
+    creation_blueprint_from_spec,
+    workflow_blueprint_from_spec,
+)
 from agent.episode_contracts import (
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
     EpisodeCreationSpec,
@@ -20,9 +23,11 @@ from agent.episode_contracts import (
     EpisodeCreatorContext,
     EpisodeCreatorReturnContract,
     EpisodeCreditComponentSpec,
+    EpisodeDesignSpec,
     EpisodeEvidenceRequirement,
     EpisodeMethodCreditSpec,
     EpisodeSafetyBounds,
+    EpisodeWorkflowSpec,
     NumericProgressMeasure,
     OpaqueId,
     ProgressDirection,
@@ -103,6 +108,27 @@ def _creator_context(host: OpenChiaHost) -> EpisodeCreatorContext:
     return EpisodeCreatorContext(
         entrypoint_artifact_id=reference.artifact_id,
         artifact_references=(reference,),
+    )
+
+
+def _workflow_task(goal: str) -> EpisodeCreationSpec:
+    return EpisodeCreationSpec(
+        goal=goal,
+        progress=NumericProgressMeasure(
+            metric_id=OpaqueId.mint("metric", goal),
+            description="Accepted task results",
+            unit="results",
+            direction=ProgressDirection.INCREASE,
+            baseline=0,
+            adapter_id="durable_evidence_count_v1",
+        ),
+        stopping=ProgressStopCriteria(
+            target=1,
+            minimum_delta=1,
+            stagnation_observations=2,
+        ),
+        execution_capability_names=(),
+        safety_bounds=EpisodeSafetyBounds(max_iterations=2, max_depth=2),
     )
 
 
@@ -496,5 +522,82 @@ def test_terminal_creator_can_be_revised_with_exact_recovery_context(tmp_path):
                 content_hash=Sha256Digest(frozen_record["content_hash"]),
                 human_approval_id=approval.approval_id,
             )
+    finally:
+        host.close()
+
+
+def test_episode_editor_targets_the_nested_workflow_and_revalidates_edits(tmp_path):
+    host = OpenChiaHost(
+        home=tmp_path,
+        session_id="20260930_120000_episode_workflow_editor",
+        available_tool_names={"web_search"},
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    try:
+        context = _creator_context(host)
+        blueprint = creation_blueprint_from_spec(_creator_spec(context))
+        initial = host.service.latest_draft(host.identity.duet_id)
+        host.replace_episode_configuration(
+            blueprint,
+            expected_revision=initial.revision,
+        )
+        approval = host.approve_current()
+        frozen_record = host.store.get_artifact(approval.artifact_id.value)["record"]
+        owner_id = host.service.submit_episode_creator(
+            contract_artifact_id=approval.artifact_id,
+            content_hash=Sha256Digest(frozen_record["content_hash"]),
+            human_approval_id=approval.approval_id,
+        )
+
+        with pytest.raises(DuetProtocolError, match="no Episode workflow draft"):
+            host.episode_workflow_configuration()
+
+        workflow = EpisodeWorkflowSpec(
+            (
+                EpisodeDesignSpec("root_episode", None, _workflow_task("Coordinate")),
+                EpisodeDesignSpec(
+                    "worker_episode",
+                    "root_episode",
+                    _workflow_task("Build one item"),
+                ),
+            )
+        )
+        design = host.service.freeze_workflow_design(
+            creator_episode_id=owner_id,
+            workflow_blueprint=workflow_blueprint_from_spec(workflow),
+            consumed_context_artifact_ids=(context.entrypoint_artifact_id.value,),
+        )
+        snapshot = host.episode_workflow_configuration()
+        assert [
+            node["local_id"] for node in snapshot["configuration"]["episodes"]
+        ] == ["root_episode", "worker_episode"]
+        assert snapshot["configuration"]["episodes"][1]["contract"]["goal"] == (
+            "Build one item"
+        )
+        assert snapshot["content_hash"] == design.workflow_hash.value
+        with pytest.raises(DuetProtocolError, match="no Episode workflow is ready"):
+            host.approve_current()
+
+        validations = []
+        host._run_episode_workflow_validation = (
+            lambda owner, revised, validation: validations.append(
+                (owner, revised, validation)
+            )
+        )
+        edited = snapshot["configuration"]
+        edited["episodes"][1]["contract"]["goal"] = "Build and verify one item"
+        receipt = host.record_episode_workflow_revision(
+            edited,
+            source_artifact_id=snapshot["source_artifact_id"],
+            expected_workflow_hash=snapshot["content_hash"],
+        )
+        host._episode_validation_threads[receipt["artifact_id"]].join(timeout=2)
+
+        revised = host.episode_workflow_configuration()
+        assert receipt["revision"] == design.revision + 1
+        assert revised["configuration"]["episodes"][1]["contract"]["goal"] == (
+            "Build and verify one item"
+        )
+        assert len(validations) == 1
     finally:
         host.close()
