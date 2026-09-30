@@ -68,8 +68,10 @@ Human /approve
 
 ## Pre-beta transition
 
-This boundary intentionally has no compatibility shim for older conversational
-workflow strings, automatic review artifacts, or sessions whose immutable tool
-policy predates `episode_workflow_update`. Start a new Duet when moving an
-existing prototype onto this design. Existing run/evidence ledgers remain
-auditable, but they are not promoted into a new design revision automatically.
+Older conversational workflow strings and automatic-review artifacts are not
+promoted into new design revisions. One narrow host migration does allow an
+existing Duet to reopen: it atomically removes the retired
+`duet_contract_review` and `episode_creator` capabilities, adds
+`episode_workflow_update`, rebinds the policy identity, and records an audit
+event. It never restores the retired tools or converts old prose into a workflow.
+Existing run/evidence ledgers remain auditable.

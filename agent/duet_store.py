@@ -281,6 +281,65 @@ class DuetStore:
             "updated_at": row["updated_at"],
         }
 
+    def migrate_duet_policy(
+        self,
+        *,
+        duet_id: str,
+        expected_identity: Mapping[str, Any],
+        expected_policy: Mapping[str, Any],
+        identity: Mapping[str, Any],
+        policy: Mapping[str, Any],
+        migration_record: Mapping[str, Any],
+    ) -> None:
+        """Atomically replace one exact stored policy and audit the migration.
+
+        This compare-and-swap boundary is intentionally narrower than a general
+        policy update API. It exists for host-owned schema/capability migrations;
+        model tools have no route to it.
+        """
+
+        expected_identity_json = canonical_json(
+            _object(expected_identity, "expected identity")
+        )
+        expected_policy_json = canonical_json(
+            _object(expected_policy, "expected policy")
+        )
+        identity_json = canonical_json(_object(identity, "identity"))
+        policy_json = canonical_json(_object(policy, "policy"))
+        event_json = canonical_json(_object(migration_record, "migration record"))
+        now = time.time()
+        with self.transaction() as connection:
+            existing = connection.execute(
+                "SELECT identity_json, policy_json FROM duets WHERE duet_id = ?",
+                (duet_id,),
+            ).fetchone()
+            if existing is None:
+                raise DuetNotFoundError("unknown duet_id")
+            if (
+                existing["identity_json"] != expected_identity_json
+                or existing["policy_json"] != expected_policy_json
+            ):
+                raise DuetConflictError(
+                    "Duet authority changed while its policy was being migrated"
+                )
+            connection.execute(
+                "UPDATE duets SET identity_json = ?, policy_json = ?, updated_at = ? "
+                "WHERE duet_id = ?",
+                (identity_json, policy_json, now, duet_id),
+            )
+            connection.execute(
+                "INSERT INTO duet_events "
+                "(duet_id, event_type, provenance, record_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    duet_id,
+                    "duet_policy_migration",
+                    "host_validation",
+                    event_json,
+                    now,
+                ),
+            )
+
     def set_state(self, duet_id: str, state: str) -> None:
         with self.transaction() as connection:
             changed = connection.execute(

@@ -8,6 +8,7 @@ from agent.duet_contracts import (
     DuetIdentity,
     DuetPolicy,
     DuetProvenance,
+    content_id,
 )
 from agent.duet_service import DuetProtocolError, DuetService
 from agent.duet_store import DuetStore
@@ -204,6 +205,72 @@ def test_host_resumes_the_stored_immutable_policy_after_tools_are_added(tmp_path
         assert host.service.latest_draft(identity.duet_id).content_hash == (
             original.content_hash
         )
+    finally:
+        host.close()
+
+
+def test_host_atomically_migrates_retired_duet_protocol_tools(tmp_path):
+    root = tmp_path / "openchia"
+    root.mkdir()
+    store = DuetStore(root / "duet.sqlite3")
+    session_id = "20260930_120000_retired_policy"
+    legacy_policy_fields = {
+        "capability_allowlist": sorted(
+            {
+                "openchia_scope",
+                "duet_contract_patch",
+                "duet_contract_review",
+                "duet_status",
+                "episode_workflow_read",
+                "duet_answer",
+                "duet_decision",
+                "episode_creator",
+                "creator_context_artifact",
+                "creator_context_read",
+                "web_search",
+            }
+        ),
+        "minimum_method_credit": 0.0,
+        "creator_proposal_bound": 8,
+        "maximum_creator_depth": 4,
+    }
+    legacy_policy_id = content_id("policy", legacy_policy_fields)
+    identity = DuetIdentity(
+        duet_id=OpaqueId.mint("duet", session_id),
+        human_authority_id=OpaqueId.mint("human", f"local:{root.resolve()}"),
+        policy_id=legacy_policy_id,
+        conversation_id=OpaqueId.mint("conversation", session_id),
+    )
+    store.create_duet(
+        duet_id=identity.duet_id.value,
+        identity=identity.as_record(),
+        policy={"policy_id": legacy_policy_id.value, **legacy_policy_fields},
+        state="collecting_contract",
+    )
+    store.close()
+
+    host = OpenChiaHost(
+        home=tmp_path,
+        session_id=session_id,
+        available_tool_names={"web_search"},
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    try:
+        assert "duet_contract_review" not in host.policy.capability_allowlist
+        assert "episode_creator" not in host.policy.capability_allowlist
+        assert "episode_workflow_update" in host.policy.capability_allowlist
+        persisted = host.store.get_duet(host.identity.duet_id.value)
+        assert persisted["identity"]["policy_id"] == host.policy.policy_id.value
+        assert persisted["policy"] == host.policy.as_record()
+        migration = host.store.events(host.identity.duet_id.value)[0]
+        assert migration["event_type"] == "duet_policy_migration"
+        assert migration["record"]["removed_capability_names"] == [
+            "duet_contract_review",
+            "episode_creator",
+        ]
+        assert migration["record"]["added_capability_names"] == [
+            "episode_workflow_update"
+        ]
     finally:
         host.close()
 

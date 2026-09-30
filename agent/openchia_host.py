@@ -93,6 +93,9 @@ WORKFLOW_REVIEW_LENSES = frozenset(
         "task_specific_skeptic",
     }
 )
+_RETIRED_DUET_PROTOCOL_TOOLS = frozenset(
+    {"duet_contract_review", "episode_creator"}
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +114,96 @@ class HumanActionReceipt:
 
 class OpenChiaHost:
     """Persistent authority and execution host for one interactive Duet."""
+
+    @staticmethod
+    def _migrate_retired_duet_policy(
+        store: DuetStore,
+        existing: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Replace the removed review/launch surface in one persisted policy."""
+
+        raw_identity = existing.get("identity")
+        raw_policy = existing.get("policy")
+        if not isinstance(raw_identity, Mapping) or not isinstance(
+            raw_policy,
+            Mapping,
+        ):
+            raise OpenChiaHostError("stored Duet authority has an invalid shape")
+        if set(raw_policy) != {
+            "policy_id",
+            "capability_allowlist",
+            "minimum_method_credit",
+            "creator_proposal_bound",
+            "maximum_creator_depth",
+        }:
+            raise OpenChiaHostError("stored Duet policy has an invalid shape")
+        stored_identity = DuetIdentity.from_record(raw_identity)
+        if raw_policy.get("policy_id") != stored_identity.policy_id.value:
+            raise OpenChiaHostError(
+                "stored Duet identity and policy IDs differ"
+            )
+        raw_allowlist = raw_policy.get("capability_allowlist")
+        if not isinstance(raw_allowlist, list) or any(
+            not isinstance(name, str) or not name for name in raw_allowlist
+        ):
+            raise OpenChiaHostError(
+                "stored Duet capability allowlist has an invalid shape"
+            )
+        retired = set(raw_allowlist) & _RETIRED_DUET_PROTOCOL_TOOLS
+        if not retired:
+            return dict(existing)
+        unknown = set(raw_allowlist) - (
+            DUET_PROTOCOL_TOOLS
+            | DUET_SEARCH_TOOLS
+            | _RETIRED_DUET_PROTOCOL_TOOLS
+        )
+        if unknown:
+            raise OpenChiaHostError(
+                "stored Duet policy contains unknown capabilities and cannot be "
+                f"migrated safely: {sorted(unknown)}"
+            )
+        replacement_capabilities = {"episode_workflow_update"}
+        added = replacement_capabilities - set(raw_allowlist)
+        migrated_allowlist = (
+            set(raw_allowlist) - _RETIRED_DUET_PROTOCOL_TOOLS
+        ) | replacement_capabilities
+        policy_fields = {
+            "capability_allowlist": sorted(migrated_allowlist),
+            "minimum_method_credit": raw_policy.get("minimum_method_credit"),
+            "creator_proposal_bound": raw_policy.get("creator_proposal_bound"),
+            "maximum_creator_depth": raw_policy.get("maximum_creator_depth"),
+        }
+        migrated_policy_id = content_id("policy", policy_fields)
+        migrated_policy = DuetPolicy(
+            policy_id=migrated_policy_id,
+            capability_allowlist=tuple(policy_fields["capability_allowlist"]),
+            minimum_method_credit=policy_fields["minimum_method_credit"],
+            creator_proposal_bound=policy_fields["creator_proposal_bound"],
+            maximum_creator_depth=policy_fields["maximum_creator_depth"],
+        )
+        migrated_identity = DuetIdentity.from_record({
+            **dict(raw_identity),
+            "policy_id": migrated_policy_id.value,
+        })
+        store.migrate_duet_policy(
+            duet_id=existing["duet_id"],
+            expected_identity=raw_identity,
+            expected_policy=raw_policy,
+            identity=migrated_identity.as_record(),
+            policy=migrated_policy.as_record(),
+            migration_record={
+                "schema_version": 1,
+                "old_policy_id": raw_policy.get("policy_id"),
+                "new_policy_id": migrated_policy_id.value,
+                "removed_capability_names": sorted(retired),
+                "added_capability_names": sorted(added),
+                "authority_change": "retired_protocol_replacement",
+            },
+        )
+        migrated = store.get_duet(existing["duet_id"])
+        if migrated is None:
+            raise OpenChiaHostError("migrated Duet disappeared from its store")
+        return migrated
 
     def __init__(
         self,
@@ -170,6 +263,10 @@ class OpenChiaHost:
                 self.identity = requested_identity
                 self.policy = requested_policy
             else:
+                existing = self._migrate_retired_duet_policy(
+                    self.store,
+                    existing,
+                )
                 self.identity = DuetIdentity.from_record(existing["identity"])
                 self.policy = DuetPolicy.from_record(existing["policy"])
                 expected_authority = (
