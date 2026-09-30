@@ -4,6 +4,7 @@ import pytest
 
 from agent.episode_contracts import (
     DURABLE_EVIDENCE_PROGRESS_ADAPTER,
+    EpisodeContractError,
     EPISODE_CREATION_SCHEMA_VERSION,
     MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
     MAX_EPISODE_GOAL_CHARS,
@@ -403,3 +404,33 @@ def test_child_update_v1_migrates_terminal_transition_semantics():
 
     assert migrated.requests_transition is True
     assert migrated.as_record()["schema_version"] == 2
+
+
+def test_contract_errors_name_the_blueprint_field_that_failed():
+    spec = EpisodeCreationSpec(
+        goal="Collect one accepted finding.",
+        progress=NumericProgressMeasure(
+            metric_id=OpaqueId.mint("metric", "field-path"),
+            description="Number of findings accepted by the host",
+            unit="accepted findings",
+            direction=ProgressDirection.INCREASE,
+            baseline=0,
+            adapter_id=DURABLE_EVIDENCE_PROGRESS_ADAPTER,
+        ),
+        stopping=ProgressStopCriteria(
+            target=1, minimum_delta=1, stagnation_observations=2
+        ),
+    )
+
+    record = spec.as_record()
+    record["unit"] = "x" * (MAX_EPISODE_BLUEPRINT_TEXT_CHARS + 1)
+    with pytest.raises(EpisodeContractError) as excinfo:
+        EpisodeCreationSpec.from_record(record)
+    assert excinfo.value.field_path == ("unit",)
+    assert str(MAX_EPISODE_BLUEPRINT_TEXT_CHARS) in str(excinfo.value)
+
+    record = spec.as_record()
+    record["deliverable"]["kind"] = "not_a_kind"
+    with pytest.raises(EpisodeContractError) as excinfo:
+        EpisodeCreationSpec.from_record(record)
+    assert excinfo.value.field_path == ("deliverable",)

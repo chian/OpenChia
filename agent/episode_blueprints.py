@@ -16,12 +16,14 @@ from agent.episode_contracts import (
     EPISODE_CREATION_SCHEMA_VERSION,
     EPISODE_WORKFLOW_SCHEMA_VERSION,
     CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
+    EpisodeContractError,
     EpisodeCreationSpec,
     EpisodeWorkflowSpec,
     MAX_CREATOR_CONTEXT_ARTIFACTS,
     MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
     MAX_EPISODE_GOAL_CHARS,
     OpaqueId,
+    contract_field,
 )
 from agent.episode_progress_adapters import model_progress_adapters
 
@@ -114,8 +116,9 @@ def creation_spec_from_blueprint(
 
     record = _object(value, "Episode creation blueprint")
     _exact_fields(record, _CREATION_FIELDS, "Episode creation blueprint")
-    progress = _object(record["progress"], "progress blueprint")
-    _exact_fields(progress, _PROGRESS_FIELDS, "progress blueprint")
+    with contract_field("progress"):
+        progress = _object(record["progress"], "progress blueprint")
+        _exact_fields(progress, _PROGRESS_FIELDS, "progress blueprint")
     if not isinstance(identity_namespace, str) or not identity_namespace:
         raise ValueError("identity_namespace must be non-empty text")
     metric_material = _canonical_json(
@@ -130,9 +133,10 @@ def creation_spec_from_blueprint(
         creator_contract is not None
         and progress["adapter_id"] != CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER
     ):
-        raise ValueError(
+        raise EpisodeContractError(
             "Creator blueprints must use the host-owned "
-            "creator_method_credit_v1 progress adapter"
+            f"{CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER} progress adapter",
+            field_path=("progress",),
         )
     internal = {
         "schema_version": EPISODE_CREATION_SCHEMA_VERSION,
@@ -151,11 +155,12 @@ def creation_spec_from_blueprint(
     spec = EpisodeCreationSpec.from_record(internal)
     from agent.episode_progress_adapters import validate_progress_contract
 
-    validate_progress_contract(
-        spec.progress,
-        spec.stopping,
-        model_created=creator_contract is None,
-    )
+    with contract_field("progress"):
+        validate_progress_contract(
+            spec.progress,
+            spec.stopping,
+            model_created=creator_contract is None,
+        )
     return spec
 
 

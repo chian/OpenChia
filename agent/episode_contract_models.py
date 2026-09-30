@@ -13,6 +13,7 @@ second, unvalidated message channel.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -150,7 +151,42 @@ def _name_tuple(value: object, name: str) -> tuple[str, ...]:
 
 def _schema_version(value: object, expected: int, name: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value != expected:
-        raise ValueError(f"unsupported {name} schema version")
+        raise ValueError(
+            f"unsupported {name} schema version (expected {expected})"
+        )
+
+
+class EpisodeContractError(ValueError):
+    """A contract record failed validation.
+
+    ``field_path`` names the blueprint field that failed as a tuple of path
+    segments from the record root, so a host can anchor a deficit to the exact
+    field without parsing the message text.  It is empty only for errors raised
+    outside any field scope.
+    """
+
+    def __init__(self, message: str, *, field_path: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.field_path = field_path
+
+
+@contextmanager
+def contract_field(name: str):
+    """Attribute any validation error raised inside the block to field ``name``.
+
+    Nested scopes compose outer-to-inner, so an error raised while validating
+    ``design_context`` inside ``creator_contract`` carries the path
+    ``("creator_contract", "design_context")``.
+    """
+
+    try:
+        yield
+    except EpisodeContractError as exc:
+        raise EpisodeContractError(
+            str(exc), field_path=(name, *exc.field_path)
+        ) from exc
+    except (TypeError, ValueError) as exc:
+        raise EpisodeContractError(str(exc), field_path=(name,)) from exc
 
 
 def _optional_positive_int(value: object, name: str) -> Optional[int]:
@@ -1065,85 +1101,100 @@ class EpisodeCreatorContract:
     return_contract: EpisodeCreatorReturnContract
 
     def __post_init__(self) -> None:
-        if not isinstance(self.design_context, EpisodeCreatorContext):
-            raise ValueError("design_context must be an EpisodeCreatorContext")
-        object.__setattr__(
-            self,
-            "design_scope",
-            _text(
-                self.design_scope,
+        with contract_field("design_context"):
+            if not isinstance(self.design_context, EpisodeCreatorContext):
+                raise ValueError("design_context must be an EpisodeCreatorContext")
+        with contract_field("design_scope"):
+            object.__setattr__(
+                self,
                 "design_scope",
-                max_chars=MAX_EPISODE_GOAL_CHARS,
-            ),
-        )
-        capabilities = _name_tuple(
-            self.assignable_capability_names,
-            "assignable_capability_names",
-        )
+                _text(
+                    self.design_scope,
+                    "design_scope",
+                    max_chars=MAX_EPISODE_GOAL_CHARS,
+                ),
+            )
+        with contract_field("assignable_capability_names"):
+            capabilities = _name_tuple(
+                self.assignable_capability_names,
+                "assignable_capability_names",
+            )
         object.__setattr__(self, "assignable_capability_names", capabilities)
-        object.__setattr__(
-            self,
-            "may_assign_creator_capability",
-            _boolean(
-                self.may_assign_creator_capability,
+        with contract_field("may_assign_creator_capability"):
+            object.__setattr__(
+                self,
                 "may_assign_creator_capability",
-            ),
-        )
-        if not isinstance(self.evidence_requirements, tuple) or not self.evidence_requirements:
-            raise ValueError("evidence_requirements must be a non-empty tuple")
-        if any(
-            not isinstance(item, EpisodeEvidenceRequirement)
-            for item in self.evidence_requirements
-        ):
-            raise ValueError(
-                "evidence_requirements must contain EpisodeEvidenceRequirement values"
+                _boolean(
+                    self.may_assign_creator_capability,
+                    "may_assign_creator_capability",
+                ),
             )
-        requirement_ids = {
-            item.requirement_id for item in self.evidence_requirements
-        }
-        if len(requirement_ids) != len(self.evidence_requirements):
-            raise ValueError("evidence requirement IDs must be unique")
-        if not isinstance(self.required_existing_evidence_ids, tuple) or any(
-            not isinstance(item, OpaqueId)
-            for item in self.required_existing_evidence_ids
-        ):
-            raise ValueError(
-                "required_existing_evidence_ids must be a tuple of OpaqueIds"
-            )
-        if len(set(self.required_existing_evidence_ids)) != len(
-            self.required_existing_evidence_ids
-        ):
-            raise ValueError("required_existing_evidence_ids must be unique")
-        if not isinstance(self.credit_assignment, EpisodeMethodCreditSpec):
-            raise ValueError("credit_assignment must be EpisodeMethodCreditSpec")
-        referenced_requirements = {
-            requirement_id
-            for component in self.credit_assignment.components
-            for requirement_id in component.evidence_requirement_ids
-        }
-        if referenced_requirements != requirement_ids:
-            raise ValueError(
-                "credit components must reference every declared evidence requirement "
-                "and no undeclared requirement"
-            )
-        if not isinstance(self.return_contract, EpisodeCreatorReturnContract):
-            raise ValueError(
-                "return_contract must be EpisodeCreatorReturnContract"
-            )
-        measurement_ids = {
-            item.measurement_id for item in self.credit_assignment.components
-        }
-        component_ids = {
-            item.component_id for item in self.credit_assignment.components
-        }
-        if not set(self.return_contract.measurement_ids).issubset(measurement_ids):
-            raise ValueError(
-                "return_contract names an undeclared measurement ID"
-            )
-        if not set(self.return_contract.credit_component_ids).issubset(component_ids):
-            raise ValueError(
-                "return_contract names an undeclared credit component ID"
-            )
+        with contract_field("evidence_requirements"):
+            if (
+                not isinstance(self.evidence_requirements, tuple)
+                or not self.evidence_requirements
+            ):
+                raise ValueError("evidence_requirements must be a non-empty tuple")
+            if any(
+                not isinstance(item, EpisodeEvidenceRequirement)
+                for item in self.evidence_requirements
+            ):
+                raise ValueError(
+                    "evidence_requirements must contain EpisodeEvidenceRequirement values"
+                )
+            requirement_ids = {
+                item.requirement_id for item in self.evidence_requirements
+            }
+            if len(requirement_ids) != len(self.evidence_requirements):
+                raise ValueError("evidence requirement IDs must be unique")
+        with contract_field("required_existing_evidence_ids"):
+            if not isinstance(self.required_existing_evidence_ids, tuple) or any(
+                not isinstance(item, OpaqueId)
+                for item in self.required_existing_evidence_ids
+            ):
+                raise ValueError(
+                    "required_existing_evidence_ids must be a tuple of OpaqueIds"
+                )
+            if len(set(self.required_existing_evidence_ids)) != len(
+                self.required_existing_evidence_ids
+            ):
+                raise ValueError("required_existing_evidence_ids must be unique")
+        with contract_field("credit_assignment"):
+            if not isinstance(self.credit_assignment, EpisodeMethodCreditSpec):
+                raise ValueError("credit_assignment must be EpisodeMethodCreditSpec")
+            referenced_requirements = {
+                requirement_id
+                for component in self.credit_assignment.components
+                for requirement_id in component.evidence_requirement_ids
+            }
+            if referenced_requirements != requirement_ids:
+                raise ValueError(
+                    "credit components must reference every declared evidence "
+                    "requirement and no undeclared requirement"
+                )
+        with contract_field("return_contract"):
+            if not isinstance(self.return_contract, EpisodeCreatorReturnContract):
+                raise ValueError(
+                    "return_contract must be EpisodeCreatorReturnContract"
+                )
+            measurement_ids = {
+                item.measurement_id for item in self.credit_assignment.components
+            }
+            component_ids = {
+                item.component_id for item in self.credit_assignment.components
+            }
+            if not set(self.return_contract.measurement_ids).issubset(
+                measurement_ids
+            ):
+                raise ValueError(
+                    "return_contract names an undeclared measurement ID"
+                )
+            if not set(self.return_contract.credit_component_ids).issubset(
+                component_ids
+            ):
+                raise ValueError(
+                    "return_contract names an undeclared credit component ID"
+                )
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -1188,28 +1239,36 @@ class EpisodeCreatorContract:
             for items in (capabilities, requirements, existing)
         ):
             raise ValueError("creator contract collection fields must be arrays")
-        return cls(
-            design_context=EpisodeCreatorContext.from_record(
+        with contract_field("design_context"):
+            design_context = EpisodeCreatorContext.from_record(
                 record["design_context"]
-            ),
+            )
+        with contract_field("evidence_requirements"):
+            evidence_requirements = tuple(
+                EpisodeEvidenceRequirement.from_record(item)
+                for item in requirements
+            )
+        with contract_field("required_existing_evidence_ids"):
+            required_existing = tuple(OpaqueId(item) for item in existing)
+        with contract_field("credit_assignment"):
+            credit_assignment = EpisodeMethodCreditSpec.from_record(
+                record["credit_assignment"]
+            )
+        with contract_field("return_contract"):
+            return_contract = EpisodeCreatorReturnContract.from_record(
+                record["return_contract"]
+            )
+        return cls(
+            design_context=design_context,
             design_scope=record["design_scope"],
             assignable_capability_names=tuple(capabilities),
             may_assign_creator_capability=record[
                 "may_assign_creator_capability"
             ],
-            evidence_requirements=tuple(
-                EpisodeEvidenceRequirement.from_record(item)
-                for item in requirements
-            ),
-            required_existing_evidence_ids=tuple(
-                OpaqueId(item) for item in existing
-            ),
-            credit_assignment=EpisodeMethodCreditSpec.from_record(
-                record["credit_assignment"]
-            ),
-            return_contract=EpisodeCreatorReturnContract.from_record(
-                record["return_contract"]
-            ),
+            evidence_requirements=evidence_requirements,
+            required_existing_evidence_ids=required_existing,
+            credit_assignment=credit_assignment,
+            return_contract=return_contract,
         )
 
 
@@ -1235,74 +1294,89 @@ class EpisodeCreationSpec:
     )
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "goal",
-            _text(self.goal, "goal", max_chars=MAX_EPISODE_GOAL_CHARS),
-        )
-        if not isinstance(self.progress, NumericProgressMeasure):
-            raise ValueError("progress must be a NumericProgressMeasure")
-        if not isinstance(self.stopping, ProgressStopCriteria):
-            raise ValueError("stopping must be ProgressStopCriteria")
+        with contract_field("goal"):
+            object.__setattr__(
+                self,
+                "goal",
+                _text(self.goal, "goal", max_chars=MAX_EPISODE_GOAL_CHARS),
+            )
+        with contract_field("progress"):
+            if not isinstance(self.progress, NumericProgressMeasure):
+                raise ValueError("progress must be a NumericProgressMeasure")
+        with contract_field("stopping"):
+            if not isinstance(self.stopping, ProgressStopCriteria):
+                raise ValueError("stopping must be ProgressStopCriteria")
         object.__setattr__(
             self,
             "can_create_episodes",
             _boolean(self.can_create_episodes, "can_create_episodes"),
         )
-        object.__setattr__(
-            self,
-            "execution_capability_names",
-            _name_tuple(
-                self.execution_capability_names,
+        with contract_field("execution_capability_names"):
+            object.__setattr__(
+                self,
                 "execution_capability_names",
-            ),
-        )
-        if self.creator_contract is not None and not isinstance(
-            self.creator_contract,
-            EpisodeCreatorContract,
-        ):
-            raise ValueError(
-                "creator_contract must be EpisodeCreatorContract or None"
+                _name_tuple(
+                    self.execution_capability_names,
+                    "execution_capability_names",
+                ),
             )
-        if (self.creator_contract is not None) != self.can_create_episodes:
-            raise ValueError(
-                "creator_contract is required exactly when can_create_episodes is true"
-            )
-        object.__setattr__(
-            self,
-            "unit",
-            _text(
-                self.unit,
+        with contract_field("creator_contract"):
+            if self.creator_contract is not None and not isinstance(
+                self.creator_contract,
+                EpisodeCreatorContract,
+            ):
+                raise ValueError(
+                    "creator_contract must be EpisodeCreatorContract or None"
+                )
+            if (self.creator_contract is not None) != self.can_create_episodes:
+                raise ValueError(
+                    "creator_contract is required exactly when "
+                    "can_create_episodes is true"
+                )
+        with contract_field("unit"):
+            object.__setattr__(
+                self,
                 "unit",
-                max_chars=MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
-            ),
-        )
-        object.__setattr__(
-            self,
-            "result",
-            _text(
-                self.result,
-                "result",
-                max_chars=MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
-            ),
-        )
-        if not isinstance(self.deliverable, EpisodeDeliverableContract):
-            raise ValueError("deliverable must be an EpisodeDeliverableContract")
-        if (
-            self.progress.direction is ProgressDirection.INCREASE
-            and self.stopping.target < self.progress.baseline
-        ) or (
-            self.progress.direction is ProgressDirection.DECREASE
-            and self.stopping.target > self.progress.baseline
-        ):
-            raise ValueError(
-                "stopping target must lie in the declared progress direction "
-                "from the baseline"
+                _text(
+                    self.unit,
+                    "unit",
+                    max_chars=MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
+                ),
             )
-        if self.safety_bounds is not None and not isinstance(
-            self.safety_bounds, EpisodeSafetyBounds
-        ):
-            raise ValueError("safety_bounds must be EpisodeSafetyBounds or None")
+        with contract_field("result"):
+            object.__setattr__(
+                self,
+                "result",
+                _text(
+                    self.result,
+                    "result",
+                    max_chars=MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
+                ),
+            )
+        with contract_field("deliverable"):
+            if not isinstance(self.deliverable, EpisodeDeliverableContract):
+                raise ValueError(
+                    "deliverable must be an EpisodeDeliverableContract"
+                )
+        with contract_field("stopping"):
+            if (
+                self.progress.direction is ProgressDirection.INCREASE
+                and self.stopping.target < self.progress.baseline
+            ) or (
+                self.progress.direction is ProgressDirection.DECREASE
+                and self.stopping.target > self.progress.baseline
+            ):
+                raise ValueError(
+                    "stopping target must lie in the declared progress direction "
+                    "from the baseline"
+                )
+        with contract_field("safety_bounds"):
+            if self.safety_bounds is not None and not isinstance(
+                self.safety_bounds, EpisodeSafetyBounds
+            ):
+                raise ValueError(
+                    "safety_bounds must be EpisodeSafetyBounds or None"
+                )
         if self.capability_inheritance is not CapabilityInheritance.PARENT:
             raise ValueError(
                 "task Episodes must inherit parent execution capabilities"
@@ -1372,28 +1446,39 @@ class EpisodeCreationSpec:
         )
         bounds = record["safety_bounds"]
         capability_names = record["execution_capability_names"]
-        if not isinstance(capability_names, list):
-            raise ValueError("execution_capability_names must be an array")
+        with contract_field("execution_capability_names"):
+            if not isinstance(capability_names, list):
+                raise ValueError("execution_capability_names must be an array")
         creator_contract = record["creator_contract"]
+        with contract_field("progress"):
+            progress = NumericProgressMeasure.from_record(record["progress"])
+        with contract_field("stopping"):
+            stopping = ProgressStopCriteria.from_record(record["stopping"])
+        with contract_field("creator_contract"):
+            creator = (
+                None
+                if creator_contract is None
+                else EpisodeCreatorContract.from_record(creator_contract)
+            )
+        with contract_field("deliverable"):
+            deliverable = EpisodeDeliverableContract.from_record(
+                record["deliverable"]
+            )
+        with contract_field("safety_bounds"):
+            safety_bounds = (
+                None if bounds is None else EpisodeSafetyBounds.from_record(bounds)
+            )
         return cls(
             goal=record["goal"],
             unit=record["unit"],
             result=record["result"],
-            progress=NumericProgressMeasure.from_record(record["progress"]),
-            stopping=ProgressStopCriteria.from_record(record["stopping"]),
+            progress=progress,
+            stopping=stopping,
             can_create_episodes=record["can_create_episodes"],
             execution_capability_names=tuple(capability_names),
-            creator_contract=(
-                None
-                if creator_contract is None
-                else EpisodeCreatorContract.from_record(creator_contract)
-            ),
-            deliverable=EpisodeDeliverableContract.from_record(
-                record["deliverable"]
-            ),
-            safety_bounds=(
-                None if bounds is None else EpisodeSafetyBounds.from_record(bounds)
-            ),
+            creator_contract=creator,
+            deliverable=deliverable,
+            safety_bounds=safety_bounds,
             capability_inheritance=inheritance,
         )
 
@@ -1925,6 +2010,7 @@ __all__ = [
     "CapabilityInheritance",
     "ChildEpisodePhase",
     "ChildEpisodeStopReason",
+    "EpisodeContractError",
     "EpisodeDeliverableContract",
     "EpisodeDeliverableKind",
     "EpisodeCreationSpec",
@@ -1954,4 +2040,5 @@ __all__ = [
     "Sha256Digest",
     "TASK_EPISODE_GRAIN",
     "TERMINAL_RESULT_PROGRESS_ADAPTER",
+    "contract_field",
 ]
