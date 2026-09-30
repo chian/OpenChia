@@ -7,8 +7,11 @@ import os
 import shlex
 import subprocess
 import tempfile
+import threading
 import time
+import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from prompt_toolkit.layout import FormattedTextControl, Window
@@ -22,6 +25,19 @@ from hermes_constants import get_hermes_home
 
 
 _MISSING = object()
+
+
+@dataclass
+class _BackgroundDuet:
+    """One independently conversational Duet running beside the foreground Duet."""
+
+    duet_id: str
+    ordinal: int
+    host: OpenChiaHost
+    agent: Any
+    conversation_history: list[dict[str, Any]] = field(default_factory=list)
+    thread: threading.Thread | None = None
+    last_error: str | None = None
 
 
 def episode_configuration_changes(
@@ -150,6 +166,8 @@ class OpenChiaCLI(HermesCLI):
         "/episode": "Show or directly edit the Creator Episode configuration",
         "/duet": "Show closed Duet, Creator, and Run state",
         "/openchia": "Alias for /duet",
+        "/queue": "Queue a message for the foreground Duet's next turn",
+        "/bg": "Start or continue a separate background Duet",
         "/approve": "Approve the ready contract or measured workflow",
         "/answer": "Record an exact human answer to an open contract field",
         "/review": "Run or show the advisory shadow contract review",
@@ -203,6 +221,8 @@ class OpenChiaCLI(HermesCLI):
             int, int, tuple[dict[str, Any], ...]
         ] | None = None
         super().__init__(**kwargs)
+        self._background_duets: dict[str, _BackgroundDuet] = {}
+        self._background_duets_lock = threading.RLock()
 
     @staticmethod
     def _tool_names(agent: Any) -> tuple[str, ...]:
@@ -256,7 +276,12 @@ class OpenChiaCLI(HermesCLI):
         )
         return entries
 
-    def _agent_kwargs_for_episode(self, role: str, identity: str) -> dict[str, Any]:
+    def _agent_kwargs_for_episode_under(
+        self,
+        parent_session_id: str,
+        role: str,
+        identity: str,
+    ) -> dict[str, Any]:
         from hermes_cli.cli_agent_setup_mixin import _current_runtime
 
         runtime = _current_runtime(self)
@@ -285,11 +310,18 @@ class OpenChiaCLI(HermesCLI):
             "provider_data_collection": self._provider_data_collection,
             "openrouter_min_coding_score": self._openrouter_min_coding_score,
             "fallback_model": self._fallback_model,
-            "session_id": f"{self.session_id}-{role}-{identity[-12:]}",
-            "parent_session_id": self.session_id,
+            "session_id": f"{parent_session_id}-{role}-{identity[-12:]}",
+            "parent_session_id": parent_session_id,
             "platform": "openchia",
             "side_agent": True,
         }
+
+    def _agent_kwargs_for_episode(self, role: str, identity: str) -> dict[str, Any]:
+        return self._agent_kwargs_for_episode_under(
+            self.session_id,
+            role,
+            identity,
+        )
 
     def _configure_new_agent(self, agent: Any) -> Any:
         if self._openchia_host is None:
@@ -334,7 +366,15 @@ class OpenChiaCLI(HermesCLI):
         )
 
     def _tui_background_ui_active(self) -> bool:
-        return bool(self._openchia_host and self._openchia_host.has_active_work())
+        host_work = bool(
+            self._openchia_host and self._openchia_host.has_active_work()
+        )
+        with self._background_duets_lock:
+            duet_work = any(
+                context.thread is not None and context.thread.is_alive()
+                for context in self._background_duets.values()
+            )
+        return host_work or duet_work
 
     def _status(self, *, refresh: bool = False) -> dict[str, Any] | None:
         host = self._openchia_host
@@ -590,6 +630,331 @@ class OpenChiaCLI(HermesCLI):
             "Usage: /episode [show|diff|edit|set FIELD JSON_VALUE|unset FIELD|capabilities]"
         )
 
+    def _background_duet_agent_kwargs(
+        self,
+        duet_id: str,
+        prompt: str,
+    ) -> dict[str, Any]:
+        route = self._resolve_turn_agent_config(prompt)
+        runtime = route["runtime"]
+        return {
+            "model": route["model"],
+            "api_key": runtime.get("api_key"),
+            "base_url": runtime.get("base_url"),
+            "provider": runtime.get("provider"),
+            "requested_provider": runtime.get("requested_provider"),
+            "api_mode": runtime.get("api_mode"),
+            "acp_command": runtime.get("command"),
+            "acp_args": runtime.get("args"),
+            "credential_pool": runtime.get("credential_pool"),
+            "max_iterations": self.max_turns,
+            "run_budget_seconds": getattr(self, "run_budget_seconds", None),
+            "enabled_toolsets": [],
+            "disabled_toolsets": [],
+            "verbose_logging": False,
+            "quiet_mode": True,
+            "tool_progress_mode": "off",
+            "reasoning_config": self.reasoning_config,
+            "service_tier": self.service_tier,
+            "request_overrides": route.get("request_overrides"),
+            "providers_allowed": self._providers_only,
+            "providers_ignored": self._providers_ignore,
+            "providers_order": self._providers_order,
+            "provider_sort": self._provider_sort,
+            "provider_require_parameters": self._provider_require_params,
+            "provider_data_collection": self._provider_data_collection,
+            "openrouter_min_coding_score": self._openrouter_min_coding_score,
+            "fallback_model": self._fallback_model,
+            "session_id": duet_id,
+            "parent_session_id": self.session_id,
+            "platform": "openchia",
+            "side_agent": True,
+            "session_db": self._session_db,
+            "skip_context_files": True,
+            "load_soul_identity": False,
+            "skip_memory": True,
+            "skip_background_review": True,
+        }
+
+    def _create_background_duet(
+        self,
+        duet_id: str,
+        prompt: str,
+        *,
+        conversation_history: list[dict[str, Any]] | None = None,
+    ) -> _BackgroundDuet:
+        """Build a side conversation through the same host and Duet binding as the foreground."""
+
+        from run_agent import AIAgent
+
+        agent = AIAgent(**self._background_duet_agent_kwargs(duet_id, prompt))
+        host: OpenChiaHost | None = None
+        try:
+            host = OpenChiaHost(
+                home=get_hermes_home(),
+                session_id=duet_id,
+                available_tool_names=self._tool_names(agent),
+                agent_kwargs_factory=lambda role, identity: self._agent_kwargs_for_episode_under(
+                    duet_id,
+                    role,
+                    identity,
+                ),
+            )
+            agent = host.bind_duet(agent)
+        except Exception:
+            try:
+                agent.close()
+            finally:
+                if host is not None:
+                    host.close()
+            raise
+
+        agent._print_fn = lambda *_args, **_kwargs: None
+
+        def thinking(text: str) -> None:
+            if not self._agent_running:
+                self._spinner_text = text
+                if self._app:
+                    self._app.invalidate()
+
+        agent.thinking_callback = thinking
+        self._background_task_counter += 1
+        return _BackgroundDuet(
+            duet_id=duet_id,
+            ordinal=self._background_task_counter,
+            host=host,
+            agent=agent,
+            conversation_history=list(conversation_history or []),
+        )
+
+    def _restore_background_duet(
+        self,
+        duet_id: str,
+        prompt: str,
+    ) -> _BackgroundDuet | None:
+        """Reopen a persisted background Duet when its displayed ID is supplied."""
+
+        if not duet_id.startswith("duet_") or self._session_db is None:
+            return None
+        try:
+            if self._session_db.get_session(duet_id) is None:
+                return None
+            history = self._session_db.get_messages_as_conversation(
+                duet_id,
+                repair_alternation=True,
+            )
+        except Exception:
+            return None
+        context = self._create_background_duet(
+            duet_id,
+            prompt,
+            conversation_history=history,
+        )
+        with self._background_duets_lock:
+            self._background_duets[duet_id] = context
+        return context
+
+    def _background_duet_for(
+        self,
+        duet_id: str,
+        prompt: str,
+    ) -> _BackgroundDuet | None:
+        with self._background_duets_lock:
+            context = self._background_duets.get(duet_id)
+        return context or self._restore_background_duet(duet_id, prompt)
+
+    def _run_background_duet_turn(
+        self,
+        context: _BackgroundDuet,
+        prompt: str,
+    ) -> None:
+        if context.thread is not None and context.thread.is_alive():
+            self._print_openchia(
+                f"Background Duet {context.duet_id} is already working. "
+                "Start another with /bg PROMPT or wait before sending a follow-up."
+            )
+            return
+
+        preview = prompt[:60] + ("..." if len(prompt) > 60 else "")
+        self._print_openchia(
+            f"Background Duet #{context.ordinal} working: \"{preview}\"\n"
+            f"Duet ID: {context.duet_id}\n"
+            f"Continue it later with: /bg send {context.duet_id} TEXT"
+        )
+
+        def produce() -> str:
+            try:
+                result = context.agent.run_conversation(
+                    user_message=prompt,
+                    conversation_history=list(context.conversation_history),
+                    task_id=f"{context.duet_id}:{uuid.uuid4().hex[:8]}",
+                )
+                if result and isinstance(result.get("messages"), list):
+                    context.conversation_history = list(result["messages"])
+                response = result.get("final_response", "") if result else ""
+                if not response and result and result.get("error"):
+                    response = f"Error: {result['error']}"
+                context.last_error = None
+                return response
+            except Exception as exc:
+                context.last_error = str(exc)
+                raise
+
+        def done() -> None:
+            self._background_tasks.pop(context.duet_id, None)
+            context.thread = None
+            if not self._agent_running:
+                self._spinner_text = ""
+
+        thread = self._side_worker(
+            produce,
+            name=f"background-duet-{context.duet_id}",
+            fail_label=f"Background Duet #{context.ordinal}",
+            header_lines=[
+                f"  Background Duet #{context.ordinal}",
+                f"  Duet ID: {context.duet_id}",
+            ],
+            title_suffix=f"(background Duet #{context.ordinal})",
+            empty_note="  (No response generated)",
+            bell=True,
+            on_done=done,
+        )
+        context.thread = thread
+        self._background_tasks[context.duet_id] = thread
+        thread.start()
+
+    def _start_background_duet(self, prompt: str) -> None:
+        if not self._ensure_runtime_credentials():
+            self._print_openchia(
+                "Cannot start a background Duet without valid model credentials."
+            )
+            return
+        duet_id = (
+            f"duet_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        )
+        try:
+            context = self._create_background_duet(duet_id, prompt)
+        except Exception as exc:
+            self._print_openchia(f"Background Duet could not start: {exc}")
+            return
+        with self._background_duets_lock:
+            self._background_duets[duet_id] = context
+        self._run_background_duet_turn(context, prompt)
+
+    def _list_background_duets(self) -> None:
+        with self._background_duets_lock:
+            contexts = sorted(
+                self._background_duets.values(),
+                key=lambda item: item.ordinal,
+            )
+        if not contexts:
+            self._print_openchia(
+                "No background Duets are open in this process.\n"
+                "Start one with: /bg PROMPT\n"
+                "Reopen a persisted one with: /bg send DUET_ID TEXT"
+            )
+            return
+        lines = ["Background Duets:"]
+        for context in contexts:
+            running = bool(context.thread and context.thread.is_alive())
+            try:
+                duet_state = context.host.status().get("state", "unknown")
+            except Exception:
+                duet_state = "unavailable"
+            state = "working" if running else "idle"
+            if context.last_error:
+                state = "error"
+            lines.append(
+                f"  #{context.ordinal} {context.duet_id} · {state} · {duet_state}"
+            )
+        lines.append("Continue one with: /bg send DUET_ID TEXT")
+        self._print_openchia("\n".join(lines))
+
+    def _close_background_duet(self, duet_id: str) -> None:
+        with self._background_duets_lock:
+            context = self._background_duets.get(duet_id)
+        if context is None:
+            self._print_openchia(f"Background Duet not found: {duet_id}")
+            return
+        if (context.thread and context.thread.is_alive()) or context.host.has_active_work():
+            self._print_openchia(
+                f"Background Duet {duet_id} is working and remains open."
+            )
+            return
+        try:
+            context.agent.close()
+        finally:
+            context.host.close()
+        with self._background_duets_lock:
+            self._background_duets.pop(duet_id, None)
+        self._print_openchia(
+            f"Background Duet {duet_id} closed; its persisted session remains resumable."
+        )
+
+    def _process_background_duet_command(self, stripped: str) -> bool:
+        payload = stripped[len("/bg") :].strip()
+        if not payload or payload.lower() == "list":
+            self._list_background_duets()
+            return True
+        action, _, remainder = payload.partition(" ")
+        action_lower = action.lower()
+        if action_lower == "new":
+            if not remainder.strip():
+                self._print_openchia("Usage: /bg [new] PROMPT")
+            else:
+                self._start_background_duet(remainder.strip())
+            return True
+        if action_lower == "send":
+            duet_id, separator, prompt = remainder.strip().partition(" ")
+            if not separator or not prompt.strip():
+                self._print_openchia("Usage: /bg send DUET_ID TEXT")
+                return True
+            if not self._ensure_runtime_credentials():
+                self._print_openchia(
+                    "Cannot continue a background Duet without valid model credentials."
+                )
+                return True
+            try:
+                context = self._background_duet_for(duet_id, prompt.strip())
+            except Exception as exc:
+                self._print_openchia(
+                    f"Background Duet {duet_id} could not reopen: {exc}"
+                )
+                return True
+            if context is None:
+                self._print_openchia(f"Background Duet not found: {duet_id}")
+            else:
+                self._run_background_duet_turn(context, prompt.strip())
+            return True
+        if action_lower == "status":
+            duet_id = remainder.strip()
+            if not duet_id:
+                self._print_openchia("Usage: /bg status DUET_ID")
+                return True
+            try:
+                context = self._background_duet_for(duet_id, "status")
+            except Exception as exc:
+                self._print_openchia(
+                    f"Background Duet {duet_id} status is unavailable: {exc}"
+                )
+                return True
+            if context is None:
+                self._print_openchia(f"Background Duet not found: {duet_id}")
+            else:
+                self._print_openchia(
+                    json.dumps(context.host.status(), indent=2, ensure_ascii=False)
+                )
+            return True
+        if action_lower == "close":
+            duet_id = remainder.strip()
+            if not duet_id:
+                self._print_openchia("Usage: /bg close DUET_ID")
+            else:
+                self._close_background_duet(duet_id)
+            return True
+        self._start_background_duet(payload)
+        return True
+
     def process_command(self, cmd: str) -> bool:
         stripped = cmd.strip()
         lower = stripped.lower()
@@ -602,6 +967,12 @@ class OpenChiaCLI(HermesCLI):
                 "  /episode set FIELD JSON_VALUE   set one field or dotted path\n"
                 "  /episode unset FIELD            remove one field or dotted path\n"
                 "  /duet             show the closed Duet -> Creator -> Run state\n"
+                "  /queue PROMPT      queue a message for the foreground Duet's next turn\n"
+                "  /bg PROMPT         start a separate background Duet\n"
+                "  /bg send ID TEXT   continue a background Duet\n"
+                "  /bg list           list background Duets open in this process\n"
+                "  /bg status ID      inspect a background Duet's state\n"
+                "  /bg close ID       close its live context while keeping persisted state\n"
                 "  /approve          approve the ready contract or measured workflow\n"
                 "  /answer FIELD JSON_VALUE   record an exact human answer to an open field\n"
                 "  /review           run or show the advisory shadow contract review\n"
@@ -613,6 +984,8 @@ class OpenChiaCLI(HermesCLI):
                 "Session controls: /model, /status, /context, /history, /quit"
             )
             return True
+        if lower == "/bg" or lower.startswith("/bg "):
+            return self._process_background_duet_command(stripped)
         if lower == "/episode" or lower.startswith("/episode "):
             try:
                 return self._process_episode_command(stripped)

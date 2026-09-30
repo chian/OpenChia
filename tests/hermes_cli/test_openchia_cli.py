@@ -1,4 +1,5 @@
 import sys
+from queue import Queue
 from types import SimpleNamespace
 
 import pytest
@@ -75,7 +76,95 @@ def test_running_prompt_advertises_only_openchia_commands():
     cli._command_running = False
     cli._agent_running = True
 
-    assert cli._tui_placeholder_text() == "msg=interrupt · Ctrl+C cancel"
+    assert cli._tui_placeholder_text() == (
+        "msg=interrupt · /queue · /bg · Ctrl+C cancel"
+    )
+
+
+def test_background_command_starts_and_continues_duets():
+    observed = []
+    context = object()
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    cli._start_background_duet = lambda prompt: observed.append(("start", prompt))
+    cli._ensure_runtime_credentials = lambda: True
+    cli._background_duet_for = lambda duet_id, prompt: (
+        observed.append(("find", duet_id, prompt)) or context
+    )
+    cli._run_background_duet_turn = lambda found, prompt: observed.append(
+        ("continue", found, prompt)
+    )
+
+    assert OpenChiaCLI.process_command(cli, "/bg compare these ideas") is True
+    assert OpenChiaCLI.process_command(
+        cli,
+        "/bg send duet_20260930_ab12cd refine the stopping rule",
+    ) is True
+    assert observed == [
+        ("start", "compare these ideas"),
+        ("find", "duet_20260930_ab12cd", "refine the stopping rule"),
+        ("continue", context, "refine the stopping rule"),
+    ]
+
+
+def test_queue_command_feeds_the_foreground_duet_turn_queue():
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    cli._pending_input = Queue()
+    cli._agent_running = True
+    cli._pending_resume_sessions = None
+    cli._expand_paste_references = lambda text: text
+
+    assert OpenChiaCLI.process_command(
+        cli,
+        "/queue revisit the progress measure",
+    ) is True
+    assert cli._pending_input.get_nowait() == "revisit the progress measure"
+
+
+def test_background_context_is_bound_through_an_openchia_host(monkeypatch):
+    observed = {}
+
+    class Agent:
+        def __init__(self, **kwargs):
+            observed["agent_kwargs"] = kwargs
+
+        def close(self):
+            observed["agent_closed"] = True
+
+    class Host:
+        def __init__(self, **kwargs):
+            observed["host_kwargs"] = kwargs
+
+        def bind_duet(self, agent):
+            observed["bound"] = agent
+            agent.bound_as_duet = True
+            return agent
+
+        def close(self):
+            observed["host_closed"] = True
+
+    monkeypatch.setattr("run_agent.AIAgent", Agent)
+    monkeypatch.setattr("hermes_cli.openchia_cli.OpenChiaHost", Host)
+
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    cli._background_task_counter = 0
+    cli._agent_running = False
+    cli._app = None
+    cli._background_duet_agent_kwargs = lambda duet_id, prompt: {
+        "session_id": duet_id,
+        "parent_session_id": "foreground",
+    }
+    cli._tool_names = lambda agent: ("web_search",)
+
+    context = cli._create_background_duet(
+        "duet_20260930_ab12cd",
+        "explore a second thought",
+    )
+
+    assert context.agent.bound_as_duet is True
+    assert context.host is not None
+    assert observed["agent_kwargs"]["session_id"] == "duet_20260930_ab12cd"
+    assert observed["host_kwargs"]["session_id"] == "duet_20260930_ab12cd"
+    assert observed["bound"] is context.agent
 
 
 def test_episode_configuration_changes_are_path_level_and_keep_provenance():
