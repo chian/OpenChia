@@ -10,7 +10,7 @@ from agent.duet_contracts import (
     DuetPolicy,
     DuetProvenance,
 )
-from agent.duet_service import DuetService
+from agent.duet_service import DuetService, StaleDuetApprovalError
 from agent.duet_store import DuetStore
 from agent.episode_blueprints import creation_blueprint_from_spec
 from agent.episode_contracts import (
@@ -406,5 +406,95 @@ def test_human_approval_is_visible_to_duet_and_creator_launch_is_idempotent(
         host._creator_threads[creator_id.value].join(timeout=2)
         assert retry.execution_id != first.execution_id
         assert len(calls) == 2
+    finally:
+        host.close()
+
+
+def test_terminal_creator_can_be_revised_with_exact_recovery_context(tmp_path):
+    host = OpenChiaHost(
+        home=tmp_path,
+        session_id="20260930_120000_creator_revision",
+        available_tool_names={"web_search"},
+        agent_kwargs_factory=lambda _role, _identity: {},
+    )
+    try:
+        blueprint = creation_blueprint_from_spec(
+            _creator_spec(_creator_context(host))
+        )
+        initial = host.service.latest_draft(host.identity.duet_id)
+        host.replace_episode_configuration(
+            blueprint,
+            expected_revision=initial.revision,
+        )
+        approval = host.approve_current()
+        frozen_record = host.store.get_artifact(approval.artifact_id.value)["record"]
+        creator_id = host.service.submit_episode_creator(
+            contract_artifact_id=approval.artifact_id,
+            content_hash=Sha256Digest(frozen_record["content_hash"]),
+            human_approval_id=approval.approval_id,
+        )
+        host._record_execution_error(
+            creator_id,
+            CreatorDesignCycleError(
+                "Creator ended without an admitted workflow candidate",
+                code="candidate_missing",
+            ),
+        )
+
+        with host.episode_edit_session() as (revision, document):
+            document["goal"] = "Design a repaired and independently tested workflow."
+            document["creator_contract"]["design_instructions"] = (
+                "Retest the failed integration edge before qualification."
+            )
+            revised = host.replace_episode_configuration(
+                document,
+                expected_revision=revision,
+            )
+
+        assert revised["revision"] == revision + 1
+        assert revised["ready"] is True
+        status = host.status()
+        assert status["creator_episode_id"] is None
+        assert status["superseded_creator"]["creator_episode_id"] == creator_id.value
+        assert status["creator_contract_approval"] is None
+        assert status["superseded_creator_contract_approval"]["approval_id"] == (
+            approval.approval_id.value
+        )
+
+        materialized = host.service.latest_draft(
+            host.identity.duet_id
+        ).materialized()
+        context = EpisodeCreatorContext.from_record(
+            materialized["creator_contract"]["design_context"]
+        )
+        resolved = host.service.resolve_creator_context(
+            host.identity.duet_id,
+            context,
+        )
+        assert {
+            item["reference"]["artifact_kind"] for item in resolved.values()
+        } >= {
+            "task_design_brief",
+            "creator_contract_history",
+            "creator_failure_history",
+        }
+        task_brief = next(
+            item
+            for item in resolved.values()
+            if item["reference"]["artifact_kind"] == "task_design_brief"
+        )
+        assert task_brief["content"]["configuration"]["creator_contract"][
+            "design_instructions"
+        ] == "Retest the failed integration edge before qualification."
+        assert "design_instructions" not in materialized["creator_contract"]
+        assert host.store.get_artifact(approval.artifact_id.value)["record"] == (
+            frozen_record
+        )
+        with pytest.raises(StaleDuetApprovalError, match="later draft revision"):
+            host.service.submit_episode_creator(
+                contract_artifact_id=approval.artifact_id,
+                content_hash=Sha256Digest(frozen_record["content_hash"]),
+                human_approval_id=approval.approval_id,
+            )
     finally:
         host.close()

@@ -307,13 +307,20 @@ class EpisodeEditorModel:
 
 
 class EpisodeTreeEditor:
-    """Full-screen keyboard and mouse editor over :class:`EpisodeEditorModel`."""
+    """Full-screen keyboard and mouse tree for one Episode document."""
 
-    def __init__(self, document: Mapping[str, Any], *, missing_value: str) -> None:
+    def __init__(
+        self,
+        document: Mapping[str, Any],
+        *,
+        missing_value: str,
+        read_only: bool = False,
+    ) -> None:
         self.model = EpisodeEditorModel(document, missing_value=missing_value)
+        self.read_only = read_only
         self.selected_index = 0
         self.selected_section: Optional[tuple[EpisodeNode, EpisodeSection]] = None
-        self.status = "Select a section to edit it."
+        self.status = "Select a section to inspect it."
         self._editable = False
 
         self.tree_control = FormattedTextControl(
@@ -336,7 +343,10 @@ class EpisodeTreeEditor:
         )
         self.apply_button = Button("Apply section", handler=self._apply_button)
         self.save_button = Button("Save", handler=self._save)
-        self.cancel_button = Button("Cancel", handler=self._cancel)
+        self.cancel_button = Button(
+            "Close" if read_only else "Cancel",
+            handler=self._cancel,
+        )
 
         body = VSplit(
             [
@@ -358,16 +368,25 @@ class EpisodeTreeEditor:
             padding=1,
         )
         buttons = VSplit(
-            [self.apply_button, self.save_button, self.cancel_button],
+            (
+                [self.cancel_button]
+                if read_only
+                else [self.apply_button, self.save_button, self.cancel_button]
+            ),
             padding=2,
             height=1,
+        )
+        title = "OPENCHIA EPISODE VIEW" if read_only else "OPENCHIA EPISODE EDITOR"
+        subtitle = (
+            "Choose an Episode section to inspect its exact structured content."
+            if read_only
+            else "Choose an Episode section; only that bounded part is edited."
         )
         root = HSplit(
             [
                 Window(
                     FormattedTextControl(
-                        "OPENCHIA EPISODE EDITOR\n"
-                        "Choose an Episode section; only that bounded part is edited."
+                        f"{title}\n{subtitle}"
                     ),
                     height=2,
                     style="class:editor.title",
@@ -460,9 +479,14 @@ class EpisodeTreeEditor:
         return f"{episode.name} / {section.label}\n{section.description}"
 
     def _footer(self) -> AnyFormattedText:
+        controls = (
+            "Mouse or Up/Down: select  Enter: zoom/toggle  Ctrl+Q or Esc: close"
+            if self.read_only
+            else "Mouse or Up/Down: select  Enter: zoom/toggle  Ctrl+S: save  Ctrl+Q: cancel"
+        )
         return (
             f"{self.status}\n"
-            "Mouse or Up/Down: select  Enter: zoom/toggle  Ctrl+S: save  Ctrl+Q: cancel"
+            f"{controls}"
         )
 
     def _set_editor_text(self, text: str, *, editable: bool) -> None:
@@ -483,9 +507,10 @@ class EpisodeTreeEditor:
             payload = self.model.section_payload(entry.episode, entry.section)
             self._set_editor_text(
                 json.dumps(payload, indent=2, ensure_ascii=False),
-                editable=True,
+                editable=not self.read_only,
             )
-            self.status = f"Editing {entry.episode.name} / {entry.section.label}."
+            verb = "Viewing" if self.read_only else "Editing"
+            self.status = f"{verb} {entry.episode.name} / {entry.section.label}."
             if focus_editor:
                 get_app().layout.focus(self.editor)
         else:
@@ -499,6 +524,8 @@ class EpisodeTreeEditor:
             self.status = f"Selected {entry.episode.name}."
 
     def _commit_section(self) -> bool:
+        if self.read_only:
+            return True
         if self.selected_section is None:
             return True
         text = self.editor.text.strip()
@@ -586,7 +613,10 @@ class EpisodeTreeEditor:
 
         @bindings.add("c-s")
         def _save(_event) -> None:
-            self._save()
+            if self.read_only:
+                self._cancel()
+            else:
+                self._save()
 
         @bindings.add("c-q")
         def _cancel(_event) -> None:
@@ -596,7 +626,11 @@ class EpisodeTreeEditor:
         def _escape(event) -> None:
             if event.app.layout.has_focus(self.editor):
                 event.app.layout.focus(self.tree_window)
-                self.status = "Returned to the Episode tree; edits remain staged."
+                self.status = (
+                    "Returned to the Episode tree."
+                    if self.read_only
+                    else "Returned to the Episode tree; edits remain staged."
+                )
                 event.app.invalidate()
             else:
                 self._cancel()
@@ -617,10 +651,25 @@ def edit_episode_document(
     return EpisodeTreeEditor(document, missing_value=missing_value).run()
 
 
+def view_episode_document(
+    document: Mapping[str, Any],
+    *,
+    missing_value: str,
+) -> None:
+    """Open the same nested Episode tree without permitting mutations."""
+
+    EpisodeTreeEditor(
+        document,
+        missing_value=missing_value,
+        read_only=True,
+    ).run()
+
+
 __all__ = [
     "EpisodeEditorModel",
     "EpisodeSection",
     "EpisodeTreeEditor",
     "EpisodeTreeEntry",
     "edit_episode_document",
+    "view_episode_document",
 ]

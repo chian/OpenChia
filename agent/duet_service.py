@@ -233,6 +233,7 @@ def _path_for_error(message: str) -> str:
     nested_fields = {
         "design_context": "creator_contract.design_context",
         "design_scope": "creator_contract.design_scope",
+        "design_instructions": "creator_contract",
     }
     for token, path in nested_fields.items():
         if token in message:
@@ -240,7 +241,12 @@ def _path_for_error(message: str) -> str:
     for path in _REQUIRED_CREATOR_FIELDS:
         if path in message:
             return path
-    if "credit" in message or "evidence" in message or "return_contract" in message:
+    if (
+        "creator contract" in message
+        or "credit" in message
+        or "evidence" in message
+        or "return_contract" in message
+    ):
         return "creator_contract"
     if "capability" in message:
         return "execution_capability_names"
@@ -327,10 +333,13 @@ class DuetService:
         required: bool,
         content: Mapping[str, Any],
         producer_creator_episode_id: Optional[OpaqueId] = None,
+        provenance: DuetProvenance = DuetProvenance.LLM_PROPOSAL,
     ) -> EpisodeCreatorContextReference:
         """Persist one exact structured document and return its immutable reference."""
 
         self._duet_row(duet_id)
+        if not isinstance(provenance, DuetProvenance):
+            raise TypeError("Creator context provenance must be a DuetProvenance")
         if not isinstance(content, Mapping):
             raise ValueError("Creator context artifact content must be an object")
         normalized = json.loads(canonical_json(content))
@@ -387,7 +396,7 @@ class DuetService:
         self.store.append_event(
             duet_id=duet_id.value,
             event_type="creator_context_artifact_registered",
-            provenance=DuetProvenance.LLM_PROPOSAL.value,
+            provenance=provenance.value,
             record={
                 "artifact_id": artifact_id.value,
                 "content_hash": digest.value,
@@ -2028,6 +2037,22 @@ class DuetService:
         draft = self.latest_draft(duet_id)
         requests = self.information_requests(duet_id)
         creator = self.store.latest_creator(duet_id.value)
+        superseded_creator = None
+        if creator is not None:
+            contract_artifact = self.store.get_artifact(
+                creator["contract_artifact_id"]
+            )
+            if (
+                contract_artifact is not None
+                and draft.revision > int(contract_artifact["revision"])
+            ):
+                superseded_creator = {
+                    "creator_episode_id": creator["creator_episode_id"],
+                    "contract_artifact_id": creator["contract_artifact_id"],
+                    "contract_revision": int(contract_artifact["revision"]),
+                    "state": creator["state"],
+                }
+                creator = None
         progress = None
         activity = None
         activity_history: list[dict[str, Any]] = []
@@ -2103,6 +2128,13 @@ class DuetService:
             duet_id=duet_id.value,
             kind=ApprovalKind.CREATOR_CONTRACT.value,
         )
+        superseded_creator_approval = None
+        if (
+            creator_approval is not None
+            and int(creator_approval["revision"]) != draft.revision
+        ):
+            superseded_creator_approval = creator_approval
+            creator_approval = None
         workflow_approval = self.store.latest_approval(
             duet_id=duet_id.value,
             kind=ApprovalKind.WORKFLOW.value,
@@ -2189,12 +2221,14 @@ class DuetService:
             "creator_episode_id": (
                 None if creator is None else creator["creator_episode_id"]
             ),
+            "superseded_creator": superseded_creator,
             "creator_progress": progress,
             "creator_activity": activity,
             "creator_activity_history": activity_history,
             "creator_failure": failure,
             "workflow_review": workflow_review,
             "creator_contract_approval": creator_approval,
+            "superseded_creator_contract_approval": superseded_creator_approval,
             "workflow_approval": workflow_approval,
             "launch": launch,
             "allowed_episode_capability_names": sorted(

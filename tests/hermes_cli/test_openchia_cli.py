@@ -325,8 +325,17 @@ def test_episode_configuration_changes_are_path_level_and_keep_provenance():
     assert changes[1]["after"] == 0.8
 
 
-def test_episode_read_executes_immediately_during_duet_turn():
+def test_episode_read_uses_terminal_tree_during_duet_turn(monkeypatch):
     observed = []
+
+    def run_in_terminal(callback, *, in_executor=False):
+        observed.append(("terminal", in_executor))
+        callback()
+
+    monkeypatch.setattr(
+        "prompt_toolkit.application.run_in_terminal",
+        run_in_terminal,
+    )
 
     class Buffer:
         def reset(self, *, append_to_history=False):
@@ -345,8 +354,9 @@ def test_episode_read_executes_immediately_during_duet_turn():
 
     assert cli._tui_enter_inline_command(event, "/episode", False) is True
     assert observed == [
-        ("command", "/episode"),
         ("reset", True),
+        ("terminal", True),
+        ("command", "/episode"),
         ("invalidate", True),
     ]
 

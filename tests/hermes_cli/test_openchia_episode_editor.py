@@ -132,3 +132,13 @@ def test_editor_rejects_partial_section_replacement_and_marks_missing_values():
     editor = EpisodeTreeEditor(contract, missing_value=MISSING)
     assert editor.application.mouse_support() is True
     assert all(callable(fragment[2]) for fragment in editor._tree_fragments())
+
+    viewer = EpisodeTreeEditor(contract, missing_value=MISSING, read_only=True)
+    section_index = next(
+        index
+        for index, entry in enumerate(viewer._entries())
+        if entry.kind == "section"
+    )
+    viewer._select_index(section_index)
+    assert viewer.editor.read_only() is True
+    assert viewer.model.result() == contract

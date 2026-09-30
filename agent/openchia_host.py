@@ -542,18 +542,28 @@ class OpenChiaHost:
             for field in CREATION_BLUEPRINT_FIELDS
         }
 
+    def episode_has_creator_history(self) -> bool:
+        """Return whether Save must cross a fresh approval boundary."""
+
+        return self.store.latest_creator(self.identity.duet_id.value) is not None
+
     @contextmanager
     def episode_edit_session(self):
-        """Give the human exclusive draft-write ownership for one editor session."""
+        """Give the human exclusive draft-write ownership for one editor session.
+
+        An admitted contract is immutable, but it is not the mutable draft.  A
+        later human edit creates a new revision whose exact hash must be
+        approved and admitted independently.
+        """
 
         with self._draft_write_lock:
-            self._assert_draft_mutable()
+            self._assert_revision_write_safe()
             yield self.episode_editor_document()
 
     def record_human_answer(self, field_path: str, value: Any) -> DuetAnswer:
         """Record one exact answer through the trusted human host boundary."""
 
-        self._assert_draft_mutable()
+        self._assert_revision_write_safe()
         requests = {
             request.field_path: request
             for request in self.service.information_requests(self.identity.duet_id)
@@ -571,11 +581,151 @@ class OpenChiaHost:
             value=value,
         )
 
-    def _assert_draft_mutable(self) -> None:
-        if self.service.duet_status(self.identity.duet_id).get("creator_episode_id"):
-            raise DuetProtocolError(
-                "the Creator contract is frozen and admitted; begin a new Duet to change it"
+    def _assert_revision_write_safe(self) -> None:
+        """Reject only concurrent writes, never a revision after terminal work."""
+
+        with self._lock:
+            creator_running = any(
+                thread.is_alive() for thread in self._creator_threads.values()
             )
+            workflow_running = any(
+                thread.is_alive() for thread in self._final_threads.values()
+            )
+        if creator_running or workflow_running:
+            raise DuetProtocolError(
+                "Episode configuration cannot be revised while owned work is "
+                "running; pause or cancel the Creator first"
+            )
+
+    def _configuration_with_revision_context(
+        self,
+        configuration: Mapping[str, Any],
+        *,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Attach exact recovery inputs when revising an admitted contract."""
+
+        normalized = json.loads(canonical_json(configuration))
+        creator = self.store.latest_creator(self.identity.duet_id.value)
+        if creator is None:
+            return normalized
+
+        contract_artifact = self.store.get_artifact(creator["contract_artifact_id"])
+        if contract_artifact is None:
+            raise OpenChiaHostError("the prior Creator contract artifact is missing")
+
+        creator_contract = normalized.get("creator_contract")
+        if not isinstance(creator_contract, dict):
+            return normalized
+
+        configured_context = creator_contract.get("design_context")
+        existing_context: Optional[EpisodeCreatorContext] = None
+        try:
+            existing_context = EpisodeCreatorContext.from_record(configured_context)
+            self.service.resolve_creator_context(
+                self.identity.duet_id,
+                existing_context,
+            )
+        except (TypeError, ValueError, DuetProtocolError):
+            existing_context = None
+
+        brief_contract = dict(creator_contract)
+        brief_contract.pop("design_context", None)
+        # Supplemental design instructions are context, not executable
+        # authority.  Preserve them exactly in the task brief instead of
+        # admitting an unknown control-plane field.
+        creator_contract.pop("design_instructions", None)
+        brief = self.service.register_creator_context_artifact(
+            self.identity.duet_id,
+            artifact_kind="task_design_brief",
+            schema_version=1,
+            purpose="revision_entrypoint",
+            required=True,
+            provenance=DuetProvenance.HOST_VALIDATION,
+            content={
+                "schema_version": 1,
+                "source_draft_revision": expected_revision,
+                "superseded_creator_episode_id": creator["creator_episode_id"],
+                "configuration": {
+                    **normalized,
+                    "creator_contract": brief_contract,
+                },
+            },
+        )
+        prior_contract = self.service.register_creator_context_artifact(
+            self.identity.duet_id,
+            artifact_kind="creator_contract_history",
+            schema_version=1,
+            purpose="prior_contract",
+            required=True,
+            provenance=DuetProvenance.HOST_VALIDATION,
+            content={
+                "source_artifact_id": contract_artifact["artifact_id"],
+                "source_content_hash": contract_artifact["content_hash"],
+                "record": contract_artifact["record"],
+            },
+        )
+        recovery_references = [brief, prior_contract]
+        for kind, artifact_kind, purpose in (
+            ("creator_execution_error", "creator_failure_history", "prior_failure"),
+            ("workflow_shadow_review", "workflow_review_history", "prior_workflow_review"),
+        ):
+            artifact = self.store.latest_artifact(
+                duet_id=self.identity.duet_id.value,
+                kind=kind,
+                creator_episode_id=creator["creator_episode_id"],
+            )
+            if artifact is None:
+                continue
+            recovery_references.append(
+                self.service.register_creator_context_artifact(
+                    self.identity.duet_id,
+                    artifact_kind=artifact_kind,
+                    schema_version=1,
+                    purpose=purpose,
+                    required=True,
+                    provenance=DuetProvenance.HOST_VALIDATION,
+                    content={
+                        "source_artifact_id": artifact["artifact_id"],
+                        "source_content_hash": artifact["content_hash"],
+                        "record": artifact["record"],
+                    },
+                )
+            )
+
+        references = []
+        entrypoint_id = brief.artifact_id
+        if existing_context is not None:
+            revision_artifact_kinds = {
+                "task_design_brief",
+                "creator_contract_history",
+                "creator_failure_history",
+                "workflow_review_history",
+            }
+            preserved_references = tuple(
+                reference
+                for reference in existing_context.artifact_references
+                if reference.artifact_kind not in revision_artifact_kinds
+            )
+            references.extend(preserved_references)
+            if existing_context.entrypoint_artifact_id in {
+                reference.artifact_id for reference in preserved_references
+            }:
+                entrypoint_id = existing_context.entrypoint_artifact_id
+        references.extend(recovery_references)
+        references_by_id = {
+            reference.artifact_id.value: reference for reference in references
+        }
+        creator_contract["design_context"] = EpisodeCreatorContext(
+            entrypoint_artifact_id=entrypoint_id,
+            artifact_references=tuple(references_by_id.values()),
+            unresolved_question_ids=(
+                ()
+                if existing_context is None
+                else existing_context.unresolved_question_ids
+            ),
+        ).as_record()
+        return normalized
 
     def replace_episode_configuration(
         self,
@@ -586,12 +736,16 @@ class OpenChiaHost:
         """Replace the draft exactly with a directly edited human configuration."""
 
         with self._draft_write_lock:
-            self._assert_draft_mutable()
+            self._assert_revision_write_safe()
             if not isinstance(configuration, Mapping):
                 raise TypeError("Episode configuration must be a JSON object")
             unknown = sorted(set(configuration) - set(CREATION_BLUEPRINT_FIELDS))
             if unknown:
                 raise ValueError(f"unknown Episode configuration fields: {unknown}")
+            configuration = self._configuration_with_revision_context(
+                configuration,
+                expected_revision=expected_revision,
+            )
             fields = tuple(
                 ContractFieldRecord(
                     field_path=field,

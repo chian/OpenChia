@@ -624,15 +624,17 @@ class OpenChiaCLI(HermesCLI):
         )
 
     def _show_episode_configuration(self) -> None:
-        snapshot = self._episode_host().episode_configuration()
+        host = self._episode_host()
+        snapshot = host.episode_configuration()
         changes = self._current_episode_changes(snapshot)
         self._episode_last_changes = changes
-        self._print_openchia(self._render_episode_changes(*changes))
-        display = dict(snapshot)
-        capabilities = display.pop("allowed_capabilities", [])
-        display["allowed_capability_count"] = len(capabilities)
-        display["capabilities_command"] = "/episode capabilities"
-        self._print_openchia(json.dumps(display, indent=2, ensure_ascii=False))
+        _revision, document = host.episode_editor_document()
+        from hermes_cli.openchia_episode_editor import view_episode_document
+
+        view_episode_document(
+            document,
+            missing_value=EPISODE_FIELD_PLACEHOLDER,
+        )
         self._remember_episode_view(snapshot)
 
     def _show_episode_changes(self) -> None:
@@ -659,7 +661,7 @@ class OpenChiaCLI(HermesCLI):
             and self._is_episode_command(text)
         ):
             action = text.strip()[len("/episode") :].strip().split(maxsplit=1)
-            if action and action[0].lower() == "edit":
+            if not action or action[0].lower() in {"show", "status", "edit"}:
                 from prompt_toolkit.application import run_in_terminal
 
                 event.app.current_buffer.reset(append_to_history=True)
@@ -694,7 +696,9 @@ class OpenChiaCLI(HermesCLI):
                     document,
                     missing_value=EPISODE_FIELD_PLACEHOLDER,
                 )
-                if edited is None or edited == document:
+                if edited is None or (
+                    edited == document and not host.episode_has_creator_history()
+                ):
                     self._remember_episode_view(host.episode_configuration())
                     self._print_openchia("Episode configuration unchanged.")
                     return True
@@ -1071,7 +1075,7 @@ class OpenChiaCLI(HermesCLI):
         if lower == "/help" or lower.startswith("/help "):
             self._print_openchia(
                 "OpenChia controls:\n"
-                "  /episode          show the complete editable Creator configuration\n"
+                "  /episode          inspect the Episode configuration as a nested tree\n"
                 "  /episode edit     navigate the Episode tree and edit one section\n"
                 "  /episode diff     show exact changes since the last view\n"
                 "  /episode set FIELD JSON_VALUE   set one field or dotted path\n"
