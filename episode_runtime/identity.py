@@ -58,6 +58,7 @@ _SELECTED_LOCAL_SOURCES = (
     "episode_runtime/broker.py",
     "episode_runtime/contracts.py",
     "episode_runtime/identity.py",
+    "episode_runtime/interpreter.py",
     "episode_runtime/landlock.py",
     "episode_runtime/linker.py",
     "episode_runtime/protocol.py",
@@ -293,12 +294,59 @@ def _local_source_paths(repository_root: Path) -> tuple[tuple[str, Path], ...]:
     return tuple(sorted(selected.items()))
 
 
+def interpreter_runtime_from_inspection(value: object) -> InterpreterRuntimeIdentity:
+    """Build an interpreter identity from the bootstrap's ``--inspect-interpreter`` output.
+
+    The record is the *semantic* identity (no ids) as emitted by the same code
+    that later verifies it inside the worker, plus an informational
+    ``executable_path`` that is not part of the identity.
+    """
+    if not isinstance(value, Mapping):
+        raise RuntimeIdentityError("interpreter inspection must be a JSON object")
+    expected = {
+        "implementation",
+        "version",
+        "cache_tag",
+        "executable_hash",
+        "executable_path",
+        "stdlib_file_hashes",
+        "shared_library_hashes",
+    }
+    if set(value) != expected:
+        raise RuntimeIdentityError("interpreter inspection fields are not exact")
+    version = value["version"]
+    if not isinstance(version, list) or len(version) != 3:
+        raise RuntimeIdentityError("interpreter inspection version must be three integers")
+    return InterpreterRuntimeIdentity(
+        implementation=value["implementation"],
+        version=tuple(version),
+        cache_tag=value["cache_tag"],
+        executable_hash=Sha256Digest(value["executable_hash"]),
+        stdlib_file_hashes=value["stdlib_file_hashes"],
+        shared_library_hashes=value["shared_library_hashes"],
+    )
+
+
+def _supplied_interpreter(
+    interpreter_runtime: object,
+) -> InterpreterRuntimeIdentity:
+    if not isinstance(interpreter_runtime, InterpreterRuntimeIdentity):
+        raise TypeError("interpreter_runtime must be an InterpreterRuntimeIdentity")
+    return interpreter_runtime
+
+
 def inspect_runtime_source_manifest(
     *,
     repository_root: str | Path,
     python_executable: str | Path | None = None,
+    interpreter_runtime: InterpreterRuntimeIdentity | None = None,
 ) -> RuntimeSourceManifest:
-    """Inspect the complete admitted local implementation closure."""
+    """Inspect the complete admitted local implementation closure.
+
+    ``interpreter_runtime`` names the worker's interpreter when it is not this
+    process's own (a container image); otherwise the running interpreter is
+    inspected.
+    """
 
     supplied_root = Path(repository_root).expanduser()
     if supplied_root.is_symlink():
@@ -318,8 +366,10 @@ def inspect_runtime_source_manifest(
         local_source_hashes=MappingProxyType(hashes),
         synthetic_packages=SYNTHETIC_PACKAGES,
         admitted_local_roots=ADMITTED_LOCAL_ROOTS,
-        interpreter_runtime=inspect_interpreter_runtime(
-            python_executable=python_executable
+        interpreter_runtime=(
+            inspect_interpreter_runtime(python_executable=python_executable)
+            if interpreter_runtime is None
+            else _supplied_interpreter(interpreter_runtime)
         ),
     )
 
@@ -380,6 +430,7 @@ def materialize_runtime_source_package(
     repository_root: str | Path,
     destination_root: str | Path,
     python_executable: str | Path | None = None,
+    interpreter_runtime: InterpreterRuntimeIdentity | None = None,
 ) -> tuple[RuntimeIdentity, Path]:
     """Publish a fresh immutable package built from verified local source bytes."""
 
@@ -401,6 +452,7 @@ def materialize_runtime_source_package(
     manifest = inspect_runtime_source_manifest(
         repository_root=root,
         python_executable=python_executable,
+        interpreter_runtime=interpreter_runtime,
     )
     identity = runtime_identity_from_manifest(manifest)
     published = destination / manifest.manifest_id.value
@@ -413,6 +465,7 @@ def materialize_runtime_source_package(
             identity,
             published,
             python_executable=python_executable,
+            interpreter_runtime=interpreter_runtime,
         )
         return identity, published
     temporary = Path(
@@ -458,6 +511,7 @@ def materialize_runtime_source_package(
                 identity,
                 published,
                 python_executable=python_executable,
+                interpreter_runtime=interpreter_runtime,
             )
         else:
             directory_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
@@ -471,6 +525,7 @@ def materialize_runtime_source_package(
         identity,
         published,
         python_executable=python_executable,
+        interpreter_runtime=interpreter_runtime,
     )
     return identity, published
 
@@ -509,8 +564,15 @@ def verify_runtime_source_package(
     package_path: str | Path,
     *,
     python_executable: str | Path | None = None,
+    interpreter_runtime: InterpreterRuntimeIdentity | None = None,
 ) -> RuntimeSourceManifest:
-    """Verify every staged source byte and reject unmanifested package entries."""
+    """Verify every staged source byte and reject unmanifested package entries.
+
+    With ``interpreter_runtime`` the manifest's interpreter must equal that
+    supplied identity (an executor whose worker runs another interpreter, such
+    as a container image, verifies the bytes there); otherwise the running
+    interpreter is re-inspected and must match.
+    """
 
     if not isinstance(identity, RuntimeIdentity):
         raise TypeError("identity must be a RuntimeIdentity")
@@ -570,10 +632,18 @@ def verify_runtime_source_package(
             raise RuntimeIdentityError(
                 f"staged source {relative!r} differs from manifest"
             )
-    verify_interpreter_runtime(
-        manifest.interpreter_runtime,
-        python_executable=python_executable,
-    )
+    if interpreter_runtime is None:
+        verify_interpreter_runtime(
+            manifest.interpreter_runtime,
+            python_executable=python_executable,
+        )
+    elif (
+        manifest.interpreter_runtime.as_record()
+        != _supplied_interpreter(interpreter_runtime).as_record()
+    ):
+        raise RuntimeIdentityError(
+            "interpreter runtime differs from the executor's supplied interpreter"
+        )
     return manifest
 
 
@@ -582,11 +652,13 @@ def load_verified_bootstrap_program(
     package_path: str | Path,
     *,
     python_executable: str | Path | None = None,
+    interpreter_runtime: InterpreterRuntimeIdentity | None = None,
 ) -> str:
     manifest = verify_runtime_source_package(
         identity,
         package_path,
         python_executable=python_executable,
+        interpreter_runtime=interpreter_runtime,
     )
     payload = _read_exact_file(
         Path(package_path) / manifest.bootstrap_path,
@@ -607,6 +679,7 @@ def inspect_runtime_identity(
     repository_root: str | Path,
     destination_root: str | Path,
     python_executable: str | Path | None = None,
+    interpreter_runtime: InterpreterRuntimeIdentity | None = None,
 ) -> RuntimeIdentity:
     """Materialize and return the only identity admissible for launch."""
 
@@ -614,6 +687,7 @@ def inspect_runtime_identity(
         repository_root=repository_root,
         destination_root=destination_root,
         python_executable=python_executable,
+        interpreter_runtime=interpreter_runtime,
     )
     return identity
 
@@ -623,11 +697,13 @@ def verify_runtime_identity(
     *,
     runtime_source_package: str | Path,
     python_executable: str | Path | None = None,
+    interpreter_runtime: InterpreterRuntimeIdentity | None = None,
 ) -> RuntimeSourceManifest:
     return verify_runtime_source_package(
         identity,
         runtime_source_package,
         python_executable=python_executable,
+        interpreter_runtime=interpreter_runtime,
     )
 
 
@@ -639,6 +715,7 @@ __all__ = [
     "WORKER_ENTRYPOINT",
     "RuntimeIdentityError",
     "inspect_interpreter_runtime",
+    "interpreter_runtime_from_inspection",
     "inspect_runtime_identity",
     "inspect_runtime_source_manifest",
     "load_runtime_source_manifest",

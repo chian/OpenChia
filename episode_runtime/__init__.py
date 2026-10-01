@@ -17,6 +17,8 @@ from .audit_contracts import (
     RunEvidence,
 )
 from .contracts import (
+    ExecutorKind,
+    expected_executor_unit_name,
     DEFAULT_MAX_FRAME_BYTES,
     MAX_MAX_FRAME_BYTES,
     RUNTIME_WORKER_ENTRYPOINT,
@@ -39,10 +41,26 @@ from .contracts import (
 )
 from .executor import (
     ExecutorResources,
+    RunExecutor,
     RunExecutorFactory,
     RunExecutionError,
     SystemdRunExecutor,
     make_systemd_run_executor_factory,
+)
+from .container_executor import (
+    CONTAINER_USER,
+    ContainerRunExecutor,
+    ContainerRuntime,
+    ContainerRuntimeError,
+    DEFAULT_CONTAINER_IMAGE,
+    inspect_container_runtime,
+    make_container_run_executor_factory,
+)
+from .executor_selection import (
+    CONTAINER_IMAGE_ENV,
+    EXECUTOR_BACKEND_ENV,
+    make_run_executor_factory,
+    resolve_executor_backend,
 )
 from .interpreter import (
     InterpreterPathError,
@@ -116,6 +134,20 @@ from .store import (
 
 
 __all__ = [
+    "CONTAINER_IMAGE_ENV",
+    "CONTAINER_USER",
+    "ContainerRunExecutor",
+    "ContainerRuntime",
+    "ContainerRuntimeError",
+    "DEFAULT_CONTAINER_IMAGE",
+    "EXECUTOR_BACKEND_ENV",
+    "ExecutorKind",
+    "RunExecutor",
+    "expected_executor_unit_name",
+    "inspect_container_runtime",
+    "make_container_run_executor_factory",
+    "make_run_executor_factory",
+    "resolve_executor_backend",
     "InterpreterPathError",
     "current_interpreter_executable",
     "ADMITTED_MODEL_TASKS",

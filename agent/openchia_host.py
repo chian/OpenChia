@@ -56,7 +56,7 @@ from episode_runtime import (
     RunStoreNotFound,
     RuntimePolicy,
     ScopedModelBroker,
-    SystemdRunExecutor,
+    RunExecutor,
     inspect_runtime_identity,
 )
 from handoff_library import (
@@ -105,7 +105,7 @@ class OpenChiaHost:
         available_tool_names: Iterable[str],
         agent_kwargs_factory: Callable[[str, str], dict[str, Any]],
         run_executor_factory: Optional[
-            Callable[[RunStore], SystemdRunExecutor]
+            Callable[[RunStore], RunExecutor]
         ] = None,
     ) -> None:
         if not isinstance(session_id, str) or not session_id.strip():
@@ -1315,16 +1315,17 @@ class OpenChiaHost:
             payload_contract,
         )
 
-    def _runtime_executor(self) -> SystemdRunExecutor:
+    def _runtime_executor(self) -> RunExecutor:
         factory = self._run_executor_factory
         if factory is None:
             raise OpenChiaHostError(
                 "Episode Run execution resources are not configured"
             )
         executor = factory(self.run_store)
-        if not isinstance(executor, SystemdRunExecutor):
+        if not isinstance(executor, RunExecutor):
             raise TypeError(
-                "run_executor_factory must return a SystemdRunExecutor"
+                "run_executor_factory must return a RunExecutor "
+                "(SystemdRunExecutor or ContainerRunExecutor)"
             )
         if executor.run_store is not self.run_store:
             raise OpenChiaHostError(
@@ -1437,10 +1438,8 @@ class OpenChiaHost:
                 ) = self._runnable_build_context()
                 launch_request = self._root_launch_request(request, plan)
                 executor = self._runtime_executor()
-                runtime_identity = inspect_runtime_identity(
-                    repository_root=executor.repository_root,
+                runtime_identity = executor.inspect_runtime_identity(
                     destination_root=self.run_store.runtime_sources_root,
-                    python_executable=executor.python_executable,
                 )
                 registration = RunRegistration.from_admitted_build(
                     build_request=request,

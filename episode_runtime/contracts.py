@@ -47,6 +47,8 @@ _BOOT_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 _INVOCATION_ID = re.compile(r"^[0-9a-f]{32}$")
+_CONTAINER_NAME = re.compile(r"^openchia-episode-[a-z0-9]{1,32}-[0-9a-f]{32}$")
+_CONTAINER_ID = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _record(
@@ -192,21 +194,64 @@ def _launch_request_from_record(value: object) -> DuetLaunchRequest:
     )
 
 
+class ExecutorKind(str, Enum):
+    """How the Run leader is launched and inspected.
+
+    ``systemd``: a transient user service on the host (Linux), inspected through
+    ``systemctl`` and ``/proc``.  ``container``: an OCI container launched through
+    a Docker-compatible CLI (any host with a Linux container runtime, including a
+    macOS VM), inspected through ``docker inspect`` and a probe inside the
+    container's own ``/proc`` and cgroup namespace.
+    """
+
+    SYSTEMD = "systemd"
+    CONTAINER = "container"
+
+
+def expected_executor_unit_name(
+    executor_kind: ExecutorKind,
+    run_id: OpaqueId,
+    nonce: str,
+) -> str:
+    """The launch unit name both the executor and the attestation derive."""
+    base = "openchia-episode-" + run_id.value.rsplit("_", 1)[-1][:32] + "-" + nonce
+    if executor_kind is ExecutorKind.SYSTEMD:
+        return base + ".service"
+    return base
+
+
 def derive_executor_instance_id(
     *,
-    systemd_unit_name: str,
+    executor_kind: ExecutorKind = ExecutorKind.SYSTEMD,
+    unit_name: str,
+    invocation_id: str = "",
     boot_id: str,
     leader_pid: int,
     leader_start_time_ticks: int,
     cgroup_path: str,
 ) -> OpaqueId:
-    """Derive the non-reusable identity of one inspected systemd process."""
+    """Derive the non-reusable identity of one inspected Run leader.
 
-    if (
-        not isinstance(systemd_unit_name, str)
-        or _SYSTEMD_SERVICE.fullmatch(systemd_unit_name) is None
-    ):
-        raise ValueError("systemd_unit_name must be an exact transient service name")
+    A systemd leader is identified by its transient unit, the kernel boot, its
+    pid, start time and cgroup.  A container leader is identified by the
+    container name *and* the runtime's 64-hex container id (fresh per launch)
+    together with the boot, pid and start time of its leader; its cgroup path
+    is the one visible inside the container's own cgroup namespace.
+    """
+
+    if not isinstance(executor_kind, ExecutorKind):
+        raise TypeError("executor_kind must be an ExecutorKind")
+    if executor_kind is ExecutorKind.SYSTEMD:
+        if (
+            not isinstance(unit_name, str)
+            or _SYSTEMD_SERVICE.fullmatch(unit_name) is None
+        ):
+            raise ValueError("systemd unit_name must be an exact transient service name")
+    else:
+        if not isinstance(unit_name, str) or _CONTAINER_NAME.fullmatch(unit_name) is None:
+            raise ValueError("container unit_name must be an exact launch container name")
+        if not isinstance(invocation_id, str) or _CONTAINER_ID.fullmatch(invocation_id) is None:
+            raise ValueError("container invocation_id must be a 64-hex container id")
     if not isinstance(boot_id, str) or _BOOT_ID.fullmatch(boot_id) is None:
         raise ValueError("boot_id must be a lowercase kernel boot UUID")
     _integer(leader_pid, "leader_pid", minimum=1)
@@ -224,12 +269,25 @@ def derive_executor_instance_id(
         or str(PurePosixPath(cgroup_path)) != cgroup_path
     ):
         raise ValueError("cgroup_path must be an absolute normalized path")
-    if PurePosixPath(cgroup_path).name != systemd_unit_name:
-        raise ValueError("cgroup_path must end at the inspected systemd service")
+    if executor_kind is ExecutorKind.SYSTEMD:
+        if PurePosixPath(cgroup_path).name != unit_name:
+            raise ValueError("cgroup_path must end at the inspected systemd service")
+        return content_id(
+            "executor",
+            {
+                "systemd_unit_name": unit_name,
+                "boot_id": boot_id,
+                "leader_pid": leader_pid,
+                "leader_start_time_ticks": leader_start_time_ticks,
+                "cgroup_path": cgroup_path,
+            },
+        )
     return content_id(
         "executor",
         {
-            "systemd_unit_name": systemd_unit_name,
+            "executor_kind": executor_kind.value,
+            "container_name": unit_name,
+            "container_id": invocation_id,
             "boot_id": boot_id,
             "leader_pid": leader_pid,
             "leader_start_time_ticks": leader_start_time_ticks,
@@ -989,8 +1047,9 @@ class InspectedExecutorAttestation:
     runtime_policy_hash: Sha256Digest
     landlock_receipt: LandlockPolicyReceipt
     seccomp_receipt: SeccompPolicyReceipt
-    systemd_unit_name: str
-    systemd_invocation_id: str
+    executor_kind: ExecutorKind
+    executor_unit_name: str
+    executor_invocation_id: str
     launch_description: str
     boot_id: str
     leader_pid: int
@@ -1047,8 +1106,12 @@ class InspectedExecutorAttestation:
             raise ValueError("executor installed another Landlock policy")
         if self.seccomp_receipt.policy_hash != seccomp_policy_hash():
             raise ValueError("executor installed another seccomp policy")
+        if not isinstance(self.executor_kind, ExecutorKind):
+            raise TypeError("executor_kind must be an ExecutorKind")
         expected_executor_id = derive_executor_instance_id(
-            systemd_unit_name=self.systemd_unit_name,
+            executor_kind=self.executor_kind,
+            unit_name=self.executor_unit_name,
+            invocation_id=self.executor_invocation_id,
             boot_id=self.boot_id,
             leader_pid=self.leader_pid,
             leader_start_time_ticks=self.leader_start_time_ticks,
@@ -1058,11 +1121,19 @@ class InspectedExecutorAttestation:
             raise ValueError(
                 "executor_instance_id does not match the inspected process identity"
             )
+        invocation_pattern = (
+            _INVOCATION_ID
+            if self.executor_kind is ExecutorKind.SYSTEMD
+            else _CONTAINER_ID
+        )
         if (
-            not isinstance(self.systemd_invocation_id, str)
-            or _INVOCATION_ID.fullmatch(self.systemd_invocation_id) is None
+            not isinstance(self.executor_invocation_id, str)
+            or invocation_pattern.fullmatch(self.executor_invocation_id) is None
         ):
-            raise ValueError("systemd_invocation_id must be 32 lowercase hex digits")
+            raise ValueError(
+                "executor_invocation_id must be the exact systemd invocation id "
+                "(32 hex) or container id (64 hex)"
+            )
         description_parts = (
             self.launch_description.split(":")
             if isinstance(self.launch_description, str)
@@ -1073,13 +1144,11 @@ class InspectedExecutorAttestation:
             or description_parts[0] != "openchia-episode-launch"
             or description_parts[1] != self.run_id.value
             or _INVOCATION_ID.fullmatch(description_parts[2]) is None
-            or self.systemd_unit_name
-            != (
-                "openchia-episode-"
-                + self.run_id.value.rsplit("_", 1)[-1][:32]
-                + "-"
-                + description_parts[2]
-                + ".service"
+            or self.executor_unit_name
+            != expected_executor_unit_name(
+                self.executor_kind,
+                self.run_id,
+                description_parts[2],
             )
         ):
             raise ValueError("launch_description is not an exact launch identity")
@@ -1160,8 +1229,9 @@ class InspectedExecutorAttestation:
             "runtime_policy_hash": self.runtime_policy_hash.value,
             "landlock_receipt": self.landlock_receipt.as_record(),
             "seccomp_receipt": self.seccomp_receipt.as_record(),
-            "systemd_unit_name": self.systemd_unit_name,
-            "systemd_invocation_id": self.systemd_invocation_id,
+            "executor_kind": self.executor_kind.value,
+            "executor_unit_name": self.executor_unit_name,
+            "executor_invocation_id": self.executor_invocation_id,
             "launch_description": self.launch_description,
             "boot_id": self.boot_id,
             "leader_pid": self.leader_pid,
@@ -1240,8 +1310,9 @@ class InspectedExecutorAttestation:
                 "runtime_policy_hash",
                 "landlock_receipt",
                 "seccomp_receipt",
-                "systemd_unit_name",
-                "systemd_invocation_id",
+                "executor_kind",
+                "executor_unit_name",
+                "executor_invocation_id",
                 "launch_description",
                 "boot_id",
                 "leader_pid",
@@ -1260,6 +1331,10 @@ class InspectedExecutorAttestation:
                 "no_new_privs",
             },
         )
+        try:
+            executor_kind = ExecutorKind(record["executor_kind"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("executor attestation names an unknown executor kind") from exc
         result = cls(
             run_id=OpaqueId(record["run_id"]),
             registration_hash=Sha256Digest(record["registration_hash"]),
@@ -1275,8 +1350,9 @@ class InspectedExecutorAttestation:
             seccomp_receipt=SeccompPolicyReceipt.from_record(
                 record["seccomp_receipt"]
             ),
-            systemd_unit_name=record["systemd_unit_name"],
-            systemd_invocation_id=record["systemd_invocation_id"],
+            executor_kind=executor_kind,
+            executor_unit_name=record["executor_unit_name"],
+            executor_invocation_id=record["executor_invocation_id"],
             launch_description=record["launch_description"],
             boot_id=record["boot_id"],
             leader_pid=record["leader_pid"],

@@ -135,15 +135,34 @@ class _SockFprog(ctypes.Structure):
     )
 
 
+_MACHINE_ALIASES = {
+    # macOS and some BSDs report the Apple/ARM spelling; the kernel ABI, the
+    # audit arch and the worker's uname all say ``aarch64``.
+    "arm64": "aarch64",
+    "amd64": "x86_64",
+}
+
+
+def normalize_machine(name: str) -> str:
+    """Canonical kernel spelling of a machine name (``arm64`` -> ``aarch64``).
+
+    A host that only *registers* a Run (for example macOS launching a Linux
+    container) must hash the same policy the worker installs, so both sides
+    name the architecture the same way.
+    """
+    lowered = name.lower()
+    return _MACHINE_ALIASES.get(lowered, lowered)
+
+
 def _machine() -> str:
-    machine = platform.machine().lower()
+    machine = normalize_machine(platform.machine())
     if machine not in _AUDIT_ARCH or machine not in _DENIED_SYSCALLS:
         raise SeccompError(f"seccomp policy is not declared for {machine!r}")
     return machine
 
 
 def seccomp_policy_record(machine: str | None = None) -> dict[str, object]:
-    selected = _machine() if machine is None else machine.lower()
+    selected = _machine() if machine is None else normalize_machine(machine)
     if selected not in _AUDIT_ARCH or selected not in _DENIED_SYSCALLS:
         raise ValueError("seccomp machine is unsupported")
     return {
@@ -177,7 +196,8 @@ class SeccompPolicyReceipt:
             raise TypeError("run_id must be an OpaqueId")
         if not isinstance(self.executor_instance_id, OpaqueId):
             raise TypeError("executor_instance_id must be an OpaqueId")
-        if self.machine not in _AUDIT_ARCH:
+        object.__setattr__(self, "machine", normalize_machine(self.machine))
+        if self.machine not in _DENIED_SYSCALLS:
             raise ValueError("seccomp receipt machine is unsupported")
         if not isinstance(self.policy_hash, Sha256Digest):
             raise TypeError("policy_hash must be a Sha256Digest")
