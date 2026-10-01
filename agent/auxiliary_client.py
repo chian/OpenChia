@@ -275,12 +275,40 @@ class _AuxiliaryCancellationDecision:
         self._source_cancel_check = source_cancel_check
         self._lock = threading.Lock()
         self._outcome = "active"
+        self._abort_callback: Optional[Callable[[], Any]] = None
 
     def __call__(self) -> bool:
+        abort_callback = None
         with self._lock:
             if self._outcome == "active" and _captured_aux_cancel_requested(self._source_cancel_check):
                 self._outcome = "cancelled"
-            return self._outcome == "cancelled"
+                abort_callback = self._abort_callback
+                self._abort_callback = None
+            cancelled = self._outcome == "cancelled"
+        if abort_callback is not None:
+            try:
+                abort_callback()
+            except Exception:
+                logger.debug("auxiliary cancellation abort failed", exc_info=True)
+        return cancelled
+
+    def register_abort(self, callback: Callable[[], Any]) -> None:
+        """Bind cancellation to the current attempt-owned stream."""
+
+        if not callable(callback):
+            raise TypeError("auxiliary abort callback must be callable")
+        invoke_now = False
+        with self._lock:
+            if self._outcome == "cancelled":
+                invoke_now = True
+            elif self._outcome == "active":
+                self._abort_callback = callback
+        if invoke_now:
+            callback()
+
+    def clear_abort(self) -> None:
+        with self._lock:
+            self._abort_callback = None
 
     def begin_timeout_cleanup(self) -> bool:
         """Return whether timeout won and destructive cleanup is permitted."""
@@ -441,9 +469,10 @@ def _run_protected_sync_provider_call(callback: Callable[[dict[str, Any]], Any],
     """Run one protected provider callback in an attempt-isolated daemon thread.
 
     Aux clients are process-shared and cannot be closed to wake one request, so the callback (incl.
-    stream aggregation) runs in a daemon while the owner polls cancellation; on cancel the owner
-    unwinds at once and the daemon finishes under the provider timeout in ``kwargs`` (it owns no
-    transcript/commit state, never holds the session lock). Unprotected / no cancel source: direct.
+    stream aggregation) runs in a daemon while the owner polls cancellation. Attempt-owned streams
+    register their close operation on the frozen cancellation decision; on cancel the owner unwinds
+    and that physical stream closes without touching the shared client. The daemon owns no
+    transcript/commit state and never holds the session lock. Unprotected / no cancel source: direct.
     """
     source_cancel_check = _capture_aux_cancel_check()
     if not _aux_interrupt_protected() or not callable(source_cancel_check):
@@ -1249,9 +1278,27 @@ class _CodexStreamGuard:
     def adopt_stream(self, stream: Any) -> None:
         with self._attempt_stream_lock:
             self._attempt_stream = stream
+        register_abort = getattr(
+            self._protected_cancel_check,
+            "register_abort",
+            None,
+        )
+        if callable(register_abort):
+            register_abort(
+                lambda: self.close_attempt_stream(
+                    "cancelled attempt stream close failed"
+                )
+            )
 
     def release_stream(self, stream: Any) -> None:
         """Owner-side: close the attempt stream silently and forget it."""
+        clear_abort = getattr(
+            self._protected_cancel_check,
+            "clear_abort",
+            None,
+        )
+        if callable(clear_abort):
+            clear_abort()
         _close_quietly(stream, None)
         with self._attempt_stream_lock:
             self._attempt_stream = None
@@ -1494,7 +1541,9 @@ class _CodexCompletionsAdapter:
         # Forward the chat.completions timeout; otherwise a Codex stream can sit behind a
         # dead-looking CLI until the user force-interrupts.
         timeout = kwargs.get("timeout")
-        if timeout is not None:
+        if "timeout" in kwargs:
+            # ``None`` is intentional for host-cancelled persistent work: it disables
+            # the SDK request deadline as well as the stream watchdog below.
             resp_kwargs["timeout"] = timeout
         # Per-request HTTP headers (OpenCode session affinity, Copilot x-initiator) map to real
         # headers via the SDK kwarg — forward them.
@@ -1580,10 +1629,10 @@ class _CodexCompletionsAdapter:
             stream_kwargs = bypass_sdk_request_transform({**resp_kwargs, "stream": True})
             event_stream = self._client.responses.create(**stream_kwargs)
             guard.adopt_stream(event_stream)
-            # The timer may fire while responses.create() is blocked; if the cancelled attempt
-            # had no stream to close then, close it now that it is attempt-owned — never the shared client.
-            if guard.timed_out.is_set() and guard.cancel_requested():
-                guard.close_attempt_stream("late cancelled attempt stream close failed")
+            # Cancellation can win while responses.create() is negotiating the stream.
+            # adopt_stream binds the newly available attempt stream to that decision;
+            # this check then unwinds before any cancelled output can be consumed.
+            guard.check_cancelled()
             try:
                 # Some Codex-compatible hosts accept ``stream=True`` but return a completed
                 # Responses object (not iterable) — don't hand it to the consumer.
@@ -1768,6 +1817,8 @@ class _AnthropicCompletionsAdapter:
                 **(anthropic_kwargs.get("extra_headers") or {}),
                 **kwargs["extra_headers"],
             }
+        if "timeout" in kwargs:
+            anthropic_kwargs["timeout"] = kwargs["timeout"]
         # response_format: top-level gets the same translation as the extra_body form; when both
         # are present the extra_body form wins. Passthrough excludes ``reasoning``/``response_format``
         # (already TRANSLATED to native fields — raw would 400 on strict gateways) and ``_`` Hermes plumbing.
@@ -1789,14 +1840,38 @@ class _AnthropicCompletionsAdapter:
                 if not isinstance(existing, dict):
                     existing = {}
                 anthropic_kwargs["extra_body"] = {**existing, **passthrough}
-        response = create_anthropic_message(
-            self._client,
-            anthropic_kwargs,
-            # Record provider-response timing every event, but tick forward progress only for
-            # substantive payloads so keepalives can't hold a stalled summary open. None keeps
-            # the fast get_final_message path.
-            on_stream_event=(_anthropic_aux_stream_event_hook() if _aux_progress_active() else None),
-        )
+        cancel_check = _capture_aux_cancel_check()
+        register_abort = getattr(cancel_check, "register_abort", None)
+        clear_abort = getattr(cancel_check, "clear_abort", None)
+
+        def bind_cancel(stream: Any) -> None:
+            if callable(register_abort):
+                register_abort(
+                    lambda: _close_quietly(
+                        stream,
+                        "cancelled Anthropic attempt stream close failed",
+                    )
+                )
+
+        try:
+            response = create_anthropic_message(
+                self._client,
+                anthropic_kwargs,
+                # Record provider-response timing every event, but tick forward progress only for
+                # substantive payloads so keepalives can't hold a stalled summary open. None keeps
+                # the fast get_final_message path.
+                on_stream_event=(
+                    _anthropic_aux_stream_event_hook()
+                    if _aux_progress_active()
+                    else None
+                ),
+                on_stream_open=(
+                    bind_cancel if callable(register_abort) else None
+                ),
+            )
+        finally:
+            if callable(clear_abort):
+                clear_abort()
         _nr = get_transport("anthropic_messages").normalize_response(response, strip_tool_prefix=self._is_oauth)
         usage = None
         if hasattr(response, "usage") and response.usage:
@@ -3744,8 +3819,9 @@ def _prepare_same_provider_retry(
     resolved_base_url: Optional[str], resolved_api_key: Optional[str],
     resolved_api_mode: Optional[str], main_runtime: Optional[Dict[str, Any]],
     final_model: Optional[str], messages: list, temperature: Optional[float],
-    max_tokens: Optional[int], tools: Optional[list], effective_timeout: float,
+    max_tokens: Optional[int], tools: Optional[list], effective_timeout: Optional[float],
     effective_extra_body: dict, reasoning_config: Optional[dict], async_mode: bool,
+    wait_for_host_cancellation: bool = False,
     extra_headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[Any, Dict[str, Any]]:
     """Rebuild (client, request kwargs) for a same-provider retry after credential recovery."""
@@ -4009,7 +4085,8 @@ def _replan_synchronous_cache_sections(
 def _fallback_request_kwargs(
     destination: _FallbackDestination, *, task: Optional[str], messages: list,
     tools: Optional[list], temperature: Optional[float], max_tokens: Optional[int],
-    effective_timeout: float, effective_extra_body: dict, reasoning_config: Optional[dict],
+    effective_timeout: Optional[float], effective_extra_body: dict,
+    reasoning_config: Optional[dict], wait_for_host_cancellation: bool = False,
     fallback_entry: dict, task_config: dict, apply_fast_lane: bool,
 ) -> Dict[str, Any]:
     """Build request kwargs for one fallback destination (cache-section replan + fast-lane cap)."""
@@ -4031,7 +4108,8 @@ def _fallback_request_kwargs(
 
 def _plan_fallback_candidate(
     fb_client: Any, fb_model: Optional[str], fb_label: str, *, task: Optional[str],
-    effective_timeout: float, apply_fast_lane: bool, **request,
+    effective_timeout: Optional[float], apply_fast_lane: bool,
+    wait_for_host_cancellation: bool = False, **request,
 ) -> Tuple[_FallbackDestination, Dict[str, Any], Callable[[str, Any, Optional[str]], Dict[str, Any]]]:
     """Resolve the destination + first-attempt kwargs for a fallback candidate.
 
@@ -4040,7 +4118,11 @@ def _plan_fallback_candidate(
     ``timeout`` overrides ``effective_timeout``.
     """
     fb_timeout = _fallback_entry_timeout(task, fb_label)
-    if fb_timeout is not None and fb_timeout != effective_timeout:
+    if (
+        not wait_for_host_cancellation
+        and fb_timeout is not None
+        and fb_timeout != effective_timeout
+    ):
         logger.info(
             "Auxiliary %s: %s using its configured timeout %.0fs "
             "(task-level was %.0fs)",
@@ -4051,7 +4133,9 @@ def _plan_fallback_candidate(
     task_config = _get_auxiliary_task_config(task) if task == "compression" else {}
     fallback_entry = _fallback_chain_entry(task, fb_label) or {}
     common = dict(
-        task=task, effective_timeout=effective_timeout, fallback_entry=fallback_entry,
+        task=task, effective_timeout=effective_timeout,
+        wait_for_host_cancellation=wait_for_host_cancellation,
+        fallback_entry=fallback_entry,
         task_config=task_config, apply_fast_lane=apply_fast_lane, **request,
     )
 
@@ -4104,7 +4188,8 @@ def _plan_fallback_auth_retry(
 def _call_fallback_candidate_sync(
     fb_client: Any, fb_model: Optional[str], fb_label: str, *, task: Optional[str], messages: list,
     temperature: Optional[float], max_tokens: Optional[int], tools: Optional[list],
-    effective_timeout: float, effective_extra_body: dict, reasoning_config: Optional[dict],
+    effective_timeout: Optional[float], effective_extra_body: dict,
+    reasoning_config: Optional[dict], wait_for_host_cancellation: bool = False,
 ) -> Optional[Any]:
     """Call one fallback candidate with stale-credential recovery: on an auth error refresh its
     credentials and retry once with a rebuilt client; if that also auth-fails, quarantine the
@@ -4118,7 +4203,9 @@ def _call_fallback_candidate_sync(
     """
     destination, fb_kwargs, rebuild = _plan_fallback_candidate(
         fb_client, fb_model, fb_label, task=task, effective_timeout=effective_timeout,
-        apply_fast_lane=True, messages=messages, tools=tools, temperature=temperature,
+        apply_fast_lane=True,
+        wait_for_host_cancellation=wait_for_host_cancellation,
+        messages=messages, tools=tools, temperature=temperature,
         max_tokens=max_tokens, effective_extra_body=effective_extra_body,
         reasoning_config=reasoning_config,
     )
@@ -4169,12 +4256,15 @@ def _call_fallback_candidate_sync(
 async def _call_fallback_candidate_async(
     fb_client: Any, fb_model: Optional[str], fb_label: str, *, task: Optional[str], messages: list,
     temperature: Optional[float], max_tokens: Optional[int], tools: Optional[list],
-    effective_timeout: float, effective_extra_body: dict, reasoning_config: Optional[dict],
+    effective_timeout: Optional[float], effective_extra_body: dict,
+    reasoning_config: Optional[dict], wait_for_host_cancellation: bool = False,
 ) -> Optional[Any]:
     """Async mirror of :func:`_call_fallback_candidate_sync` (no fast-lane cap on this wire)."""
     destination, fb_kwargs, rebuild = _plan_fallback_candidate(
         fb_client, fb_model, fb_label, task=task, effective_timeout=effective_timeout,
-        apply_fast_lane=False, messages=messages, tools=tools, temperature=temperature,
+        apply_fast_lane=False,
+        wait_for_host_cancellation=wait_for_host_cancellation,
+        messages=messages, tools=tools, temperature=temperature,
         max_tokens=max_tokens, effective_extra_body=effective_extra_body,
         reasoning_config=reasoning_config,
     )
@@ -6286,9 +6376,17 @@ def _get_task_timeout(task: str, default: float = _DEFAULT_AUX_TIMEOUT) -> float
     return default
 
 
-def _effective_aux_timeout(task: str, timeout: Optional[float]) -> float:
+def _effective_aux_timeout(
+    task: str,
+    timeout: Optional[float],
+    *,
+    wait_for_host_cancellation: bool = False,
+) -> Optional[float]:
     """Explicit ``timeout`` wins, else config; compression gets a floor so a reasoning model
-    summarising a large context isn't cut off."""
+    summarising a large context isn't cut off. A host-owned persistent operation may instead
+    wait for its explicit cancellation signal without installing a request deadline."""
+    if wait_for_host_cancellation:
+        return None
     if timeout is not None:
         return timeout
     effective = _get_task_timeout(task)
@@ -6633,7 +6731,8 @@ def _merge_aux_extra_body(
 
 def _build_call_kwargs(
     provider: str, model: str, messages: list, temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None, tools: Optional[list] = None, timeout: float = 30.0,
+    max_tokens: Optional[int] = None, tools: Optional[list] = None,
+    timeout: Optional[float] = 30.0,
     extra_body: Optional[dict] = None, reasoning_config: Optional[dict] = None,
     base_url: Optional[str] = None, task: Optional[str] = None,
     no_progress_timeout: Optional[float] = None,
@@ -6943,13 +7042,20 @@ def _create_with_progress(
         return _create_with_progress_once(client, retry_kwargs, task, force_stream=force_stream)
 
 
-def _stream_request_plan(kwargs: Dict[str, Any]) -> "Tuple[Dict[str, Any], str, float]":
+def _stream_request_plan(
+    kwargs: Dict[str, Any],
+) -> "Tuple[Dict[str, Any], str, Optional[float]]":
     """(stream kwargs, model name, total ceiling) for a streamed re-aggregation."""
     stream_kwargs = dict(kwargs)
     stream_kwargs["stream"] = True
     stream_kwargs["stream_options"] = {"include_usage": True}
-    return (stream_kwargs, str(kwargs.get("model") or ""),
-            _aux_stream_total_ceiling(kwargs.get("timeout")))
+    timeout = kwargs.get("timeout")
+    total_ceiling = (
+        None
+        if "timeout" in kwargs and timeout is None
+        else _aux_stream_total_ceiling(timeout)
+    )
+    return stream_kwargs, str(kwargs.get("model") or ""), total_ceiling
 
 
 def _create_with_progress_once(
@@ -7026,10 +7132,17 @@ def _aggregate_chat_stream(
     ``_is_timeout_error`` matches) when *total_ceiling* elapses."""
     acc = _ChatStreamAccumulator(
         model=model, total_ceiling=total_ceiling, host_deadline=_current_aux_stream_deadline())
+    cancel_check = _capture_aux_cancel_check()
+    register_abort = getattr(cancel_check, "register_abort", None)
+    clear_abort = getattr(cancel_check, "clear_abort", None)
+    if callable(register_abort):
+        register_abort(lambda: _close_chunk_stream(chunks))
     try:
         for chunk in chunks:
             acc.feed(chunk)
     finally:
+        if callable(clear_abort):
+            clear_abort()
         _close_chunk_stream(chunks)
     return acc.finish()
 
@@ -7302,7 +7415,7 @@ _PreparedAuxRequest = NamedTuple("_PreparedAuxRequest", [
     ("client", Any), ("final_model", Optional[str]), ("kwargs", Dict[str, Any]),
     ("resolved_provider", str), ("request_provider", str), ("resolved_model", Optional[str]),
     ("resolved_base_url", Optional[str]), ("resolved_api_key", Optional[str]),
-    ("resolved_api_mode", Optional[str]), ("effective_timeout", float),
+    ("resolved_api_mode", Optional[str]), ("effective_timeout", Optional[float]),
     ("effective_extra_body", Dict[str, Any]), ("base_info", str)])
 
 
@@ -7313,6 +7426,7 @@ def _prepare_aux_request(
     timeout: Optional[float], extra_body: Optional[dict], reasoning_config: Optional[dict],
     extra_headers: Optional[Dict[str, str]], api_mode: Optional[str],
     route_info: Optional[Dict[str, str]], async_mode: bool,
+    wait_for_host_cancellation: bool,
 ) -> _PreparedAuxRequest:
     """Shared head of call_llm/async_call_llm: resolve route + client, publish it, build request kwargs.
     Sync-only: compression fast lane, per-request ``extra_headers``, and ``base_info`` falling
@@ -7329,12 +7443,23 @@ def _prepare_aux_request(
         resolved_base_url=resolved_base_url, resolved_api_key=resolved_api_key,
         resolved_api_mode=resolved_api_mode, main_runtime=main_runtime, async_mode=async_mode,
     )
-    effective_timeout = _effective_aux_timeout(task, timeout)
+    effective_timeout = _effective_aux_timeout(
+        task,
+        timeout,
+        wait_for_host_cancellation=wait_for_host_cancellation,
+    )
     # Codex-Responses-only: real SDK clients reject an unrecognized ``no_progress_timeout``
     # kwarg, so only resolve/forward it when the route is actually a Codex stream (#108104).
     no_progress_timeout = (
         _get_task_no_progress_timeout(task)
-        if isinstance(client, (CodexAuxiliaryClient, AsyncCodexAuxiliaryClient)) else None
+        if (
+            not wait_for_host_cancellation
+            and isinstance(
+                client,
+                (CodexAuxiliaryClient, AsyncCodexAuxiliaryClient),
+            )
+        )
+        else None
     )
     request_provider = effective_provider or resolved_provider
     if not async_mode:
@@ -7849,6 +7974,26 @@ def _stamp_latency_once(latency_info: Optional[Dict[str, int]], key: str, starte
         latency_info[key] = _elapsed_ms(started_at)
 
 
+def _wait_for_aux_retry(
+    seconds: float,
+    *,
+    wait_for_host_cancellation: bool,
+) -> None:
+    """Apply retry backoff while preserving an explicit host cancellation path."""
+
+    if not wait_for_host_cancellation:
+        time.sleep(seconds)
+        return
+    deadline = time.monotonic() + max(0.0, seconds)
+    while True:
+        if _aux_interrupt_cancel_requested():
+            raise AuxiliaryExplicitCancellation()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.05, remaining))
+
+
 @_relay_auxiliary_call
 def call_llm(
     task: str = None, *, provider: str = None, model: str = None, base_url: str = None,
@@ -7858,12 +8003,18 @@ def call_llm(
     extra_headers: Optional[Dict[str, str]] = None, api_mode: str = None, stream: bool = False,
     stream_options: dict = None, route_info: Optional[Dict[str, str]] = None,
     latency_info: Optional[Dict[str, int]] = None,
+    wait_for_host_cancellation: bool = False,
 ) -> Any:
-    """Run an auxiliary LLM request, applying the configured task limit."""
+    """Run an auxiliary LLM request under its task limit or explicit host cancellation."""
     queue_started_at = time.monotonic()
     semaphore = _acquire_sync_aux_semaphore(task)
     if semaphore is not None:
-        semaphore.acquire()
+        if wait_for_host_cancellation and _aux_interrupt_protected():
+            while not semaphore.acquire(timeout=0.05):
+                if _aux_interrupt_cancel_requested():
+                    raise AuxiliaryExplicitCancellation()
+        else:
+            semaphore.acquire()
     request_started_at = time.monotonic()
     if latency_info is not None:
         latency_info["queue_wait_ms"] = _elapsed_ms(queue_started_at, request_started_at)
@@ -7887,6 +8038,7 @@ def call_llm(
                 max_tokens=max_tokens, tools=tools, timeout=timeout, extra_body=extra_body,
                 reasoning_config=reasoning_config, extra_headers=extra_headers, api_mode=api_mode,
                 stream=stream, stream_options=stream_options, route_info=route_info,
+                wait_for_host_cancellation=wait_for_host_cancellation,
             )
         if stream and semaphore is not None:
             stream_semaphore = semaphore
@@ -7919,7 +8071,7 @@ def _plan_aux_call(
     messages: list, temperature: Optional[float], max_tokens: Optional[int], tools: Optional[list],
     timeout: Optional[float], extra_body: Optional[dict], reasoning_config: Optional[dict],
     extra_headers: Optional[Dict[str, str]], api_mode: Optional[str],
-    route_info: Optional[Dict[str, str]],
+    route_info: Optional[Dict[str, str]], wait_for_host_cancellation: bool,
 ) -> Tuple[_PreparedAuxRequest, Dict[str, Any], Dict[str, Any]]:
     """Shared head of both call impls: prepare the request and bundle the kwargs the recovery
     drivers pass to ``_retry_same_provider_*`` / ``_call_fallback_candidate_*``. One immutable
@@ -7932,11 +8084,13 @@ def _plan_aux_call(
         max_tokens=max_tokens, tools=tools, timeout=timeout, extra_body=extra_body,
         reasoning_config=reasoning_config, extra_headers=extra_headers,
         api_mode=api_mode, route_info=route_info, async_mode=async_mode,
+        wait_for_host_cancellation=wait_for_host_cancellation,
     )
     candidate_kwargs = dict(
         task=task, messages=messages, temperature=temperature, max_tokens=max_tokens,
         tools=tools, effective_timeout=req.effective_timeout,
         effective_extra_body=req.effective_extra_body, reasoning_config=reasoning_config,
+        wait_for_host_cancellation=wait_for_host_cancellation,
     )
     retry_kwargs = dict(
         candidate_kwargs, resolved_base_url=req.resolved_base_url,
@@ -7992,6 +8146,7 @@ def _call_llm_impl(
     timeout: float = None, extra_body: dict = None, reasoning_config: Optional[dict] = None,
     extra_headers: Optional[Dict[str, str]] = None, api_mode: str = None, stream: bool = False,
     stream_options: dict = None, route_info: Optional[Dict[str, str]] = None,
+    wait_for_host_cancellation: bool = False,
 ) -> Any:
     """Centralized synchronous LLM call: resolve provider/model, auth, kwargs, fallbacks.
     task: aux task whose provider:model comes from config (ignored if provider set); api_mode
@@ -8004,6 +8159,7 @@ def _call_llm_impl(
         temperature=temperature, max_tokens=max_tokens, tools=tools, timeout=timeout,
         extra_body=extra_body, reasoning_config=reasoning_config,
         extra_headers=extra_headers, api_mode=api_mode, route_info=route_info,
+        wait_for_host_cancellation=wait_for_host_cancellation,
     )
     client, kwargs, request_provider = req.client, req.kwargs, req.request_provider
     # Streaming path (MoA aggregator): return the raw SDK stream, skipping validation and
@@ -8057,7 +8213,12 @@ def _call_llm_impl(
                 logger.info("Auxiliary %s: transient transport error (attempt %d/%d); "
                             "retrying same provider after %.1fs before fallback: %s",
                             task or "call", _attempt, _max_transient_retries, _backoff, _last_transient)
-                time.sleep(_backoff)
+                _wait_for_aux_retry(
+                    _backoff,
+                    wait_for_host_cancellation=(
+                        wait_for_host_cancellation
+                    ),
+                )
                 try:
                     return _primary()
                 except Exception as retry_transient:
@@ -8186,6 +8347,7 @@ async def _async_call_llm_impl(
         temperature=temperature, max_tokens=max_tokens, tools=tools, timeout=timeout,
         extra_body=extra_body, reasoning_config=reasoning_config,
         extra_headers=None, api_mode=None, route_info=route_info,
+        wait_for_host_cancellation=False,
     )
     client, kwargs, request_provider = req.client, req.kwargs, req.request_provider
     try:

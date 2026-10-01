@@ -41,6 +41,20 @@ _HELP_TEXT = (
 )
 
 
+def _elapsed_text(seconds: object) -> str:
+    try:
+        total = max(0, int(seconds))
+    except (TypeError, ValueError):
+        total = 0
+    minutes, remainder = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {remainder}s"
+    return f"{remainder}s"
+
+
 def render_openchia_status(status: dict[str, Any] | None) -> str:
     """Render the current authority and materialization heads in two lines."""
 
@@ -66,15 +80,25 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
         emitted = int(counts.get("episodes_emitted") or 0)
         total = int(counts.get("episodes_total") or 0)
         stage = str(progress.get("stage") or build_state)
+        model_wait = build.get("model_wait") or {}
+        wait_text = ""
+        if model_wait.get("active"):
+            elapsed = _elapsed_text(model_wait.get("elapsed_seconds"))
+            if model_wait.get("response_seen"):
+                wait_text = f"reply {elapsed} ago"
+            else:
+                wait_text = f"wait {elapsed}"
         return (
             f"Architecture r{revision} · approved\n"
-            f"Builder · {stage} · {emitted}/{total} emitted · /build status"
+            f"Builder · /stop"
+            f"{' · ' + wait_text if wait_text else ''}"
+            f" · {emitted}/{total} · {stage}"
         )
     if build_state == "materialized":
         if run_state in {"starting", "running", "cancel_requested"}:
             return (
                 f"Architecture r{revision} · approved\n"
-                f"Run · {run_state} · /run status"
+                f"Run · {run_state} · /run status · /stop"
             )
         if run_state in {"succeeded", "failed", "cancelled"}:
             return (
@@ -351,7 +375,7 @@ class OpenChiaCommandMixin:
             if build_cancelled:
                 cancellations += 1
                 self._print_openchia(
-                    "EpisodeBuilder cancellation requested at its next stage boundary."
+                    "EpisodeBuilder cancellation requested."
                 )
         cancellations += self._request_background_cancellation()
         if not cancellations:

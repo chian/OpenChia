@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import secrets
 import threading
+import time
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from agent.duet_contracts import (
@@ -64,7 +65,14 @@ from handoff_library import (
     HandoffPayloadContract,
     admit_duet_launch_request,
 )
-from llm_call_library import CallOptions, ModelTier, call_model_transport
+from llm_call_library import (
+    CallOptions,
+    ModelTier,
+    ModelTransportRequest,
+    ModelTransportResponse,
+    call_model_transport,
+    model_transport_scope,
+)
 
 
 _INITIAL_EDITABLE_STATES = frozenset(
@@ -167,6 +175,11 @@ class OpenChiaHost:
         self._build_receipt: Optional[BuildReceipt] = None
         self._build_baseline: Optional[RefinementBaseline] = None
         self._build_error: Optional[str] = None
+        self._build_model_call_active = False
+        self._build_model_call_task: Optional[str] = None
+        self._build_model_call_token: Optional[object] = None
+        self._build_model_call_started_at: Optional[float] = None
+        self._build_last_model_response_at: Optional[float] = None
         self._run_lock = threading.RLock()
         self._run_thread: Optional[threading.Thread] = None
         self._run_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -607,6 +620,107 @@ class OpenChiaHost:
             ),
         )
 
+    def _begin_build_model_call(self, task: str) -> object:
+        now = time.monotonic()
+        token = object()
+        with self._build_lock:
+            self._build_model_call_active = True
+            self._build_model_call_task = task
+            self._build_model_call_token = token
+            self._build_model_call_started_at = now
+        return token
+
+    def _record_build_model_response(self, token: object) -> None:
+        with self._build_lock:
+            if (
+                self._build_model_call_active
+                and self._build_model_call_token is token
+            ):
+                self._build_last_model_response_at = time.monotonic()
+
+    def _finish_build_model_call(self, token: object) -> None:
+        with self._build_lock:
+            if self._build_model_call_token is token:
+                self._build_model_call_active = False
+                self._build_model_call_token = None
+
+    def _build_model_wait(self) -> Optional[dict[str, Any]]:
+        started_at = self._build_model_call_started_at
+        if started_at is None:
+            return None
+        last_response_at = self._build_last_model_response_at
+        reference = (
+            last_response_at
+            if last_response_at is not None
+            else started_at
+        )
+        return {
+            "active": self._build_model_call_active,
+            "task": self._build_model_call_task,
+            "response_seen": last_response_at is not None,
+            "elapsed_seconds": max(0, int(time.monotonic() - reference)),
+        }
+
+    async def _builder_model_transport(
+        self,
+        request: ModelTransportRequest,
+        cancel_event: threading.Event,
+    ) -> ModelTransportResponse:
+        """Wait for a Builder model response until the human cancels the build."""
+
+        from agent.auxiliary_client import (
+            AuxiliaryExplicitCancellation,
+            aux_interrupt_protection,
+            aux_progress_hook,
+            call_llm,
+            extract_content_or_reasoning,
+        )
+
+        model_call_token = self._begin_build_model_call(request.task)
+        route: dict[str, str] = {}
+
+        def invoke() -> Any:
+            with (
+                aux_interrupt_protection(cancel_event=cancel_event),
+                aux_progress_hook(
+                    lambda: self._record_build_model_response(
+                        model_call_token
+                    )
+                ),
+            ):
+                return call_llm(
+                    task=request.task,
+                    messages=[dict(item) for item in request.messages],
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                    timeout=request.timeout,
+                    main_runtime=(
+                        None
+                        if request.main_runtime is None
+                        else dict(request.main_runtime)
+                    ),
+                    reasoning_config=(
+                        None
+                        if request.reasoning_config is None
+                        else dict(request.reasoning_config)
+                    ),
+                    route_info=route,
+                    wait_for_host_cancellation=True,
+                )
+
+        try:
+            try:
+                response = await asyncio.to_thread(invoke)
+            except AuxiliaryExplicitCancellation:
+                raise asyncio.CancelledError from None
+            self._record_build_model_response(model_call_token)
+            return ModelTransportResponse(
+                text=extract_content_or_reasoning(response) or "",
+                route=route,
+            )
+        finally:
+            self._finish_build_model_call(model_call_token)
+
     @staticmethod
     def _validated_progress(
         progress: Mapping[str, object],
@@ -795,6 +909,11 @@ class OpenChiaHost:
             self._build_error = None
             self._build_cancel_event = cancel_event
             self._build_state = "starting"
+            self._build_model_call_active = False
+            self._build_model_call_task = None
+            self._build_model_call_token = None
+            self._build_model_call_started_at = None
+            self._build_last_model_response_at = None
             self._build_progress = self._empty_progress("starting")
             self._build_progress["counts"]["episodes_total"] = len(
                 request.frozen_workflow.workflow.episodes
@@ -803,15 +922,25 @@ class OpenChiaHost:
             def build_worker() -> None:
                 receipt: Optional[BuildReceipt] = None
                 try:
-                    result = asyncio.run(
-                        builder.build(
-                            request,
-                            progress_callback=lambda value: (
-                                self._record_build_progress(request, value)
-                            ),
-                            cancel_event=cancel_event,
+                    async def build_transport(
+                        model_request: ModelTransportRequest,
+                    ) -> ModelTransportResponse:
+                        return await self._builder_model_transport(
+                            model_request,
+                            cancel_event,
                         )
-                    )
+
+                    async def materialize() -> BuildReceipt:
+                        with model_transport_scope(build_transport):
+                            return await builder.build(
+                                request,
+                                progress_callback=lambda value: (
+                                    self._record_build_progress(request, value)
+                                ),
+                                cancel_event=cancel_event,
+                            )
+
+                    result = asyncio.run(materialize())
                     receipt = self._correlated_receipt(request, result)
                     with self._build_lock:
                         self._build_receipt = receipt
@@ -866,6 +995,8 @@ class OpenChiaHost:
                     )
                 finally:
                     with self._build_lock:
+                        self._build_model_call_active = False
+                        self._build_model_call_token = None
                         self._build_thread = None
                         self._build_cancel_event = None
 
@@ -899,7 +1030,7 @@ class OpenChiaHost:
         return self.build_status()
 
     def cancel_build(self) -> bool:
-        """Signal cancellation to the active Builder between inert stages."""
+        """Signal cancellation to the active Builder and its model request."""
 
         with self._build_lock:
             worker = self._build_thread
@@ -1018,6 +1149,7 @@ class OpenChiaHost:
                         None if baseline is None else baseline.baseline_id.value
                     ),
                     "progress": json.loads(canonical_json(self._build_progress)),
+                    "model_wait": self._build_model_wait(),
                     "error": self._build_error,
                 }
         baseline = self.workspace.current_baseline()
@@ -1030,6 +1162,7 @@ class OpenChiaHost:
                 "materialized_specification_id": None,
                 "refinement_baseline_id": None,
                 "progress": self._empty_progress("not_started"),
+                "model_wait": None,
                 "error": None,
             }
         receipt = self.build_store.read_receipt(baseline.build_receipt_id)
@@ -1051,6 +1184,7 @@ class OpenChiaHost:
             ),
             "refinement_baseline_id": baseline.baseline_id.value,
             "progress": self._receipt_progress(request, receipt),
+            "model_wait": None,
             "error": None,
         }
 

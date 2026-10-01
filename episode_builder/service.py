@@ -580,6 +580,26 @@ class EpisodeBuilder:
                 build_attempt,
                 predecessor_plan=predecessor_plan,
             )
+        except asyncio.CancelledError:
+            plan = self._terminal_plan(
+                build_request,
+                build_attempt,
+                self._cancellation_deficit(),
+            )
+            self.store.put_plan(plan)
+            return self._persist_receipt(
+                build_request=build_request,
+                build_attempt=build_attempt,
+                plan=plan,
+                status="failed",
+                admission_report_id=None,
+                manifest_id=None,
+                emitted_modules={},
+                deficits=plan.deficits,
+                progress_callback=progress_callback,
+                stage="cancelled",
+                episodes_total=total,
+            )
         except Exception as exc:
             plan = self._terminal_plan(
                 build_request,
@@ -602,6 +622,26 @@ class EpisodeBuilder:
                 deficits=plan.deficits,
                 progress_callback=progress_callback,
                 stage="failed",
+                episodes_total=total,
+            )
+        if self._cancelled(cancel_event):
+            plan = self._terminal_plan(
+                build_request,
+                build_attempt,
+                self._cancellation_deficit(),
+            )
+            self.store.put_plan(plan)
+            return self._persist_receipt(
+                build_request=build_request,
+                build_attempt=build_attempt,
+                plan=plan,
+                status="failed",
+                admission_report_id=None,
+                manifest_id=None,
+                emitted_modules={},
+                deficits=plan.deficits,
+                progress_callback=progress_callback,
+                stage="cancelled",
                 episodes_total=total,
             )
         self.store.put_plan(plan)
@@ -737,6 +777,23 @@ class EpisodeBuilder:
                         ),
                         predecessor_module=predecessor_modules.get(node.local_id),
                     )
+                    if self._cancelled(cancel_event):
+                        return self._persist_receipt(
+                            build_request=build_request,
+                            build_attempt=build_attempt,
+                            plan=plan,
+                            status="failed",
+                            admission_report_id=None,
+                            manifest_id=None,
+                            emitted_modules=emitted,
+                            deficits=(
+                                *plan.deficits,
+                                self._cancellation_deficit(),
+                            ),
+                            progress_callback=progress_callback,
+                            stage="cancelled",
+                            episodes_total=total,
+                        )
                     if (
                         disposition == "directive"
                         and node.local_id in predecessor_modules
@@ -761,6 +818,23 @@ class EpisodeBuilder:
                                 episodes_total=total,
                             )
                     self.store.put_emitted_module(module)
+                except asyncio.CancelledError:
+                    return self._persist_receipt(
+                        build_request=build_request,
+                        build_attempt=build_attempt,
+                        plan=plan,
+                        status="failed",
+                        admission_report_id=None,
+                        manifest_id=None,
+                        emitted_modules=emitted,
+                        deficits=(
+                            *plan.deficits,
+                            self._cancellation_deficit(),
+                        ),
+                        progress_callback=progress_callback,
+                        stage="cancelled",
+                        episodes_total=total,
+                    )
                 except EpisodeEmissionError as exc:
                     deficit = exc.as_deficit()
                     return self._persist_receipt(

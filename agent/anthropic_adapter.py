@@ -775,10 +775,19 @@ def _is_stream_unavailable_error(exc: Exception) -> bool:
     return is_streaming_access_denied_error(exc)
 
 
-def _stream_final_message(stream_fn, api_kwargs, log_prefix, on_stream_event, on_response):
+def _stream_final_message(
+    stream_fn,
+    api_kwargs,
+    log_prefix,
+    on_stream_event,
+    on_response,
+    on_stream_open=None,
+):
     """``messages.stream()`` -> final Message, ticking the best-effort callbacks."""
     with stream_fn(**{k: v for k, v in api_kwargs.items() if k != "stream"}) as stream:
         stream = normalize_stream_usage(stream)  # MiniMax usage:null (#60683), same as the main turn
+        if callable(on_stream_open):
+            on_stream_open(stream)
         if callable(on_response):
             try:
                 on_response(getattr(stream, "response", None))
@@ -822,7 +831,7 @@ def _stream_final_message(stream_fn, api_kwargs, log_prefix, on_stream_event, on
 
 def create_anthropic_message(
     client: Any, api_kwargs: dict, *, log_prefix: str = "", prefer_stream: bool = True,
-    on_stream_event=None, on_response=None,
+    on_stream_event=None, on_response=None, on_stream_open=None,
 ) -> Any:
     """Create an Anthropic message, aggregating via stream when available. Some Anthropic-compatible
     gateways are SSE-only and answer ``create()`` with ``text/event-stream``, which the SDK surfaces
@@ -831,13 +840,21 @@ def create_anthropic_message(
     streaming (restricted Bedrock roles). Both callbacks are best-effort and fire only on the
     streaming path: ``on_stream_event(event)`` lets liveness watchdogs see forward progress;
     ``on_response(httpx_response)`` exposes headers the parsed Message drops (Nous Portal's
-    ``x-nous-credits-*`` balance family)."""
+    ``x-nous-credits-*`` balance family); ``on_stream_open(stream)`` exposes only the
+    request-owned stream so a host cancellation can close that attempt."""
     sanitize_anthropic_kwargs(api_kwargs, log_prefix=log_prefix)
     messages_api = getattr(client, "messages", None)
     stream_fn = getattr(messages_api, "stream", None)
     if prefer_stream and callable(stream_fn):
         try:
-            return _stream_final_message(stream_fn, api_kwargs, log_prefix, on_stream_event, on_response)
+            return _stream_final_message(
+                stream_fn,
+                api_kwargs,
+                log_prefix,
+                on_stream_event,
+                on_response,
+                on_stream_open,
+            )
         except TimeoutError:
             raise
         except Exception as exc:
