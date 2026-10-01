@@ -353,14 +353,20 @@ class SessionSchemaMixin:
             return
         if not self._fts_index_is_misaligned_source(cursor):
             return
-        has_messages = cursor.execute("SELECT 1 FROM messages LIMIT 1").fetchone() is not None
+        def messages_exist() -> bool:
+            return cursor.execute("SELECT 1 FROM messages LIMIT 1").fetchone() is not None
+
+        has_messages = messages_exist()
 
         def do_align(*, transactional: bool = False) -> None:
             for name in _FTS_BASE_TRIGGERS:
                 cursor.execute(f"DROP TRIGGER IF EXISTS {name}")
             cursor.execute("DROP TABLE IF EXISTS messages_fts")
             self._ensure_fts_schema(cursor, "messages_fts", FTS_SQL, transactional=transactional)
-            if has_messages:
+            # Re-probe under SQLite's write lock (taken by the DROPs above): a row committed
+            # between the first probe and the lock would otherwise be dropped with the old
+            # index and never rebuilt into the new one.
+            if messages_exist():
                 cursor.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
             cursor.execute(_CLEAR_REBUILD_MARKERS_SQL)
             cursor.execute(_DROP_RETIRED_TOOL_HIGH_WATER_SQL)
@@ -380,7 +386,7 @@ class SessionSchemaMixin:
                 try:
                     cursor.execute("ROLLBACK TO SAVEPOINT fts_align_empty")
                     cursor.execute("RELEASE SAVEPOINT fts_align_empty")
-                except sqlite3.OperationalError as rollback_exc:
+                except sqlite3.Error as rollback_exc:
                     logger.warning(
                         "FTS empty-index alignment failed and its savepoint could not be rolled back (%s); "
                         "the original error follows",

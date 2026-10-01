@@ -74,3 +74,49 @@ def test_alignment_failure_surfaces_the_original_error(tmp_path, monkeypatch):
         SessionDB(db_path=path)
     assert "simulated DDL failure" in str(excinfo.value)
     assert "no such savepoint" not in str(excinfo.value)
+
+
+def test_row_committed_after_the_emptiness_probe_is_still_indexed(tmp_path, monkeypatch):
+    """Probe-to-rebuild race: a writer commits a message after the empty-store probe but
+    before the alignment takes SQLite's write lock. The alignment must re-probe under the
+    lock and rebuild, or that row is dropped with the old index and never searchable."""
+    import hermes_state_schema
+
+    path = tmp_path / "state.db"
+    seed = SessionDB(db_path=path)
+    if not seed._fts_enabled:
+        seed.close()
+        pytest.skip("SQLite FTS5 unavailable")
+    seed.create_session("s", source="cli")  # search joins sessions; the late row needs a home
+    seed.close()
+    _rewind_to_raw_messages_index(path)
+
+    # A separate writer that commits into the gap. The first DROP TRIGGER is the
+    # alignment's first write, so iterating the trigger list is exactly that window.
+    writer = sqlite3.connect(path, timeout=5)
+    original_triggers = hermes_state_schema._FTS_BASE_TRIGGERS
+    inserted = []
+
+    class TriggersWithLateWriter(tuple):
+        def __iter__(self):
+            if not inserted:
+                cur = writer.execute(
+                    "INSERT INTO messages(session_id, role, content, timestamp) "
+                    "VALUES('s', 'user', 'late row in the race window', 1.0)"
+                )
+                writer.commit()
+                inserted.append(cur.lastrowid)
+            return tuple.__iter__(original_triggers)
+
+    monkeypatch.setattr(
+        hermes_state_schema, "_FTS_BASE_TRIGGERS", TriggersWithLateWriter(original_triggers)
+    )
+
+    migrated = SessionDB(db_path=path)
+    try:
+        assert inserted, "the late writer never ran; the race window was not exercised"
+        assert migrated.get_meta("fts_storage_version") == str(FTS_STORAGE_VERSION)
+        assert [row["id"] for row in migrated.search_messages("late")] == inserted
+    finally:
+        migrated.close()
+        writer.close()
