@@ -120,6 +120,28 @@ See [OpenChia architecture](OPENCHIA_ARCHITECTURE.md) for ownership and runtime
 boundaries and [Duet-owned Episode design](docs/openchia/duet_owned_episode_design.md)
 for the materialization and refinement flow.
 
+## Run execution backends
+
+An approved, materialized workflow runs its Episodes under a host-inspected,
+network-less, read-only executor. Two backends implement the same protocol and
+evidence chain:
+
+- **systemd** (Linux): a transient user service with cgroup ceilings,
+  `ProtectSystem=strict`, private PID/network namespaces, Landlock ABI 7 and
+  seccomp applied by the worker.
+- **container** (macOS, or Linux without systemd): the same worker inside an
+  OCI container launched through a Docker-compatible CLI (Docker Desktop,
+  Rancher Desktop, Podman) with `--network none --read-only --cap-drop ALL
+  --security-opt no-new-privileges`, the VM's cgroup allocation as the
+  ceiling, and the image's interpreter identity pinned by digest. The
+  container needs a Linux kernel with Landlock ABI 7 (6.15+); Rancher
+  Desktop and Docker Desktop ship one.
+
+The backend is chosen automatically. Override it with
+`OPENCHIA_RUN_EXECUTOR=systemd|container`; pick the image with
+`OPENCHIA_CONTAINER_IMAGE` (default `python:3.14-slim`, which must match the
+host's Python minor version).
+
 ## Lineage and license
 
 OpenChia uses the terminal and provider infrastructure originally developed in
