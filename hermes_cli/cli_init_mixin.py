@@ -227,10 +227,15 @@ class CLIInitMixin:
                 plugin_ts_names = get_plugin_toolset_keys_nowait()
             except Exception:
                 plugin_ts_names = set()
+            from toolsets import RETIRED_TOOLSETS
             invalid = [t for t in toolsets
-                       if not validate_toolset(t) and t not in mcp_names and t not in plugin_ts_names]
+                       if not validate_toolset(t) and t not in mcp_names and t not in plugin_ts_names
+                       and t not in RETIRED_TOOLSETS]
             if invalid:
                 self._console_print(f"[bold red]Warning: Unknown toolsets: {', '.join(invalid)}[/]")
+            retired = [t for t in toolsets if t in RETIRED_TOOLSETS]
+            if retired:
+                logger.debug("Ignoring retired toolset(s) from config: %s", ", ".join(retired))
 
     def _init_checkpoints_and_rules(self, checkpoints, pass_session_id, ignore_rules):
         from cli import CLI_CONFIG
