@@ -707,9 +707,12 @@ def _merge_mcp_servers(
 def _warn_all_invalid_platform_toolsets(platform: str, explicit: list) -> None:
     """Warn once when an explicit platform list has only invalid names (``hermes`` for ``hermes-cli`` → no
     native tools), at session tool resolution rather than only in update/doctor."""
-    from toolsets import validate_toolset
+    from toolsets import RETIRED_TOOLSETS, validate_toolset
 
-    named = [str(t) for t in explicit if isinstance(t, str) and t]
+    # Names this fork retired on purpose (e.g. ``delegation``) are not typos; leave them out of
+    # the diagnosis so a list that is only retired names stays silent and a mixed list names
+    # just the real unknowns.
+    named = [str(t) for t in explicit if isinstance(t, str) and t and t not in RETIRED_TOOLSETS]
     if named and not any(validate_toolset(t) for t in named) and platform not in _warned_invalid_platform_toolsets:
         _warned_invalid_platform_toolsets.add(platform)
         logger.warning(
