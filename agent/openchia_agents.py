@@ -1,4 +1,4 @@
-"""Capability-exact agent factories for Duet and design review scopes."""
+"""Capability-exact agent factory for the conversational half of a Duet."""
 
 from __future__ import annotations
 
@@ -6,6 +6,18 @@ from typing import Any, Iterable, Optional
 
 from agent.duet_contracts import DuetIdentity, DuetPolicy
 from agent.duet_service import DuetService
+
+
+DUET_MODEL_PROTOCOL_TOOLS = frozenset(
+    {
+        "openchia_scope",
+        "duet_status",
+        "episode_architecture_submit",
+        "episode_workspace_read",
+        "episode_refinement_request",
+    }
+)
+DUET_MODEL_SEARCH_TOOLS = frozenset({"web_search", "web_extract"})
 
 
 def _tool_name(tool: object) -> Optional[str]:
@@ -68,7 +80,7 @@ def _duet_authority_scope(
             service.allowed_episode_capabilities
         ),
         "tree_boundary": {
-            "owns": "human_facing_design_of_the_episode_workflow",
+            "owns": "human_facing_architecture_of_the_episode_workflow",
             "may_design_descendant_task_tree": True,
             "may_launch_descendant_task_tree": False,
             "host_validates_and_freezes_approved_workflow": True,
@@ -78,12 +90,16 @@ def _duet_authority_scope(
             "inspect_scope",
             "read_duet_status",
             "gather_read_only_information",
-            "persist_complete_episode_workflow_revision",
+            "submit_the_complete_mutable_initial_architecture",
+            "read_validated_episode_workspace_targets",
+            "request_one_atomic_episode_refinement",
         ],
         "prohibited_operations": [
             "execute_task_work",
             "launch_descendant_task_tree",
             "self_approve_or_mint_approval",
+            "invent_human_workspace_notes",
+            "directly_invoke_episode_builder_or_run",
             "modify_contract_approval_evidence_or_credit_policy",
             "assign_capabilities_outside_host_ceiling",
         ],
@@ -106,6 +122,16 @@ def bind_duet_agent(
 
     if identity.policy_id != policy.policy_id:
         raise ValueError("Duet identity and policy IDs differ")
+    policy_tools = frozenset(policy.capability_allowlist)
+    missing = DUET_MODEL_PROTOCOL_TOOLS - policy_tools
+    unexpected = policy_tools - (
+        DUET_MODEL_PROTOCOL_TOOLS | DUET_MODEL_SEARCH_TOOLS
+    )
+    if missing or unexpected:
+        raise ValueError(
+            "Duet policy does not name the exact refinement surface: "
+            f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"
+        )
     _install_exact_tools(agent, policy.capability_allowlist)
     agent._openchia_role = "duet"
     agent._openchia_authority_scope = _duet_authority_scope(
@@ -117,6 +143,9 @@ def bind_duet_agent(
     agent._duet_prompt_isolated = True
     agent._duet_service = service
     agent._duet_identity = identity
+    agent._episode_architecture_submitter = None
+    agent._episode_workspace_reader = None
+    agent._episode_refinement_requester = None
     agent.skip_context_files = True
     agent.load_soul_identity = False
     agent.skip_background_review = True
@@ -153,32 +182,9 @@ def build_duet_agent(
     )
 
 
-def build_workflow_critic_agent(**agent_kwargs: Any) -> Any:
-    """Construct one stateless, tool-free workflow review lens."""
-
-    from run_agent import AIAgent
-
-    agent = AIAgent(
-        **{
-            **agent_kwargs,
-            "enabled_toolsets": [],
-            "disabled_toolsets": [],
-            "skip_context_files": True,
-            "load_soul_identity": False,
-            "skip_memory": True,
-            "skip_background_review": True,
-        }
-    )
-    _install_exact_tools(agent, ())
-    agent._openchia_role = "workflow_critic"
-    agent._workflow_critic_prompt_isolated = True
-    agent._persist_disabled = True
-    agent._end_session_on_close = False
-    return agent
-
-
 __all__ = [
+    "DUET_MODEL_PROTOCOL_TOOLS",
+    "DUET_MODEL_SEARCH_TOOLS",
     "bind_duet_agent",
-    "build_workflow_critic_agent",
     "build_duet_agent",
 ]

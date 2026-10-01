@@ -167,7 +167,6 @@ def _openchia_prompt_isolated(agent: Any) -> bool:
         bool(getattr(agent, name, False))
         for name in (
             "_duet_prompt_isolated",
-            "_workflow_critic_prompt_isolated",
         )
     )
 

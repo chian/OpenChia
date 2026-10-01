@@ -162,7 +162,8 @@ TOOLSETS = {
         "Restricted human--LLM Duet for designing Episode workflows",
         [
             "web_search", "web_extract", "openchia_scope", "duet_status",
-            "episode_workflow_read", "episode_workflow_update",
+            "episode_architecture_submit", "episode_workspace_read",
+            "episode_refinement_request",
         ],
     ),
     "homeassistant": _ts("Home Assistant smart home control and monitoring", _HA_TOOLS),

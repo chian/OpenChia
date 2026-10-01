@@ -63,6 +63,16 @@ class FunctionLibrary:
         component_id = function.component_id
         if component_id in self._functions:
             raise ValueError(f"duplicate library function {component_id!r}")
+        if (
+            function.interface in self._evaluated_interfaces
+            and "parameter_schema" not in function.provenance
+        ):
+            raise ValueError(
+                f"{function.component_id} requires a parameter_schema owned by "
+                "the evaluated function"
+            )
+        if function.evaluation is not None:
+            function.admit_arguments(function.evaluation.arguments)
         report = self._evaluate(function)
         self._functions[component_id] = function
         if report is not None:

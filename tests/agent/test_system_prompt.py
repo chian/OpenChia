@@ -394,33 +394,6 @@ class TestExecutionGuidanceInjection:
             "deepseek/deepseek-v4-pro", valid_tool_names=())
 
 
-class TestOpenChiaRolePrompts:
-    def test_duet_is_not_an_episode_and_uses_exact_hash_protocol(self):
-        prompt = _prompt_parts(
-            _make_agent(
-                valid_tool_names=["web_search", "episode_workflow_update"],
-                _duet_prompt_isolated=True,
-            )
-        )
-        combined = "\n".join(prompt.values())
-        assert "sole conversational design partner" in combined
-        assert "not an Episode" in combined
-        assert "# Duet protocol" in combined
-        assert "current workflow hash" in combined
-        assert "episode_workflow_update" in combined
-
-    def test_workflow_critic_is_narrow_and_cannot_approve(self):
-        prompt = _prompt_parts(
-            _make_agent(
-                valid_tool_names=[],
-                _workflow_critic_prompt_isolated=True,
-            )
-        )
-        combined = "\n".join(prompt.values())
-        assert "exactly one named review lens" in combined
-        assert "approve it" in combined
-        assert "Duet protocol" not in combined
-
 class TestNamedProfileHintIntegration:
     """The same defect through the REAL resolution chain (#72894).
 

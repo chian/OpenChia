@@ -1,726 +1,1083 @@
-"""Focused tree editor for OpenChia Episode and workflow blueprints."""
+"""Full-screen Episode Workspace for architecture and built workflow review.
+
+The workspace has two deliberately different surfaces:
+
+* Workflow Architecture is a projection of one persisted Duet artifact.  Its
+  declared Episode parts can be edited when the host opens the workspace in
+  edit mode.
+* Materialized Specification is an immutable projection of one exact
+  host-persisted materialization projection, including optional exact code.
+
+Human notes are saved immediately through a host callback and carry the exact
+target record supplied by the active view model.  Architecture edits leave the
+process only through :class:`EpisodeWorkspaceResult`; this module never writes
+host state itself.
+"""
 
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import json
-from typing import Any, Mapping, Optional
+import uuid
+from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 from prompt_toolkit.application import Application, get_app
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition, has_focus
-from prompt_toolkit.formatted_text import AnyFormattedText
+from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Dimension, HSplit, Layout, VSplit, Window
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.layout.margins import ScrollbarMargin
 from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Button, Frame, TextArea
 
-
-@dataclass(frozen=True)
-class EpisodeSection:
-    key: str
-    label: str
-    description: str
-    paths: tuple[tuple[str, ...], ...]
-
-
-_BASE_SECTIONS = (
-    EpisodeSection(
-        "goal",
-        "Goal",
-        "Edit the stable outcome and the concrete result this Episode must produce.",
-        (("goal",), ("result",)),
-    ),
-    EpisodeSection(
-        "planning",
-        "Planning",
-        "Edit the repeatable unit and its host-observable progress measurement.",
-        (("unit",), ("progress",)),
-    ),
-    EpisodeSection(
-        "task",
-        "Task",
-        "Edit the execution capabilities and deliverable contract.",
-        (("execution_capability_names",), ("deliverable",)),
-    ),
+from hermes_cli.openchia_episode_views import (
+    DEFAULT_MISSING_VALUE,
+    MaterializedSpecificationViewModel,
+    WorkflowArchitectureViewModel,
+    WorkspaceDetail,
+    WorkspaceEntry,
+    WorkspaceNote,
+    WorkspaceTarget,
+    notes_from_records,
 )
 
-_RAREFACTION_SECTION = EpisodeSection(
-    "rarefaction",
-    "Rarefaction",
-    (
-        "Edit the measured success target and the registered rarefaction "
-        "function that estimates future yield."
-    ),
-    (("stopping",),),
-)
 
-@dataclass
-class EpisodeNode:
-    node_id: str
-    name: str
-    document_index: int
-    contract: dict[str, Any]
-    children: list["EpisodeNode"] = field(default_factory=list)
+WorkspaceViewModel = Union[
+    WorkflowArchitectureViewModel,
+    MaterializedSpecificationViewModel,
+]
+SaveNoteCallback = Callable[
+    [Mapping[str, Any], str, str],
+    Mapping[str, Any],
+]
+
+
+def _install_modified_tab_sequences() -> None:
+    """Map common extended Ctrl-Tab sequences onto PTK's navigation keys.
+
+    A terminal cannot encode Ctrl-Tab in the legacy single-byte key space.
+    CSI-u and xterm modifyOtherKeys do encode it, while Control-PageUp/Down are
+    the native prompt_toolkit keys used as the portable fallback.
+    """
+
+    from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+
+    for sequence in ("\x1b[9;5u", "\x1b[27;5;9~"):
+        ANSI_SEQUENCES.setdefault(sequence, Keys.ControlPageDown)
+    for sequence in ("\x1b[9;6u", "\x1b[27;6;9~"):
+        ANSI_SEQUENCES.setdefault(sequence, Keys.ControlPageUp)
 
 
 @dataclass(frozen=True)
-class EpisodeTreeEntry:
-    kind: str
-    depth: int
-    episode: EpisodeNode
-    section: Optional[EpisodeSection] = None
+class EpisodeWorkspaceResult:
+    """The host-facing result of one workspace session.
+
+    ``architecture_configuration`` is non-``None`` only when the user chose
+    Save architecture.  The three ``expected_*`` fields identify the exact
+    persisted architecture snapshot on which that proposed replacement was
+    based, so the host can perform its own compare-and-swap.  Notes named in
+    ``saved_note_ids`` were already persisted by ``save_note`` before the
+    workspace returned, even when architecture_configuration is ``None``.
+    """
+
+    architecture_configuration: Optional[dict[str, Any]]
+    expected_architecture_artifact_id: str
+    expected_architecture_content_hash: str
+    expected_architecture_revision: int
+    saved_note_ids: tuple[str, ...]
 
 
-def _mapping_at(value: Mapping[str, Any], path: tuple[str, ...]) -> Any:
-    current: Any = value
-    for part in path:
-        if not isinstance(current, Mapping) or part not in current:
-            raise ValueError(f"Episode section path is missing: {'.'.join(path)}")
-        current = current[part]
-    return current
-
-
-def _set_at(value: dict[str, Any], path: tuple[str, ...], replacement: Any) -> None:
-    current = value
-    for part in path[:-1]:
-        child = current.get(part)
-        if not isinstance(child, dict):
-            raise ValueError(f"Episode section path is not an object: {'.'.join(path[:-1])}")
-        current = child
-    current[path[-1]] = replacement
-
-
-class EpisodeEditorModel:
-    """Mutable working copy projected as Episodes and named design sections."""
+class _EpisodeWorkspace:
+    _DETAIL_PAGES = ("summary", "declaration", "code", "evidence")
 
     def __init__(
         self,
-        document: Mapping[str, Any],
         *,
+        architecture_snapshot: Mapping[str, Any],
+        materialized_snapshot: Optional[Mapping[str, Any]],
+        notes: Sequence[Mapping[str, Any]],
+        architecture_changed_paths: Sequence[str],
+        materialized_changed_paths: Sequence[str],
+        edit_architecture: bool,
+        architecture_edit_notice: Optional[str],
+        save_note: SaveNoteCallback,
         missing_value: str,
-        changed_paths: tuple[str, ...] = (),
     ) -> None:
-        if not isinstance(document, Mapping):
-            raise TypeError("Episode editor document must be an object")
-        self.document: dict[str, Any] = deepcopy(dict(document))
-        self.missing_value = missing_value
-        self.changed_paths = frozenset(changed_paths)
-        self.roots = self._episode_roots()
-        self.expanded_episode_ids = {node.node_id for node in self.roots}
-
-    @staticmethod
-    def _walk_episodes(roots: list[EpisodeNode]) -> list[EpisodeNode]:
-        found: list[EpisodeNode] = []
-
-        def visit(node: EpisodeNode) -> None:
-            found.append(node)
-            for child in node.children:
-                visit(child)
-
-        for root in roots:
-            visit(root)
-        return found
-
-    def _episode_name(
-        self,
-        raw: Mapping[str, Any],
-        contract: Mapping[str, Any],
-        index: int,
-    ) -> str:
-        for key in ("name", "local_id", "instance_id"):
-            value = raw.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        goal = contract.get("goal")
-        if isinstance(goal, str) and goal.strip() and goal != self.missing_value:
-            compact = " ".join(goal.split())
-            return compact if len(compact) <= 42 else compact[:39].rstrip() + "..."
-        return f"Episode {index + 1}"
-
-    def _episode_roots(self) -> list[EpisodeNode]:
-        raw_episodes = self.document.get("episodes")
-        if not isinstance(raw_episodes, list):
-            raise ValueError(
-                "Episode editor requires a workflow document with an episodes array"
-            )
-        if not raw_episodes:
-            raise ValueError("Episode workflow must contain at least one Episode")
-
-        nodes: dict[str, EpisodeNode] = {}
-        parent_ids: dict[str, Optional[str]] = {}
-        ordered_ids: list[str] = []
-        for index, raw in enumerate(raw_episodes):
-            if not isinstance(raw, dict) or not isinstance(raw.get("contract"), dict):
-                raise ValueError(f"workflow Episode {index + 1} has no editable contract")
-            raw_id = raw.get("local_id")
-            node_id = raw_id if isinstance(raw_id, str) and raw_id else f"episode_{index + 1}"
-            if node_id in nodes:
-                raise ValueError(f"duplicate workflow Episode name: {node_id}")
-            contract = raw["contract"]
-            nodes[node_id] = EpisodeNode(
-                node_id=node_id,
-                name=self._episode_name(raw, contract, index),
-                document_index=index,
-                contract=contract,
-            )
-            parent = raw.get("workflow_parent_local_id")
-            parent_ids[node_id] = parent if isinstance(parent, str) and parent else None
-            ordered_ids.append(node_id)
-
-        roots: list[EpisodeNode] = []
-        for node_id in ordered_ids:
-            parent_id = parent_ids[node_id]
-            if parent_id is None:
-                roots.append(nodes[node_id])
-            elif parent_id not in nodes:
-                raise ValueError(
-                    f"workflow Episode {node_id} names unknown parent {parent_id}"
-                )
-            else:
-                nodes[parent_id].children.append(nodes[node_id])
-        cycle = self._parent_cycle(parent_ids, ordered_ids)
-        if cycle is not None:
-            raise ValueError(
-                "workflow Episode hierarchy contains a cycle: "
-                + " -> ".join(cycle)
-            )
-        visited = self._walk_episodes(roots)
-        if len(visited) != len(nodes) or len({node.node_id for node in visited}) != len(nodes):
-            raise ValueError("workflow Episode hierarchy contains a cycle")
-        return roots
-
-    @staticmethod
-    def _parent_cycle(
-        parent_ids: Mapping[str, Optional[str]],
-        ordered_ids: list[str],
-    ) -> Optional[tuple[str, ...]]:
-        resolved: set[str] = set()
-        for start in ordered_ids:
-            path: list[str] = []
-            positions: dict[str, int] = {}
-            cursor: Optional[str] = start
-            while cursor is not None and cursor not in resolved:
-                if cursor in positions:
-                    offset = positions[cursor]
-                    return tuple([*path[offset:], cursor])
-                positions[cursor] = len(path)
-                path.append(cursor)
-                cursor = parent_ids.get(cursor)
-            resolved.update(path)
-        return None
-
-    def episode_changed(self, episode: EpisodeNode) -> bool:
-        prefix = f"episodes.{episode.document_index}"
-        return any(
-            path == prefix or path.startswith(prefix + ".")
-            for path in self.changed_paths
-        )
-
-    def section_changed(
-        self,
-        episode: EpisodeNode,
-        section: EpisodeSection,
-    ) -> bool:
-        base = f"episodes.{episode.document_index}.contract"
-        for section_path in section.paths:
-            prefix = f"{base}.{'.'.join(section_path)}"
-            if any(
-                path == prefix
-                or path.startswith(prefix + ".")
-                or prefix.startswith(path + ".")
-                for path in self.changed_paths
+        if not callable(save_note):
+            raise ValueError("save_note must be callable")
+        if not isinstance(edit_architecture, bool):
+            raise ValueError("edit_architecture must be boolean")
+        for name, paths in (
+            ("architecture_changed_paths", architecture_changed_paths),
+            ("materialized_changed_paths", materialized_changed_paths),
+        ):
+            if not isinstance(paths, (list, tuple)) or any(
+                not isinstance(path, str) for path in paths
             ):
-                return True
-        return False
-
-    def sections_for(self, episode: EpisodeNode) -> tuple[EpisodeSection, ...]:
-        return (*_BASE_SECTIONS, _RAREFACTION_SECTION)
-
-    def visible_entries(self) -> list[EpisodeTreeEntry]:
-        entries: list[EpisodeTreeEntry] = []
-
-        def visit(episode: EpisodeNode, depth: int) -> None:
-            entries.append(EpisodeTreeEntry("episode", depth, episode))
-            if episode.node_id not in self.expanded_episode_ids:
-                return
-            entries.extend(
-                EpisodeTreeEntry("section", depth + 1, episode, section)
-                for section in self.sections_for(episode)
-            )
-            for child in episode.children:
-                visit(child, depth + 1)
-
-        for root in self.roots:
-            visit(root, 0)
-        return entries
-
-    def toggle(self, episode: EpisodeNode, *, expanded: Optional[bool] = None) -> None:
-        is_expanded = episode.node_id in self.expanded_episode_ids
-        should_expand = not is_expanded if expanded is None else expanded
-        if should_expand:
-            self.expanded_episode_ids.add(episode.node_id)
-        else:
-            self.expanded_episode_ids.discard(episode.node_id)
-
-    def section_payload(
-        self,
-        episode: EpisodeNode,
-        section: EpisodeSection,
-    ) -> dict[str, Any]:
-        return {
-            path[-1]: deepcopy(_mapping_at(episode.contract, path))
-            for path in section.paths
-        }
-
-    def apply_section(
-        self,
-        episode: EpisodeNode,
-        section: EpisodeSection,
-        payload: object,
-    ) -> None:
-        if not isinstance(payload, Mapping):
-            raise ValueError(f"{section.label} must remain a JSON object")
-        expected = {path[-1] for path in section.paths}
-        actual = set(payload)
-        if actual != expected:
+                raise ValueError(f"{name} must be an array of strings")
+        if architecture_edit_notice is not None and (
+            not isinstance(architecture_edit_notice, str)
+            or not architecture_edit_notice.strip()
+        ):
             raise ValueError(
-                f"{section.label} fields must be exactly {sorted(expected)}; "
-                f"missing={sorted(expected - actual)}, unknown={sorted(actual - expected)}"
+                "architecture_edit_notice must be non-empty text or None"
             )
-        for path in section.paths:
-            _set_at(episode.contract, path, deepcopy(payload[path[-1]]))
 
-    def section_complete(self, episode: EpisodeNode, section: EpisodeSection) -> bool:
-        def contains_missing(value: Any) -> bool:
-            if value == self.missing_value:
-                return True
-            if isinstance(value, Mapping):
-                return any(contains_missing(item) for item in value.values())
-            if isinstance(value, list):
-                return any(contains_missing(item) for item in value)
-            return False
-
-        return not contains_missing(self.section_payload(episode, section))
-
-    def result(self) -> dict[str, Any]:
-        return deepcopy(self.document)
-
-
-class EpisodeTreeEditor:
-    """Full-screen keyboard and mouse tree for one Episode document."""
-
-    def __init__(
-        self,
-        document: Mapping[str, Any],
-        *,
-        missing_value: str,
-        read_only: bool = False,
-        changed_paths: tuple[str, ...] = (),
-        revision: Optional[int] = None,
-        validation_deficits: tuple[Mapping[str, Any], ...] = (),
-    ) -> None:
-        self.model = EpisodeEditorModel(
-            document,
+        self.architecture = WorkflowArchitectureViewModel(
+            architecture_snapshot,
+            changed_paths=tuple(architecture_changed_paths),
             missing_value=missing_value,
-            changed_paths=changed_paths,
         )
-        self.read_only = read_only
-        self.revision = revision
-        self.validation_deficits = validation_deficits
-        self.selected_index = 0
-        self.selected_section: Optional[tuple[EpisodeNode, EpisodeSection]] = None
-        self.status = "Select a section to inspect it."
-        self._editable = False
+        views: list[WorkspaceViewModel] = [self.architecture]
+        if materialized_snapshot is not None:
+            views.append(
+                MaterializedSpecificationViewModel(
+                    materialized_snapshot,
+                    changed_paths=tuple(materialized_changed_paths),
+                )
+            )
+        self.views = tuple(views)
+        self.notes = list(notes_from_records(notes))
+        self.save_note_callback = save_note
+        self.allow_architecture_edit = (
+            edit_architecture and self.architecture.host_editable
+        )
+        self.saved_note_ids: list[str] = []
+        self.active_view_index = 0
+        self.selected_keys = {
+            view.surface: view.visible_entries()[0].selection_key
+            for view in self.views
+        }
+        self.detail_page_indices = {view.surface: 0 for view in self.views}
+        self.detail_positions: dict[
+            tuple[str, str, str], tuple[int, int, int]
+        ] = {}
+        self.note_drafts: dict[str, str] = {}
+        self.note_attempts: dict[str, tuple[str, str]] = {}
+        self.note_cursors: dict[str, int] = {}
+        self._detail_editable = False
+        self._loaded_detail_text = ""
+        if architecture_edit_notice is not None:
+            self._status = architecture_edit_notice
+        elif self.allow_architecture_edit:
+            self._status = "Architecture editing is available."
+        elif edit_architecture:
+            self._status = (
+                "The architecture snapshot is host-frozen; browsing and notes are available."
+            )
+        else:
+            self._status = "Browsing and notes are available."
+        self._status_is_error = False
 
+        self.view_tabs_control = FormattedTextControl(
+            self._view_tabs_fragments,
+            focusable=True,
+        )
+        self.view_tabs_window = Window(
+            self.view_tabs_control,
+            height=1,
+            dont_extend_height=True,
+        )
         self.tree_control = FormattedTextControl(
             self._tree_fragments,
             focusable=True,
-            get_cursor_position=lambda: Point(x=0, y=self.selected_index),
+            get_cursor_position=self._tree_cursor_position,
         )
         self.tree_window = Window(
             self.tree_control,
-            width=Dimension(min=30, preferred=42),
+            width=Dimension(min=30, preferred=42, max=58),
             wrap_lines=False,
-            right_margins=[],
+            right_margins=[ScrollbarMargin(display_arrows=True)],
         )
-        self.editor = TextArea(
+        self.detail_heading_control = FormattedTextControl(
+            self._detail_heading_fragments
+        )
+        self.detail_heading_window = Window(
+            self.detail_heading_control,
+            height=2,
+            wrap_lines=True,
+            dont_extend_height=True,
+        )
+        self.detail_tabs_control = FormattedTextControl(
+            self._detail_tabs_fragments,
+            focusable=True,
+        )
+        self.detail_tabs_window = Window(
+            self.detail_tabs_control,
+            height=1,
+            dont_extend_height=True,
+        )
+        self.detail_area = TextArea(
             multiline=True,
             scrollbar=True,
-            wrap_lines=True,
-            focus_on_click=True,
-            read_only=Condition(lambda: not self._editable),
+            wrap_lines=False,
+            read_only=Condition(lambda: not self._detail_editable),
         )
-        self.apply_button = Button("Apply section", handler=self._apply_button)
-        self.save_button = Button("Save", handler=self._save)
-        self.cancel_button = Button(
-            "Close" if read_only else "Cancel",
-            handler=self._cancel,
+        self.notes_control = FormattedTextControl(
+            self._notes_fragments,
+            focusable=True,
+            get_cursor_position=self._notes_cursor_position,
+        )
+        self.notes_window = Window(
+            self.notes_control,
+            height=Dimension(min=3, preferred=6, max=9),
+            wrap_lines=True,
+            right_margins=[ScrollbarMargin(display_arrows=True)],
+        )
+        self.note_input = TextArea(
+            height=4,
+            multiline=True,
+            wrap_lines=True,
+            prompt="Note> ",
+            read_only=Condition(lambda: self._detail().target is None),
+        )
+        self.status_control = FormattedTextControl(self._status_fragments)
+        self.status_window = Window(
+            self.status_control,
+            height=2,
+            wrap_lines=True,
+            dont_extend_height=True,
         )
 
+        self.save_note_button = Button("Save note", handler=self._save_note)
+        self.save_architecture_button: Optional[Button] = None
+        if self.allow_architecture_edit:
+            self.save_architecture_button = Button(
+                "Save architecture",
+                handler=self._submit_architecture,
+            )
+        self.close_button = Button("Close", handler=self._close)
+
+        button_items: list[Any] = [self.save_note_button]
+        if self.save_architecture_button is not None:
+            button_items.append(self.save_architecture_button)
+        button_items.append(self.close_button)
+
+        right_column = HSplit(
+            [
+                self.detail_heading_window,
+                self.detail_tabs_window,
+                Frame(self.detail_area, title="Selected part"),
+                Frame(self.notes_window, title="Target notes"),
+                Frame(self.note_input, title="New target note"),
+            ]
+        )
         body = VSplit(
             [
-                Frame(self.tree_window, title="Episode tree"),
-                Frame(
-                    HSplit(
-                        [
-                            Window(
-                                FormattedTextControl(self._selection_heading),
-                                height=2,
-                                style="class:editor.heading",
-                            ),
-                            self.editor,
-                        ]
-                    ),
-                    title="Focused editor",
-                ),
+                Frame(self.tree_window, title="Workflow parts"),
+                right_column,
             ],
             padding=1,
         )
-        buttons = VSplit(
-            (
-                [self.cancel_button]
-                if read_only
-                else [self.apply_button, self.save_button, self.cancel_button]
-            ),
-            padding=2,
-            height=1,
-        )
-        title = "OPENCHIA EPISODE VIEW" if read_only else "OPENCHIA EPISODE EDITOR"
-        if validation_deficits:
-            codes = [
-                str(item.get("code") or "invalid_workflow")
-                for item in validation_deficits
-            ]
-            state = f"checks failed: {codes[0]}"
-            if len(codes) > 1:
-                state += f" +{len(codes) - 1}"
-        else:
-            state = "checks passed"
-        revision_label = "draft" if revision is None else f"r{revision}"
-        changed_label = (
-            "no changes since last view"
-            if not changed_paths
-            else f"{len(changed_paths)} changed value(s) since last view"
-        )
-        subtitle = f"{revision_label} · {state} · {changed_label}"
+        buttons = VSplit(button_items, padding=1)
         root = HSplit(
             [
-                Window(
-                    FormattedTextControl(
-                        f"{title}\n{subtitle}"
-                    ),
-                    height=2,
-                    style="class:editor.title",
-                ),
+                Frame(self.view_tabs_window, title="Episode Workspace"),
                 body,
                 buttons,
-                Window(
-                    FormattedTextControl(self._footer),
-                    height=2,
-                    style="class:editor.footer",
-                ),
+                self.status_window,
             ]
         )
-        self.key_bindings = self._key_bindings()
-        self.application: Application[dict[str, Any] | None] = Application(
+
+        self.bindings = self._build_bindings()
+        self.application: Application[EpisodeWorkspaceResult] = Application(
             layout=Layout(root, focused_element=self.tree_window),
-            key_bindings=self.key_bindings,
+            key_bindings=self.bindings,
+            style=self._style(),
             full_screen=True,
             mouse_support=True,
-            style=Style.from_dict(
-                {
-                    "editor.title": "bold fg:#8fb9a8",
-                    "editor.heading": "bold fg:#c7ddd4",
-                    "editor.footer": "fg:#9aa6a1",
-                    "tree.episode": "bold fg:#d8eee5",
-                    "tree.section": "fg:#b4c4be",
-                    "tree.selected": "reverse",
-                    "tree.missing": "fg:#e1b56f",
-                    "tree.changed": "bold fg:#e1b56f",
-                    "button": "fg:#d8eee5 bg:#33443e",
-                    "button.focused": "bold fg:#17201d bg:#8fb9a8",
-                    "frame.border": "fg:#60756d",
-                }
+        )
+        self._load_detail()
+        self._load_note_draft()
+
+    @property
+    def active_view(self) -> WorkspaceViewModel:
+        return self.views[self.active_view_index]
+
+    @property
+    def selected_index(self) -> int:
+        entries = self.active_view.visible_entries()
+        selected = self.selected_keys[self.active_view.surface]
+        return next(
+            (
+                index
+                for index, entry in enumerate(entries)
+                if entry.selection_key == selected
             ),
+            0,
         )
-        self._load_selection(focus_editor=False)
 
-    def _entries(self) -> list[EpisodeTreeEntry]:
-        return self.model.visible_entries()
+    @selected_index.setter
+    def selected_index(self, value: int) -> None:
+        entries = self.active_view.visible_entries()
+        maximum = max(0, len(entries) - 1)
+        selected = min(max(0, value), maximum)
+        self.selected_keys[self.active_view.surface] = entries[selected].selection_key
 
-    def _mouse_handler(self, index: int):
-        def handle(mouse_event: MouseEvent) -> None:
-            if mouse_event.event_type is not MouseEventType.MOUSE_UP:
-                return
-            if self._select_index(index):
-                entry = self._entries()[self.selected_index]
-                if entry.kind == "episode":
-                    self.model.toggle(entry.episode)
-                    self.selected_index = min(
-                        self.selected_index,
-                        len(self._entries()) - 1,
-                    )
-                    self._load_selection(focus_editor=False)
-                else:
-                    get_app().layout.focus(self.editor)
-                get_app().invalidate()
+    @property
+    def active_detail_page_index(self) -> int:
+        return self.detail_page_indices[self.active_view.surface]
 
-        return handle
+    @active_detail_page_index.setter
+    def active_detail_page_index(self, value: int) -> None:
+        self.detail_page_indices[self.active_view.surface] = value
 
-    def _tree_fragments(self) -> AnyFormattedText:
-        fragments: list[tuple[str, str, Any]] = []
+    def _entries(self) -> list[WorkspaceEntry]:
+        return self.active_view.visible_entries()
+
+    def _entry(self) -> WorkspaceEntry:
         entries = self._entries()
-        for index, entry in enumerate(entries):
-            selected = index == self.selected_index
-            style = "class:tree.episode" if entry.kind == "episode" else "class:tree.section"
-            if entry.kind == "section" and entry.section is not None:
-                if not self.model.section_complete(entry.episode, entry.section):
-                    style += " class:tree.missing"
-                if self.model.section_changed(entry.episode, entry.section):
-                    style += " class:tree.changed"
-            if selected:
-                style += " class:tree.selected"
-            indent = "   " * entry.depth
-            if entry.kind == "episode":
-                marker = (
-                    "[-]"
-                    if entry.episode.node_id in self.model.expanded_episode_ids
-                    else "[+]"
-                )
-                changed = "  Δ" if self.model.episode_changed(entry.episode) else ""
-                label = f"{indent}{marker} {entry.episode.name}{changed}\n"
-            else:
-                completeness = "" if self.model.section_complete(
-                    entry.episode, entry.section
-                ) else "  !"
-                changed = (
-                    "  Δ"
-                    if self.model.section_changed(entry.episode, entry.section)
-                    else ""
-                )
-                label = (
-                    f"{indent}|- {entry.section.label}{completeness}{changed}\n"
-                )
-            fragments.append((style, label, self._mouse_handler(index)))
-        return fragments
+        if not entries:
+            raise ValueError("the active workspace view has no projected parts")
+        return entries[self.selected_index]
 
-    def _selection_heading(self) -> AnyFormattedText:
-        if self.selected_section is None:
-            return "Episode overview\nExpand an Episode and choose one of its design sections."
-        episode, section = self.selected_section
-        return f"{episode.name} / {section.label}\n{section.description}"
+    def _detail(self) -> WorkspaceDetail:
+        return self.active_view.detail_for(self._entry())
 
-    def _footer(self) -> AnyFormattedText:
-        controls = (
-            "Mouse or Up/Down: select  Enter: zoom/toggle  Ctrl+Q or Esc: close"
-            if self.read_only
-            else "Mouse or Up/Down: select  Enter: zoom/toggle  Ctrl+S: save  Ctrl+Q: cancel"
-        )
+    def _active_page(self) -> str:
+        return self._DETAIL_PAGES[self.active_detail_page_index]
+
+    def _can_edit_detail(self, detail: WorkspaceDetail) -> bool:
         return (
-            f"{self.status}\n"
-            f"{controls}"
+            self.allow_architecture_edit
+            and self.active_view is self.architecture
+            and self._active_page() == "declaration"
+            and detail.editable
         )
 
-    def _set_editor_text(self, text: str, *, editable: bool) -> None:
-        self._editable = editable
-        self.editor.buffer.set_document(
-            Document(text, cursor_position=0),
+    def _detail_position_key(
+        self,
+        detail: Optional[WorkspaceDetail] = None,
+        page: Optional[str] = None,
+    ) -> tuple[str, str, str]:
+        current = self._detail() if detail is None else detail
+        return (
+            self.active_view.surface,
+            self._detail_state_id(current),
+            self._active_page() if page is None else page,
+        )
+
+    def _detail_state_id(
+        self,
+        detail: Optional[WorkspaceDetail] = None,
+    ) -> str:
+        current = self._detail() if detail is None else detail
+        if current.target is not None:
+            return current.target.target_id
+        return "unaddressed:" + ":".join(self._entry().selection_key)
+
+    def _remember_detail_position(
+        self,
+        detail: Optional[WorkspaceDetail] = None,
+    ) -> None:
+        if not hasattr(self, "detail_area"):
+            return
+        self.detail_positions[self._detail_position_key(detail)] = (
+            self.detail_area.buffer.cursor_position,
+            int(self.detail_area.window.vertical_scroll or 0),
+            int(self.detail_area.window.horizontal_scroll or 0),
+        )
+
+    def _remember_note_draft(
+        self,
+        target: Optional[WorkspaceTarget],
+    ) -> None:
+        if not hasattr(self, "note_input"):
+            return
+        if target is not None:
+            self.note_drafts[target.target_id] = self.note_input.text
+
+    def _load_note_draft(self) -> None:
+        target = self._detail().target
+        text = "" if target is None else self.note_drafts.get(target.target_id, "")
+        self.note_input.buffer.set_document(
+            Document(text=text, cursor_position=len(text)),
             bypass_readonly=True,
         )
 
-    def _load_selection(self, *, focus_editor: bool) -> None:
+    def _remember_current_target_state(self) -> None:
+        detail = self._detail()
+        self._remember_detail_position(detail)
+        self._remember_note_draft(detail.target)
+
+    def _load_detail(self) -> None:
+        detail = self._detail()
+        self._detail_editable = self._can_edit_detail(detail)
+        text = detail.page(self._active_page())
+        self._loaded_detail_text = text
+        self.detail_area.buffer.set_document(
+            Document(text=text, cursor_position=0),
+            bypass_readonly=True,
+        )
+        cursor, vertical, horizontal = self.detail_positions.get(
+            self._detail_position_key(detail),
+            (0, 0, 0),
+        )
+        self.detail_area.buffer.cursor_position = min(cursor, len(text))
+        self.detail_area.window.vertical_scroll = max(0, vertical)
+        self.detail_area.window.horizontal_scroll = max(0, horizontal)
+        self._invalidate()
+
+    def _invalidate(self) -> None:
+        application = getattr(self, "application", None)
+        if application is not None:
+            application.invalidate()
+
+    def _set_status(self, message: str, *, error: bool = False) -> None:
+        self._status = message
+        self._status_is_error = error
+        self._invalidate()
+
+    def _restore_selection(
+        self,
+        selection_key: tuple[str, str, str],
+    ) -> None:
         entries = self._entries()
-        if not entries:
-            return
-        self.selected_index = min(max(self.selected_index, 0), len(entries) - 1)
-        entry = entries[self.selected_index]
-        if entry.kind == "section" and entry.section is not None:
-            self.selected_section = (entry.episode, entry.section)
-            payload = self.model.section_payload(entry.episode, entry.section)
-            self._set_editor_text(
-                json.dumps(payload, indent=2, ensure_ascii=False),
-                editable=not self.read_only,
-            )
-            verb = "Viewing" if self.read_only else "Editing"
-            self.status = f"{verb} {entry.episode.name} / {entry.section.label}."
-            if focus_editor:
-                get_app().layout.focus(self.editor)
-        else:
-            self.selected_section = None
-            self._set_editor_text(
-                "This Episode is a navigation node.\n\n"
-                "Expand it, then choose Goal, Planning, Task, or Rarefaction.",
-                editable=False,
-            )
-            self.status = f"Selected {entry.episode.name}."
-
-    def _commit_section(self) -> bool:
-        if self.read_only:
-            return True
-        if self.selected_section is None:
-            return True
-        text = self.editor.text.strip()
-        try:
-            payload = json.loads(text)
-            episode, section = self.selected_section
-            self.model.apply_section(episode, section, payload)
-        except (json.JSONDecodeError, ValueError) as exc:
-            self.status = f"Not applied: {exc}"
-            get_app().layout.focus(self.editor)
-            get_app().invalidate()
-            return False
-        self.status = f"Applied {episode.name} / {section.label}."
-        return True
-
-    def _select_index(self, index: int) -> bool:
-        if index == self.selected_index:
-            return True
-        if not self._commit_section():
-            return False
-        entries = self._entries()
-        self.selected_index = min(max(index, 0), len(entries) - 1)
-        self._load_selection(focus_editor=False)
-        return True
-
-    def _move(self, delta: int) -> None:
-        self._select_index(self.selected_index + delta)
-        get_app().invalidate()
-
-    def _activate_selection(self) -> None:
-        entry = self._entries()[self.selected_index]
-        if entry.kind == "episode":
-            if not self._commit_section():
+        for index, entry in enumerate(entries):
+            if entry.selection_key == selection_key:
+                self.selected_index = index
                 return
-            self.model.toggle(entry.episode)
-            self.selected_index = min(self.selected_index, len(self._entries()) - 1)
-            self._load_selection(focus_editor=False)
+        _kind, local_id, _part_key = selection_key
+        if local_id:
+            self.selected_index = self.active_view.index_for_episode(local_id)
         else:
-            self._load_selection(focus_editor=True)
-        get_app().invalidate()
+            self.selected_index = 0
 
-    def _apply_button(self) -> None:
-        self._commit_section()
-        get_app().invalidate()
+    def _commit_detail_edit(self) -> bool:
+        if not self._detail_editable:
+            return True
+        if self.detail_area.text == self._loaded_detail_text:
+            return True
+        entry = self._entry()
+        if entry.part is None or entry.episode is None:
+            return True
+        old_detail = self._detail()
+        old_position_key = self._detail_position_key(old_detail)
+        self._remember_detail_position(old_detail)
+        self._remember_note_draft(old_detail.target)
+        try:
+            payload = json.loads(self.detail_area.text)
+        except json.JSONDecodeError as exc:
+            self._set_status(
+                f"Declaration JSON is invalid at line {exc.lineno}, column {exc.colno}: {exc.msg}",
+                error=True,
+            )
+            return False
+        selection_key = entry.selection_key
+        local_id = entry.episode.local_id
+        part_key = entry.part.key
+        part_label = entry.part.label
+        try:
+            self.architecture.apply_part(local_id, part_key, payload)
+        except (TypeError, ValueError) as exc:
+            self._set_status(f"Architecture edit was not applied: {exc}", error=True)
+            return False
+        self._restore_selection(selection_key)
+        new_detail = self._detail()
+        old_position = self.detail_positions.get(old_position_key)
+        if old_position is not None:
+            self.detail_positions[self._detail_position_key(new_detail)] = old_position
+        self._load_detail()
+        self._load_note_draft()
+        self._set_status(
+            f"Staged {local_id} / {part_label}; Save architecture submits the complete document."
+        )
+        return True
 
-    def _save(self) -> None:
-        if self._commit_section():
-            get_app().exit(result=self.model.result())
+    def _select_tree_index(self, index: int) -> bool:
+        if not self._commit_detail_edit():
+            return False
+        self._remember_current_target_state()
+        self.selected_index = index
+        self._load_detail()
+        self._load_note_draft()
+        return True
 
-    @staticmethod
-    def _cancel() -> None:
-        get_app().exit(result=None)
+    def _activate_view(self, index: int) -> bool:
+        if index == self.active_view_index:
+            return True
+        if index < 0 or index >= len(self.views):
+            return False
+        if not self._commit_detail_edit():
+            return False
+        self._remember_current_target_state()
+        self.active_view_index = index
+        self._load_detail()
+        self._load_note_draft()
+        self._set_status(f"Viewing {self.active_view.title}.")
+        return True
 
-    def _key_bindings(self) -> KeyBindings:
-        bindings = KeyBindings()
-        tree_focused = has_focus(self.tree_window)
+    def _activate_detail_page(self, index: int) -> bool:
+        if index == self.active_detail_page_index:
+            return True
+        if index < 0 or index >= len(self._DETAIL_PAGES):
+            return False
+        if not self._commit_detail_edit():
+            return False
+        self._remember_current_target_state()
+        self.active_detail_page_index = index
+        self._load_detail()
+        self._load_note_draft()
+        return True
 
-        @bindings.add("up", filter=tree_focused)
-        def _up(_event) -> None:
-            self._move(-1)
+    def _toggle_selected_episode(self, expanded: Optional[bool] = None) -> None:
+        if not self._commit_detail_edit():
+            return
+        entry = self._entry()
+        if entry.episode is None or entry.part is not None:
+            get_app().layout.focus(self.detail_tabs_window)
+            return
+        self._remember_current_target_state()
+        local_id = entry.episode.local_id
+        self.active_view.toggle(entry.episode, expanded=expanded)
+        self._restore_selection(("episode", local_id, ""))
+        self._load_detail()
+        self._load_note_draft()
 
-        @bindings.add("down", filter=tree_focused)
-        def _down(_event) -> None:
-            self._move(1)
+    def _collapse_or_parent(self) -> None:
+        entry = self._entry()
+        if entry.episode is None:
+            get_app().layout.focus(self.detail_tabs_window)
+            return
+        if entry.part is not None:
+            self._select_tree_index(
+                self.active_view.index_for_episode(entry.episode.local_id)
+            )
+            return
+        if entry.episode.local_id in self.active_view.expanded_episode_ids:
+            self._toggle_selected_episode(expanded=False)
+            return
+        parent_id = entry.episode.parent_local_id
+        if parent_id is not None:
+            self._select_tree_index(self.active_view.index_for_episode(parent_id))
 
-        @bindings.add("enter", filter=tree_focused)
-        def _enter(_event) -> None:
-            self._activate_selection()
+    def _expand_or_detail(self) -> None:
+        entry = self._entry()
+        if entry.episode is not None and entry.part is None:
+            self._toggle_selected_episode(expanded=True)
+        else:
+            get_app().layout.focus(self.detail_tabs_window)
 
-        @bindings.add("right", filter=tree_focused)
-        def _right(_event) -> None:
-            entry = self._entries()[self.selected_index]
-            if entry.kind == "episode":
-                self.model.toggle(entry.episode, expanded=True)
-                self._load_selection(focus_editor=False)
-                get_app().invalidate()
+    def _notes_for_target(
+        self,
+        target: Optional[WorkspaceTarget],
+    ) -> list[tuple[str, WorkspaceNote]]:
+        if target is None:
+            return []
+        return [
+            ("this target", note)
+            for note in self.notes
+            if note.target.target_id == target.target_id
+        ]
 
-        @bindings.add("left", filter=tree_focused)
-        def _left(_event) -> None:
-            entry = self._entries()[self.selected_index]
-            if entry.kind == "episode":
-                self.model.toggle(entry.episode, expanded=False)
-                self._load_selection(focus_editor=False)
-                get_app().invalidate()
+    def _notes_line_count(
+        self,
+        target: Optional[WorkspaceTarget],
+    ) -> int:
+        current = target
+        notes = self._notes_for_target(current)
+        if not notes:
+            return 1
+        return sum(
+            1 + max(1, note.body.count("\n") + 1)
+            for _scope, note in notes
+        ) + max(0, len(notes) - 1) * 2
 
-        @bindings.add("c-s")
-        def _save(_event) -> None:
-            if self.read_only:
-                self._cancel()
-            else:
-                self._save()
+    def _notes_cursor_position(self) -> Point:
+        target = self._detail().target
+        maximum = max(0, self._notes_line_count(target) - 1)
+        target_id = self._detail_state_id()
+        cursor = min(max(0, self.note_cursors.get(target_id, 0)), maximum)
+        self.note_cursors[target_id] = cursor
+        return Point(x=0, y=cursor)
 
-        @bindings.add("c-q")
-        def _cancel(_event) -> None:
-            self._cancel()
+    def _scroll_notes(self, delta: int) -> None:
+        target = self._detail().target
+        maximum = max(0, self._notes_line_count(target) - 1)
+        target_id = self._detail_state_id()
+        current = self.note_cursors.get(target_id, 0)
+        self.note_cursors[target_id] = min(
+            max(0, current + delta),
+            maximum,
+        )
+        self._invalidate()
 
-        @bindings.add("escape")
-        def _escape(event) -> None:
-            if event.app.layout.has_focus(self.editor):
-                event.app.layout.focus(self.tree_window)
-                self.status = (
-                    "Returned to the Episode tree."
-                    if self.read_only
-                    else "Returned to the Episode tree; edits remain staged."
+    def _save_note(self) -> None:
+        if not self._commit_detail_edit():
+            return
+        target = self._detail().target
+        if target is None:
+            self._set_status(
+                "Choose a persisted workflow or materialized part before adding a note.",
+                error=True,
+            )
+            return
+        body = self.note_input.text.strip()
+        if not body:
+            self._set_status("Enter a note before saving it.", error=True)
+            return
+        self.note_drafts[target.target_id] = self.note_input.text
+        if self.active_view is self.architecture and self.architecture.dirty:
+            self._set_status(
+                "Save architecture first, then attach this note to its persisted revision.",
+                error=True,
+            )
+            return
+        prior_attempt = self.note_attempts.get(target.target_id)
+        if prior_attempt is not None and prior_attempt[0] == body:
+            idempotency_key = prior_attempt[1]
+        else:
+            idempotency_key = f"workspace_note_{uuid.uuid4().hex}"
+            self.note_attempts[target.target_id] = (body, idempotency_key)
+        try:
+            persisted = self.save_note_callback(
+                target.as_record(),
+                body,
+                idempotency_key,
+            )
+            note = WorkspaceNote.from_record(persisted)
+            if note.target.target_id != target.target_id:
+                raise ValueError("the saved note returned a different target")
+            if note.body != body:
+                raise ValueError("the saved note returned different prose")
+            existing = next(
+                (
+                    item
+                    for item in self.notes
+                    if item.note_id == note.note_id
+                ),
+                None,
+            )
+            if existing is not None and existing.as_record() != note.as_record():
+                raise ValueError("the saved note ID names different content")
+        except Exception as exc:
+            self._set_status(f"Note was not saved: {exc}", error=True)
+            return
+        if existing is None:
+            self.notes.append(note)
+        if note.note_id not in self.saved_note_ids:
+            self.saved_note_ids.append(note.note_id)
+        self.note_drafts.pop(target.target_id, None)
+        self.note_attempts.pop(target.target_id, None)
+        self.note_input.buffer.set_document(
+            Document(text="", cursor_position=0),
+            bypass_readonly=True,
+        )
+        self.note_cursors[target.target_id] = max(
+            0,
+            self._notes_line_count(target) - 1,
+        )
+        location = target.json_pointer or "the workflow root"
+        self._set_status(f"Saved note {note.note_id} for {location}.")
+
+    def _result(
+        self,
+        architecture_configuration: Optional[dict[str, Any]],
+    ) -> EpisodeWorkspaceResult:
+        return EpisodeWorkspaceResult(
+            architecture_configuration=architecture_configuration,
+            expected_architecture_artifact_id=self.architecture.source_artifact_id,
+            expected_architecture_content_hash=self.architecture.content_hash,
+            expected_architecture_revision=self.architecture.revision,
+            saved_note_ids=tuple(self.saved_note_ids),
+        )
+
+    def _submit_architecture(self) -> None:
+        if not self.allow_architecture_edit:
+            self._set_status("This architecture snapshot is read-only.", error=True)
+            return
+        if not self._commit_detail_edit():
+            return
+        self.application.exit(result=self._result(self.architecture.result()))
+
+    def _close(self) -> None:
+        self.application.exit(result=self._result(None))
+
+    def _view_tabs_fragments(self) -> StyleAndTextTuples:
+        fragments: StyleAndTextTuples = []
+        for index, view in enumerate(self.views):
+            active = index == self.active_view_index
+            mode = " · edit" if view is self.architecture and self.allow_architecture_edit else ""
+            text = f" {index + 1} {view.title}{mode} "
+
+            def click(
+                mouse_event: MouseEvent,
+                tab_index: int = index,
+            ) -> None:
+                if mouse_event.event_type == MouseEventType.MOUSE_UP:
+                    if self._activate_view(tab_index):
+                        get_app().layout.focus(self.view_tabs_window)
+
+            fragments.append(
+                (
+                    "class:view-tab.active" if active else "class:view-tab",
+                    text,
+                    click,
                 )
-                event.app.invalidate()
+            )
+            fragments.append(("", " "))
+        return fragments
+
+    def _tree_fragments(self) -> StyleAndTextTuples:
+        fragments: StyleAndTextTuples = []
+        entries = self._entries()
+        self.selected_index = self.selected_index
+        for index, entry in enumerate(entries):
+            selected = index == self.selected_index
+            if entry.kind == "global" and entry.part is not None:
+                flags = ""
+                if entry.part.changed:
+                    flags += " Δ"
+                if entry.part.incomplete:
+                    flags += " ?"
+                label = f"◆ {entry.part.label}{flags}"
+                style = "class:tree.global"
+            elif entry.part is None and entry.episode is not None:
+                expanded = entry.episode.local_id in self.active_view.expanded_episode_ids
+                marker = "▾" if expanded else "▸"
+                changed = " Δ" if entry.episode.changed else ""
+                label = f"{marker} {entry.episode.name}{changed}"
+                style = "class:tree.episode"
+            elif entry.part is not None:
+                flags = ""
+                if entry.part.changed:
+                    flags += " Δ"
+                if entry.part.incomplete:
+                    flags += " ?"
+                if (
+                    entry.part.editable
+                    and self.active_view is self.architecture
+                    and self.allow_architecture_edit
+                ):
+                    flags += " ✎"
+                label = f"· {entry.part.label}{flags}"
+                style = "class:tree.part"
             else:
-                self._cancel()
+                raise ValueError("workspace tree entry is malformed")
+            text = f"{'  ' * entry.depth}{label}"
+
+            def click(
+                mouse_event: MouseEvent,
+                row_index: int = index,
+            ) -> None:
+                if mouse_event.event_type == MouseEventType.MOUSE_UP:
+                    if self._select_tree_index(row_index):
+                        get_app().layout.focus(self.tree_window)
+
+            if selected:
+                style += ".selected"
+            fragments.append((style, text, click))
+            if index < len(entries) - 1:
+                fragments.append(("", "\n"))
+        return fragments
+
+    def _tree_cursor_position(self) -> Point:
+        return Point(x=0, y=self.selected_index)
+
+    def _detail_heading_fragments(self) -> StyleAndTextTuples:
+        detail = self._detail()
+        mode = "editable declaration" if self._detail_editable else "read-only"
+        return [
+            ("class:detail.heading", f"{detail.heading}  [{mode}]\n"),
+            ("class:detail.description", detail.description),
+        ]
+
+    def _detail_tabs_fragments(self) -> StyleAndTextTuples:
+        fragments: StyleAndTextTuples = []
+        for index, page in enumerate(self._DETAIL_PAGES):
+            active = index == self.active_detail_page_index
+
+            def click(
+                mouse_event: MouseEvent,
+                page_index: int = index,
+            ) -> None:
+                if mouse_event.event_type == MouseEventType.MOUSE_UP:
+                    if self._activate_detail_page(page_index):
+                        get_app().layout.focus(self.detail_tabs_window)
+
+            fragments.append(
+                (
+                    "class:detail-tab.active" if active else "class:detail-tab",
+                    f" {page.title()} ",
+                    click,
+                )
+            )
+            fragments.append(("", " "))
+        return fragments
+
+    def _notes_fragments(self) -> StyleAndTextTuples:
+        target = self._detail().target
+        notes = self._notes_for_target(target)
+        if target is None:
+            return [
+                (
+                    "class:notes.empty",
+                    "This display-only part has no persisted note target.",
+                )
+            ]
+        if not notes:
+            return [("class:notes.empty", "No saved notes for this target.")]
+        fragments: StyleAndTextTuples = []
+        for index, (scope, note) in enumerate(notes):
+            fragments.extend(
+                [
+                    ("class:notes.id", f"{note.note_id} [{scope}]"),
+                    ("", "\n"),
+                    ("class:notes.body", note.body),
+                ]
+            )
+            if index < len(notes) - 1:
+                fragments.append(("", "\n\n"))
+        return fragments
+
+    def _status_fragments(self) -> StyleAndTextTuples:
+        architecture_help = (
+            " · Ctrl-S save architecture" if self.allow_architecture_edit else ""
+        )
+        return [
+            (
+                "class:status.error" if self._status_is_error else "class:status",
+                self._status,
+            ),
+            (
+                "class:help",
+                "\nCtrl-Tab/Shift-Ctrl-Tab view · Tab/Shift-Tab pane · "
+                "arrows navigate · Enter open · "
+                f"Ctrl-N save note{architecture_help} · Esc back/close",
+            ),
+        ]
+
+    def _focusables(self) -> list[Any]:
+        items: list[Any] = [
+            self.view_tabs_window,
+            self.tree_window,
+            self.detail_tabs_window,
+            self.detail_area,
+            self.notes_window,
+            self.note_input,
+            self.save_note_button,
+        ]
+        if self.save_architecture_button is not None:
+            items.append(self.save_architecture_button)
+        items.append(self.close_button)
+        return items
+
+    def _cycle_focus(self, delta: int) -> None:
+        layout = get_app().layout
+        focusables = self._focusables()
+        current = next(
+            (index for index, item in enumerate(focusables) if layout.has_focus(item)),
+            0,
+        )
+        if layout.has_focus(self.detail_area) and not self._commit_detail_edit():
+            return
+        self._remember_current_target_state()
+        layout.focus(focusables[(current + delta) % len(focusables)])
+
+    def _escape(self) -> None:
+        layout = get_app().layout
+        if layout.has_focus(self.tree_window):
+            self._close()
+            return
+        if layout.has_focus(self.detail_area) and not self._commit_detail_edit():
+            return
+        self._remember_current_target_state()
+        layout.focus(self.tree_window)
+        self._set_status("Workflow parts focused; press Esc again to close.")
+
+    def _build_bindings(self) -> KeyBindings:
+        _install_modified_tab_sequences()
+        bindings = KeyBindings()
+
+        @bindings.add("tab", eager=True)
+        def _next_focus(event: Any) -> None:
+            self._cycle_focus(1)
+
+        @bindings.add(Keys.BackTab, eager=True)
+        def _previous_focus(event: Any) -> None:
+            self._cycle_focus(-1)
+
+        @bindings.add("escape", eager=True)
+        def _escape(event: Any) -> None:
+            self._escape()
+
+        @bindings.add("c-n", eager=True)
+        def _save_note(event: Any) -> None:
+            self._save_note()
+
+        @bindings.add("c-s", eager=True)
+        def _save_architecture(event: Any) -> None:
+            self._submit_architecture()
+
+        @bindings.add(Keys.ControlPageDown, eager=True)
+        def _next_workspace_view(event: Any) -> None:
+            self._activate_view((self.active_view_index + 1) % len(self.views))
+
+        @bindings.add(Keys.ControlPageUp, eager=True)
+        def _previous_workspace_view(event: Any) -> None:
+            self._activate_view((self.active_view_index - 1) % len(self.views))
+
+        @bindings.add("left", filter=has_focus(self.view_tabs_window))
+        def _previous_view(event: Any) -> None:
+            self._activate_view((self.active_view_index - 1) % len(self.views))
+
+        @bindings.add("right", filter=has_focus(self.view_tabs_window))
+        def _next_view(event: Any) -> None:
+            self._activate_view((self.active_view_index + 1) % len(self.views))
+
+        @bindings.add("enter", filter=has_focus(self.view_tabs_window))
+        def _enter_view(event: Any) -> None:
+            get_app().layout.focus(self.tree_window)
+
+        @bindings.add("up", filter=has_focus(self.tree_window))
+        def _tree_up(event: Any) -> None:
+            self._select_tree_index(self.selected_index - 1)
+
+        @bindings.add("down", filter=has_focus(self.tree_window))
+        def _tree_down(event: Any) -> None:
+            self._select_tree_index(self.selected_index + 1)
+
+        @bindings.add("left", filter=has_focus(self.tree_window))
+        def _tree_left(event: Any) -> None:
+            self._collapse_or_parent()
+
+        @bindings.add("right", filter=has_focus(self.tree_window))
+        def _tree_right(event: Any) -> None:
+            self._expand_or_detail()
+
+        @bindings.add("enter", filter=has_focus(self.tree_window))
+        def _tree_enter(event: Any) -> None:
+            self._toggle_selected_episode()
+
+        @bindings.add("left", filter=has_focus(self.detail_tabs_window))
+        def _previous_detail_page(event: Any) -> None:
+            self._activate_detail_page(
+                (self.active_detail_page_index - 1) % len(self._DETAIL_PAGES)
+            )
+
+        @bindings.add("right", filter=has_focus(self.detail_tabs_window))
+        def _next_detail_page(event: Any) -> None:
+            self._activate_detail_page(
+                (self.active_detail_page_index + 1) % len(self._DETAIL_PAGES)
+            )
+
+        @bindings.add("enter", filter=has_focus(self.detail_tabs_window))
+        def _enter_detail_page(event: Any) -> None:
+            get_app().layout.focus(self.detail_area)
+
+        @bindings.add("up", filter=has_focus(self.notes_window))
+        def _notes_up(event: Any) -> None:
+            self._scroll_notes(-1)
+
+        @bindings.add("down", filter=has_focus(self.notes_window))
+        def _notes_down(event: Any) -> None:
+            self._scroll_notes(1)
+
+        @bindings.add("pageup", filter=has_focus(self.notes_window))
+        def _notes_page_up(event: Any) -> None:
+            self._scroll_notes(-5)
+
+        @bindings.add("pagedown", filter=has_focus(self.notes_window))
+        def _notes_page_down(event: Any) -> None:
+            self._scroll_notes(5)
+
+        @bindings.add("left", filter=has_focus(self.notes_window))
+        def _notes_back(event: Any) -> None:
+            get_app().layout.focus(self.tree_window)
+
+        @bindings.add("right", filter=has_focus(self.notes_window))
+        @bindings.add("enter", filter=has_focus(self.notes_window))
+        def _notes_to_input(event: Any) -> None:
+            get_app().layout.focus(self.note_input)
+
+        for index in range(min(9, len(self.views))):
+
+            def activate_view(event: Any, view_index: int = index) -> None:
+                self._activate_view(view_index)
+
+            bindings.add(str(index + 1), filter=has_focus(self.view_tabs_window))(
+                activate_view
+            )
 
         return bindings
 
-    def run(self) -> dict[str, Any] | None:
-        return self.application.run(handle_sigint=False)
+    @staticmethod
+    def _style() -> Style:
+        return Style.from_dict(
+            {
+                "frame.label": "bold #7aa2f7",
+                "view-tab": "#9aa5ce",
+                "view-tab.active": "bold #1a1b26 bg:#7aa2f7",
+                "tree.episode": "bold #c0caf5",
+                "tree.episode.selected": "bold #1a1b26 bg:#7dcfff",
+                "tree.global": "bold #e0af68",
+                "tree.global.selected": "bold #1a1b26 bg:#e0af68",
+                "tree.part": "#a9b1d6",
+                "tree.part.selected": "#1a1b26 bg:#bb9af7",
+                "detail.heading": "bold #c0caf5",
+                "detail.description": "#9aa5ce",
+                "detail-tab": "#9aa5ce",
+                "detail-tab.active": "bold #1a1b26 bg:#9ece6a",
+                "notes.empty": "italic #565f89",
+                "notes.id": "bold #e0af68",
+                "notes.body": "#c0caf5",
+                "status": "#9ece6a",
+                "status.error": "bold #f7768e",
+                "help": "#565f89",
+                "button": "#c0caf5 bg:#3b4261",
+                "button.focused": "bold #1a1b26 bg:#7aa2f7",
+                "text-area": "#c0caf5 bg:#1f2335",
+            }
+        )
+
+    def run(self) -> EpisodeWorkspaceResult:
+        return self.application.run()
 
 
-def edit_episode_document(
-    document: Mapping[str, Any],
+def open_episode_workspace(
     *,
-    missing_value: str,
-    changed_paths: tuple[str, ...] = (),
-    revision: Optional[int] = None,
-    validation_deficits: tuple[Mapping[str, Any], ...] = (),
-) -> dict[str, Any] | None:
-    """Open the nested editor and return a complete edited working copy."""
+    architecture_snapshot: Mapping[str, Any],
+    materialized_snapshot: Optional[Mapping[str, Any]],
+    notes: Sequence[Mapping[str, Any]],
+    save_note: SaveNoteCallback,
+    architecture_changed_paths: Sequence[str] = (),
+    materialized_changed_paths: Sequence[str] = (),
+    edit_architecture: bool = False,
+    architecture_edit_notice: Optional[str] = None,
+    missing_value: str = DEFAULT_MISSING_VALUE,
+) -> EpisodeWorkspaceResult:
+    """Open one workspace over exact host-provided persisted snapshots.
 
-    return EpisodeTreeEditor(
-        document,
+    ``save_note`` is called synchronously as
+    ``save_note(target_record, body, idempotency_key)``.  One key is retained
+    across retries of the same exact target/body pair.  The callback must
+    durably persist the note and return the complete strict note record
+    accepted by :meth:`WorkspaceNote.from_record`.  Architecture replacement
+    remains a separate host operation performed after this function returns.
+    """
+
+    workspace = _EpisodeWorkspace(
+        architecture_snapshot=architecture_snapshot,
+        materialized_snapshot=materialized_snapshot,
+        notes=notes,
+        architecture_changed_paths=architecture_changed_paths,
+        materialized_changed_paths=materialized_changed_paths,
+        edit_architecture=edit_architecture,
+        architecture_edit_notice=architecture_edit_notice,
+        save_note=save_note,
         missing_value=missing_value,
-        changed_paths=changed_paths,
-        revision=revision,
-        validation_deficits=validation_deficits,
-    ).run()
-
-
-def view_episode_document(
-    document: Mapping[str, Any],
-    *,
-    missing_value: str,
-    changed_paths: tuple[str, ...] = (),
-    revision: Optional[int] = None,
-    validation_deficits: tuple[Mapping[str, Any], ...] = (),
-) -> None:
-    """Open the same nested Episode tree without permitting mutations."""
-
-    EpisodeTreeEditor(
-        document,
-        missing_value=missing_value,
-        read_only=True,
-        changed_paths=changed_paths,
-        revision=revision,
-        validation_deficits=validation_deficits,
-    ).run()
+    )
+    return workspace.run()
 
 
 __all__ = [
-    "EpisodeEditorModel",
-    "EpisodeSection",
-    "EpisodeTreeEditor",
-    "EpisodeTreeEntry",
-    "edit_episode_document",
-    "view_episode_document",
+    "EpisodeWorkspaceResult",
+    "SaveNoteCallback",
+    "open_episode_workspace",
 ]

@@ -28,6 +28,10 @@ _FIELD_PATH = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _CODE = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")
 
 
+class DuetProtocolError(RuntimeError):
+    """A Duet operation violates its persisted authority protocol."""
+
+
 def _text(value: object, name: str, *, maximum: int = 8192) -> str:
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise ValueError(f"{name} must be non-empty text without NUL bytes")
@@ -116,6 +120,7 @@ class DuetDesignState(str, Enum):
     WAITING_ON_DUET = "waiting_on_duet"
     REFINING = "refining"
     AWAITING_WORKFLOW_APPROVAL = "awaiting_workflow_approval"
+    AWAITING_REFINEMENT_APPROVAL = "awaiting_refinement_approval"
     SEALED = "sealed"
     REJECTED = "rejected"
     CANCELLED = "cancelled"
@@ -124,6 +129,7 @@ class DuetDesignState(str, Enum):
 
 class ApprovalKind(str, Enum):
     WORKFLOW = "workflow"
+    REFINEMENT = "refinement"
 
 
 class DuetMessageKind(str, Enum):
@@ -139,8 +145,9 @@ DUET_PROTOCOL_TOOLS = frozenset(
     {
         "openchia_scope",
         "duet_status",
-        "episode_workflow_read",
-        "episode_workflow_update",
+        "episode_architecture_submit",
+        "episode_workspace_read",
+        "episode_refinement_request",
     }
 )
 DUET_ALLOWED_TOOLS = DUET_SEARCH_TOOLS | DUET_PROTOCOL_TOOLS
@@ -284,6 +291,7 @@ class DuetApproval:
     artifact_id: OpaqueId
     content_hash: Sha256Digest
     revision: int
+    predecessor_approval_id: Optional[OpaqueId]
 
     def __post_init__(self) -> None:
         for name in ("approval_id", "duet_id", "human_authority_id", "artifact_id"):
@@ -293,6 +301,10 @@ class DuetApproval:
         if not isinstance(self.content_hash, Sha256Digest):
             raise ValueError("content_hash must be a Sha256Digest")
         object.__setattr__(self, "revision", _integer(self.revision, "revision"))
+        if self.predecessor_approval_id is not None:
+            _opaque(self.predecessor_approval_id, "predecessor_approval_id")
+            if self.predecessor_approval_id == self.approval_id:
+                raise ValueError("an approval cannot name itself as predecessor")
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -303,7 +315,45 @@ class DuetApproval:
             "artifact_id": self.artifact_id.value,
             "content_hash": self.content_hash.value,
             "revision": self.revision,
+            "predecessor_approval_id": (
+                None
+                if self.predecessor_approval_id is None
+                else self.predecessor_approval_id.value
+            ),
         }
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> "DuetApproval":
+        required = {
+            "approval_id",
+            "duet_id",
+            "human_authority_id",
+            "kind",
+            "artifact_id",
+            "content_hash",
+            "revision",
+            "predecessor_approval_id",
+        }
+        if not isinstance(record, Mapping) or set(record) != required:
+            raise ValueError("stored Duet approval has an invalid shape")
+        try:
+            kind = ApprovalKind(record["kind"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("stored Duet approval kind is invalid") from exc
+        return cls(
+            approval_id=OpaqueId(record["approval_id"]),
+            duet_id=OpaqueId(record["duet_id"]),
+            human_authority_id=OpaqueId(record["human_authority_id"]),
+            kind=kind,
+            artifact_id=OpaqueId(record["artifact_id"]),
+            content_hash=Sha256Digest(record["content_hash"]),
+            revision=record["revision"],
+            predecessor_approval_id=(
+                None
+                if record["predecessor_approval_id"] is None
+                else OpaqueId(record["predecessor_approval_id"])
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -391,6 +441,8 @@ class FrozenDuetWorkflow:
     admission_authority_hash: Sha256Digest
     source_draft_artifact_id: OpaqueId
     source_draft_hash: Sha256Digest
+    refinement_decision_id: Optional[OpaqueId]
+    refinement_decision_hash: Optional[Sha256Digest]
 
     def __post_init__(self) -> None:
         for name in (
@@ -415,6 +467,21 @@ class FrozenDuetWorkflow:
             raise ValueError("admission_authority_hash must be a Sha256Digest")
         if not isinstance(self.source_draft_hash, Sha256Digest):
             raise ValueError("source_draft_hash must be a Sha256Digest")
+        if self.refinement_decision_id is not None:
+            _opaque(self.refinement_decision_id, "refinement_decision_id")
+        if self.refinement_decision_hash is not None and not isinstance(
+            self.refinement_decision_hash,
+            Sha256Digest,
+        ):
+            raise ValueError(
+                "refinement_decision_hash must be a Sha256Digest"
+            )
+        if (self.refinement_decision_id is None) != (
+            self.refinement_decision_hash is None
+        ):
+            raise ValueError(
+                "refinement decision identity and hash must both be present or absent"
+            )
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -427,6 +494,16 @@ class FrozenDuetWorkflow:
             "admission_authority_hash": self.admission_authority_hash.value,
             "source_draft_artifact_id": self.source_draft_artifact_id.value,
             "source_draft_hash": self.source_draft_hash.value,
+            "refinement_decision_id": (
+                None
+                if self.refinement_decision_id is None
+                else self.refinement_decision_id.value
+            ),
+            "refinement_decision_hash": (
+                None
+                if self.refinement_decision_hash is None
+                else self.refinement_decision_hash.value
+            ),
         }
 
     @classmethod
@@ -444,6 +521,8 @@ class FrozenDuetWorkflow:
                 "admission_authority_hash",
                 "source_draft_artifact_id",
                 "source_draft_hash",
+                "refinement_decision_id",
+                "refinement_decision_hash",
             }
         ):
             raise ValueError("frozen Duet workflow has an invalid shape")
@@ -461,6 +540,16 @@ class FrozenDuetWorkflow:
                 value["source_draft_artifact_id"]
             ),
             source_draft_hash=Sha256Digest(value["source_draft_hash"]),
+            refinement_decision_id=(
+                None
+                if value["refinement_decision_id"] is None
+                else OpaqueId(value["refinement_decision_id"])
+            ),
+            refinement_decision_hash=(
+                None
+                if value["refinement_decision_hash"] is None
+                else Sha256Digest(value["refinement_decision_hash"])
+            ),
         )
 
 
@@ -488,6 +577,7 @@ __all__ = [
     "DuetMessageKind",
     "DuetPolicy",
     "DuetProvenance",
+    "DuetProtocolError",
     "FrozenDuetWorkflow",
     "WorkflowAdmissionAuthority",
     "canonical_json",

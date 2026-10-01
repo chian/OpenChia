@@ -62,6 +62,83 @@ def _thaw_json(value: object) -> object:
     return value
 
 
+def _validate_parameter_value(
+    value: object,
+    schema: Mapping[str, object],
+    name: str,
+) -> None:
+    expected_type = schema.get("type")
+    valid = {
+        "number": isinstance(value, Real) and not isinstance(value, bool),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "string": isinstance(value, str),
+        "boolean": isinstance(value, bool),
+        "object": isinstance(value, Mapping),
+        "array": isinstance(value, (tuple, list)),
+    }
+    if expected_type not in valid or not valid[expected_type]:
+        raise ValueError(f"{name} must have parameter type {expected_type!r}")
+    if expected_type in {"number", "integer"}:
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError(f"{name} must be finite")
+        comparisons = (
+            ("minimum", lambda bound: number >= bound),
+            ("maximum", lambda bound: number <= bound),
+            ("exclusiveMinimum", lambda bound: number > bound),
+            ("exclusiveMaximum", lambda bound: number < bound),
+        )
+        for field_name, comparison in comparisons:
+            if field_name not in schema:
+                continue
+            bound = schema[field_name]
+            if (
+                isinstance(bound, bool)
+                or not isinstance(bound, Real)
+                or not math.isfinite(float(bound))
+                or not comparison(float(bound))
+            ):
+                raise ValueError(f"{name} violates {field_name}")
+    if "enum" in schema:
+        choices = schema["enum"]
+        if not isinstance(choices, (tuple, list)) or value not in choices:
+            raise ValueError(f"{name} is outside its admitted enum")
+
+
+def _validate_parameter_object(
+    arguments: Mapping[str, object],
+    schema: Mapping[str, object],
+) -> None:
+    if schema.get("type") != "object":
+        raise ValueError("parameter schema must describe an object")
+    properties = schema.get("properties", {})
+    required = schema.get("required", ())
+    additional = schema.get("additionalProperties", True)
+    if not isinstance(properties, Mapping) or any(
+        not isinstance(name, str) or not isinstance(value, Mapping)
+        for name, value in properties.items()
+    ):
+        raise ValueError("parameter schema properties are invalid")
+    if not isinstance(required, (tuple, list)) or any(
+        not isinstance(name, str) for name in required
+    ):
+        raise ValueError("parameter schema required fields are invalid")
+    if not isinstance(additional, bool):
+        raise ValueError("parameter schema additionalProperties must be boolean")
+    missing = set(required) - set(arguments)
+    if missing:
+        raise ValueError(f"function arguments omit required fields {sorted(missing)!r}")
+    unknown = set(arguments) - set(properties)
+    if unknown and not additional:
+        raise ValueError(f"function arguments contain unknown fields {sorted(unknown)!r}")
+    for name in sorted(set(arguments) & set(properties)):
+        _validate_parameter_value(
+            arguments[name],
+            properties[name],
+            f"function argument {name!r}",
+        )
+
+
 @dataclass(frozen=True)
 class FunctionImplementation:
     """An importable Python implementation and its execution shape."""
@@ -351,19 +428,40 @@ class LibraryFunction:
             )
         return self.implementation.load()
 
+    def admit_arguments(
+        self,
+        arguments: Mapping[str, object],
+    ) -> Mapping[str, object]:
+        """Validate binding parameters against this function's own schema."""
+
+        if not isinstance(arguments, Mapping):
+            raise ValueError("function arguments must be an object")
+        schema = self.provenance.get("parameter_schema")
+        if schema is not None:
+            if not isinstance(schema, Mapping):
+                raise ValueError("function parameter_schema must be an object")
+            _validate_parameter_object(arguments, schema)
+        frozen = _freeze_json(arguments, "function arguments")
+        if not isinstance(frozen, Mapping):
+            raise AssertionError("argument admission changed the top-level shape")
+        return frozen
+
     def bind(
         self,
         name: str,
         *,
         arguments: Mapping[str, object] | None = None,
     ) -> EpisodeFunctionBinding:
+        admitted_arguments = self.admit_arguments(
+            {} if arguments is None else arguments
+        )
         return EpisodeFunctionBinding(
             name=name,
             library=self.library,
             function_id=self.function_id,
             interface=self.interface,
             definition_id=self.definition_id,
-            arguments={} if arguments is None else arguments,
+            arguments=admitted_arguments,
         )
 
     def definition_record(self) -> dict[str, object]:

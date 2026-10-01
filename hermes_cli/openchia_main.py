@@ -1,4 +1,4 @@
-"""Installed ``openchia`` command using Hermes startup and the Duet CLI host."""
+"""Installed ``openchia`` command for the Duet CLI host."""
 
 from __future__ import annotations
 
@@ -7,8 +7,9 @@ import sys
 
 OPENCHIA_HELP = """usage: openchia [options]
 
-OpenChia starts an interactive human-LLM Duet that specifies nested Episodes,
-evaluates nested Episode workflows, and launches an approved workflow.
+OpenChia starts an interactive human-LLM Duet that specifies and approves
+nested Episode workflows. An explicit build materializes an approved design
+without executing it; /run separately launches the admitted materialization.
 
 options:
   -m, --model MODEL       model for the Duet and Episode conversations
@@ -19,8 +20,8 @@ options:
   --verbose               show detailed runtime output
   -h, --help              show this help
 
-Inside OpenChia, use /episode to inspect the live configuration and /help for
-the complete interactive control list.
+Inside OpenChia, use /episode to browse the Workflow Architecture and its
+Materialized Specification, and /help for the complete control list.
 """
 
 

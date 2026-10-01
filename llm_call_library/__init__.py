@@ -27,6 +27,13 @@ from .definitions import (
     PROBABILITY_VECTOR_JUDGMENT,
     STRUCTURED_JSON_COMPLETION,
 )
+from .transport import (
+    ModelTransport,
+    ModelTransportRequest,
+    ModelTransportResponse,
+    call_model_transport,
+    model_transport_scope,
+)
 
 
 __all__ = [
@@ -36,6 +43,9 @@ __all__ = [
     "CallTrace",
     "ModelRole",
     "ModelTier",
+    "ModelTransport",
+    "ModelTransportRequest",
+    "ModelTransportResponse",
     "PROBABILITY_JUDGMENT",
     "PROBABILITY_VECTOR_JUDGMENT",
     "ProbabilityAdmission",
@@ -48,6 +58,8 @@ __all__ = [
     "STRUCTURED_JSON_COMPLETION",
     "StructuredJSONRequest",
     "StructuredJSONResult",
+    "call_model_transport",
+    "model_transport_scope",
     "probability_judgment",
     "probability_vector_judgment",
     "structured_json_completion",

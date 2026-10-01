@@ -616,8 +616,9 @@ _AGENT_LOOP_TOOLS = {
     "session_search",
     "openchia_scope",
     "duet_status",
-    "episode_workflow_read",
-    "episode_workflow_update",
+    "episode_architecture_submit",
+    "episode_workspace_read",
+    "episode_refinement_request",
 }
 
 # Legacy tool-name aliases accepted at every dispatch seam (old sessions/saved

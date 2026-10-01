@@ -1,12 +1,12 @@
-"""Concrete host for Duet design, validation, freeze, and human approval."""
+"""OpenChia host authority, workspace, build, and explicit Run boundary."""
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+import asyncio
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import secrets
 import threading
 from typing import Any, Callable, Iterable, Mapping, Optional
 
@@ -15,42 +15,68 @@ from agent.duet_contracts import (
     DUET_PROTOCOL_TOOLS,
     DUET_SEARCH_TOOLS,
     OPENCHIA_CONTROL_PLANE_TOOLS,
+    DuetDesignState,
     DuetIdentity,
     DuetPolicy,
+    DuetProvenance,
+    DuetProtocolError,
     canonical_json,
     content_id,
 )
-from agent.duet_service import (
-    DuetProtocolError,
-    DuetService,
-    EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
+from agent.duet_service import DuetService
+from agent.duet_store import DuetConflictError, DuetStore
+from agent.episode_contracts import OpaqueId, Sha256Digest
+from agent.openchia_agents import bind_duet_agent
+from iterative_episode_refiner.workspace import RefinementWorkspace
+from iterative_episode_refiner.contracts import (
+    DuetWorkspaceNote,
+    RefinementBaseline,
+    RefinementCycleState,
+    RefinementDecision,
+    RefinementProposal,
 )
-from agent.duet_store import DuetStore
-from agent.episode_blueprints import workflow_blueprint_from_spec
-from agent.episode_contracts import (
-    OpaqueId,
-    Sha256Digest,
+from iterative_episode_refiner.service import (
+    MATERIALIZED_SPECIFICATION_ARTIFACT_KIND,
+    RUN_EVIDENCE_ARTIFACT_KIND,
 )
-from agent.interrupt_compat import request_hard_interrupt
-from agent.openchia_agents import (
-    bind_duet_agent,
-    build_workflow_critic_agent,
+from episode_builder import (
+    ApprovedBuildRequest,
+    BuildAttempt,
+    BuildManifest,
+    BuildReceipt,
+    BuildStore,
+    EpisodeBuilder,
+    WorkflowMaterializationPlan,
 )
+from episode_runtime import (
+    RunEvidence,
+    RunRegistration,
+    RunStore,
+    RunStoreNotFound,
+    RuntimePolicy,
+    ScopedModelBroker,
+    SystemdRunExecutor,
+    inspect_runtime_identity,
+)
+from handoff_library import (
+    DuetLaunchAddress,
+    DuetLaunchRequest,
+    HandoffPayloadContract,
+    admit_duet_launch_request,
+)
+from llm_call_library import CallOptions, ModelTier, call_model_transport
 
 
-WORKFLOW_REVIEW_LENSES = frozenset(
+_INITIAL_EDITABLE_STATES = frozenset(
     {
-        "contract_alignment",
-        "measurement_evidence",
-        "iteration_recovery",
-        "capability_safety",
-        "task_specific_skeptic",
+        DuetDesignState.DESIGNING.value,
+        DuetDesignState.AWAITING_WORKFLOW_APPROVAL.value,
     }
 )
 
 
 class OpenChiaHostError(RuntimeError):
-    """The execution host cannot honor a frozen workflow."""
+    """The host cannot honor an exact Duet or Builder operation."""
 
 
 @dataclass(frozen=True)
@@ -61,7 +87,7 @@ class HumanActionReceipt:
 
 
 class OpenChiaHost:
-    """Persistent authority and execution host for one interactive Duet."""
+    """Persistent authority, materialization, and Run host for one Duet."""
 
     def __init__(
         self,
@@ -70,6 +96,9 @@ class OpenChiaHost:
         session_id: str,
         available_tool_names: Iterable[str],
         agent_kwargs_factory: Callable[[str, str], dict[str, Any]],
+        run_executor_factory: Optional[
+            Callable[[RunStore], SystemdRunExecutor]
+        ] = None,
     ) -> None:
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("OpenChia requires a non-empty session_id")
@@ -77,7 +106,9 @@ class OpenChiaHost:
             raise TypeError("agent_kwargs_factory must be callable")
         self.root = Path(home).expanduser().resolve() / "openchia"
         self.root.mkdir(parents=True, exist_ok=True)
-        self.store = DuetStore(self.root / "duet.sqlite3")
+        self.store = DuetStore(self.root / "authority.sqlite3")
+        self.build_store = BuildStore(self.root / "episode_builder")
+        self.run_store = RunStore(self.root / "episode_runs")
         self.available_tool_names = frozenset(
             name
             for name in available_tool_names
@@ -86,6 +117,11 @@ class OpenChiaHost:
             and name not in OPENCHIA_CONTROL_PLANE_TOOLS
         )
         self.agent_kwargs_factory = agent_kwargs_factory
+        if run_executor_factory is not None and not callable(
+            run_executor_factory
+        ):
+            raise TypeError("run_executor_factory must be callable or None")
+        self._run_executor_factory = run_executor_factory
         duet_tools = DUET_PROTOCOL_TOOLS | (
             DUET_SEARCH_TOOLS & self.available_tool_names
         )
@@ -103,89 +139,69 @@ class OpenChiaHost:
         )
         self.service = DuetService(
             self.store,
-            allowed_episode_capabilities=self.available_tool_names,
+            allowed_episode_capabilities=(),
         )
+        self.refiner = self.service.refiner
         try:
             self.service.open_duet(self.identity, self.policy)
         except Exception:
             self.store.close()
             raise
-        self._draft_write_lock = threading.RLock()
         self._duet_agent: Any = None
+        self.workspace = RefinementWorkspace(
+            identity=self.identity,
+            authority=self.service,
+            refiner=self.refiner,
+            store=self.store,
+            build_store=self.build_store,
+            run_store=self.run_store,
+        )
+        self._architecture_lock = threading.RLock()
+        self._build_lock = threading.RLock()
+        self._build_thread: Optional[threading.Thread] = None
+        self._build_cancel_event: Optional[threading.Event] = None
+        self._build_state = "not_started"
+        self._build_progress = self._empty_progress("not_started")
+        self._build_request: Optional[ApprovedBuildRequest] = None
+        self._build_attempt_id: Optional[OpaqueId] = None
+        self._build_receipt: Optional[BuildReceipt] = None
+        self._build_baseline: Optional[RefinementBaseline] = None
+        self._build_error: Optional[str] = None
+        self._run_lock = threading.RLock()
+        self._run_thread: Optional[threading.Thread] = None
+        self._run_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._run_task: Optional[asyncio.Task[RunEvidence]] = None
+        self._run_cancel_requested = False
+        self._run_state = "not_started"
+        self._run_registration: Optional[RunRegistration] = None
+        self._run_evidence: Optional[RunEvidence] = None
+        self._run_baseline: Optional[RefinementBaseline] = None
+        self._run_error: Optional[str] = None
 
     def close(self) -> None:
+        self.cancel_run()
+        self.cancel_build()
+        with self._run_lock:
+            run_worker = self._run_thread
+        with self._build_lock:
+            build_worker = self._build_thread
+        for worker in (run_worker, build_worker):
+            if worker is not None and worker is not threading.current_thread():
+                worker.join()
         self.store.close()
 
-    def bind_duet(self, agent: Any) -> Any:
-        bound = bind_duet_agent(
-            agent,
-            service=self.service,
-            identity=self.identity,
-            policy=self.policy,
-        )
-        bound._duet_workflow_updater = self.record_duet_workflow_revision
-        bound._openchia_draft_write_lock = self._draft_write_lock
-        self._duet_agent = bound
-        return bound
-
     @staticmethod
-    def _chat_as_interruptible_child(
-        parent_agent: Any,
-        child_agent: Any,
-        request: str,
-    ) -> str:
-        children = getattr(parent_agent, "_active_children", None)
-        children_lock = getattr(parent_agent, "_active_children_lock", None)
-        registered = isinstance(children, list) and children_lock is not None
-        if registered:
-            with children_lock:
-                children.append(child_agent)
-            hard_event = getattr(parent_agent, "_hard_interrupt_requested", None)
-            if hard_event is not None and hard_event.is_set():
-                request_hard_interrupt(
-                    child_agent,
-                    tool_reason="parent OpenChia turn stopped",
-                )
-            elif getattr(parent_agent, "_interrupt_requested", False):
-                child_agent.interrupt()
-        try:
-            return child_agent.chat(request)
-        finally:
-            if registered:
-                with children_lock:
-                    if child_agent in children:
-                        children.remove(child_agent)
-            close = getattr(child_agent, "close", None)
-            if callable(close):
-                close()
-
-    @staticmethod
-    def _parse_contract_review(payload: str) -> dict[str, Any]:
-        text = payload.strip()
-        if text.startswith("```"):
-            first_newline = text.find("\n")
-            text = text[first_newline + 1 :] if first_newline >= 0 else text
-            if text.rstrip().endswith("```"):
-                text = text.rstrip()[:-3].rstrip()
-        try:
-            value = json.loads(text)
-        except json.JSONDecodeError:
-            start, end = text.find("{"), text.rfind("}")
-            if start < 0 or end <= start:
-                raise ValueError("review lens did not return a JSON object")
-            value = json.loads(text[start : end + 1])
-        if not isinstance(value, dict):
-            raise ValueError("review lens response must be a JSON object")
-        if value.get("verdict") not in {"pass", "concern", "block"}:
-            raise ValueError("review lens verdict is invalid")
-        if not isinstance(value.get("summary"), str) or not isinstance(
-            value.get("findings"), list
-        ):
-            raise ValueError("review lens response is incomplete")
+    def _empty_progress(stage: str) -> dict[str, Any]:
         return {
-            "verdict": value["verdict"],
-            "summary": value["summary"][:4096],
-            "findings": value["findings"][:12],
+            "stage": stage,
+            "local_id": None,
+            "build_attempt_id": None,
+            "counts": {
+                "episodes_total": 0,
+                "episodes_planned": 0,
+                "episodes_emitted": 0,
+                "blocking_deficits": 0,
+            },
         }
 
     def _role_agent_kwargs(self, role: str, identity: str) -> dict[str, Any]:
@@ -194,268 +210,1496 @@ class OpenChiaHost:
             raise TypeError("agent_kwargs_factory must return a dictionary")
         return kwargs
 
-    def review_episode_design(self) -> dict[str, Any]:
-        snapshot = self.episode_workflow_configuration()
-        if not snapshot["ready"]:
+    def bind_duet(self, agent: Any) -> Any:
+        bound = bind_duet_agent(
+            agent,
+            service=self.service,
+            identity=self.identity,
+            policy=self.policy,
+        )
+        bound._episode_architecture_submitter = self.submit_episode_architecture
+        bound._episode_workspace_reader = self.read_episode_workspace
+        bound._episode_refinement_requester = self.request_episode_refinement
+        self._duet_agent = bound
+        return bound
+
+    def _run_is_active(self) -> bool:
+        with self._run_lock:
+            return bool(
+                self._run_thread is not None
+                and self._run_thread.is_alive()
+            )
+
+    def _require_no_active_run(self, operation: str) -> None:
+        if self._run_is_active():
             raise DuetProtocolError(
-                "design review requires a deterministically valid Episode workflow"
+                f"{operation} requires the current Episode Run to finish"
             )
-        blueprint = snapshot["configuration"]
-        blueprint_hash = Sha256Digest.of_record(blueprint)
-        authority = self.service.workflow_admission_authority(
-            self.identity.duet_id
-        )
-        latest = self.store.latest_artifact(
-            duet_id=self.identity.duet_id.value,
-            kind="workflow_shadow_review",
-        )
-        if (
-            latest is not None
-            and latest["record"].get("workflow_blueprint_hash")
-            == blueprint_hash.value
-            and latest["record"].get("admission_authority_hash")
-            == authority.content_hash.value
-        ):
-            return {"accepted": True, "cached": True, **latest["record"]}
-        workflow, deficits = self.service.validate_duet_workflow(
-            self.identity.duet_id,
-            blueprint,
-        )
-        if workflow is None or deficits:
-            return {
-                "accepted": False,
-                "reason": "workflow_admission_failed",
-                "deficits": [item.as_record() for item in deficits],
-            }
-
-        def review_lens(lens: str) -> tuple[str, dict[str, Any]]:
-            critic = build_workflow_critic_agent(
-                **self._role_agent_kwargs(
-                    "workflow_critic",
-                    f"{blueprint_hash.value}:{lens}",
-                )
-            )
-            request = {
-                "operation": "review_duet_episode_design",
-                "lens": lens,
-                "admission_authority": authority.as_record(),
-                "workflow_blueprint_hash": blueprint_hash.value,
-                "workflow": blueprint,
-                "host_validation": {"admission_deficits": []},
-            }
-            return lens, self._parse_contract_review(
-                self._chat_as_interruptible_child(
-                    self._duet_agent,
-                    critic,
-                    canonical_json(request),
-                )
-            )
-
-        lenses = tuple(sorted(WORKFLOW_REVIEW_LENSES))
-        with ThreadPoolExecutor(
-            max_workers=len(lenses),
-            thread_name_prefix="openchia-explicit-review",
-        ) as pool:
-            reviews = dict(pool.map(review_lens, lenses))
-        record = {
-            "admission_authority_hash": authority.content_hash.value,
-            "workflow_blueprint_hash": blueprint_hash.value,
-            "workflow_hash": workflow.workflow_hash.value,
-            "workflow_blueprint": workflow_blueprint_from_spec(workflow),
-            "lenses": reviews,
-        }
-        artifact_id = content_id("review", record)
-        self.store.put_artifact(
-            artifact_id=artifact_id.value,
-            duet_id=self.identity.duet_id.value,
-            kind="workflow_shadow_review",
-            revision=int(snapshot["revision"]),
-            content_hash=Sha256Digest.of_record(record).value,
-            record=record,
-        )
-        return {
-            "accepted": True,
-            "cached": False,
-            "review_artifact_id": artifact_id.value,
-            **record,
-        }
-
-    def episode_workflow_configuration(self) -> dict[str, Any]:
-        duet = self.store.get_duet(self.identity.duet_id.value)
-        if duet is None:
-            raise OpenChiaHostError("active Duet record is missing")
-        draft = self.store.latest_artifact(
-            duet_id=self.identity.duet_id.value,
-            kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
-        )
-        if draft is None:
-            raise DuetProtocolError(
-                "no Episode workflow draft exists yet; design the Episode tree "
-                "with the Duet first"
-            )
-        blueprint = draft["record"].get("workflow_blueprint")
-        if not isinstance(blueprint, Mapping):
-            raise OpenChiaHostError(
-                "stored Episode workflow draft has no structured workflow body"
-            )
-        workflow, deficits = self.service.validate_duet_workflow(
-            self.identity.duet_id,
-            blueprint,
-        )
-        validation_error = (
-            None
-            if not deficits
-            else "; ".join(
-                item.detail or f"{item.field_path}: {item.code}"
-                for item in deficits
-            )
-        )
-        return {
-            "revision": int(draft["revision"]),
-            "ready": not deficits,
-            "content_hash": draft["record"]["workflow_blueprint_hash"],
-            "workflow_hash": (
-                None if workflow is None else workflow.workflow_hash.value
-            ),
-            "configuration": json.loads(canonical_json(blueprint)),
-            "fields": {},
-            "source_artifact_id": draft["artifact_id"],
-            "source_kind": draft["kind"],
-            "source_stage": draft["record"]["source_stage"],
-            "editable": duet["state"] != "sealed",
-            "validation_deficits": [item.as_record() for item in deficits],
-            "measured": False,
-            "validation_error": validation_error,
-        }
-
-    @contextmanager
-    def episode_workflow_edit_session(self):
-        with self._draft_write_lock:
-            snapshot = self.episode_workflow_configuration()
-            if not snapshot["editable"]:
-                raise DuetProtocolError(
-                    "the approved Episode workflow is frozen and read-only"
-                )
-            yield snapshot
-
-    def record_episode_workflow_revision(
-        self,
-        workflow_blueprint: Mapping[str, Any],
-        *,
-        source_artifact_id: str,
-        expected_workflow_hash: str,
-    ) -> dict[str, Any]:
-        with self._draft_write_lock:
-            current = self.episode_workflow_configuration()
-            if (
-                current["source_artifact_id"] != source_artifact_id
-                or current["content_hash"] != expected_workflow_hash
-            ):
-                raise DuetProtocolError(
-                    "Episode workflow changed or was superseded while it was edited"
-                )
-            artifact = self.service.record_duet_workflow_draft(
-                duet_id=self.identity.duet_id,
-                workflow_blueprint=workflow_blueprint,
-                expected_workflow_hash=expected_workflow_hash,
-                source_stage="human_edit",
-            )
-            return self._draft_receipt(artifact)
-
-    def record_duet_workflow_revision(
-        self,
-        workflow_blueprint: Mapping[str, Any],
-        *,
-        expected_workflow_hash: Optional[str],
-        source_stage: str = "duet",
-    ) -> dict[str, Any]:
-        with self._draft_write_lock:
-            artifact = self.service.record_duet_workflow_draft(
-                duet_id=self.identity.duet_id,
-                workflow_blueprint=workflow_blueprint,
-                expected_workflow_hash=expected_workflow_hash,
-                source_stage=source_stage,
-            )
-            return self._draft_receipt(artifact)
 
     @staticmethod
     def _draft_receipt(artifact: Mapping[str, Any]) -> dict[str, Any]:
+        record = artifact.get("record")
+        if not isinstance(record, Mapping):
+            raise OpenChiaHostError("stored Architecture draft is malformed")
         return {
+            "accepted": True,
             "revision": int(artifact["revision"]),
             "artifact_id": artifact["artifact_id"],
             "content_hash": artifact["content_hash"],
-            "workflow_hash": artifact["record"].get("workflow_hash"),
-            "ready": bool(artifact["record"].get("ready")),
+            "workflow_hash": record.get("workflow_hash"),
+            "ready": bool(record.get("ready")),
             "validation_deficits": list(
-                artifact["record"].get("validation_deficits") or ()
+                record.get("validation_deficits") or ()
             ),
+            "human_note_ids": list(record.get("human_note_ids") or ()),
         }
 
-    def approve_current(self) -> HumanActionReceipt:
-        snapshot = self.episode_workflow_configuration()
-        if not snapshot["ready"]:
-            codes = [
-                item.get("code", "invalid_workflow")
-                for item in snapshot.get("validation_deficits") or ()
-            ]
-            raise DuetProtocolError(
-                "Episode workflow still has blocking deterministic deficits: "
-                + ", ".join(codes)
+    def architecture_snapshot(self) -> dict[str, Any]:
+        """Return the exact UI projection of the current Architecture."""
+
+        return self.workspace.architecture_snapshot()
+
+    def episode_workspace_snapshot(self) -> dict[str, Any]:
+        """Return both workspace views over one captured authority head."""
+
+        return self.workspace.snapshot()
+
+    def read_episode_workspace(
+        self,
+        *,
+        target_id: Optional[str] = None,
+        note_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Resolve a current target or one exact historical human note."""
+
+        return self.workspace.read(target_id=target_id, note_id=note_id)
+
+    def record_workspace_note(
+        self,
+        target_record: Mapping[str, Any],
+        body: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Persist exact human text against one exact workspace target."""
+
+        with self._build_lock:
+            if self._build_thread is not None and self._build_thread.is_alive():
+                raise DuetProtocolError(
+                    "workspace notes require a stable materialized baseline"
+                )
+            return self.workspace.record_note(
+                target_record,
+                body,
+                idempotency_key,
             )
-        frozen = self.service.freeze_duet_workflow(
+
+    def record_global_instruction(
+        self,
+        body: str,
+        idempotency_key: str,
+    ) -> tuple[dict[str, Any], ...]:
+        """Atomically anchor one prompt to both layers of a stable workspace."""
+
+        with self._build_lock:
+            if (
+                self._build_thread is not None
+                and self._build_thread.is_alive()
+            ) or self._run_is_active():
+                return ()
+            return self.workspace.record_global_instruction(
+                body,
+                idempotency_key,
+            )
+
+    def _initial_note_ids(
+        self,
+        note_ids: tuple[str, ...],
+        *,
+        expected_artifact_id: Optional[str],
+        expected_content_hash: Optional[str],
+    ) -> tuple[OpaqueId, ...]:
+        result = tuple(OpaqueId(value) for value in note_ids)
+        if expected_artifact_id is None:
+            if result:
+                raise DuetProtocolError(
+                    "the first Architecture cannot cite notes before a draft exists"
+                )
+            return result
+        for note_id in result:
+            artifact = self.refiner.read_artifact(
+                self.identity.duet_id,
+                note_id,
+            )
+            note = DuetWorkspaceNote.from_record(artifact["record"])
+            if (
+                note.baseline_id is not None
+                or note.target.artifact_id.value != expected_artifact_id
+                or note.target.artifact_hash.value != expected_content_hash
+            ):
+                raise DuetProtocolError(
+                    "Architecture submission cites a note from another revision"
+                )
+        return result
+
+    def _record_architecture(
+        self,
+        *,
+        candidate_workflow_architecture: Mapping[str, Any],
+        expected_artifact_id: Optional[str],
+        expected_content_hash: Optional[str],
+        expected_revision: Optional[int],
+        human_note_ids: tuple[str, ...],
+        source_stage: str,
+    ) -> dict[str, Any]:
+        cas_values = (
+            expected_artifact_id,
+            expected_content_hash,
+            expected_revision,
+        )
+        if any(value is None for value in cas_values) and not all(
+            value is None for value in cas_values
+        ):
+            raise ValueError(
+                "Architecture CAS identity, hash, and revision move together"
+            )
+        status = self.service.duet_status(self.identity.duet_id)
+        current = status.get("episode_workflow_draft")
+        if expected_artifact_id is None:
+            if current is not None:
+                raise DuetConflictError(
+                    "an Architecture draft already exists; submit its exact CAS"
+                )
+        else:
+            snapshot = self.workspace.architecture_snapshot()
+            if not snapshot["editable"]:
+                raise DuetProtocolError(
+                    "approved Architecture changes require a refinement request"
+                )
+            if (
+                snapshot["source_artifact_id"] != expected_artifact_id
+                or snapshot["content_hash"] != expected_content_hash
+                or snapshot["revision"] != expected_revision
+            ):
+                raise DuetConflictError(
+                    "Architecture changed or was superseded during editing"
+                )
+        note_ids = self._initial_note_ids(
+            human_note_ids,
+            expected_artifact_id=expected_artifact_id,
+            expected_content_hash=expected_content_hash,
+        )
+        artifact = self.service.record_initial_workflow_draft(
             duet_id=self.identity.duet_id,
-            source_draft_artifact_id=OpaqueId(snapshot["source_artifact_id"]),
-            source_draft_hash=Sha256Digest(snapshot["content_hash"]),
+            workflow_blueprint=candidate_workflow_architecture,
+            expected_draft_artifact_id=expected_artifact_id,
+            expected_draft_hash=expected_content_hash,
+            expected_draft_revision=expected_revision,
+            source_stage=source_stage,
+            human_note_ids=note_ids,
         )
-        approval = self.service.record_human_approval(
+        return self._draft_receipt(artifact)
+
+    def submit_episode_architecture(
+        self,
+        *,
+        candidate_workflow_architecture: Mapping[str, Any],
+        expected_artifact_id: Optional[str],
+        expected_content_hash: Optional[str],
+        expected_revision: Optional[int],
+        human_note_ids: tuple[str, ...],
+    ) -> dict[str, Any]:
+        """Accept a complete initial Architecture candidate from the Duet LLM."""
+
+        with self._architecture_lock:
+            return self._record_architecture(
+                candidate_workflow_architecture=(
+                    candidate_workflow_architecture
+                ),
+                expected_artifact_id=expected_artifact_id,
+                expected_content_hash=expected_content_hash,
+                expected_revision=expected_revision,
+                human_note_ids=human_note_ids,
+                source_stage="duet",
+            )
+
+    def record_architecture_revision(
+        self,
+        *,
+        candidate_workflow_architecture: Mapping[str, Any],
+        expected_artifact_id: str,
+        expected_content_hash: str,
+        expected_revision: int,
+        human_note_ids: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Apply one direct human edit to the still-mutable Architecture."""
+
+        with self._architecture_lock:
+            return self._record_architecture(
+                candidate_workflow_architecture=(
+                    candidate_workflow_architecture
+                ),
+                expected_artifact_id=expected_artifact_id,
+                expected_content_hash=expected_content_hash,
+                expected_revision=expected_revision,
+                human_note_ids=human_note_ids,
+                source_stage="human_edit",
+            )
+
+    def request_episode_refinement(
+        self,
+        *,
+        baseline_id: str,
+        candidate_workflow_architecture: Mapping[str, Any],
+        human_note_ids: tuple[str, ...],
+        implementation_directives: tuple[Mapping[str, str], ...],
+    ) -> dict[str, Any]:
+        """Translate saved human notes into one host-classified successor."""
+
+        with self._build_lock:
+            self._require_no_active_run("refinement")
+            if self._build_thread is not None and self._build_thread.is_alive():
+                raise DuetProtocolError(
+                    "refinement requires a stable completed build baseline"
+                )
+            return self.refiner.request(
+                self.identity,
+                baseline_id=baseline_id,
+                candidate_workflow_architecture=(
+                    candidate_workflow_architecture
+                ),
+                human_note_ids=human_note_ids,
+                implementation_directives=implementation_directives,
+            )
+
+    def approve_current(self) -> HumanActionReceipt:
+        """Approve the exact candidate named by the durable Duet lifecycle."""
+
+        self._require_no_active_run("approval")
+        status = self.service.duet_status(self.identity.duet_id)
+        if status["state"] == DuetDesignState.AWAITING_WORKFLOW_APPROVAL.value:
+            draft = status.get("episode_workflow_draft")
+            if not isinstance(draft, Mapping) or not draft.get("ready"):
+                raise DuetProtocolError(
+                    "current Architecture has blocking validation deficits"
+                )
+            authorization = self.service.approve_current_workflow(
+                self.identity,
+                source_draft_artifact_id=OpaqueId(draft["artifact_id"]),
+                source_draft_hash=Sha256Digest(draft["content_hash"]),
+            )
+            approval = authorization.authority_approval
+            return HumanActionReceipt(
+                kind=ApprovalKind.WORKFLOW.value,
+                artifact_id=authorization.frozen_workflow.artifact_id,
+                approval_id=approval.approval_id,
+            )
+        if status["state"] == DuetDesignState.AWAITING_REFINEMENT_APPROVAL.value:
+            active = status.get("active_refinement")
+            decision_id = (
+                None
+                if not isinstance(active, Mapping)
+                else active.get("decision_artifact_id")
+            )
+            if not isinstance(decision_id, str):
+                raise DuetProtocolError(
+                    "current refinement has no exact decision to approve"
+                )
+            approval = self.service.approve_current_implementation_refinement(
+                self.identity,
+                decision_id=OpaqueId(decision_id),
+            )
+            return HumanActionReceipt(
+                kind=ApprovalKind.REFINEMENT.value,
+                artifact_id=approval.artifact_id,
+                approval_id=approval.approval_id,
+            )
+        raise DuetProtocolError("the Duet has no exact candidate awaiting approval")
+
+    def decline_current_refinement(self) -> dict[str, Any]:
+        """Reject the exact pending refinement and retain current authority."""
+
+        self._require_no_active_run("refinement rejection")
+        status = self.service.duet_status(self.identity.duet_id)
+        active = status.get("active_refinement")
+        if not isinstance(active, Mapping) or active.get("state") not in {
+            RefinementCycleState.AWAITING_WORKFLOW_APPROVAL.value,
+            RefinementCycleState.AWAITING_REFINEMENT_APPROVAL.value,
+        }:
+            raise DuetProtocolError(
+                "the Duet has no exact refinement decision awaiting rejection"
+            )
+        refinement_id = active.get("refinement_id")
+        decision_id = active.get("decision_artifact_id")
+        if not isinstance(refinement_id, str) or not isinstance(
+            decision_id,
+            str,
+        ):
+            raise OpenChiaHostError(
+                "pending refinement has no durable decision identity"
+            )
+        self.refiner.close(
             self.identity,
-            kind=ApprovalKind.WORKFLOW,
-            artifact_id=frozen.artifact_id,
-            content_hash=frozen.workflow_hash,
-            revision=frozen.revision,
+            refinement_id=OpaqueId(refinement_id),
+            terminal_state=RefinementCycleState.REJECTED,
         )
-        return HumanActionReceipt(
-            kind=ApprovalKind.WORKFLOW.value,
-            artifact_id=frozen.artifact_id,
-            approval_id=approval.approval_id,
+        return {
+            "refinement_id": refinement_id,
+            "decision_id": decision_id,
+            "state": RefinementCycleState.REJECTED.value,
+        }
+
+    def _load_refinement_chain(
+        self,
+        decision: RefinementDecision,
+    ) -> tuple[
+        RefinementBaseline,
+        RefinementProposal,
+        tuple[DuetWorkspaceNote, ...],
+        BuildReceipt,
+        Optional[BuildManifest],
+    ]:
+        baseline, proposal, notes = self.refiner.approved_chain(decision)
+        _specification, receipt, manifest = self.workspace.materialized_context(
+            baseline
+        )
+        return baseline, proposal, notes, receipt, manifest
+
+    def _approved_build_request(self) -> ApprovedBuildRequest:
+        authorization = self.service.resolve_current_build_authorization(
+            self.identity.duet_id
+        )
+        decision = authorization.refinement_decision
+        if decision is None:
+            return ApprovedBuildRequest(
+                authority_approval=authorization.authority_approval,
+                workflow_approval=authorization.workflow_approval,
+                frozen_workflow=authorization.frozen_workflow,
+                admission_authority=authorization.admission_authority,
+                request_nonce=secrets.token_hex(32),
+            )
+        baseline, proposal, notes, receipt, manifest = (
+            self._load_refinement_chain(decision)
+        )
+        return ApprovedBuildRequest(
+            authority_approval=authorization.authority_approval,
+            workflow_approval=authorization.workflow_approval,
+            frozen_workflow=authorization.frozen_workflow,
+            admission_authority=authorization.admission_authority,
+            request_nonce=secrets.token_hex(32),
+            refinement_decision=decision,
+            refinement_baseline=baseline,
+            refinement_proposal=proposal,
+            refinement_notes=notes,
+            predecessor_receipt=receipt,
+            predecessor_manifest=manifest,
         )
 
+    def _builder_for(self, request: ApprovedBuildRequest) -> EpisodeBuilder:
+        runtime = self._role_agent_kwargs(
+            "episode_builder",
+            request.build_request_id.value,
+        )
+        return EpisodeBuilder(
+            store=self.build_store,
+            call_options=CallOptions(
+                tier=ModelTier.REASONING,
+                main_runtime=runtime,
+            ),
+        )
+
+    @staticmethod
+    def _validated_progress(
+        progress: Mapping[str, object],
+    ) -> dict[str, Any]:
+        if not isinstance(progress, Mapping) or set(progress) != {
+            "stage",
+            "local_id",
+            "build_attempt_id",
+            "counts",
+        }:
+            raise OpenChiaHostError("Builder progress has an invalid shape")
+        stage = progress["stage"]
+        local_id = progress["local_id"]
+        attempt_id = progress["build_attempt_id"]
+        counts = progress["counts"]
+        if not isinstance(stage, str) or not stage:
+            raise OpenChiaHostError("Builder progress has no stage")
+        if local_id is not None and (
+            not isinstance(local_id, str) or not local_id
+        ):
+            raise OpenChiaHostError("Builder progress has an invalid Episode ID")
+        if not isinstance(attempt_id, str) or not attempt_id:
+            raise OpenChiaHostError("Builder progress has no attempt identity")
+        expected_counts = {
+            "episodes_total",
+            "episodes_planned",
+            "episodes_emitted",
+            "blocking_deficits",
+        }
+        if not isinstance(counts, Mapping) or set(counts) != expected_counts:
+            raise OpenChiaHostError("Builder progress counts are malformed")
+        normalized_counts: dict[str, int] = {}
+        for name in sorted(expected_counts):
+            value = counts[name]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise OpenChiaHostError(
+                    f"Builder progress count {name!r} is invalid"
+                )
+            normalized_counts[name] = value
+        return {
+            "stage": stage,
+            "local_id": local_id,
+            "build_attempt_id": attempt_id,
+            "counts": normalized_counts,
+        }
+
+    def _record_build_progress(
+        self,
+        request: ApprovedBuildRequest,
+        progress: Mapping[str, object],
+    ) -> None:
+        record = self._validated_progress(progress)
+        attempt_id = OpaqueId(record["build_attempt_id"])
+        attempt = self.build_store.read_build_attempt(attempt_id)
+        if attempt.build_request_id != request.build_request_id:
+            raise OpenChiaHostError(
+                "Builder progress attempt names another request"
+            )
+        with self._build_lock:
+            if (
+                self._build_request is None
+                or self._build_request.build_request_id
+                != request.build_request_id
+            ):
+                raise OpenChiaHostError(
+                    "Builder progress belongs to a superseded request"
+                )
+            if self._build_attempt_id is not None and (
+                self._build_attempt_id != attempt_id
+            ):
+                raise OpenChiaHostError(
+                    "Builder progress changed attempt identity"
+                )
+            self._build_attempt_id = attempt_id
+            self._build_progress = record
+            if self._build_state != "cancel_requested":
+                self._build_state = "building"
+        self.store.append_event(
+            duet_id=self.identity.duet_id.value,
+            event_type="build_progress",
+            provenance=DuetProvenance.HOST_VALIDATION.value,
+            record={
+                "build_request_id": request.build_request_id.value,
+                **record,
+            },
+        )
+
+    def _correlated_receipt(
+        self,
+        request: ApprovedBuildRequest,
+        receipt: BuildReceipt,
+    ) -> BuildReceipt:
+        if receipt.build_request_id != request.build_request_id:
+            raise OpenChiaHostError("build receipt names another request")
+        inputs = self.build_store.inspection_inputs_for_receipt(
+            receipt.receipt_id,
+            verify_source_package=receipt.manifest_id is not None,
+        )
+        if inputs.build_request.as_record() != request.as_record():
+            raise OpenChiaHostError(
+                "stored build request differs from current approved request"
+            )
+        if inputs.receipt is None or inputs.receipt.as_record() != receipt.as_record():
+            raise OpenChiaHostError("stored build receipt is stale")
+        if inputs.build_attempt.build_attempt_id != receipt.build_attempt_id:
+            raise OpenChiaHostError("build receipt attempt linkage is stale")
+        if inputs.plan.plan_id != receipt.plan_id:
+            raise OpenChiaHostError("build receipt plan linkage is stale")
+        return inputs.receipt
+
+    def _persist_materialized_specification(
+        self,
+        request: ApprovedBuildRequest,
+        receipt: BuildReceipt,
+    ) -> RefinementBaseline:
+        specification = self.build_store.project_receipt(
+            receipt.receipt_id,
+            verify_source_package=receipt.manifest_id is not None,
+        )
+        if (
+            specification.build_request_id != request.build_request_id
+            or specification.build_attempt_id != receipt.build_attempt_id
+            or specification.receipt_id != receipt.receipt_id
+            or specification.workflow_hash
+            != request.frozen_workflow.workflow_hash
+        ):
+            raise OpenChiaHostError(
+                "Materialized Specification differs from its approved build"
+            )
+        self.store.put_artifact(
+            artifact_id=specification.specification_id.value,
+            duet_id=self.identity.duet_id.value,
+            kind=MATERIALIZED_SPECIFICATION_ARTIFACT_KIND,
+            revision=request.frozen_workflow.revision,
+            content_hash=specification.content_hash.value,
+            record=specification.as_record(),
+        )
+        manifest = (
+            None
+            if receipt.manifest_id is None
+            else self.build_store.read_manifest(receipt.manifest_id)
+        )
+        baseline = RefinementBaseline(
+            duet_id=self.identity.duet_id,
+            authority_head_approval_id=(
+                request.authority_approval.approval_id
+            ),
+            workflow_approval_id=request.workflow_approval.approval_id,
+            frozen_workflow_artifact_id=request.frozen_workflow.artifact_id,
+            workflow_hash=request.frozen_workflow.workflow_hash,
+            build_request_id=request.build_request_id,
+            build_attempt_id=receipt.build_attempt_id,
+            build_receipt_id=receipt.receipt_id,
+            build_receipt_hash=receipt.content_hash,
+            materialized_specification_id=specification.specification_id,
+            materialized_specification_hash=specification.content_hash,
+            build_manifest_id=(
+                None if manifest is None else manifest.manifest_id
+            ),
+            build_manifest_hash=(
+                None
+                if manifest is None
+                else Sha256Digest.of_record(manifest.as_record())
+            ),
+        )
+        return self.refiner.record_baseline(
+            self.identity,
+            baseline,
+        )
+
+    def start_build(self) -> dict[str, Any]:
+        """Start one fresh, inert build attempt for current approved authority."""
+
+        with self._build_lock:
+            self._require_no_active_run("a new build")
+            if self._build_thread is not None and self._build_thread.is_alive():
+                raise OpenChiaHostError("an Episode build is already active")
+            request = self._approved_build_request()
+            builder = self._builder_for(request)
+            cancel_event = threading.Event()
+            self.build_store.put_build_request(request)
+            self._build_request = request
+            self._build_attempt_id = None
+            self._build_receipt = None
+            self._build_baseline = None
+            self._build_error = None
+            self._build_cancel_event = cancel_event
+            self._build_state = "starting"
+            self._build_progress = self._empty_progress("starting")
+            self._build_progress["counts"]["episodes_total"] = len(
+                request.frozen_workflow.workflow.episodes
+            )
+
+            def build_worker() -> None:
+                receipt: Optional[BuildReceipt] = None
+                try:
+                    result = asyncio.run(
+                        builder.build(
+                            request,
+                            progress_callback=lambda value: (
+                                self._record_build_progress(request, value)
+                            ),
+                            cancel_event=cancel_event,
+                        )
+                    )
+                    receipt = self._correlated_receipt(request, result)
+                    with self._build_lock:
+                        self._build_receipt = receipt
+                        self._build_attempt_id = receipt.build_attempt_id
+                    baseline = self._persist_materialized_specification(
+                        request,
+                        receipt,
+                    )
+                    with self._build_lock:
+                        self._build_baseline = baseline
+                        self._build_state = receipt.status
+                        self._build_progress = self._receipt_progress(
+                            request,
+                            receipt,
+                        )
+                    self.store.append_event(
+                        duet_id=self.identity.duet_id.value,
+                        event_type="build_finished",
+                        provenance=DuetProvenance.HOST_VALIDATION.value,
+                        record={
+                            "build_request_id": request.build_request_id.value,
+                            "build_attempt_id": receipt.build_attempt_id.value,
+                            "build_receipt_id": receipt.receipt_id.value,
+                            "status": receipt.status,
+                            "materialized_specification_id": (
+                                baseline.materialized_specification_id.value
+                            ),
+                            "refinement_baseline_id": baseline.baseline_id.value,
+                        },
+                    )
+                except Exception as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+                    with self._build_lock:
+                        self._build_state = "host_error"
+                        self._build_error = error
+                    self.store.append_event(
+                        duet_id=self.identity.duet_id.value,
+                        event_type="build_host_failure",
+                        provenance=DuetProvenance.HOST_VALIDATION.value,
+                        record={
+                            "build_request_id": request.build_request_id.value,
+                            "build_attempt_id": (
+                                None
+                                if self._build_attempt_id is None
+                                else self._build_attempt_id.value
+                            ),
+                            "build_receipt_id": (
+                                None if receipt is None else receipt.receipt_id.value
+                            ),
+                            "error": error,
+                        },
+                    )
+                finally:
+                    with self._build_lock:
+                        self._build_thread = None
+                        self._build_cancel_event = None
+
+            worker = threading.Thread(
+                target=build_worker,
+                name=f"openchia-build-{request.build_request_id.value[-12:]}",
+                daemon=False,
+            )
+            self._build_thread = worker
+            self.store.append_event(
+                duet_id=self.identity.duet_id.value,
+                event_type="build_requested",
+                provenance=DuetProvenance.HUMAN_INPUT.value,
+                record={
+                    "build_request_id": request.build_request_id.value,
+                    "authority_head_approval_id": (
+                        request.authority_approval.approval_id.value
+                    ),
+                    "workflow_approval_id": (
+                        request.workflow_approval.approval_id.value
+                    ),
+                },
+            )
+            try:
+                worker.start()
+            except Exception:
+                self._build_thread = None
+                self._build_cancel_event = None
+                self._build_state = "host_error"
+                raise
+        return self.build_status()
+
+    def cancel_build(self) -> bool:
+        """Signal cancellation to the active Builder between inert stages."""
+
+        with self._build_lock:
+            worker = self._build_thread
+            cancel_event = self._build_cancel_event
+            if (
+                worker is None
+                or not worker.is_alive()
+                or cancel_event is None
+            ):
+                return False
+            if cancel_event.is_set():
+                return True
+            cancel_event.set()
+            self._build_state = "cancel_requested"
+            request_id = (
+                None
+                if self._build_request is None
+                else self._build_request.build_request_id.value
+            )
+            attempt_id = (
+                None
+                if self._build_attempt_id is None
+                else self._build_attempt_id.value
+            )
+        self.store.append_event(
+            duet_id=self.identity.duet_id.value,
+            event_type="build_cancel_requested",
+            provenance=DuetProvenance.HUMAN_INPUT.value,
+            record={
+                "build_request_id": request_id,
+                "build_attempt_id": attempt_id,
+            },
+        )
+        return True
+
+    def _receipt_progress(
+        self,
+        request: ApprovedBuildRequest,
+        receipt: BuildReceipt,
+    ) -> dict[str, Any]:
+        plan = self.build_store.read_plan(receipt.plan_id)
+        return {
+            "stage": receipt.status,
+            "local_id": None,
+            "build_attempt_id": receipt.build_attempt_id.value,
+            "counts": {
+                "episodes_total": len(
+                    request.frozen_workflow.workflow.episodes
+                ),
+                "episodes_planned": len(plan.nodes),
+                "episodes_emitted": len(
+                    receipt.emitted_module_ids_by_local_id
+                ),
+                "blocking_deficits": sum(
+                    value.blocking for value in receipt.deficits
+                ),
+            },
+        }
+
+    def _current_in_memory_build(self) -> bool:
+        duet = self.store.get_duet(self.identity.duet_id.value)
+        if duet is None or self._build_request is None:
+            return False
+        return (
+            duet["authority_head_approval_id"]
+            == self._build_request.authority_approval.approval_id.value
+        )
+
+    def build_receipt(self) -> Optional[dict[str, Any]]:
+        """Return the current authority head's latest exact build receipt."""
+
+        with self._build_lock:
+            if self._current_in_memory_build():
+                return (
+                    None
+                    if self._build_receipt is None
+                    else self._build_receipt.as_record()
+                )
+        baseline = self.workspace.current_baseline()
+        if baseline is None:
+            return None
+        receipt = self.build_store.read_receipt(baseline.build_receipt_id)
+        if receipt.content_hash != baseline.build_receipt_hash:
+            raise OpenChiaHostError("current build receipt hash is stale")
+        return receipt.as_record()
+
+    def build_status(self) -> dict[str, Any]:
+        """Return live or recovered build state for the current authority head."""
+
+        with self._build_lock:
+            if self._current_in_memory_build():
+                request = self._build_request
+                receipt = self._build_receipt
+                baseline = self._build_baseline
+                return {
+                    "state": self._build_state,
+                    "build_request_id": (
+                        None
+                        if request is None
+                        else request.build_request_id.value
+                    ),
+                    "build_attempt_id": (
+                        None
+                        if self._build_attempt_id is None
+                        else self._build_attempt_id.value
+                    ),
+                    "build_receipt_id": (
+                        None if receipt is None else receipt.receipt_id.value
+                    ),
+                    "materialized_specification_id": (
+                        None
+                        if baseline is None
+                        else baseline.materialized_specification_id.value
+                    ),
+                    "refinement_baseline_id": (
+                        None if baseline is None else baseline.baseline_id.value
+                    ),
+                    "progress": json.loads(canonical_json(self._build_progress)),
+                    "error": self._build_error,
+                }
+        baseline = self.workspace.current_baseline()
+        if baseline is None:
+            return {
+                "state": "not_started",
+                "build_request_id": None,
+                "build_attempt_id": None,
+                "build_receipt_id": None,
+                "materialized_specification_id": None,
+                "refinement_baseline_id": None,
+                "progress": self._empty_progress("not_started"),
+                "error": None,
+            }
+        receipt = self.build_store.read_receipt(baseline.build_receipt_id)
+        request = self.build_store.read_build_request(
+            baseline.build_request_id
+        )
+        if (
+            receipt.content_hash != baseline.build_receipt_hash
+            or receipt.build_request_id != request.build_request_id
+        ):
+            raise OpenChiaHostError("recovered build chain is stale")
+        return {
+            "state": receipt.status,
+            "build_request_id": request.build_request_id.value,
+            "build_attempt_id": receipt.build_attempt_id.value,
+            "build_receipt_id": receipt.receipt_id.value,
+            "materialized_specification_id": (
+                baseline.materialized_specification_id.value
+            ),
+            "refinement_baseline_id": baseline.baseline_id.value,
+            "progress": self._receipt_progress(request, receipt),
+            "error": None,
+        }
+
+    def _runnable_build_context(
+        self,
+    ) -> tuple[
+        RefinementBaseline,
+        ApprovedBuildRequest,
+        BuildAttempt,
+        BuildReceipt,
+        BuildManifest,
+        WorkflowMaterializationPlan,
+        Path,
+    ]:
+        status = self.service.duet_status(self.identity.duet_id)
+        if status["state"] != DuetDesignState.SEALED.value:
+            raise DuetProtocolError(
+                "an Episode Run requires sealed workflow authority"
+            )
+        baseline = self.workspace.current_baseline()
+        if baseline is None:
+            raise DuetProtocolError(
+                "an Episode Run requires a completed materialized build"
+            )
+        _specification, receipt, manifest = self.workspace.materialized_context(
+            baseline
+        )
+        if not receipt.materialized or manifest is None:
+            raise DuetProtocolError(
+                "the current build is not materialized and cannot run"
+            )
+        inputs = self.build_store.inspection_inputs_for_receipt(
+            receipt.receipt_id,
+            verify_source_package=True,
+        )
+        request = inputs.build_request
+        attempt = inputs.build_attempt
+        plan = inputs.plan
+        if inputs.manifest is None or inputs.manifest != manifest:
+            raise OpenChiaHostError(
+                "the runnable build manifest differs from its admitted chain"
+            )
+        authorization = self.service.resolve_current_build_authorization(
+            self.identity.duet_id
+        )
+        if (
+            request.authority_approval
+            != authorization.authority_approval
+            or request.workflow_approval
+            != authorization.workflow_approval
+            or request.frozen_workflow
+            != authorization.frozen_workflow
+            or request.admission_authority
+            != authorization.admission_authority
+            or baseline.build_request_id != request.build_request_id
+            or baseline.build_attempt_id != attempt.build_attempt_id
+            or baseline.build_receipt_id != receipt.receipt_id
+            or baseline.build_manifest_id != manifest.manifest_id
+        ):
+            raise OpenChiaHostError(
+                "the runnable build differs from current workflow authority"
+            )
+        source_package = self.build_store.verify_source_package(manifest)
+        return (
+            baseline,
+            request,
+            attempt,
+            receipt,
+            manifest,
+            plan,
+            source_package,
+        )
+
+    @staticmethod
+    def _root_launch_request(
+        request: ApprovedBuildRequest,
+        plan: WorkflowMaterializationPlan,
+    ) -> DuetLaunchRequest:
+        root_nodes = tuple(
+            node
+            for node in plan.nodes
+            if node.local_id == plan.root_local_id
+        )
+        root_specs = tuple(
+            episode
+            for episode in request.frozen_workflow.workflow.episodes
+            if episode.local_id == plan.root_local_id
+            and episode.workflow_parent_local_id is None
+        )
+        if len(root_nodes) != 1 or len(root_specs) != 1:
+            raise OpenChiaHostError(
+                "the admitted build does not identify one exact root Episode"
+            )
+        root_node = root_nodes[0]
+        root_spec = root_specs[0]
+        if root_node.contract_hash != Sha256Digest.of_record(
+            root_spec.contract.as_record()
+        ):
+            raise OpenChiaHostError(
+                "the root materialization plan names another Episode contract"
+            )
+        goal_id = content_id(
+            "goal",
+            {"root_contract": root_spec.contract.as_record()},
+        )
+        address = DuetLaunchAddress(
+            request_id=content_id(
+                "launch_request",
+                {"nonce": secrets.token_hex(32)},
+            ).value,
+            workflow_id=request.frozen_workflow.artifact_id.value,
+            goal_id=goal_id.value,
+        )
+        payload_contract = HandoffPayloadContract.from_record(
+            root_node.request_payload_contract
+        )
+        return admit_duet_launch_request(
+            {
+                "request_id": address.request_id,
+                "workflow_id": address.workflow_id,
+                "goal_id": address.goal_id,
+                "artifact_ids_by_role": {},
+                "measurements": {},
+                "states": {},
+                "flags": {},
+            },
+            address,
+            payload_contract,
+        )
+
+    def _runtime_executor(self) -> SystemdRunExecutor:
+        factory = self._run_executor_factory
+        if factory is None:
+            raise OpenChiaHostError(
+                "Episode Run execution resources are not configured"
+            )
+        executor = factory(self.run_store)
+        if not isinstance(executor, SystemdRunExecutor):
+            raise TypeError(
+                "run_executor_factory must return a SystemdRunExecutor"
+            )
+        if executor.run_store is not self.run_store:
+            raise OpenChiaHostError(
+                "Run executor must use the host's exact append-only Run store"
+            )
+        repository_root = Path(__file__).resolve().parents[1]
+        if executor.repository_root != repository_root:
+            raise OpenChiaHostError(
+                "Run executor must bind this exact OpenChia repository"
+            )
+        return executor
+
+    def _persist_run_evidence(
+        self,
+        *,
+        registration: RunRegistration,
+        baseline: RefinementBaseline,
+        evidence: RunEvidence,
+    ) -> RefinementBaseline:
+        validated = self.run_store.read_evidence(registration.run_id)
+        if validated.as_record() != evidence.as_record():
+            raise OpenChiaHostError(
+                "executor evidence differs from the durable Run event chain"
+            )
+        if (
+            registration.build_request_id != baseline.build_request_id
+            or registration.build_attempt_id != baseline.build_attempt_id
+            or registration.build_receipt_id != baseline.build_receipt_id
+            or registration.manifest_id != baseline.build_manifest_id
+            or evidence.registration_hash != registration.registration_hash
+            or evidence.manifest_id != registration.manifest_id
+        ):
+            raise OpenChiaHostError(
+                "Run evidence differs from its exact refinement baseline"
+            )
+        request = self.build_store.read_build_request(
+            baseline.build_request_id
+        )
+        self.store.put_artifact(
+            artifact_id=evidence.evidence_id.value,
+            duet_id=self.identity.duet_id.value,
+            kind=RUN_EVIDENCE_ARTIFACT_KIND,
+            revision=request.frozen_workflow.revision,
+            content_hash=evidence.content_hash.value,
+            record=evidence.as_record(),
+        )
+        successor = RefinementBaseline(
+            duet_id=baseline.duet_id,
+            authority_head_approval_id=(
+                baseline.authority_head_approval_id
+            ),
+            workflow_approval_id=baseline.workflow_approval_id,
+            frozen_workflow_artifact_id=(
+                baseline.frozen_workflow_artifact_id
+            ),
+            workflow_hash=baseline.workflow_hash,
+            build_request_id=baseline.build_request_id,
+            build_attempt_id=baseline.build_attempt_id,
+            build_receipt_id=baseline.build_receipt_id,
+            build_receipt_hash=baseline.build_receipt_hash,
+            materialized_specification_id=(
+                baseline.materialized_specification_id
+            ),
+            materialized_specification_hash=(
+                baseline.materialized_specification_hash
+            ),
+            build_manifest_id=baseline.build_manifest_id,
+            build_manifest_hash=baseline.build_manifest_hash,
+            run_evidence_artifact_id=evidence.evidence_id,
+            run_evidence_hash=evidence.content_hash,
+        )
+        return self.refiner.record_baseline(
+            self.identity,
+            successor,
+        )
+
+    def _read_terminal_evidence(
+        self,
+        registration: RunRegistration,
+    ) -> Optional[RunEvidence]:
+        try:
+            return self.run_store.read_evidence(registration.run_id)
+        except RunStoreNotFound:
+            return None
+
+    def start_run(self) -> dict[str, Any]:
+        """Start one fresh, explicitly requested Run of the current build."""
+
+        with self._build_lock:
+            if self._build_thread is not None and self._build_thread.is_alive():
+                raise OpenChiaHostError(
+                    "an Episode build must finish before an Episode Run"
+                )
+            with self._run_lock:
+                if (
+                    self._run_thread is not None
+                    and self._run_thread.is_alive()
+                ):
+                    raise OpenChiaHostError(
+                        "an Episode Run is already active"
+                    )
+                (
+                    baseline,
+                    request,
+                    attempt,
+                    receipt,
+                    manifest,
+                    plan,
+                    source_package,
+                ) = self._runnable_build_context()
+                launch_request = self._root_launch_request(request, plan)
+                executor = self._runtime_executor()
+                runtime_identity = inspect_runtime_identity(
+                    repository_root=executor.repository_root,
+                    destination_root=self.run_store.runtime_sources_root,
+                    python_executable=executor.python_executable,
+                )
+                registration = RunRegistration.from_admitted_build(
+                    build_request=request,
+                    build_attempt=attempt,
+                    build_receipt=receipt,
+                    build_manifest=manifest,
+                    launch_request=launch_request,
+                    runtime_identity=runtime_identity,
+                    runtime_policy=RuntimePolicy(),
+                )
+                broker = ScopedModelBroker(call_model_transport)
+                self._run_registration = registration
+                self._run_evidence = None
+                self._run_baseline = None
+                self._run_error = None
+                self._run_cancel_requested = False
+                self._run_loop = None
+                self._run_task = None
+                self._run_state = "starting"
+
+                def run_worker() -> None:
+                    loop = asyncio.new_event_loop()
+                    task = loop.create_task(
+                        executor.execute(
+                            registration=registration,
+                            source_package_path=source_package,
+                            model_broker=broker,
+                        )
+                    )
+                    with self._run_lock:
+                        self._run_loop = loop
+                        self._run_task = task
+                        if self._run_cancel_requested:
+                            task.cancel()
+                        else:
+                            self._run_state = "running"
+                    evidence: Optional[RunEvidence] = None
+                    error: Optional[str] = None
+                    try:
+                        evidence = loop.run_until_complete(task)
+                    except asyncio.CancelledError:
+                        try:
+                            evidence = self._read_terminal_evidence(
+                                registration
+                            )
+                        except Exception as exc:
+                            error = f"{type(exc).__name__}: {exc}"
+                    except BaseException as exc:
+                        error = f"{type(exc).__name__}: {exc}"
+                        try:
+                            evidence = self._read_terminal_evidence(
+                                registration
+                            )
+                        except Exception as evidence_exc:
+                            error = (
+                                f"{error}; evidence: "
+                                f"{type(evidence_exc).__name__}: {evidence_exc}"
+                            )
+                    try:
+                        if evidence is not None:
+                            durable_evidence = self.run_store.read_evidence(
+                                registration.run_id
+                            )
+                            if (
+                                durable_evidence.as_record()
+                                != evidence.as_record()
+                            ):
+                                raise OpenChiaHostError(
+                                    "executor result differs from durable Run evidence"
+                                )
+                            evidence = durable_evidence
+                            with self._run_lock:
+                                self._run_evidence = evidence
+                            recorded_baseline = self._persist_run_evidence(
+                                registration=registration,
+                                baseline=baseline,
+                                evidence=evidence,
+                            )
+                            with self._run_lock:
+                                self._run_baseline = recorded_baseline
+                                self._run_state = (
+                                    evidence.terminal_status.value
+                                )
+                                self._run_error = error
+                            self.store.append_event(
+                                duet_id=self.identity.duet_id.value,
+                                event_type="run_finished",
+                                provenance=(
+                                    DuetProvenance.HOST_VALIDATION.value
+                                ),
+                                record={
+                                    "run_id": registration.run_id.value,
+                                    "registration_hash": (
+                                        registration.registration_hash.value
+                                    ),
+                                    "evidence_id": evidence.evidence_id.value,
+                                    "evidence_hash": evidence.content_hash.value,
+                                    "audit_log_id": (
+                                        evidence.audit_log_id.value
+                                    ),
+                                    "audit_log_hash": (
+                                        evidence.audit_log_hash.value
+                                    ),
+                                    "terminal_status": (
+                                        evidence.terminal_status.value
+                                    ),
+                                    "refinement_baseline_id": (
+                                        recorded_baseline.baseline_id.value
+                                    ),
+                                },
+                            )
+                        else:
+                            with self._run_lock:
+                                cancelled = self._run_cancel_requested
+                                self._run_state = (
+                                    "cancelled_before_claim"
+                                    if cancelled
+                                    else "host_error"
+                                )
+                                self._run_error = error
+                            self.store.append_event(
+                                duet_id=self.identity.duet_id.value,
+                                event_type=(
+                                    "run_cancelled_before_claim"
+                                    if cancelled
+                                    else "run_host_failure"
+                                ),
+                                provenance=(
+                                    DuetProvenance.HOST_VALIDATION.value
+                                ),
+                                record={
+                                    "run_id": registration.run_id.value,
+                                    "registration_hash": (
+                                        registration.registration_hash.value
+                                    ),
+                                    "error": error,
+                                },
+                            )
+                    except Exception as exc:
+                        with self._run_lock:
+                            self._run_state = "host_error"
+                            self._run_error = (
+                                f"{type(exc).__name__}: {exc}"
+                            )
+                    finally:
+                        if not task.done():
+                            task.cancel()
+                            try:
+                                loop.run_until_complete(task)
+                            except BaseException:
+                                pass
+                        loop.close()
+                        with self._run_lock:
+                            self._run_loop = None
+                            self._run_task = None
+                            self._run_thread = None
+
+                worker = threading.Thread(
+                    target=run_worker,
+                    name=f"openchia-run-{registration.run_id.value[-12:]}",
+                    daemon=False,
+                )
+                self._run_thread = worker
+                self.store.append_event(
+                    duet_id=self.identity.duet_id.value,
+                    event_type="run_requested",
+                    provenance=DuetProvenance.HUMAN_INPUT.value,
+                    record={
+                        "run_id": registration.run_id.value,
+                        "registration_hash": (
+                            registration.registration_hash.value
+                        ),
+                        "build_request_id": (
+                            registration.build_request_id.value
+                        ),
+                        "build_attempt_id": (
+                            registration.build_attempt_id.value
+                        ),
+                        "build_receipt_id": (
+                            registration.build_receipt_id.value
+                        ),
+                        "manifest_id": registration.manifest_id.value,
+                    },
+                )
+                try:
+                    worker.start()
+                except Exception:
+                    self._run_thread = None
+                    self._run_state = "host_error"
+                    raise
+        return self.run_status()
+
+    def cancel_run(self) -> bool:
+        """Cancel the one active executor task without resuming its Run."""
+
+        with self._run_lock:
+            worker = self._run_thread
+            if worker is None or not worker.is_alive():
+                return False
+            if self._run_cancel_requested:
+                return True
+            self._run_cancel_requested = True
+            self._run_state = "cancel_requested"
+            loop = self._run_loop
+            task = self._run_task
+            registration = self._run_registration
+            if loop is not None and task is not None and not task.done():
+                loop.call_soon_threadsafe(task.cancel)
+        self.store.append_event(
+            duet_id=self.identity.duet_id.value,
+            event_type="run_cancel_requested",
+            provenance=DuetProvenance.HUMAN_INPUT.value,
+            record={
+                "run_id": (
+                    None
+                    if registration is None
+                    else registration.run_id.value
+                )
+            },
+        )
+        return True
+
+    def _current_in_memory_run(self) -> bool:
+        registration = self._run_registration
+        if registration is None:
+            return False
+        baseline = self.workspace.current_baseline()
+        return bool(
+            baseline is not None
+            and baseline.build_request_id == registration.build_request_id
+            and baseline.build_attempt_id == registration.build_attempt_id
+            and baseline.build_receipt_id == registration.build_receipt_id
+            and baseline.build_manifest_id == registration.manifest_id
+        )
+
+    @staticmethod
+    def _run_status_record(
+        *,
+        state: str,
+        registration: Optional[RunRegistration],
+        evidence: Optional[RunEvidence],
+        error: Optional[str],
+    ) -> dict[str, Any]:
+        return {
+            "state": state,
+            "run_id": (
+                None if registration is None else registration.run_id.value
+            ),
+            "registration_hash": (
+                None
+                if registration is None
+                else registration.registration_hash.value
+            ),
+            "build_request_id": (
+                None
+                if registration is None
+                else registration.build_request_id.value
+            ),
+            "build_attempt_id": (
+                None
+                if registration is None
+                else registration.build_attempt_id.value
+            ),
+            "build_receipt_id": (
+                None
+                if registration is None
+                else registration.build_receipt_id.value
+            ),
+            "manifest_id": (
+                None
+                if registration is None
+                else registration.manifest_id.value
+            ),
+            "evidence_id": (
+                None if evidence is None else evidence.evidence_id.value
+            ),
+            "audit_log_id": (
+                None if evidence is None else evidence.audit_log_id.value
+            ),
+            "terminal_status": (
+                None
+                if evidence is None
+                else evidence.terminal_status.value
+            ),
+            "error": error,
+        }
+
+    def run_status(self) -> dict[str, Any]:
+        """Return current-build Run identity and terminal state only."""
+
+        with self._run_lock:
+            if self._current_in_memory_run():
+                return self._run_status_record(
+                    state=self._run_state,
+                    registration=self._run_registration,
+                    evidence=self._run_evidence,
+                    error=self._run_error,
+                )
+        baseline = self.workspace.current_baseline()
+        if baseline is None:
+            return self._run_status_record(
+                state="not_started",
+                registration=None,
+                evidence=None,
+                error=None,
+            )
+        evidence = self.workspace.evidence_from_baseline(baseline)
+        if evidence is None:
+            return self._run_status_record(
+                state="not_started",
+                registration=None,
+                evidence=None,
+                error=None,
+            )
+        registration = self.run_store.read_registration(evidence.run_id)
+        return self._run_status_record(
+            state=evidence.terminal_status.value,
+            registration=registration,
+            evidence=evidence,
+            error=None,
+        )
+
+    def run_evidence(
+        self,
+        run_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Return exact validated terminal evidence, never an active prefix."""
+
+        if run_id is not None:
+            registration = self.run_store.read_registration(OpaqueId(run_id))
+            if registration.duet_id != self.identity.duet_id:
+                raise DuetProtocolError("Run belongs to another Duet")
+            evidence = self._read_terminal_evidence(registration)
+            return None if evidence is None else evidence.as_record()
+        with self._run_lock:
+            if self._current_in_memory_run():
+                registration = self._run_registration
+                if registration is None:
+                    return None
+                evidence = self._read_terminal_evidence(registration)
+                return None if evidence is None else evidence.as_record()
+        baseline = self.workspace.current_baseline()
+        if baseline is None:
+            return None
+        evidence = self.workspace.evidence_from_baseline(baseline)
+        return None if evidence is None else evidence.as_record()
+
+    def run_audit_log(
+        self,
+        run_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Return the validated terminal audit log for one exact Run."""
+
+        evidence_record = self.run_evidence(run_id)
+        if evidence_record is None:
+            return None
+        evidence = RunEvidence.from_record(evidence_record)
+        events = self.run_store.read_audit_log(evidence.run_id)
+        return {
+            "evidence_id": evidence.evidence_id.value,
+            "evidence_hash": evidence.content_hash.value,
+            "audit_log_id": evidence.audit_log_id.value,
+            "audit_log_hash": evidence.audit_log_hash.value,
+            "log_location": str(
+                self.run_store.audit_log_location(evidence.run_id)
+            ),
+            "events": [event.as_record() for event in events],
+        }
+
     def status(self) -> dict[str, Any]:
+        """Return compact Duet, Architecture, build, and Run state."""
+
         status = self.service.duet_status(self.identity.duet_id)
         try:
-            snapshot = self.episode_workflow_configuration()
+            architecture = self.workspace.architecture_snapshot()
         except DuetProtocolError:
-            snapshot = None
-        status["episode_workflow"] = (
-            None
-            if snapshot is None
-            else {
-                "artifact_id": snapshot["source_artifact_id"],
-                "revision": snapshot["revision"],
-                "workflow_blueprint_hash": snapshot["content_hash"],
-                "workflow_hash": snapshot["workflow_hash"],
-                "validation_state": (
-                    "ready" if snapshot["ready"] else "invalid"
-                ),
-                "error_code": snapshot.get("validation_error"),
-            }
-        )
+            architecture = None
+        status["episode_architecture"] = architecture
+        status["build"] = self.build_status()
+        status["run"] = self.run_status()
         return status
 
     def has_active_work(self) -> bool:
-        return False
-
-    def run_log_locations(self) -> tuple[str, ...]:
-        root = self.root / "run_logs"
-        if not root.is_dir():
-            return ()
-        return tuple(
-            str(path)
-            for path in sorted(
-                root.glob("*/*.json"),
-                key=lambda item: item.stat().st_mtime,
+        with self._build_lock, self._run_lock:
+            build_active = bool(
+                self._build_thread is not None
+                and self._build_thread.is_alive()
             )
-        )
+            run_active = bool(
+                self._run_thread is not None
+                and self._run_thread.is_alive()
+            )
+            return build_active or run_active
 
 
 __all__ = [

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import threading
 import time
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from prompt_toolkit.layout import FormattedTextControl, Window
@@ -17,6 +17,11 @@ from agent.duet_contracts import OPENCHIA_CONTROL_PLANE_TOOLS
 from agent.openchia_host import OpenChiaHost
 from cli import HermesCLI
 from hermes_constants import get_hermes_home
+from hermes_cli.openchia_background import OpenChiaBackgroundDuetsMixin
+from hermes_cli.openchia_commands import (
+    OpenChiaCommandMixin,
+    render_openchia_status as _render_openchia_status,
+)
 
 
 _MISSING = object()
@@ -24,41 +29,53 @@ _MISSING_EPISODE_VALUE = "<OPENCHIA: value required>"
 
 
 @dataclass
-class _BackgroundDuet:
-    """One independently conversational Duet running beside the foreground Duet."""
+class _EpisodeViewState:
+    """Last authoritative Workspace artifacts observed for one Duet."""
 
-    duet_id: str
-    ordinal: int
-    host: OpenChiaHost
-    agent: Any
-    conversation_history: list[dict[str, Any]] = field(default_factory=list)
-    thread: threading.Thread | None = None
-    last_error: str | None = None
+    architecture_revision: int | None = None
+    architecture_configuration: dict[str, Any] | None = None
+    architecture_last_changes: (
+        tuple[int, int, tuple[dict[str, Any], ...]] | None
+    ) = None
+    materialized_id: str | None = None
+    materialized_document: dict[str, Any] | None = None
+    materialized_last_changes: (
+        tuple[str, str, tuple[dict[str, Any], ...]] | None
+    ) = None
+
+
+class _HostPreparedDuetTurn(str):
+    """An ordinary turn whose human instruction is already host-persisted."""
 
 
 def episode_configuration_changes(
     before: Mapping[str, Any],
     after: Mapping[str, Any],
-    *,
-    field_metadata: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], ...]:
-    """Return stable path-level changes between two Episode configurations."""
+    """Return stable JSON-pointer changes between two Architectures."""
 
-    metadata = field_metadata or {}
     changes: list[dict[str, Any]] = []
 
-    def metadata_for(path: str) -> dict[str, Any]:
-        candidate = path
-        while candidate:
-            if candidate in metadata:
-                return dict(metadata[candidate])
-            candidate, _, _leaf = candidate.rpartition(".")
-        return {}
+    def pointer_token(value: object) -> str:
+        return str(value).replace("~", "~0").replace("/", "~1")
+
+    def stable_list_map(value: list[Any]) -> dict[str, Any] | None:
+        for identity_field in ("local_id", "key", "target_id", "note_id"):
+            if not all(
+                isinstance(item, Mapping)
+                and isinstance(item.get(identity_field), str)
+                for item in value
+            ):
+                continue
+            result = {str(item[identity_field]): item for item in value}
+            if len(result) == len(value):
+                return result
+        return None
 
     def visit(path: str, old: Any, new: Any) -> None:
         if isinstance(old, Mapping) and isinstance(new, Mapping):
             for key in sorted(set(old) | set(new)):
-                child_path = f"{path}.{key}" if path else str(key)
+                child_path = path + "/" + pointer_token(key)
                 visit(
                     child_path,
                     old.get(key, _MISSING),
@@ -66,8 +83,13 @@ def episode_configuration_changes(
                 )
             return
         if isinstance(old, list) and isinstance(new, list):
+            old_items = stable_list_map(old)
+            new_items = stable_list_map(new)
+            if old_items is not None and new_items is not None:
+                visit(path, old_items, new_items)
+                return
             for index in range(max(len(old), len(new))):
-                child_path = f"{path}.{index}" if path else str(index)
+                child_path = path + "/" + str(index)
                 visit(
                     child_path,
                     old[index] if index < len(old) else _MISSING,
@@ -82,7 +104,7 @@ def episode_configuration_changes(
             kind = "removed"
         else:
             kind = "changed"
-        change = {"path": path, "kind": kind, **metadata_for(path)}
+        change = {"path": path or "/", "kind": kind}
         if old is not _MISSING:
             change["before"] = old
         if new is not _MISSING:
@@ -93,44 +115,11 @@ def episode_configuration_changes(
     return tuple(changes)
 
 
-def render_openchia_status(status: dict[str, Any] | None) -> str:
-    """Render only changing state; the architecture diagram belongs in the banner."""
-
-    if not status:
-        return "Duet · describe the outcome you want · /help"
-    episode_workflow = status.get("episode_workflow") or {}
-    if episode_workflow:
-        workflow_revision = int(episode_workflow.get("revision") or 0)
-        if status.get("state") == "sealed":
-            return (
-                f"Episode workflow r{workflow_revision} · frozen and approved\n"
-                "EpisodeBuilder materialization is the next stage · /episode"
-            )
-        validation_state = str(
-            episode_workflow.get("validation_state") or "draft"
-        )
-        if validation_state == "ready":
-            review = status.get("workflow_review") or {}
-            review_note = (
-                " · independently reviewed"
-                if review.get("workflow_blueprint_hash")
-                == episode_workflow.get("workflow_blueprint_hash")
-                else ""
-            )
-            return (
-                f"Episode workflow r{workflow_revision} · ready{review_note}\n"
-                "/episode · /review · /approve"
-            )
-        error = episode_workflow.get("error_code") or "invalid_workflow"
-        return (
-            f"Episode workflow r{workflow_revision} · deterministic checks failed\n"
-            f"{error} · /episode"
-        )
-
-    return "Duet · designing Episode workflow · /episode · /help"
-
-
-class OpenChiaCLI(HermesCLI):
+class OpenChiaCLI(
+    OpenChiaCommandMixin,
+    OpenChiaBackgroundDuetsMixin,
+    HermesCLI,
+):
     """OpenChia terminal surface whose conversational role is the Duet."""
 
     _surface_branding = {
@@ -145,15 +134,16 @@ class OpenChiaCLI(HermesCLI):
         "welcome": "OpenChia Duet ready.",
     }
     _openchia_commands = {
-        "/episode": "Inspect or tree-edit the nested Episode workflow",
+        "/episode": "Browse Architecture and Materialized Specification",
         "/duet": "Show the current design and approval state",
-        "/openchia": "Alias for /duet",
-        "/queue": "Queue a message for the foreground Duet's next turn",
-        "/bg": "Start or continue a separate background Duet",
-        "/approve": "Freeze and approve the ready Episode workflow",
-        "/review": "Explicitly review the current Episode workflow with critics",
-        "/logs": "List persisted Run Episode logs",
-        "/stop": "Interrupt the current turn and stop owned background work",
+        "/queue": "Manage the foreground Duet's FIFO prompt queue",
+        "/bg": "Open and operate independent background Duets",
+        "/approve": "Approve the exact current Architecture or refinement",
+        "/decline": "Decline the pending refinement proposal",
+        "/build": "Materialize the approved workflow or inspect build status",
+        "/run": "Run the admitted materialization or inspect Run evidence",
+        "/logs": "Inspect one validated terminal Run audit log",
+        "/stop": "Cancel every OpenChia-owned turn, build, and Run",
         "/help": "Show OpenChia controls",
     }
     _inherited_commands = frozenset(
@@ -163,18 +153,14 @@ class OpenChiaCLI(HermesCLI):
             "/fast",
             "/status",
             "/context",
-            "/ctx",
             "/history",
             "/save",
             "/title",
             "/compress",
-            "/compact",
             "/config",
             "/profile",
             "/statusbar",
-            "/sb",
             "/timestamps",
-            "/ts",
             "/focus",
             "/skin",
             "/indicator",
@@ -185,7 +171,6 @@ class OpenChiaCLI(HermesCLI):
             "/image",
             "/redraw",
             "/quit",
-            "/exit",
         }
     )
 
@@ -193,14 +178,11 @@ class OpenChiaCLI(HermesCLI):
         self._openchia_host: OpenChiaHost | None = None
         self._openchia_status_cache: dict[str, Any] | None = None
         self._openchia_status_at = 0.0
-        self._episode_view_revision: int | None = None
-        self._episode_view_configuration: dict[str, Any] | None = None
-        self._episode_last_changes: tuple[
-            int, int, tuple[dict[str, Any], ...]
-        ] | None = None
+        self._episode_views: dict[str, _EpisodeViewState] = {}
+        self._openchia_tearing_down = False
         super().__init__(**kwargs)
-        self._background_duets: dict[str, _BackgroundDuet] = {}
-        self._background_duets_lock = threading.RLock()
+        self.busy_input_mode = "queue"
+        self._initialize_background_duets()
 
     @staticmethod
     def _tool_names(agent: Any) -> tuple[str, ...]:
@@ -262,6 +244,8 @@ class OpenChiaCLI(HermesCLI):
             "provider": runtime.get("provider"),
             "requested_provider": runtime.get("requested_provider"),
             "api_mode": runtime.get("api_mode"),
+            "auth_mode": runtime.get("auth_mode"),
+            "cache_scope": runtime.get("cache_scope"),
             "acp_command": runtime.get("command"),
             "acp_args": runtime.get("args"),
             "credential_pool": runtime.get("credential_pool"),
@@ -294,15 +278,29 @@ class OpenChiaCLI(HermesCLI):
         )
 
     def _configure_new_agent(self, agent: Any) -> Any:
+        host = self._ensure_openchia_host()
+        self._openchia_status_cache = None
+        return host.bind_duet(agent)
+
+    @staticmethod
+    def _strict_run_executor_factory() -> Any:
+        from episode_runtime import make_systemd_run_executor_factory
+
+        repository_root = Path(__file__).resolve().parents[1]
+        return make_systemd_run_executor_factory(
+            repository_root=repository_root,
+        )
+
+    def _ensure_openchia_host(self) -> OpenChiaHost:
         if self._openchia_host is None:
             self._openchia_host = OpenChiaHost(
                 home=get_hermes_home(),
                 session_id=self.session_id,
-                available_tool_names=self._tool_names(agent),
+                available_tool_names=self._tool_names(None),
                 agent_kwargs_factory=self._agent_kwargs_for_episode,
+                run_executor_factory=self._strict_run_executor_factory(),
             )
-        self._openchia_status_cache = None
-        return self._openchia_host.bind_duet(agent)
+        return self._openchia_host
 
     @staticmethod
     def _agent_init_failure_message(error: BaseException) -> str:
@@ -318,13 +316,13 @@ class OpenChiaCLI(HermesCLI):
         self.console.clear()
         self._console_print("[bold #8fb9a8]OPENCHIA[/]  human + LLM = Duet")
         self._console_print()
-        self._console_print("  [DUET] -- draft --> [EPISODE WORKFLOW]")
-        self._console_print("                         | validate")
-        self._console_print("                         v")
-        self._console_print("                  [FROZEN DESIGN]")
-        self._console_print("                         | EpisodeBuilder")
-        self._console_print("                         v")
-        self._console_print("                       [RUN]")
+        self._console_print("  [DUET] <----> [WORKFLOW ARCHITECTURE]")
+        self._console_print("                       | approve + build")
+        self._console_print("                       v")
+        self._console_print("              [MATERIALIZED SPECIFICATION]")
+        self._console_print("                       | explicit run")
+        self._console_print("                       v")
+        self._console_print("                   [RUN EVIDENCE]")
         self._console_print()
 
     def _tui_welcome_branding(self, welcome_skin: Any) -> tuple[str, str]:
@@ -338,19 +336,14 @@ class OpenChiaCLI(HermesCLI):
 
     def _print_random_tip(self) -> None:
         self._console_print(
-            "[dim]The Duet shapes and approves the workflow; EpisodeBuilder materializes it for a Run.[/]"
+            "[dim]Use /episode to move between the Duet-owned Architecture and its exact materialization.[/]"
         )
 
     def _tui_background_ui_active(self) -> bool:
         host_work = bool(
             self._openchia_host and self._openchia_host.has_active_work()
         )
-        with self._background_duets_lock:
-            duet_work = any(
-                context.thread is not None and context.thread.is_alive()
-                for context in self._background_duets.values()
-            )
-        return host_work or duet_work
+        return host_work or self._background_ui_active()
 
     def _status(self, *, refresh: bool = False) -> dict[str, Any] | None:
         host = self._openchia_host
@@ -369,9 +362,12 @@ class OpenChiaCLI(HermesCLI):
 
     def _panel_text(self) -> str:
         try:
-            return render_openchia_status(self._status())
+            return _render_openchia_status(self._status())
         except Exception as exc:
-            return f"OpenChia status unavailable: {type(exc).__name__}"
+            return (
+                f"OpenChia status unavailable: {type(exc).__name__}\n"
+                "/duet · /help"
+            )
 
     def _get_extra_tui_widgets(self) -> list[Any]:
         return [
@@ -381,6 +377,66 @@ class OpenChiaCLI(HermesCLI):
                 style="class:openchia.status",
             )
         ]
+
+    def _build_tui_layout_children(self, **kwargs: Any) -> list[Any]:
+        """Detach the inherited subagent monitor before composing OpenChia chrome."""
+
+        self._subagent_monitor = None
+        self._subagent_dock_widget = None
+        return super()._build_tui_layout_children(**kwargs)
+
+    def _tui_build_key_bindings(self) -> Any:
+        """Retain base editing keys without inherited subagent-monitor controls."""
+
+        bindings = super()._tui_build_key_bindings()
+        blocked = {
+            ("c-t",),
+            ("f6",),
+            ("c-r",),
+            ("f7",),
+        }
+
+        def normalized(binding: Any) -> tuple[str, ...]:
+            return tuple(
+                str(getattr(key, "value", key)).lower()
+                for key in binding.keys
+            )
+
+        bindings.bindings[:] = [
+            binding
+            for binding in bindings.bindings
+            if normalized(binding) not in blocked
+        ]
+        return bindings
+
+    def _get_status_bar_snapshot(self) -> dict[str, Any]:
+        snapshot = super()._get_status_bar_snapshot()
+        snapshot["active_background_subagents"] = 0
+        return snapshot
+
+    def _tui_placeholder_text(self) -> str:
+        if self._agent_running:
+            return "message=queued · /episode · /queue · /bg · /stop"
+        return super()._tui_placeholder_text()
+
+    def _tui_enter_while_busy(
+        self,
+        text: str,
+        images: list[Any],
+        payload: Any,
+    ) -> None:
+        """FIFO every ordinary busy submission for a later complete Duet turn."""
+
+        from cli import _cprint
+
+        self._pending_input.put(payload)
+        preview = (
+            text
+            if text
+            else f"[{len(images)} image{'s' if len(images) != 1 else ''} attached]"
+        )
+        suffix = "..." if len(preview) > 80 else ""
+        _cprint(f"  Queued for the next Duet turn: {preview[:80]}{suffix}")
 
     def _build_tui_style_dict(self) -> dict[str, str]:
         styles = super()._build_tui_style_dict()
@@ -396,32 +452,110 @@ class OpenChiaCLI(HermesCLI):
         self._console_print(escape(text))
 
     def _episode_host(self) -> OpenChiaHost:
-        if self._openchia_host is None and not self._init_agent():
-            raise RuntimeError("OpenChia could not initialize the Duet")
-        if self._openchia_host is None:
-            raise RuntimeError("OpenChia host is unavailable")
-        return self._openchia_host
+        return self._ensure_openchia_host()
+
+    @staticmethod
+    def _persisted_instruction_turn(
+        prompt: str,
+        notes: tuple[dict[str, Any], ...],
+    ) -> _HostPreparedDuetTurn:
+        if len(notes) != 2:
+            raise RuntimeError(
+                "a stable global instruction must have two persisted layer candidates"
+            )
+        candidates: list[tuple[str, str, str]] = []
+        for note in notes:
+            if not isinstance(note, Mapping) or note.get("body") != prompt:
+                raise RuntimeError(
+                    "global instruction persistence returned another human instruction"
+                )
+            note_id = note.get("note_id")
+            target = note.get("target")
+            if not isinstance(note_id, str) or not isinstance(target, Mapping):
+                raise RuntimeError(
+                    "global instruction persistence omitted its exact identity"
+                )
+            target_id = target.get("target_id")
+            layer = target.get("layer")
+            if not isinstance(target_id, str) or not isinstance(layer, str):
+                raise RuntimeError(
+                    "global instruction persistence omitted its target identity"
+                )
+            candidates.append((layer, note_id, target_id))
+        if {value[0] for value in candidates} != {
+            "workflow_semantics",
+            "materialization_implementation",
+        }:
+            raise RuntimeError(
+                "global instruction candidates do not cover both refinement layers"
+            )
+        candidate_lines = "\n".join(
+            f"- {layer}: note_id={note_id}; target_id={target_id}"
+            for layer, note_id, target_id in sorted(candidates)
+        )
+        return _HostPreparedDuetTurn(
+            "A new human instruction for the current built workflow has been "
+            "persisted as these exact refinement candidates:\n"
+            f"{candidate_lines}\n"
+            "Read the exact saved instruction with episode_workspace_read "
+            "using each note_id. Select the layer addressed by the human "
+            "instruction and continue through the normal Duet refinement "
+            "conversation."
+        )
+
+    def _prepare_human_duet_turn(
+        self,
+        host: OpenChiaHost,
+        message: Any,
+    ) -> Any:
+        if isinstance(message, _HostPreparedDuetTurn) or not isinstance(
+            message,
+            str,
+        ):
+            return message
+        key = f"global_instruction_{uuid.uuid4().hex}"
+        notes = host.record_global_instruction(message, key)
+        if not notes:
+            return message
+        return self._persisted_instruction_turn(message, notes)
+
+    def chat(
+        self,
+        message: Any,
+        images: list | None = None,
+        voice_input: bool = False,
+    ) -> str | None:
+        """Route stable-build human turns through durable Duet instructions."""
+
+        try:
+            message = self._prepare_human_duet_turn(
+                self._ensure_openchia_host(),
+                message,
+            )
+        except Exception as exc:
+            self._print_openchia(
+                f"Human instruction was not persisted for the Duet: {exc}"
+            )
+            return None
+        return super().chat(message, images=images, voice_input=voice_input)
 
     @staticmethod
     def _json_value(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
-    def _render_episode_changes(
+    def _render_workspace_changes(
         self,
-        from_revision: int,
-        to_revision: int,
+        label: str,
+        from_identity: object,
+        to_identity: object,
         changes: tuple[dict[str, Any], ...],
     ) -> str:
         if not changes:
-            return f"Episode changes r{from_revision} -> r{to_revision}: none"
+            return f"{label} changes {from_identity} -> {to_identity}: none"
         markers = {"added": "+", "removed": "-", "changed": "~"}
-        lines = [f"Episode changes r{from_revision} -> r{to_revision}:"]
+        lines = [f"{label} changes {from_identity} -> {to_identity}:"]
         for change in changes:
-            provenance = change.get("provenance")
-            suffix = f" [{provenance}]" if provenance else ""
-            lines.append(
-                f"  {markers[change['kind']]} {change['path']}{suffix}"
-            )
+            lines.append(f"  {markers[change['kind']]} {change['path']}")
             if "before" in change:
                 lines.append(f"      before: {self._json_value(change['before'])}")
             if "after" in change:
@@ -431,57 +565,333 @@ class OpenChiaCLI(HermesCLI):
     def _current_episode_changes(
         self,
         snapshot: Mapping[str, Any],
+        view_state: _EpisodeViewState,
     ) -> tuple[int, int, tuple[dict[str, Any], ...]]:
         revision = int(snapshot["revision"])
-        previous_revision = self._episode_view_revision
-        previous = self._episode_view_configuration
+        previous_revision = view_state.architecture_revision
+        previous = view_state.architecture_configuration
         if previous_revision is None or previous is None:
             return revision, revision, ()
         changes = episode_configuration_changes(
             previous,
             snapshot["configuration"],
-            field_metadata=snapshot.get("fields") or {},
         )
         return previous_revision, revision, changes
 
-    def _remember_episode_view(self, snapshot: Mapping[str, Any]) -> None:
-        self._episode_view_revision = int(snapshot["revision"])
-        self._episode_view_configuration = json.loads(
-            json.dumps(snapshot["configuration"], ensure_ascii=False)
+    @staticmethod
+    def _materialized_diff_document(
+        snapshot: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Project stable implementation content without per-build identities."""
+
+        def target_record(value: object) -> dict[str, Any]:
+            target = value if isinstance(value, Mapping) else {}
+            return {
+                "json_pointer": target.get("json_pointer"),
+                "episode_local_id": target.get("episode_local_id"),
+            }
+
+        def part_record(value: object) -> dict[str, Any]:
+            part = value if isinstance(value, Mapping) else {}
+            key = part.get("key")
+            result = {
+                "key": key,
+                "part_hash": part.get("part_hash"),
+                "target": target_record(part.get("target")),
+            }
+            if key == "workflow_overview":
+                declaration = part.get("declaration")
+                stable_declaration = (
+                    dict(declaration)
+                    if isinstance(declaration, Mapping)
+                    else {}
+                )
+                for volatile in (
+                    "specification_id",
+                    "content_hash",
+                    "build_request_id",
+                    "build_attempt_id",
+                    "plan_id",
+                ):
+                    stable_declaration.pop(volatile, None)
+                result.pop("part_hash", None)
+                result["declaration"] = stable_declaration
+            return result
+
+        global_parts = snapshot.get("global_parts")
+        episodes = snapshot.get("episodes")
+        return {
+            "workflow_hash": snapshot.get("workflow_hash"),
+            "status": snapshot.get("status"),
+            "global_parts": [
+                part_record(value)
+                for value in (
+                    global_parts if isinstance(global_parts, list) else []
+                )
+            ],
+            "episodes": [
+                {
+                    "local_id": episode.get("local_id"),
+                    "name": episode.get("name"),
+                    "parent_local_id": episode.get("parent_local_id"),
+                    "target": target_record(episode.get("target")),
+                    "parts": [
+                        part_record(value)
+                        for value in (
+                            episode.get("parts")
+                            if isinstance(episode.get("parts"), list)
+                            else []
+                        )
+                    ],
+                }
+                for episode in (
+                    episodes if isinstance(episodes, list) else []
+                )
+                if isinstance(episode, Mapping)
+            ],
+        }
+
+    def _current_materialized_changes(
+        self,
+        snapshot: Mapping[str, Any],
+        view_state: _EpisodeViewState,
+    ) -> tuple[str, str, tuple[dict[str, Any], ...]]:
+        identity = str(snapshot["anchor_artifact_id"])
+        document = self._materialized_diff_document(snapshot)
+        if (
+            view_state.materialized_id is None
+            or view_state.materialized_document is None
+        ):
+            return identity, identity, ()
+        changes = episode_configuration_changes(
+            view_state.materialized_document,
+            document,
         )
+        return view_state.materialized_id, identity, changes
+
+    @staticmethod
+    def _episode_view_key(host: OpenChiaHost) -> str:
+        return host.identity.duet_id.value
+
+    def _episode_view_state(self, host: OpenChiaHost) -> _EpisodeViewState:
+        return self._episode_views.setdefault(
+            self._episode_view_key(host),
+            _EpisodeViewState(),
+        )
+
+    def _remember_episode_view(
+        self,
+        host: OpenChiaHost,
+        workspace: Mapping[str, Any],
+    ) -> None:
+        view_state = self._episode_view_state(host)
+        architecture = workspace["architecture_snapshot"]
+        view_state.architecture_revision = int(architecture["revision"])
+        view_state.architecture_configuration = json.loads(
+            json.dumps(architecture["configuration"], ensure_ascii=False)
+        )
+        materialized = workspace.get("materialized_snapshot")
+        if isinstance(materialized, Mapping):
+            view_state.materialized_id = str(
+                materialized["anchor_artifact_id"]
+            )
+            view_state.materialized_document = json.loads(
+                json.dumps(
+                    self._materialized_diff_document(materialized),
+                    ensure_ascii=False,
+                )
+            )
 
     def _visible_episode_changes(
         self,
+        host: OpenChiaHost,
         snapshot: Mapping[str, Any],
     ) -> tuple[int, int, tuple[dict[str, Any], ...]]:
-        changes = self._current_episode_changes(snapshot)
+        view_state = self._episode_view_state(host)
+        changes = self._current_episode_changes(snapshot, view_state)
         if changes[2]:
-            self._episode_last_changes = changes
-        elif changes[0] == changes[1] and self._episode_last_changes is not None:
-            changes = self._episode_last_changes
+            view_state.architecture_last_changes = changes
+        elif changes[0] != changes[1]:
+            view_state.architecture_last_changes = changes
+        elif (
+            changes[0] == changes[1]
+            and view_state.architecture_last_changes is not None
+        ):
+            changes = view_state.architecture_last_changes
         return changes
 
-    def _show_episode_configuration(self) -> None:
-        host = self._episode_host()
-        snapshot = host.episode_workflow_configuration()
-        changes = self._visible_episode_changes(snapshot)
-        from hermes_cli.openchia_episode_editor import view_episode_document
+    def _visible_materialized_changes(
+        self,
+        host: OpenChiaHost,
+        snapshot: Mapping[str, Any],
+    ) -> tuple[str, str, tuple[dict[str, Any], ...]]:
+        view_state = self._episode_view_state(host)
+        changes = self._current_materialized_changes(snapshot, view_state)
+        if changes[2]:
+            view_state.materialized_last_changes = changes
+        elif changes[0] != changes[1]:
+            view_state.materialized_last_changes = changes
+        elif (
+            changes[0] == changes[1]
+            and view_state.materialized_last_changes is not None
+        ):
+            changes = view_state.materialized_last_changes
+        return changes
 
-        view_episode_document(
-            snapshot["configuration"],
-            missing_value=_MISSING_EPISODE_VALUE,
-            changed_paths=tuple(item["path"] for item in changes[2]),
-            revision=int(snapshot["revision"]),
-            validation_deficits=tuple(
-                snapshot.get("validation_deficits") or ()
-            ),
+    @staticmethod
+    def _workspace_followup_prompt(
+        note_ids: tuple[str, ...],
+        *,
+        baseline_id: str | None,
+    ) -> _HostPreparedDuetTurn:
+        joined = ", ".join(note_ids)
+        if baseline_id is None:
+            action = (
+                "Use these human notes while completing the Workflow "
+                "Architecture, and submit the complete Architecture when it "
+                "is ready for approval."
+            )
+        else:
+            action = (
+                "Use these human notes to propose the corresponding successor "
+                "Architecture or implementation refinement against baseline "
+                f"{baseline_id}."
+            )
+        return _HostPreparedDuetTurn(
+            "I saved Episode Workspace notes with these exact IDs: "
+            f"{joined}. Read each exact saved note with "
+            f"episode_workspace_read using note_id. {action}"
         )
-        self._remember_episode_view(snapshot)
 
-    def _show_episode_changes(self) -> None:
-        snapshot = self._episode_host().episode_workflow_configuration()
-        changes = self._visible_episode_changes(snapshot)
-        self._print_openchia(self._render_episode_changes(*changes))
+    def _open_episode_workspace(
+        self,
+        *,
+        host: OpenChiaHost | None = None,
+        edit_architecture: bool = False,
+        duet_turn_active: bool | None = None,
+        enqueue_followup: Any = None,
+    ) -> None:
+        active_host = self._episode_host() if host is None else host
+        if duet_turn_active is None:
+            duet_turn_active = bool(host is None and self._agent_running)
+        workspace = active_host.episode_workspace_snapshot()
+        architecture = workspace["architecture_snapshot"]
+        architecture_changes = self._visible_episode_changes(
+            active_host,
+            architecture,
+        )
+        architecture_changed_paths = tuple(
+            sorted(
+                {
+                    *(item["path"] for item in architecture_changes[2]),
+                    *workspace.get("changed_paths", ()),
+                }
+            )
+        )
+        materialized = workspace["materialized_snapshot"]
+        materialized_changes = (
+            None
+            if materialized is None
+            else self._visible_materialized_changes(active_host, materialized)
+        )
+        materialized_changed_paths = (
+            ()
+            if materialized_changes is None
+            else tuple(item["path"] for item in materialized_changes[2])
+        )
+        from hermes_cli.openchia_episode_editor import open_episode_workspace
+
+        result = open_episode_workspace(
+            architecture_snapshot=architecture,
+            materialized_snapshot=materialized,
+            notes=workspace["notes"],
+            save_note=active_host.record_workspace_note,
+            architecture_changed_paths=architecture_changed_paths,
+            materialized_changed_paths=materialized_changed_paths,
+            edit_architecture=(edit_architecture and not duet_turn_active),
+            architecture_edit_notice=(
+                "Duet turn active: Architecture edits wait; browsing and notes remain available."
+                if edit_architecture and duet_turn_active
+                else None
+            ),
+            missing_value=_MISSING_EPISODE_VALUE,
+        )
+        if result.architecture_configuration is not None:
+            try:
+                receipt = active_host.record_architecture_revision(
+                    candidate_workflow_architecture=(
+                        result.architecture_configuration
+                    ),
+                    expected_artifact_id=(
+                        result.expected_architecture_artifact_id
+                    ),
+                    expected_content_hash=(
+                        result.expected_architecture_content_hash
+                    ),
+                    expected_revision=result.expected_architecture_revision,
+                    human_note_ids=result.saved_note_ids,
+                )
+            except Exception as exc:
+                self._print_openchia(
+                    f"Architecture replacement was rejected: {exc}"
+                )
+            else:
+                self._print_openchia(
+                    f"Saved Workflow Architecture revision {receipt['revision']} "
+                    f"({receipt['artifact_id']})."
+                )
+        self._remember_episode_view(active_host, workspace)
+        if result.saved_note_ids:
+            prompt = self._workspace_followup_prompt(
+                result.saved_note_ids,
+                baseline_id=workspace["baseline_id"],
+            )
+            if enqueue_followup is None:
+                self._pending_input.put(prompt)
+                self._print_openchia(
+                    f"Queued one Duet turn for {len(result.saved_note_ids)} "
+                    "saved workspace note(s)."
+                )
+            else:
+                enqueue_followup(prompt)
+        self._refresh_openchia()
+
+    def _show_episode_changes(
+        self,
+        *,
+        host: OpenChiaHost | None = None,
+    ) -> None:
+        active_host = self._episode_host() if host is None else host
+        workspace = active_host.episode_workspace_snapshot()
+        architecture = self._visible_episode_changes(
+            active_host,
+            workspace["architecture_snapshot"],
+        )
+        sections = [
+            self._render_workspace_changes(
+                "Architecture",
+                f"r{architecture[0]}",
+                f"r{architecture[1]}",
+                architecture[2],
+            )
+        ]
+        materialized = workspace["materialized_snapshot"]
+        if materialized is None:
+            sections.append("Materialized Specification: not available")
+        else:
+            changes = self._visible_materialized_changes(
+                active_host,
+                materialized,
+            )
+            sections.append(
+                self._render_workspace_changes(
+                    "Materialized Specification",
+                    changes[0],
+                    changes[1],
+                    changes[2],
+                )
+            )
+        self._print_openchia("\n\n".join(sections))
 
     @staticmethod
     def _is_episode_command(command: str) -> bool:
@@ -489,485 +899,82 @@ class OpenChiaCLI(HermesCLI):
         lower = stripped.lower()
         return lower == "/episode" or lower.startswith("/episode ")
 
-    def _tui_enter_inline_command(self, event: Any, text: str, has_images: bool) -> bool:
-        """Give every full-screen Episode view exclusive terminal ownership."""
+    @staticmethod
+    def _is_background_episode_command(command: str) -> bool:
+        parts = command.strip().lower().split()
+        return (
+            len(parts) >= 3
+            and parts[0] == "/bg"
+            and parts[1].startswith("duet_")
+            and parts[2] == "episode"
+        )
 
-        if not has_images and self._is_episode_command(text):
-            action = text.strip()[len("/episode") :].strip().split(maxsplit=1)
-            if not action or action[0].lower() in {"show", "status", "edit"}:
-                from prompt_toolkit.application import run_in_terminal
+    def _tui_enter_inline_command(
+        self,
+        event: Any,
+        text: str,
+        has_images: bool,
+    ) -> bool:
+        """Dispatch OpenChia commands now; no slash input enters a Duet turn."""
 
-                event.app.current_buffer.reset(append_to_history=True)
-                run_in_terminal(
-                    lambda: self.process_command(text),
-                    in_executor=True,
-                )
-            else:
-                self.process_command(text)
-                event.app.current_buffer.reset(append_to_history=True)
+        is_workspace = (
+            self._is_episode_command(text)
+            or self._is_background_episode_command(text)
+        )
+        if is_workspace:
+            from prompt_toolkit.application import run_in_terminal
+
+            event.app.current_buffer.reset(append_to_history=True)
+            run_in_terminal(
+                lambda: self.process_command(text),
+                in_executor=True,
+            )
             event.app.invalidate()
             return True
-        return super()._tui_enter_inline_command(event, text, has_images)
-
-    def _process_episode_command(self, stripped: str) -> bool:
-        remainder = stripped[len("/episode") :].strip()
-        action, _, arguments = remainder.partition(" ")
-        action = action.lower() or "show"
-        host = self._episode_host()
-        if action in {"show", "status"}:
-            self._show_episode_configuration()
+        if not text.strip().startswith("/"):
+            return False
+        if super()._tui_enter_inline_command(event, text, has_images):
             return True
-        if action in {"diff", "changes"}:
-            self._show_episode_changes()
-            return True
-        if action == "edit":
-            with host.episode_workflow_edit_session() as snapshot:
-                document = snapshot["configuration"]
-                changes = self._visible_episode_changes(snapshot)
-                self._print_openchia(self._render_episode_changes(*changes))
-                from hermes_cli.openchia_episode_editor import edit_episode_document
-
-                edited = edit_episode_document(
-                    document,
-                    missing_value=_MISSING_EPISODE_VALUE,
-                    changed_paths=tuple(item["path"] for item in changes[2]),
-                    revision=int(snapshot["revision"]),
-                    validation_deficits=tuple(
-                        snapshot.get("validation_deficits") or ()
-                    ),
-                )
-                if edited is None or edited == document:
-                    self._remember_episode_view(
-                        host.episode_workflow_configuration()
-                    )
-                    self._print_openchia("Episode workflow unchanged.")
-                    return True
-                revision = host.record_episode_workflow_revision(
-                    edited,
-                    source_artifact_id=snapshot["source_artifact_id"],
-                    expected_workflow_hash=snapshot["content_hash"],
-                )
-                self._remember_episode_view(
-                    host.episode_workflow_configuration()
-                )
-            self._print_openchia(
-                f"Episode workflow saved as revision {revision['revision']}; "
-                + (
-                    "deterministic validation passed."
-                    if revision.get("ready")
-                    else "deterministic validation found blocking deficits."
-                )
-            )
-            self._refresh_openchia()
-            return True
-        raise ValueError(
-            "Usage: /episode [show|diff|edit]"
-        )
-
-    def _background_duet_agent_kwargs(
-        self,
-        duet_id: str,
-        prompt: str,
-    ) -> dict[str, Any]:
-        route = self._resolve_turn_agent_config(prompt)
-        runtime = route["runtime"]
-        return {
-            "model": route["model"],
-            "api_key": runtime.get("api_key"),
-            "base_url": runtime.get("base_url"),
-            "provider": runtime.get("provider"),
-            "requested_provider": runtime.get("requested_provider"),
-            "api_mode": runtime.get("api_mode"),
-            "acp_command": runtime.get("command"),
-            "acp_args": runtime.get("args"),
-            "credential_pool": runtime.get("credential_pool"),
-            "max_iterations": self.max_turns,
-            "run_budget_seconds": getattr(self, "run_budget_seconds", None),
-            "enabled_toolsets": [],
-            "disabled_toolsets": [],
-            "verbose_logging": False,
-            "quiet_mode": True,
-            "tool_progress_mode": "off",
-            "reasoning_config": self.reasoning_config,
-            "service_tier": self.service_tier,
-            "request_overrides": route.get("request_overrides"),
-            "providers_allowed": self._providers_only,
-            "providers_ignored": self._providers_ignore,
-            "providers_order": self._providers_order,
-            "provider_sort": self._provider_sort,
-            "provider_require_parameters": self._provider_require_params,
-            "provider_data_collection": self._provider_data_collection,
-            "openrouter_min_coding_score": self._openrouter_min_coding_score,
-            "fallback_model": self._fallback_model,
-            "session_id": duet_id,
-            "parent_session_id": self.session_id,
-            "platform": "openchia",
-            "side_agent": True,
-            "session_db": self._session_db,
-            "skip_context_files": True,
-            "load_soul_identity": False,
-            "skip_memory": True,
-            "skip_background_review": True,
-        }
-
-    def _create_background_duet(
-        self,
-        duet_id: str,
-        prompt: str,
-        *,
-        conversation_history: list[dict[str, Any]] | None = None,
-    ) -> _BackgroundDuet:
-        """Build a side conversation through the same host and Duet binding as the foreground."""
-
-        from run_agent import AIAgent
-
-        agent = AIAgent(**self._background_duet_agent_kwargs(duet_id, prompt))
-        host: OpenChiaHost | None = None
+        if not self._agent_running:
+            return False
         try:
-            host = OpenChiaHost(
-                home=get_hermes_home(),
-                session_id=duet_id,
-                available_tool_names=self._tool_names(agent),
-                agent_kwargs_factory=lambda role, identity: self._agent_kwargs_for_episode_under(
-                    duet_id,
-                    role,
-                    identity,
-                ),
-            )
-            agent = host.bind_duet(agent)
-        except Exception:
-            try:
-                agent.close()
-            finally:
-                if host is not None:
-                    host.close()
-            raise
-
-        agent._print_fn = lambda *_args, **_kwargs: None
-
-        def thinking(text: str) -> None:
-            if not self._agent_running:
-                self._spinner_text = text
-                if self._app:
-                    self._app.invalidate()
-
-        agent.thinking_callback = thinking
-        self._background_task_counter += 1
-        return _BackgroundDuet(
-            duet_id=duet_id,
-            ordinal=self._background_task_counter,
-            host=host,
-            agent=agent,
-            conversation_history=list(conversation_history or []),
-        )
-
-    def _restore_background_duet(
-        self,
-        duet_id: str,
-        prompt: str,
-    ) -> _BackgroundDuet | None:
-        """Reopen a persisted background Duet when its displayed ID is supplied."""
-
-        if not duet_id.startswith("duet_") or self._session_db is None:
-            return None
-        try:
-            if self._session_db.get_session(duet_id) is None:
-                return None
-            history = self._session_db.get_messages_as_conversation(
-                duet_id,
-                repair_alternation=True,
-            )
-        except Exception:
-            return None
-        context = self._create_background_duet(
-            duet_id,
-            prompt,
-            conversation_history=history,
-        )
-        with self._background_duets_lock:
-            self._background_duets[duet_id] = context
-        return context
-
-    def _background_duet_for(
-        self,
-        duet_id: str,
-        prompt: str,
-    ) -> _BackgroundDuet | None:
-        with self._background_duets_lock:
-            context = self._background_duets.get(duet_id)
-        return context or self._restore_background_duet(duet_id, prompt)
-
-    def _run_background_duet_turn(
-        self,
-        context: _BackgroundDuet,
-        prompt: str,
-    ) -> None:
-        if context.thread is not None and context.thread.is_alive():
-            self._print_openchia(
-                f"Background Duet {context.duet_id} is already working. "
-                "Start another with /bg PROMPT or wait before sending a follow-up."
-            )
-            return
-
-        preview = prompt[:60] + ("..." if len(prompt) > 60 else "")
-        self._print_openchia(
-            f"Background Duet #{context.ordinal} working: \"{preview}\"\n"
-            f"Duet ID: {context.duet_id}\n"
-            f"Continue it later with: /bg send {context.duet_id} TEXT"
-        )
-
-        def produce() -> str:
-            try:
-                result = context.agent.run_conversation(
-                    user_message=prompt,
-                    conversation_history=list(context.conversation_history),
-                    task_id=f"{context.duet_id}:{uuid.uuid4().hex[:8]}",
-                )
-                if result and isinstance(result.get("messages"), list):
-                    context.conversation_history = list(result["messages"])
-                response = result.get("final_response", "") if result else ""
-                if not response and result and result.get("error"):
-                    response = f"Error: {result['error']}"
-                context.last_error = None
-                return response
-            except Exception as exc:
-                context.last_error = str(exc)
-                raise
-
-        def done() -> None:
-            self._background_tasks.pop(context.duet_id, None)
-            context.thread = None
-            if not self._agent_running:
-                self._spinner_text = ""
-
-        thread = self._side_worker(
-            produce,
-            name=f"background-duet-{context.duet_id}",
-            fail_label=f"Background Duet #{context.ordinal}",
-            header_lines=[
-                f"  Background Duet #{context.ordinal}",
-                f"  Duet ID: {context.duet_id}",
-            ],
-            title_suffix=f"(background Duet #{context.ordinal})",
-            empty_note="  (No response generated)",
-            bell=True,
-            on_done=done,
-        )
-        context.thread = thread
-        self._background_tasks[context.duet_id] = thread
-        thread.start()
-
-    def _start_background_duet(self, prompt: str) -> None:
-        if not self._ensure_runtime_credentials():
-            self._print_openchia(
-                "Cannot start a background Duet without valid model credentials."
-            )
-            return
-        duet_id = (
-            f"duet_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-        )
-        try:
-            context = self._create_background_duet(duet_id, prompt)
+            keep_running = self.process_command(text)
+            if not keep_running:
+                self._should_exit = True
+                if event.app.is_running:
+                    event.app.exit()
         except Exception as exc:
-            self._print_openchia(f"Background Duet could not start: {exc}")
-            return
-        with self._background_duets_lock:
-            self._background_duets[duet_id] = context
-        self._run_background_duet_turn(context, prompt)
-
-    def _list_background_duets(self) -> None:
-        with self._background_duets_lock:
-            contexts = sorted(
-                self._background_duets.values(),
-                key=lambda item: item.ordinal,
-            )
-        if not contexts:
-            self._print_openchia(
-                "No background Duets are open in this process.\n"
-                "Start one with: /bg PROMPT\n"
-                "Reopen a persisted one with: /bg send DUET_ID TEXT"
-            )
-            return
-        lines = ["Background Duets:"]
-        for context in contexts:
-            running = bool(context.thread and context.thread.is_alive())
-            try:
-                duet_state = context.host.status().get("state", "unknown")
-            except Exception:
-                duet_state = "unavailable"
-            state = "working" if running else "idle"
-            if context.last_error:
-                state = "error"
-            lines.append(
-                f"  #{context.ordinal} {context.duet_id} · {state} · {duet_state}"
-            )
-        lines.append("Continue one with: /bg send DUET_ID TEXT")
-        self._print_openchia("\n".join(lines))
-
-    def _close_background_duet(self, duet_id: str) -> None:
-        with self._background_duets_lock:
-            context = self._background_duets.get(duet_id)
-        if context is None:
-            self._print_openchia(f"Background Duet not found: {duet_id}")
-            return
-        if (context.thread and context.thread.is_alive()) or context.host.has_active_work():
-            self._print_openchia(
-                f"Background Duet {duet_id} is working and remains open."
-            )
-            return
-        try:
-            context.agent.close()
-        finally:
-            context.host.close()
-        with self._background_duets_lock:
-            self._background_duets.pop(duet_id, None)
-        self._print_openchia(
-            f"Background Duet {duet_id} closed; its persisted session remains resumable."
-        )
-
-    def _process_background_duet_command(self, stripped: str) -> bool:
-        payload = stripped[len("/bg") :].strip()
-        if not payload or payload.lower() == "list":
-            self._list_background_duets()
-            return True
-        action, _, remainder = payload.partition(" ")
-        action_lower = action.lower()
-        if action_lower == "new":
-            if not remainder.strip():
-                self._print_openchia("Usage: /bg [new] PROMPT")
-            else:
-                self._start_background_duet(remainder.strip())
-            return True
-        if action_lower == "send":
-            duet_id, separator, prompt = remainder.strip().partition(" ")
-            if not separator or not prompt.strip():
-                self._print_openchia("Usage: /bg send DUET_ID TEXT")
-                return True
-            if not self._ensure_runtime_credentials():
-                self._print_openchia(
-                    "Cannot continue a background Duet without valid model credentials."
-                )
-                return True
-            try:
-                context = self._background_duet_for(duet_id, prompt.strip())
-            except Exception as exc:
-                self._print_openchia(
-                    f"Background Duet {duet_id} could not reopen: {exc}"
-                )
-                return True
-            if context is None:
-                self._print_openchia(f"Background Duet not found: {duet_id}")
-            else:
-                self._run_background_duet_turn(context, prompt.strip())
-            return True
-        if action_lower == "status":
-            duet_id = remainder.strip()
-            if not duet_id:
-                self._print_openchia("Usage: /bg status DUET_ID")
-                return True
-            try:
-                context = self._background_duet_for(duet_id, "status")
-            except Exception as exc:
-                self._print_openchia(
-                    f"Background Duet {duet_id} status is unavailable: {exc}"
-                )
-                return True
-            if context is None:
-                self._print_openchia(f"Background Duet not found: {duet_id}")
-            else:
-                self._print_openchia(
-                    json.dumps(context.host.status(), indent=2, ensure_ascii=False)
-                )
-            return True
-        if action_lower == "close":
-            duet_id = remainder.strip()
-            if not duet_id:
-                self._print_openchia("Usage: /bg close DUET_ID")
-            else:
-                self._close_background_duet(duet_id)
-            return True
-        self._start_background_duet(payload)
+            self._print_openchia(f"Command failed: {exc}")
+        event.app.current_buffer.reset(append_to_history=True)
+        event.app.invalidate()
         return True
 
-    def process_command(self, cmd: str) -> bool:
-        stripped = cmd.strip()
-        lower = stripped.lower()
-        if lower == "/help" or lower.startswith("/help "):
-            self._print_openchia(
-                "OpenChia controls:\n"
-                "  /episode          inspect the designed Episode workflow as a nested tree\n"
-                "  /episode edit     edit one bounded part of that Episode workflow\n"
-                "  /episode diff     show exact workflow changes since the last view\n"
-                "  /duet             show the current design and approval state\n"
-                "  /queue PROMPT      queue a message for the foreground Duet's next turn\n"
-                "  /bg PROMPT         start a separate background Duet\n"
-                "  /bg send ID TEXT   continue a background Duet\n"
-                "  /bg list           list background Duets open in this process\n"
-                "  /bg status ID      inspect a background Duet's state\n"
-                "  /bg close ID       close its live context while keeping persisted state\n"
-                "  /approve          freeze and approve the ready Episode workflow\n"
-                "  /review           explicitly run or show the Episode design critics\n"
-                "  /logs             list persisted Run Episode logs\n"
-                "  /stop             interrupt the current turn and stop owned background work\n"
-                "Session controls: /model, /status, /context, /history, /quit"
-            )
-            return True
-        if lower == "/bg" or lower.startswith("/bg "):
-            return self._process_background_duet_command(stripped)
-        if lower == "/episode" or lower.startswith("/episode "):
-            try:
-                return self._process_episode_command(stripped)
-            except Exception as exc:
-                self._print_openchia(f"Episode workflow not changed: {exc}")
-                return True
-        if lower in {"/duet", "/openchia"}:
-            self._print_openchia(render_openchia_status(self._status(refresh=True)))
-            return True
-        if lower == "/approve":
-            if self._openchia_host is None:
-                self._print_openchia(
-                    "Send a message first so the Duet can design an Episode workflow."
-                )
-                return True
-            try:
-                receipt = self._openchia_host.approve_current()
-                self._print_openchia(
-                    f"Frozen and approved {receipt.kind}: "
-                    f"{receipt.artifact_id.value}"
-                )
-            except Exception as exc:
-                self._print_openchia(f"Approval not recorded: {exc}")
-            self._refresh_openchia()
-            return True
-        if lower == "/review" or lower.startswith("/review "):
-            if lower != "/review":
-                self._print_openchia("Usage: /review")
-                return True
-            try:
-                review = self._episode_host().review_episode_design()
-                self._print_openchia(json.dumps(review, indent=2, ensure_ascii=False))
-            except Exception as exc:
-                self._print_openchia(f"Episode design review unavailable: {exc}")
-            self._refresh_openchia()
-            return True
-        if lower == "/logs":
-            locations = () if self._openchia_host is None else self._openchia_host.run_log_locations()
-            if not locations:
-                self._print_openchia("No Run Episode logs have been persisted yet.")
-            else:
-                self._print_openchia("Run Episode logs:\n" + "\n".join(locations[-10:]))
-            return True
-        if stripped.startswith("/") and not self._command_available(stripped):
-            self._print_openchia(
-                "That command is outside the OpenChia Duet/Episode surface. "
-                "Use /help for available controls."
-            )
-            return True
-        return super().process_command(cmd)
+    def _tui_shutdown(self) -> None:
+        """Close OpenChia-owned Duet hosts before inherited CLI teardown."""
+
+        foreground_host = self._openchia_host
+        if foreground_host is not None:
+            for cancel in (
+                foreground_host.cancel_run,
+                foreground_host.cancel_build,
+            ):
+                try:
+                    cancel()
+                except Exception:
+                    pass
+        self._close_owned_background_duets()
+        try:
+            super()._tui_shutdown()
+        finally:
+            self._openchia_host = None
+            if foreground_host is not None:
+                try:
+                    foreground_host.close()
+                except Exception:
+                    pass
 
 
 __all__ = [
     "OpenChiaCLI",
     "episode_configuration_changes",
-    "render_openchia_status",
 ]

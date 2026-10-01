@@ -19,6 +19,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
 from episode_library.models import EpisodeReference
@@ -37,6 +38,8 @@ _OPAQUE_ID = re.compile(r"^[a-z][a-z0-9_]{0,31}_[0-9a-f]{32,64}$")
 _OPAQUE_ID_KIND = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _EPISODE_LOCAL_ID = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
+_FUNCTION_COMPONENT = re.compile(r"^[a-z][a-z0-9_.-]*$")
+_FUNCTION_DEFINITION_ID = re.compile(r"^function_[0-9a-f]{64}$")
 
 
 def _record(value: object, name: str) -> Mapping[str, Any]:
@@ -177,6 +180,39 @@ def _dump_json(record: Mapping[str, Any]) -> str:
     )
 
 
+def _freeze_json(value: object, name: str) -> object:
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"{name} numbers must be finite")
+        return value
+    if isinstance(value, Mapping):
+        keys = tuple(value)
+        if any(not isinstance(key, str) or not key for key in keys):
+            raise ValueError(f"{name} keys must be non-empty strings")
+        return MappingProxyType(
+            {
+                key: _freeze_json(value[key], f"{name}.{key}")
+                for key in sorted(keys)
+            }
+        )
+    if isinstance(value, (tuple, list)):
+        return tuple(
+            _freeze_json(item, f"{name}[{index}]")
+            for index, item in enumerate(value)
+        )
+    raise ValueError(f"{name} must contain only JSON-shaped values")
+
+
+def _thaw_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json(item) for item in value]
+    return value
+
+
 class CapabilityInheritance(str, Enum):
     """A child inherits execution capabilities, not orchestration control."""
 
@@ -239,6 +275,102 @@ class Sha256Digest:
     @classmethod
     def of_record(cls, record: Mapping[str, Any]) -> "Sha256Digest":
         return cls.of_bytes(_dump_json(record).encode("utf-8"))
+
+
+@dataclass(frozen=True)
+class EpisodeFunctionSelectionSpec:
+    """One exact reusable-function selection owned by the Architecture."""
+
+    library: str
+    function_id: str
+    interface: str
+    definition_id: str
+    arguments: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        for name in ("library", "function_id", "interface"):
+            value = _text(getattr(self, name), name)
+            if _FUNCTION_COMPONENT.fullmatch(value) is None:
+                raise ValueError(f"{name} must be a lowercase dotted name")
+        if (
+            not isinstance(self.definition_id, str)
+            or _FUNCTION_DEFINITION_ID.fullmatch(self.definition_id) is None
+        ):
+            raise ValueError(
+                "definition_id must identify one exact reusable function"
+            )
+        if not isinstance(self.arguments, Mapping):
+            raise ValueError("function selection arguments must be an object")
+        frozen = _freeze_json(self.arguments, "function selection arguments")
+        if not isinstance(frozen, Mapping):
+            raise AssertionError("function selection arguments changed shape")
+        object.__setattr__(self, "arguments", frozen)
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "library": self.library,
+            "function_id": self.function_id,
+            "interface": self.interface,
+            "definition_id": self.definition_id,
+            "arguments": _thaw_json(self.arguments),
+        }
+
+    @classmethod
+    def from_record(cls, value: object) -> "EpisodeFunctionSelectionSpec":
+        record = _record(value, "Episode function selection")
+        _keys(
+            record,
+            {
+                "library",
+                "function_id",
+                "interface",
+                "definition_id",
+                "arguments",
+            },
+            "Episode function selection",
+        )
+        return cls(**record)
+
+
+@dataclass(frozen=True)
+class EpisodeNumericalControlSpec:
+    """Exact rarefaction and continuation selections approved by the Duet."""
+
+    rarefaction: EpisodeFunctionSelectionSpec
+    continuation: EpisodeFunctionSelectionSpec
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.rarefaction, EpisodeFunctionSelectionSpec):
+            raise ValueError(
+                "numeric_control.rarefaction must be a function selection"
+            )
+        if not isinstance(self.continuation, EpisodeFunctionSelectionSpec):
+            raise ValueError(
+                "numeric_control.continuation must be a function selection"
+            )
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "rarefaction": self.rarefaction.as_record(),
+            "continuation": self.continuation.as_record(),
+        }
+
+    @classmethod
+    def from_record(cls, value: object) -> "EpisodeNumericalControlSpec":
+        record = _record(value, "Episode numerical control")
+        _keys(
+            record,
+            {"rarefaction", "continuation"},
+            "Episode numerical control",
+        )
+        return cls(
+            rarefaction=EpisodeFunctionSelectionSpec.from_record(
+                record["rarefaction"]
+            ),
+            continuation=EpisodeFunctionSelectionSpec.from_record(
+                record["continuation"]
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -329,6 +461,7 @@ class EpisodeCreationSpec:
     goal: str
     progress: str
     stopping: str
+    numeric_control: EpisodeNumericalControlSpec
     execution_capability_names: tuple[str, ...] = ()
     unit: str = DEFAULT_EPISODE_UNIT
     result: str = DEFAULT_EPISODE_RESULT
@@ -363,6 +496,11 @@ class EpisodeCreationSpec:
                     max_chars=MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
                 ),
             )
+        with contract_field("numeric_control"):
+            if not isinstance(self.numeric_control, EpisodeNumericalControlSpec):
+                raise ValueError(
+                    "numeric_control must be an EpisodeNumericalControlSpec"
+                )
         with contract_field("execution_capability_names"):
             object.__setattr__(
                 self,
@@ -409,6 +547,7 @@ class EpisodeCreationSpec:
             "result": self.result,
             "progress": self.progress,
             "stopping": self.stopping,
+            "numeric_control": self.numeric_control.as_record(),
             "execution_capability_names": list(
                 self.execution_capability_names
             ),
@@ -434,6 +573,7 @@ class EpisodeCreationSpec:
                 "result",
                 "progress",
                 "stopping",
+                "numeric_control",
                 "execution_capability_names",
                 "deliverable",
                 "capability_inheritance",
@@ -453,12 +593,17 @@ class EpisodeCreationSpec:
             deliverable = EpisodeDeliverableContract.from_record(
                 record["deliverable"]
             )
+        with contract_field("numeric_control"):
+            numeric_control = EpisodeNumericalControlSpec.from_record(
+                record["numeric_control"]
+            )
         return cls(
             goal=record["goal"],
             unit=record["unit"],
             result=record["result"],
             progress=record["progress"],
             stopping=record["stopping"],
+            numeric_control=numeric_control,
             execution_capability_names=tuple(capability_names),
             deliverable=deliverable,
             capability_inheritance=inheritance,
@@ -620,6 +765,8 @@ __all__ = [
     "EpisodeDeliverableKind",
     "EpisodeCreationSpec",
     "EpisodeDesignSpec",
+    "EpisodeFunctionSelectionSpec",
+    "EpisodeNumericalControlSpec",
     "EpisodeWorkflowSpec",
     "OpaqueId",
     "Sha256Digest",

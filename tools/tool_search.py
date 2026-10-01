@@ -39,8 +39,9 @@ _EPISODE_CONTROL_TOOLS = frozenset(
     {
         "openchia_scope",
         "duet_status",
-        "episode_workflow_read",
-        "episode_workflow_update",
+        "episode_architecture_submit",
+        "episode_workspace_read",
+        "episode_refinement_request",
     }
 )
 

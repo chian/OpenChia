@@ -1,20 +1,30 @@
 """Translate model-friendly Episode blueprints into immutable design contracts.
 
-Models describe goals, progress credit, continuation semantics, capabilities,
-topology, and optional durable library references. Executable function binding
-belongs to EpisodeBuilder, after the Duet design has been frozen.
+Models describe goals, progress credit, continuation semantics, exact numerical
+function selections, capabilities, topology, and optional durable library
+references. Task-specific executable binding belongs to EpisodeBuilder after
+the Duet design has been frozen; rarefaction and continuation bindings do not.
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
+from agent.duet_contracts import ContractDeficit, content_id
 from agent.episode_contracts import (
+    EpisodeContractError,
     EpisodeCreationSpec,
+    EpisodeFunctionSelectionSpec,
+    EpisodeNumericalControlSpec,
     EpisodeWorkflowSpec,
     MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
     MAX_EPISODE_GOAL_CHARS,
+    OpaqueId,
+    Sha256Digest,
 )
+from function_library import LibraryFunction
+from numeric_control_library.continuation import continuation_function_library
+from numeric_control_library.rarefaction import rarefaction_function_library
 
 
 CREATION_BLUEPRINT_FIELDS = (
@@ -23,6 +33,7 @@ CREATION_BLUEPRINT_FIELDS = (
     "result",
     "progress",
     "stopping",
+    "numeric_control",
     "execution_capability_names",
     "deliverable",
 )
@@ -33,6 +44,24 @@ _WORKFLOW_NODE_FIELDS = {
     "contract",
 }
 _OPTIONAL_WORKFLOW_NODE_FIELDS = {"episode_reference"}
+WORKFLOW_DRAFT_FIELDS = {
+    "duet_id",
+    "revision",
+    "source_stage",
+    "workflow_blueprint_hash",
+    "workflow_blueprint",
+    "workflow_hash",
+    "validation_deficits",
+    "ready",
+    "refinement_id",
+    "baseline_id",
+    "proposal_id",
+    "human_note_ids",
+}
+INITIAL_WORKFLOW_SOURCE_STAGES = frozenset({"duet", "human_edit"})
+REFINEMENT_WORKFLOW_SOURCE_STAGES = frozenset(
+    {"refinement_duet", "refinement_human_edit"}
+)
 
 
 def _object(value: object, name: str) -> Mapping[str, Any]:
@@ -50,6 +79,122 @@ def _exact_fields(record: Mapping[str, Any], expected: set[str], name: str) -> N
         )
 
 
+def _plain_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _plain_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_json(item) for item in value]
+    return value
+
+
+def _selection_record(function: LibraryFunction) -> dict[str, object]:
+    return {
+        "library": function.library,
+        "function_id": function.function_id,
+        "interface": function.interface,
+        "definition_id": function.definition_id,
+    }
+
+
+def _selection_schema(function: LibraryFunction) -> dict[str, object]:
+    parameter_schema = function.provenance.get("parameter_schema")
+    if not isinstance(parameter_schema, Mapping):
+        raise ValueError(
+            f"{function.component_id} has no function-owned parameter schema"
+        )
+    identity = _selection_record(function)
+    return {
+        "type": "object",
+        "description": (
+            f"Exact registered selection {function.component_id}: "
+            f"{function.description} Its arguments are part of the "
+            "human-approved Architecture."
+        ),
+        "properties": {
+            name: {"type": "string", "enum": [value]}
+            for name, value in identity.items()
+        }
+        | {"arguments": _plain_json(parameter_schema)},
+        "required": [*identity, "arguments"],
+        "additionalProperties": False,
+    }
+
+
+_RAREFACTION_FUNCTIONS = tuple(
+    function
+    for function in rarefaction_function_library.functions()
+    if (
+        rarefaction_function_library.evaluation_report(function.component_id)
+        is not None
+    )
+)
+_CONTINUATION_FUNCTIONS = continuation_function_library.functions()
+
+
+def _admit_selection(
+    selection: EpisodeFunctionSelectionSpec,
+    functions: tuple[LibraryFunction, ...],
+    *,
+    role: str,
+) -> None:
+    function = next(
+        (
+            item
+            for item in functions
+            if item.definition_id == selection.definition_id
+        ),
+        None,
+    )
+    if function is None:
+        raise EpisodeContractError(
+            f"{role} must name a registered admissible function definition",
+            field_path=("numeric_control", role, "definition_id"),
+        )
+    expected = _selection_record(function)
+    actual = {
+        "library": selection.library,
+        "function_id": selection.function_id,
+        "interface": selection.interface,
+        "definition_id": selection.definition_id,
+    }
+    if actual != expected:
+        raise EpisodeContractError(
+            f"{role} readable function pointer differs from its definition ID",
+            field_path=("numeric_control", role),
+        )
+    try:
+        function.admit_arguments(selection.arguments)
+    except (TypeError, ValueError) as exc:
+        raise EpisodeContractError(
+            str(exc),
+            field_path=("numeric_control", role, "arguments"),
+        ) from exc
+    if role == "rarefaction" and rarefaction_function_library.evaluation_report(
+        function.component_id
+    ) is None:
+        raise EpisodeContractError(
+            "rarefaction must name an evaluated registered function",
+            field_path=("numeric_control", role, "definition_id"),
+        )
+
+
+def admit_numerical_control(spec: EpisodeNumericalControlSpec) -> None:
+    """Admit exact Architecture-owned functions and their own arguments."""
+
+    if not isinstance(spec, EpisodeNumericalControlSpec):
+        raise TypeError("spec must be an EpisodeNumericalControlSpec")
+    _admit_selection(
+        spec.rarefaction,
+        _RAREFACTION_FUNCTIONS,
+        role="rarefaction",
+    )
+    _admit_selection(
+        spec.continuation,
+        _CONTINUATION_FUNCTIONS,
+        role="continuation",
+    )
+
+
 def creation_blueprint_from_spec(spec: EpisodeCreationSpec) -> dict[str, Any]:
     """Project an internal contract into the schema a model may edit."""
 
@@ -62,6 +207,7 @@ def creation_blueprint_from_spec(spec: EpisodeCreationSpec) -> dict[str, Any]:
         "result": record["result"],
         "progress": record["progress"],
         "stopping": record["stopping"],
+        "numeric_control": record["numeric_control"],
         "execution_capability_names": record["execution_capability_names"],
         "deliverable": record["deliverable"],
     }
@@ -80,11 +226,14 @@ def creation_spec_from_blueprint(
         "result": record["result"],
         "progress": record["progress"],
         "stopping": record["stopping"],
+        "numeric_control": record["numeric_control"],
         "execution_capability_names": record["execution_capability_names"],
         "deliverable": record["deliverable"],
         "capability_inheritance": "inherit_parent",
     }
-    return EpisodeCreationSpec.from_record(internal)
+    spec = EpisodeCreationSpec.from_record(internal)
+    admit_numerical_control(spec.numeric_control)
+    return spec
 
 
 def workflow_blueprint_from_spec(workflow: EpisodeWorkflowSpec) -> dict[str, Any]:
@@ -124,10 +273,15 @@ def workflow_spec_from_blueprint(
         if not _WORKFLOW_NODE_FIELDS.issubset(actual_fields) or not actual_fields.issubset(
             _WORKFLOW_NODE_FIELDS | _OPTIONAL_WORKFLOW_NODE_FIELDS
         ):
+            missing = sorted(_WORKFLOW_NODE_FIELDS - actual_fields)
+            unknown = sorted(
+                actual_fields
+                - _WORKFLOW_NODE_FIELDS
+                - _OPTIONAL_WORKFLOW_NODE_FIELDS
+            )
             raise ValueError(
                 f"malformed workflow node {index}: "
-                f"missing={sorted(_WORKFLOW_NODE_FIELDS - actual_fields)!r}, "
-                f"unknown={sorted(actual_fields - _WORKFLOW_NODE_FIELDS - _OPTIONAL_WORKFLOW_NODE_FIELDS)!r}"
+                f"missing={missing!r}, unknown={unknown!r}"
             )
         episodes.append(
             {
@@ -144,14 +298,54 @@ def workflow_spec_from_blueprint(
     )
 
 
+def workflow_draft_record(
+    *,
+    duet_id: OpaqueId,
+    revision: int,
+    source_stage: str,
+    blueprint: Mapping[str, Any],
+    workflow: Optional[EpisodeWorkflowSpec],
+    deficits: tuple[ContractDeficit, ...],
+    refinement_id: Optional[OpaqueId],
+    baseline_id: Optional[OpaqueId],
+    proposal_id: Optional[OpaqueId],
+    human_note_ids: tuple[OpaqueId, ...],
+) -> tuple[dict[str, Any], Sha256Digest, OpaqueId]:
+    """Encode the one immutable Architecture-draft artifact shape."""
+
+    blueprint_hash = Sha256Digest.of_record(blueprint)
+    record = {
+        "duet_id": duet_id.value,
+        "revision": revision,
+        "source_stage": source_stage,
+        "workflow_blueprint_hash": blueprint_hash.value,
+        "workflow_blueprint": dict(blueprint),
+        "workflow_hash": (
+            None if workflow is None else workflow.workflow_hash.value
+        ),
+        "validation_deficits": [item.as_record() for item in deficits],
+        "ready": not deficits,
+        "refinement_id": (
+            None if refinement_id is None else refinement_id.value
+        ),
+        "baseline_id": None if baseline_id is None else baseline_id.value,
+        "proposal_id": None if proposal_id is None else proposal_id.value,
+        "human_note_ids": [item.value for item in human_note_ids],
+    }
+    return record, blueprint_hash, content_id(
+        "episode_workflow_draft",
+        record,
+    )
+
+
 EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA = {
     "type": "object",
     "description": (
-        "How successful work becomes usable outside the Episode. typed_status needs "
-        "no materialization tools; shared_state requires at least one named effectful tool."
+        "How successful work becomes usable outside the Episode. The current "
+        "isolated runtime returns a closed typed terminal status."
     ),
     "properties": {
-        "kind": {"type": "string", "enum": ["typed_status", "shared_state"]},
+        "kind": {"type": "string", "enum": ["typed_status"]},
         "description": {
             "type": "string",
             "maxLength": MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
@@ -159,10 +353,37 @@ EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA = {
         "tool_names": {
             "type": "array",
             "items": {"type": "string"},
+            "maxItems": 0,
             "uniqueItems": True,
         },
     },
     "required": ["kind", "description", "tool_names"],
+    "additionalProperties": False,
+}
+
+
+EPISODE_NUMERICAL_CONTROL_BLUEPRINT_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Exact registered numerical functions and function-owned arguments. "
+        "Human approval freezes these values, and EpisodeBuilder reproduces "
+        "them verbatim."
+    ),
+    "properties": {
+        "rarefaction": {
+            "oneOf": [
+                _selection_schema(function)
+                for function in _RAREFACTION_FUNCTIONS
+            ]
+        },
+        "continuation": {
+            "oneOf": [
+                _selection_schema(function)
+                for function in _CONTINUATION_FUNCTIONS
+            ]
+        },
+    },
+    "required": ["rarefaction", "continuation"],
     "additionalProperties": False,
 }
 
@@ -200,14 +421,21 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
             "description": (
                 "A concise code specification for numerical continuation and closure. "
                 "It states how measured credit and paired-incidence future-credit "
-                "estimates determine another unit or a typed stop. EpisodeBuilder "
-                "binds the referenced functions and parameters explicitly."
+                "estimates determine another unit or a typed stop. numeric_control "
+                "carries the exact approved functions and their own arguments; "
+                "EpisodeBuilder uses those bindings verbatim."
             ),
         },
+        "numeric_control": EPISODE_NUMERICAL_CONTROL_BLUEPRINT_SCHEMA,
         "execution_capability_names": {
             "type": "array",
-            "description": "Least-privilege execution tools assigned to this Episode.",
+            "description": (
+                "External runtime collaborators assigned to this Episode. The "
+                "current isolated runtime uses its admitted internal function "
+                "libraries and model broker, so this list is empty."
+            ),
             "items": {"type": "string"},
+            "maxItems": 0,
             "uniqueItems": True,
         },
         "deliverable": EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA,
@@ -261,9 +489,15 @@ __all__ = [
     "CREATION_BLUEPRINT_FIELDS",
     "EPISODE_CREATION_BLUEPRINT_SCHEMA",
     "EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA",
+    "EPISODE_NUMERICAL_CONTROL_BLUEPRINT_SCHEMA",
     "EPISODE_WORKFLOW_BLUEPRINT_SCHEMA",
+    "INITIAL_WORKFLOW_SOURCE_STAGES",
+    "REFINEMENT_WORKFLOW_SOURCE_STAGES",
+    "WORKFLOW_DRAFT_FIELDS",
+    "admit_numerical_control",
     "creation_blueprint_from_spec",
     "creation_spec_from_blueprint",
     "workflow_blueprint_from_spec",
+    "workflow_draft_record",
     "workflow_spec_from_blueprint",
 ]

@@ -218,8 +218,9 @@ class TestOpenChiaProtocolToolSelection:
 
         duet = {
             "duet_status",
-            "episode_workflow_read",
-            "episode_workflow_update",
+            "episode_architecture_submit",
+            "episode_workspace_read",
+            "episode_refinement_request",
         }
         assert duet <= names(
             enabled_toolsets=["duet"]
@@ -247,8 +248,9 @@ class TestOpenChiaProtocolToolSelection:
         )
         controls = {
             "duet_status",
-            "episode_workflow_read",
-            "episode_workflow_update",
+            "episode_architecture_submit",
+            "episode_workspace_read",
+            "episode_refinement_request",
             "openchia_scope",
         }
         visible, deferred = classify_tools(

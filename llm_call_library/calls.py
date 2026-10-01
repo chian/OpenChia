@@ -20,6 +20,7 @@ from .contracts import (
     StructuredJSONRequest,
     StructuredJSONResult,
 )
+from .transport import ModelTransportRequest, call_model_transport
 
 
 T = TypeVar("T")
@@ -96,29 +97,22 @@ async def _call_and_admit(
     admit: Callable[[object], T],
     options: CallOptions,
 ) -> _AttemptOutcome:
-    # Keep design-time imports of LibraryFunction objects independent from the
-    # provider stack.  Execution still crosses the one existing client boundary.
-    from agent.auxiliary_client import (
-        async_call_llm,
-        extract_content_or_reasoning,
-    )
-
     auxiliary_task = _AUXILIARY_TASKS[(role, options.tier)]
-    route: dict[str, str] = {}
     try:
-        response = await async_call_llm(
-            task=auxiliary_task,
-            messages=_messages(system_prompt, prompt),
-            temperature=options.temperature,
-            max_tokens=options.max_tokens,
-            timeout=options.timeout,
-            main_runtime=(
-                dict(options.main_runtime)
-                if options.main_runtime is not None
-                else None
-            ),
-            reasoning_config=_reasoning_config(options.tier),
-            route_info=route,
+        response = await call_model_transport(
+            ModelTransportRequest(
+                task=auxiliary_task,
+                messages=tuple(_messages(system_prompt, prompt)),
+                temperature=options.temperature,
+                max_tokens=options.max_tokens,
+                timeout=options.timeout,
+                main_runtime=(
+                    dict(options.main_runtime)
+                    if options.main_runtime is not None
+                    else None
+                ),
+                reasoning_config=_reasoning_config(options.tier),
+            )
         )
     except Exception as exc:
         return _AttemptOutcome(
@@ -127,11 +121,11 @@ async def _call_and_admit(
                 f"{type(exc).__name__}: {exc}",
             ),
             auxiliary_task=auxiliary_task,
-            route=_route_record(route),
+            route=(),
         )
 
-    route_record = _route_record(route)
-    raw_response = extract_content_or_reasoning(response)
+    route_record = _route_record(response.route)
+    raw_response = response.text
     if not raw_response:
         return _AttemptOutcome(
             failure=CallFailure(

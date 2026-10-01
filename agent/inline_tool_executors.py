@@ -9,11 +9,10 @@ lazily at call time so ``patch("tools.x.y")`` in tests keeps working.
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 import json
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 
 def tool_hook_ids(agent, effective_task_id: str, tool_call_id: Optional[str]) -> Dict[str, str]:
@@ -240,11 +239,6 @@ def _duet_context(agent):
     return service, identity
 
 
-def _duet_draft_write(agent):
-    lock = getattr(agent, "_openchia_draft_write_lock", None)
-    return lock if lock is not None else nullcontext()
-
-
 def _openchia_scope(agent, args: dict, ctx: InlineToolContext) -> Any:
     """Return the immutable host-authored role boundary, never model prose."""
 
@@ -270,37 +264,222 @@ def _duet_status(agent, args: dict, ctx: InlineToolContext) -> Any:
         return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
 
 
-def _episode_workflow_read(agent, args: dict, ctx: InlineToolContext) -> Any:
-    from agent.episode_contracts import OpaqueId
-
+def _episode_architecture_submit(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
-        service, identity = _duet_context(agent)
+        callback = getattr(agent, "_episode_architecture_submitter", None)
+        if not callable(callback):
+            raise RuntimeError("no host-bound Architecture submitter")
+        candidate = args.get("candidate_workflow_architecture")
+        artifact_id = args.get("expected_artifact_id")
+        content_hash = args.get("expected_content_hash")
+        revision = args.get("expected_revision")
+        note_ids = args.get("human_note_ids")
+        if not isinstance(candidate, Mapping):
+            raise ValueError("candidate workflow Architecture must be an object")
+        if (artifact_id is None) != (content_hash is None) or (
+            artifact_id is None
+        ) != (revision is None):
+            raise ValueError(
+                "expected draft identity, hash, and revision must all be present or null"
+            )
+        if artifact_id is not None and (
+            not isinstance(artifact_id, str)
+            or not artifact_id.strip()
+            or not isinstance(content_hash, str)
+            or not content_hash.strip()
+            or isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 1
+        ):
+            raise ValueError("expected draft CAS fields are invalid")
+        if (
+            not isinstance(note_ids, list)
+            or any(not isinstance(item, str) or not item.strip() for item in note_ids)
+            or len(set(note_ids)) != len(note_ids)
+        ):
+            raise ValueError("human_note_ids must be unique saved identities")
+        result = callback(
+            candidate_workflow_architecture=dict(candidate),
+            expected_artifact_id=artifact_id,
+            expected_content_hash=content_hash,
+            expected_revision=revision,
+            human_note_ids=tuple(note_ids),
+        )
+        if (
+            not isinstance(result, Mapping)
+            or not isinstance(result.get("accepted"), bool)
+        ):
+            raise RuntimeError("host returned a malformed Architecture response")
+        return json.dumps(dict(result), ensure_ascii=False, sort_keys=True)
+    except Exception as exc:
         return json.dumps(
-            service.read_episode_workflow_draft(
-                identity.duet_id,
-                OpaqueId(args.get("artifact_id")),
-            ),
+            {
+                "accepted": False,
+                "reason": type(exc).__name__,
+                "message": str(exc)[:2048],
+            },
+            sort_keys=True,
+        )
+
+
+def _episode_workspace_read(agent, args: dict, ctx: InlineToolContext) -> Any:
+    try:
+        callback = getattr(agent, "_episode_workspace_reader", None)
+        if not callable(callback):
+            raise RuntimeError("no host-bound Episode workspace reader")
+        target_id = args.get("target_id")
+        note_id = args.get("note_id")
+        if (target_id is None) == (note_id is None):
+            raise ValueError("provide exactly one of target_id or note_id")
+        lookup_name = "target_id" if target_id is not None else "note_id"
+        lookup_id = target_id if target_id is not None else note_id
+        if not isinstance(lookup_id, str) or not lookup_id.strip():
+            raise ValueError(f"{lookup_name} must be a non-empty opaque identity")
+        result = callback(**{lookup_name: lookup_id})
+        required = {
+            "baseline_id",
+            "part_kind",
+            "selected_part",
+            "target_metadata",
+            "human_notes",
+            "evidence",
+        }
+        if not isinstance(result, Mapping) or set(result) != required:
+            raise RuntimeError("host returned a malformed workspace selection")
+        baseline_id = result["baseline_id"]
+        if (
+            baseline_id is not None
+            and (
+                not isinstance(baseline_id, str)
+                or not baseline_id.strip()
+            )
+        ):
+            raise RuntimeError("host returned invalid workspace baseline metadata")
+        if result["part_kind"] not in {"architecture", "materialized"}:
+            raise RuntimeError("host returned invalid workspace identity metadata")
+        if result["part_kind"] == "materialized" and baseline_id is None:
+            raise RuntimeError("materialized workspace selection has no baseline")
+        target = result["target_metadata"]
+        expected_target_fields = {
+            "target_id",
+            "content_hash",
+            "layer",
+            "artifact_id",
+            "artifact_hash",
+            "json_pointer",
+            "episode_local_id",
+        }
+        if (
+            not isinstance(target, Mapping)
+            or set(target) != expected_target_fields
+        ):
+            raise RuntimeError("host returned stale target metadata")
+        notes = result["human_notes"]
+        if not isinstance(notes, list) or any(
+            not isinstance(note, Mapping)
+            or set(note) != {"note_id", "target_id", "body"}
+            or not isinstance(note["note_id"], str)
+            or not isinstance(note["target_id"], str)
+            or not isinstance(note["body"], str)
+            for note in notes
+        ):
+            raise RuntimeError("host returned malformed saved human notes")
+        if target_id is not None and target.get("target_id") != target_id:
+            raise RuntimeError("host returned another current target")
+        if note_id is not None and not any(
+            note["note_id"] == note_id
+            and note["target_id"] == target.get("target_id")
+            for note in notes
+        ):
+            raise RuntimeError("host returned another saved note or target")
+        return json.dumps(
+            {
+                "accepted": True,
+                "workspace": {
+                    "baseline_id": baseline_id,
+                    "part_kind": result["part_kind"],
+                    "target_metadata": dict(target),
+                    "human_notes": [dict(note) for note in notes],
+                },
+                "untrusted_reference_data": {
+                    "boundary": "UNTRUSTED_REFERENCE_DATA",
+                    "selected_part": result["selected_part"],
+                    "evidence": result["evidence"],
+                },
+            },
+            ensure_ascii=False,
             sort_keys=True,
         )
     except Exception as exc:
         return json.dumps(
-            {"accepted": False, "reason": type(exc).__name__},
+            {
+                "accepted": False,
+                "reason": type(exc).__name__,
+                "message": str(exc)[:2048],
+            },
             sort_keys=True,
         )
 
 
-def _episode_workflow_update(agent, args: dict, ctx: InlineToolContext) -> Any:
+def _episode_refinement_request(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
-        updater = getattr(agent, "_duet_workflow_updater", None)
-        if not callable(updater):
-            raise RuntimeError("no host-bound Episode workflow updater")
-        with _duet_draft_write(agent):
-            result = updater(
-                args.get("workflow"),
-                expected_workflow_hash=args.get("expected_workflow_hash"),
-                source_stage="duet",
-            )
-        return json.dumps({"accepted": True, **result}, sort_keys=True)
+        callback = getattr(agent, "_episode_refinement_requester", None)
+        if not callable(callback):
+            raise RuntimeError("no host-bound Episode refinement requester")
+        baseline_id = args.get("baseline_id")
+        candidate = args.get("candidate_workflow_architecture")
+        note_ids = args.get("human_note_ids")
+        directives = args.get("implementation_directives")
+        if not isinstance(baseline_id, str) or not baseline_id.strip():
+            raise ValueError("baseline_id must be a non-empty opaque identity")
+        if not isinstance(candidate, Mapping):
+            raise ValueError("candidate workflow Architecture must be an object")
+        if (
+            not isinstance(note_ids, list)
+            or not note_ids
+            or any(not isinstance(item, str) or not item.strip() for item in note_ids)
+            or len(set(note_ids)) != len(note_ids)
+        ):
+            raise ValueError("human_note_ids must be unique saved identities")
+        if not isinstance(directives, list):
+            raise ValueError("implementation_directives must be an array")
+        normalized_directives = []
+        for directive in directives:
+            if (
+                not isinstance(directive, Mapping)
+                or set(directive)
+                != {"human_note_id", "target_id", "instruction"}
+            ):
+                raise ValueError("implementation directive has an invalid shape")
+            normalized = {
+                "human_note_id": directive["human_note_id"],
+                "target_id": directive["target_id"],
+                "instruction": directive["instruction"],
+            }
+            if any(
+                not isinstance(normalized[name], str)
+                or not normalized[name].strip()
+                or "\x00" in normalized[name]
+                for name in normalized
+            ):
+                raise ValueError("implementation directive fields must be text")
+            if normalized["human_note_id"] not in note_ids:
+                raise ValueError(
+                    "implementation directive must cite a selected human note"
+                )
+            normalized_directives.append(normalized)
+        result = callback(
+            baseline_id=baseline_id,
+            candidate_workflow_architecture=dict(candidate),
+            human_note_ids=tuple(note_ids),
+            implementation_directives=tuple(normalized_directives),
+        )
+        if (
+            not isinstance(result, Mapping)
+            or not isinstance(result.get("accepted"), bool)
+        ):
+            raise RuntimeError("host returned a malformed refinement response")
+        return json.dumps(dict(result), ensure_ascii=False, sort_keys=True)
     except Exception as exc:
         return json.dumps(
             {
@@ -359,8 +538,9 @@ INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "setup_mcp": _setup_mcp_shim,
     "openchia_scope": _openchia_scope,
     "duet_status": _duet_status,
-    "episode_workflow_read": _episode_workflow_read,
-    "episode_workflow_update": _episode_workflow_update,
+    "episode_architecture_submit": _episode_architecture_submit,
+    "episode_workspace_read": _episode_workspace_read,
+    "episode_refinement_request": _episode_refinement_request,
 }
 
 # ``invoke_tool`` (concurrent path) consults the memory manager right after these three

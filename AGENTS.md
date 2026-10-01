@@ -15,9 +15,12 @@ delegation with Duet-approved Episodes. The Duet is the human, its restricted
 conversational LLM, and the host protocol. Together they specify, revise, and
 approve the complete nested Episode workflow. The host freezes that exact
 workflow. EpisodeBuilder later materializes explicit task-specific modules;
-only built modules can launch. Each task Episode executes only its predeclared
-topology and contract. There is no persistent head Episode and no intermediate
-design role.
+only an admitted build can enter the separate isolated Run boundary. Each task
+Episode executes only its predeclared topology and contract. The
+IterativeEpisodeRefiner binds exact human notes and validated evidence to the
+approved baseline, then returns a successor proposal through the Duet for a new
+human approval. There is no persistent head Episode or intermediate design
+authority.
 Inherited Hermes capabilities remain extended primarily through **plugins and
 skills**, not by growing the core.
 
