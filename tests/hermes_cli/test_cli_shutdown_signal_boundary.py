@@ -38,11 +38,14 @@ def test_shutdown_signal_cannot_become_the_next_user_turn(monkeypatch):
     cli._interrupt_agent_for_signal(agent, signal.SIGHUP)
 
     assert agent._interrupt_requested is True
+    assert agent._hard_interrupt_requested.is_set()
     assert agent._interrupt_message is None
     assert interrupt_issuer(agent) == "cli_shutdown_signal"
 
     surface = CLIChatTurnMixin()
-    turn = SimpleNamespace(result={"interrupted": True})
+    turn = SimpleNamespace(
+        result={"interrupted": True, "interrupt_message": agent._interrupt_message}
+    )
     stopped_thread = SimpleNamespace(is_alive=lambda: False)
     pending_message, show_marker = surface._chat_resolve_interrupt(
         turn,
