@@ -38,7 +38,7 @@ def reject_reserved_model_tool_name(name: str) -> None:
     if name in RESERVED_MODEL_TOOL_NAMES:
         raise ValueError(
             f"Tool name {name!r} is reserved and cannot be registered; "
-            "nested work is composed through explicitly creator-capable Episodes."
+        "nested work is composed through the Duet-approved Episode workflow."
         )
 
 

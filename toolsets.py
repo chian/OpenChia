@@ -162,20 +162,8 @@ TOOLSETS = {
         "Restricted human--LLM Duet for designing Episode workflows",
         [
             "web_search", "web_extract", "openchia_scope", "duet_status",
-            "episode_workflow_read", "episode_workflow_update", "duet_decision",
-            "creator_context_artifact", "creator_context_read",
+            "episode_workflow_read", "episode_workflow_update",
         ],
-    ),
-    "creator_protocol": _ts(
-        "Creator-only design submission and access to its own Run Episode logs",
-        [
-            "openchia_scope", "creator_context_artifact", "creator_context_read",
-            "creator_log_read", "workflow_candidate",
-        ],
-    ),
-    "episode_protocol": _ts(
-        "Task Episode evidence reporting to the host-owned controller",
-        ["episode_progress"],
     ),
     "homeassistant": _ts("Home Assistant smart home control and monitoring", _HA_TOOLS),
     "kanban": _ts(

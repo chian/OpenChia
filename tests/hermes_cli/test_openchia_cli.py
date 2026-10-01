@@ -38,7 +38,6 @@ def test_status_panel_is_compact_and_contextual():
     assert shaping == (
         "Duet · designing Episode workflow · /episode · /help"
     )
-    assert "CREATOR" not in shaping
 
     workflow_ready = render_openchia_status(
         {
@@ -55,26 +54,17 @@ def test_status_panel_is_compact_and_contextual():
     assert "Episode workflow r4 · ready · independently reviewed" in workflow_ready
     assert "/episode · /review · /approve" in workflow_ready
 
-    failed_run = render_openchia_status(
+    sealed = render_openchia_status(
         {
-            "launch": {"launch_id": "launch_" + "a" * 64},
-            "final_run_state": "failed",
-            "workflow_execution": {
-                "current_activity": {
-                    "activity_code": "approved_workflow_failed",
-                },
-                "failure": {
-                    "error_code": "NameError",
-                    "message": "missing runtime binding",
-                    "owner": "openchia_host",
-                    "suggested_action": "Fix the OpenChia runtime before relaunching.",
-                },
+            "state": "sealed",
+            "episode_workflow": {
+                "revision": 4,
+                "validation_state": "ready",
             },
         }
     )
-    assert "Run · failed · approved workflow failed" in failed_run
-    assert "NameError: missing runtime binding" in failed_run
-    assert "owner: openchia_host" in failed_run
+    assert "Episode workflow r4 · frozen and approved" in sealed
+    assert "EpisodeBuilder materialization is the next stage" in sealed
 
 
 def test_running_prompt_advertises_only_openchia_commands():
@@ -114,12 +104,6 @@ def test_episode_capability_ceiling_excludes_every_control_plane_tool(monkeypatc
         "duet_status",
         "episode_workflow_read",
         "episode_workflow_update",
-        "duet_decision",
-        "creator_context_artifact",
-        "creator_context_read",
-        "creator_log_read",
-        "workflow_candidate",
-        "episode_progress",
     }
     definitions = [
         {"type": "function", "function": {"name": name}}
@@ -222,17 +206,6 @@ def test_background_context_is_bound_through_an_openchia_host(monkeypatch):
     assert observed["bound"] is context.agent
 
 
-def test_openchia_agent_init_failure_copy_owns_the_surface():
-    message = OpenChiaCLI._agent_init_failure_message(
-        RuntimeError("stored Duet policy conflict")
-    )
-
-    assert message.startswith("OpenChia Duet couldn't initialize:")
-    assert "stored Duet policy conflict" in message
-    assert "Hermes" not in message
-    assert "model connection" not in message
-
-
 def test_episode_configuration_changes_are_path_level_and_keep_provenance():
     changes = episode_configuration_changes(
         {
@@ -263,7 +236,11 @@ def test_episode_configuration_changes_are_path_level_and_keep_provenance():
     assert changes[1]["after"] == 0.8
 
 
-def test_episode_read_uses_terminal_tree_during_duet_turn(monkeypatch):
+@pytest.mark.parametrize("duet_running", (False, True))
+def test_episode_read_always_uses_exclusive_terminal_handoff(
+    monkeypatch,
+    duet_running,
+):
     observed = []
 
     def run_in_terminal(callback, *, in_executor=False):
@@ -286,7 +263,7 @@ def test_episode_read_uses_terminal_tree_during_duet_turn(monkeypatch):
             observed.append(("invalidate", True))
 
     cli = OpenChiaCLI.__new__(OpenChiaCLI)
-    cli._agent_running = True
+    cli._agent_running = duet_running
     cli.process_command = lambda command: observed.append(("command", command))
     event = SimpleNamespace(app=App())
 

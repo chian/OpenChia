@@ -20,11 +20,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agent.delegation_context import owned_kanban_task
 from agent.prompt_builder import (
-    CREATOR_EPISODE_IDENTITY, CREATOR_WORKFLOW_CRITIC_IDENTITY, DEFAULT_AGENT_IDENTITY, DUET_COACHING_GUIDANCE, DUET_LLM_IDENTITY, DUET_PROTOCOL_GUIDANCE,
+    WORKFLOW_CRITIC_IDENTITY, DEFAULT_AGENT_IDENTITY, DUET_COACHING_GUIDANCE, DUET_LLM_IDENTITY, DUET_PROTOCOL_GUIDANCE,
     EXECUTION_GUIDANCE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE,
     HERMES_AGENT_HELP_GUIDANCE, HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS, KANBAN_GUIDANCE,
     PARALLEL_TOOL_CALL_GUIDANCE, PLATFORM_HINTS, SESSION_SEARCH_GUIDANCE,
-    SKILLS_GUIDANCE, STEER_CHANNEL_NOTE, TASK_COMPLETION_GUIDANCE, TASK_EPISODE_IDENTITY, TELEGRAM_RICH_MESSAGES_HINT,
+    SKILLS_GUIDANCE, STEER_CHANNEL_NOTE, TASK_COMPLETION_GUIDANCE, TELEGRAM_RICH_MESSAGES_HINT,
     TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, drain_truncation_warnings,
 )
 from agent import prompt_builder as _pb
@@ -40,21 +40,12 @@ _PLUGIN_SECTION_FRAME_RE = re.compile(
 _GATE_WORDS = {**dict.fromkeys(("true", "always", "yes", "on"), True), **dict.fromkeys(("false", "never", "no", "off"), False)}
 
 
-def _task_episode_prompt_isolated(agent: Any) -> bool:
-    """Whether prompt assembly is for a fixed-contract task Episode."""
-    return bool(getattr(agent, "_task_episode_prompt_isolated", False))
-
-
-def _creator_episode_prompt_isolated(agent: Any) -> bool:
-    return bool(getattr(agent, "_creator_episode_prompt_isolated", False))
-
-
 def _duet_prompt_isolated(agent: Any) -> bool:
     return bool(getattr(agent, "_duet_prompt_isolated", False))
 
 
-def _creator_workflow_critic_prompt_isolated(agent: Any) -> bool:
-    return bool(getattr(agent, "_creator_workflow_critic_prompt_isolated", False))
+def _workflow_critic_prompt_isolated(agent: Any) -> bool:
+    return bool(getattr(agent, "_workflow_critic_prompt_isolated", False))
 
 
 def _model_gate(setting: Any, model: Optional[str], default_models) -> bool:
@@ -292,7 +283,7 @@ def _profile_name_for_home(home: Path) -> str:
 
 def _tool_guidance_block(agent: Any) -> Optional[str]:
     """Tool-aware behavioral guidance, injected only when the tools are loaded."""
-    if _task_episode_prompt_isolated(agent) or _creator_episode_prompt_isolated(agent) or _duet_prompt_isolated(agent) or _creator_workflow_critic_prompt_isolated(agent):
+    if _duet_prompt_isolated(agent) or _workflow_critic_prompt_isolated(agent):
         return None
     names = agent.valid_tool_names
     # With both memory stores disabled no store is built, so the full guidance
@@ -761,23 +752,19 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     _cc_len = getattr(getattr(agent, "context_compressor", None), "context_length", None)
     _ctx_len = _cc_len if isinstance(_cc_len, int) and _cc_len > 0 else None
     isolated_identity = None
-    if _creator_workflow_critic_prompt_isolated(agent):
-        isolated_identity = CREATOR_WORKFLOW_CRITIC_IDENTITY
+    if _workflow_critic_prompt_isolated(agent):
+        isolated_identity = WORKFLOW_CRITIC_IDENTITY
     elif _duet_prompt_isolated(agent):
         isolated_identity = (
             f"{DUET_LLM_IDENTITY}\n\n{DUET_COACHING_GUIDANCE}\n\n"
             f"{DUET_PROTOCOL_GUIDANCE}"
         )
-    elif _creator_episode_prompt_isolated(agent):
-        isolated_identity = CREATOR_EPISODE_IDENTITY
-    elif _task_episode_prompt_isolated(agent):
-        isolated_identity = TASK_EPISODE_IDENTITY
     if isolated_identity is not None:
         # OpenChia roles receive only their role contract, generic safety rails,
         # exact tools, and runtime facts. Profile/project/memory/plugin text is
         # outside the immutable Episode or Duet authority boundary.
         stable_parts: List[Optional[str]] = [isolated_identity]
-        if not (_duet_prompt_isolated(agent) or _creator_workflow_critic_prompt_isolated(agent)):
+        if not (_duet_prompt_isolated(agent) or _workflow_critic_prompt_isolated(agent)):
             stable_parts.extend(_guidance_parts(agent))
         stable_parts.extend(_alibaba_identity_part(agent))
         volatile_parts: List[Optional[str]] = [_timestamp_line(agent)]

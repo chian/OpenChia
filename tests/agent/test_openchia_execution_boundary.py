@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.generic_creator_runtime import IsolatedExecutorAttestation
-from agent.openchia_execution_boundary import OpenChiaExecutionBoundary
+from agent.openchia_execution_boundary import (
+    IsolatedExecutorAttestation,
+    OpenChiaExecutionBoundary,
+)
 
 
 def _boundary(workspace: Path, protected: Path, *, attested: bool = False, sessions=()):
@@ -183,55 +185,3 @@ def test_dispatch_checks_boundary_after_argument_rewrite_and_never_executes(
     assert "openchia_runtime_immutable" in result
     assert state.blocked is True
     assert executed == []
-
-
-def test_generic_agent_factories_do_not_grant_unbounded_effects(tmp_path) -> None:
-    from agent.openchia_agents import (
-        build_generic_creator_agent,
-        build_generic_task_episode_agent,
-    )
-    from tests.agent.generic_creator_fixtures import creator_spec
-
-    workspace = tmp_path / "workspace"
-    protected = tmp_path / "host"
-    workspace.mkdir()
-    protected.mkdir()
-    spec = creator_spec(capabilities=("read_file", "write_file"))
-    with pytest.raises(ValueError, match="control loops cannot directly"):
-        build_generic_creator_agent(
-            spec=spec,
-            creator_capability_names=("write_file",),
-            workspace_roots=(str(workspace),),
-            protected_roots=(str(protected),),
-            isolated_executor=None,
-            log_store=None,
-        )
-    with pytest.raises(ValueError, match="attested isolated executor"):
-        build_generic_task_episode_agent(
-            parent_spec=spec,
-            capability_names=("write_file",),
-            episode_id="task",
-            accepted_evidence_ids=(),
-            workspace_roots=(str(workspace),),
-            protected_roots=(str(protected),),
-            isolated_executor=None,
-        )
-
-
-def test_engine_boundary_protects_authority_database(tmp_path) -> None:
-    from agent.generic_creator_runtime import GenericCreatorEngine, GenericCreatorHostPolicy
-    from agent.generic_creator_store import GenericCreatorStore
-    from tests.agent.generic_creator_fixtures import RUNTIME_IDENTITY
-
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    with GenericCreatorStore(tmp_path / "authority.sqlite3") as store:
-        engine = GenericCreatorEngine(
-            store=store,
-            policy=GenericCreatorHostPolicy(frozenset(), maximum_depth=1),
-            source_root=Path(__file__).resolve().parents[2],
-            runtime_identity_provider=lambda: RUNTIME_IDENTITY,
-        )
-        boundary = engine.execution_boundary(workspace_roots=(workspace,))
-        denial = boundary.authorize("write_file", {"path": str(store.path)})
-        assert denial["error"] == "openchia_runtime_immutable"

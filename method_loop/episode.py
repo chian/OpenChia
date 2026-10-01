@@ -8,13 +8,15 @@ incidence, rarefaction, hypervolume, or any other surface-specific result.
 Nested communication and tracing are deliberately separate:
 
 * :class:`EpisodeGoal` is the immutable objective at one Episode boundary.
-* :class:`EpisodeRequest` carries that Goal plus compact parent-to-child input.
-* :class:`EpisodeUpdate` preserves that Goal in the compact child-to-parent output.
+* :class:`EpisodeRequest` carries that Goal plus one already-admitted closed record.
+* :class:`ChildEpisodeUnit` owns the parent's result projection for one child.
+* :class:`EpisodeUpdate` carries only that projection and method-owned completion.
 * :class:`EpisodeRecord` is the complete recursive trace retained for audit.
 
-Sources and parent-unit hooks receive the compact messages.  They never receive
-a nested ``EpisodeRecord`` through the method's running view.  A child-owned
-``on_close`` hook may publish that child's complete record for audit.
+Sources and parent-unit hooks never receive a child's unprojected result or a
+nested ``EpisodeRecord`` through the method's running view.  The closed child
+result and recursive record are retained only in the completed audit trace.  A
+child-owned ``on_close`` hook may publish that child's complete record for audit.
 """
 
 from __future__ import annotations
@@ -22,25 +24,37 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Mapping, Optional, Protocol, runtime_checkable
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Iterable,
+    Mapping,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
 
 from .identities import EpisodeRef, UnitRef
 from .runtime import ControllerFactory, ControllerRuntime, Path, Scope
 
 __all__ = [
-    "END_BOUND_HIT",
     "END_EXHAUSTED",
     "END_INCOMPLETE",
-    "END_REASON_UNIT_BOUND",
     "END_SOURCE_FAILED",
     "END_YIELD_STOP",
     "SOURCE_END_KINDS",
+    "SOURCE_END_REASONS",
     "Acquirable",
+    "ChildEpisodeUnit",
+    "ClosedRecord",
     "Context",
     "Contribution",
     "Episode",
+    "EpisodeCompletion",
     "EpisodeGoal",
     "GoalPreview",
     "GoalProposal",
@@ -64,10 +78,16 @@ __all__ = [
 END_EXHAUSTED = "exhausted"
 END_YIELD_STOP = "yield_stop"
 END_INCOMPLETE = "incomplete"
-END_BOUND_HIT = "bound_hit"
 END_SOURCE_FAILED = "source_failed"
-SOURCE_END_KINDS = (END_BOUND_HIT, END_SOURCE_FAILED)
-END_REASON_UNIT_BOUND = "unit_bound"
+SOURCE_END_KINDS = (END_SOURCE_FAILED,)
+SOURCE_END_REASONS = (END_SOURCE_FAILED,)
+EPISODE_END_KINDS = (
+    END_EXHAUSTED,
+    END_YIELD_STOP,
+    END_INCOMPLETE,
+    END_SOURCE_FAILED,
+)
+EPISODE_END_REASONS = ("", *SOURCE_END_REASONS)
 
 
 def _record_value(value: Any) -> Any:
@@ -118,6 +138,32 @@ def _freeze_json(value: Any) -> Any:
         return item
 
     return freeze(normalized)
+
+
+class ClosedRecord(ABC):
+    """An admitted boundary value with a JSON audit projection.
+
+    The surface-owned admission function constructs this value before it enters
+    the method loop. Requiring an object instead of a raw mapping prevents an
+    unvalidated payload from being substituted at the Episode boundary while
+    keeping the generic method independent of any surface's record class.
+    """
+
+    @abstractmethod
+    def as_record(self) -> Mapping[str, Any]:
+        """Return the closed record's JSON audit projection."""
+
+        raise NotImplementedError
+
+
+def _require_closed_record(value: Any, name: str) -> ClosedRecord:
+    if not isinstance(value, ClosedRecord):
+        raise TypeError(f"{name} must be an admitted ClosedRecord")
+    record = value.as_record()
+    if not isinstance(record, Mapping):
+        raise TypeError(f"{name}.as_record() must return a mapping")
+    _freeze_json(record)
+    return value
 
 
 @dataclass(frozen=True)
@@ -275,14 +321,17 @@ class EpisodeGoal:
 
 @dataclass(frozen=True)
 class SourceEnd:
+    """One source-owned stop selected from the method's closed vocabulary.
+
+    Detailed errors belong in an audit artifact. They do not cross the
+    steering boundary as free text.
+    """
+
     kind: str
-    reason: str
 
     def __post_init__(self) -> None:
         if self.kind not in SOURCE_END_KINDS:
             raise ValueError(f"unknown source end kind {self.kind!r}")
-        if not isinstance(self.reason, str) or not self.reason.strip():
-            raise ValueError("SourceEnd.reason must be a non-empty class label")
 
 
 @dataclass(frozen=True)
@@ -298,46 +347,99 @@ class EpochMutation:
 
 @dataclass(frozen=True)
 class EpisodeRequest:
-    """The compact information a parent supplies when it opens a child."""
+    """The Goal and admitted closed record supplied when an Episode opens."""
 
     goal: EpisodeGoal
-    input: Any = None
-    prompt_context: Any = None
+    message: ClosedRecord
 
     def __post_init__(self) -> None:
         if not isinstance(self.goal, EpisodeGoal):
             raise TypeError("EpisodeRequest.goal must be an EpisodeGoal")
+        _require_closed_record(self.message, "EpisodeRequest.message")
 
     def as_record(self) -> dict[str, Any]:
         return {
             "goal": self.goal.as_record(),
-            "input": _record_value(self.input),
-            "prompt_context": _record_value(self.prompt_context),
+            "message": _record_value(self.message),
+        }
+
+
+@dataclass(frozen=True)
+class EpisodeCompletion:
+    """Method-owned facts about how one child Episode ended."""
+
+    ended_by: str
+    end_reason: str
+    units_consumed: int
+
+    def __post_init__(self) -> None:
+        if self.ended_by not in EPISODE_END_KINDS:
+            raise ValueError("EpisodeCompletion.ended_by must be a method end kind")
+        if self.end_reason not in EPISODE_END_REASONS:
+            raise ValueError(
+                "EpisodeCompletion.end_reason must be a closed reason code"
+            )
+        expected_reason = (
+            self.ended_by if self.ended_by in SOURCE_END_REASONS else ""
+        )
+        if self.end_reason != expected_reason:
+            raise ValueError(
+                "EpisodeCompletion.end_reason does not match its end kind"
+            )
+        if (
+            isinstance(self.units_consumed, bool)
+            or not isinstance(self.units_consumed, int)
+            or self.units_consumed < 0
+        ):
+            raise ValueError(
+                "EpisodeCompletion.units_consumed must be a non-negative integer"
+            )
+
+    @classmethod
+    def from_record(cls, record: "EpisodeRecord") -> "EpisodeCompletion":
+        if not isinstance(record, EpisodeRecord):
+            raise TypeError("EpisodeCompletion requires an EpisodeRecord")
+        return cls(
+            ended_by=record.ended_by,
+            end_reason=record.end_reason,
+            units_consumed=record.units_consumed,
+        )
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "ended_by": self.ended_by,
+            "end_reason": self.end_reason,
+            "units_consumed": self.units_consumed,
         }
 
 
 @dataclass(frozen=True)
 class EpisodeUpdate:
-    """The compact information a completed child returns to its parent."""
+    """Method-owned correlation of completion and parent projection."""
 
     record_id: str
     goal: EpisodeGoal
-    controller_input: Any
-    prompt_context: Any = None
-    output: Any = None
+    completion: EpisodeCompletion
+    controller_input: ClosedRecord
 
     def __post_init__(self) -> None:
         if not isinstance(self.record_id, str) or not self.record_id:
             raise ValueError("EpisodeUpdate.record_id must be a non-empty string")
         if not isinstance(self.goal, EpisodeGoal):
             raise TypeError("EpisodeUpdate.goal must be an EpisodeGoal")
+        if not isinstance(self.completion, EpisodeCompletion):
+            raise TypeError("EpisodeUpdate.completion must be an EpisodeCompletion")
+        _require_closed_record(
+            self.controller_input,
+            "EpisodeUpdate.controller_input",
+        )
 
     def as_record(self) -> dict[str, Any]:
         return {
             "record_id": self.record_id,
             "goal": self.goal.as_record(),
+            "completion": self.completion.as_record(),
             "controller_input": _record_value(self.controller_input),
-            "prompt_context": _record_value(self.prompt_context),
         }
 
 
@@ -400,10 +502,9 @@ class GoalState(Protocol):
 
 @dataclass(frozen=True)
 class Contribution:
-    """The compact result visible to the containing Episode's hook."""
+    """Only projected steering state visible to a containing Episode hook."""
 
     controller_input: Any
-    output: Any = None
     episode_update: Optional[EpisodeUpdate] = None
     goal_result: Any = None
 
@@ -412,7 +513,19 @@ class Contribution:
 class _AcquiredUnit:
     contribution: Contribution
     child_record: Optional["EpisodeRecord"] = None
+    child_result: Optional[ClosedRecord] = None
     goal_proposal: Optional[GoalProposal] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.contribution, Contribution):
+            raise TypeError("an acquired unit requires a Contribution")
+        if (self.child_record is None) != (self.child_result is None):
+            raise ValueError(
+                "a nested acquisition must retain both its child record and "
+                "closed child result"
+            )
+        if self.child_result is not None:
+            _require_closed_record(self.child_result, "child_result")
 
 
 @dataclass(frozen=True)
@@ -426,6 +539,7 @@ class UnitRecord:
     unit_ref: UnitRef
     episode_update: Optional[EpisodeUpdate] = None
     child: Optional["EpisodeRecord"] = None
+    child_result: Optional[ClosedRecord] = None
     goal_result: Any = None
 
     @property
@@ -447,6 +561,11 @@ class UnitRecord:
             ),
             "goal_result": _record_value(self.goal_result),
             "child": self.child.as_record() if self.child is not None else None,
+            "child_result": (
+                _record_value(self.child_result)
+                if self.child_result is not None
+                else None
+            ),
         }
 
 
@@ -486,7 +605,6 @@ class EpisodeRecord:
     unit_records: tuple[UnitRecord, ...]
     controller_state: Any
     request: EpisodeRequest
-    safety_bound: Optional[int] = None
     path: Path = ()
     end_reason: str = ""
     episode_ref: Optional[EpisodeRef] = None
@@ -518,7 +636,6 @@ class EpisodeRecord:
             "units_consumed": self.units_consumed,
             "ended_by": self.ended_by,
             "end_reason": self.end_reason,
-            "safety_bound": self.safety_bound,
             "controller_state": _record_value(self.controller_state),
             "units": [unit.as_record() for unit in self.unit_records],
         }
@@ -546,7 +663,6 @@ def _episode_tree_options(
     root: Any,
     self_nesting: Any,
     recursive_edges: Any,
-    max_depth: Any,
 ) -> tuple[set[str], set[tuple[str, str]]]:
     """Validate tree-wide recursion declarations."""
 
@@ -574,16 +690,6 @@ def _episode_tree_options(
     if len(normalized_edges) != len(recursive_edges):
         raise ValueError("EpisodeTree.recursive_edges contains duplicates")
     normalized_edges.update((name, name) for name in self_nesting)
-    if max_depth is not None and (
-        isinstance(max_depth, bool)
-        or not isinstance(max_depth, int)
-        or max_depth < 1
-    ):
-        raise ValueError("EpisodeTree.max_depth must be a positive integer")
-    if normalized_edges and max_depth is None:
-        raise ValueError(
-            "EpisodeTree recursive edges require an explicit max_depth safety bound"
-        )
     return set(self_nesting), normalized_edges
 
 
@@ -734,21 +840,19 @@ class EpisodeTree:
     declaration describes which *types* may occupy each child position, so a
     parent may choose among several child bindings without weakening nesting
     validation. Type-level cycles are allowed only when every cyclic edge is
-    declared and a structural ``max_depth`` bounds the finite runtime tree.
+    declared. Each Episode instance applies its own numerical progress
+    controller to determine when its loop has yielded enough.
     """
 
     root: Grain
     children: Mapping[Grain, Iterable[Grain]] = field(default_factory=dict)
     self_nesting: tuple[str, ...] = ()
     recursive_edges: tuple[tuple[str, str], ...] = ()
-    max_depth: Optional[int] = None
-
     def __post_init__(self) -> None:
         recursive_names, recursive_edges = _episode_tree_options(
             self.root,
             self.self_nesting,
             self.recursive_edges,
-            self.max_depth,
         )
         by_name: dict[str, Grain] = {self.root.name: self.root}
         normalized = _normalize_tree_children(
@@ -788,18 +892,16 @@ class EpisodeTree:
         )
 
     @classmethod
-    def recursive(cls, grain: Grain, *, max_depth: int) -> "EpisodeTree":
+    def recursive(cls, grain: Grain) -> "EpisodeTree":
         """Declare one reusable Episode type that may construct itself.
 
-        ``max_depth`` is a structural safety bound, not a completion verdict.
-        Every instance still owns its own controller and stopping rule.
+        Every instance owns its own controller and stopping rule.
         """
 
         return cls(
             root=grain,
             children={grain: (grain,)},
             self_nesting=(grain.name,),
-            max_depth=max_depth,
         )
 
     def allowed_children(self, parent_name: str) -> tuple[Grain, ...]:
@@ -817,7 +919,6 @@ class EpisodeView:
     key: str
     path: Path
     units_consumed: int
-    bound: Optional[int]
     updates: tuple[EpisodeUpdate, ...]
     controller_state: Any
     episode_ref: EpisodeRef
@@ -836,7 +937,7 @@ class UnitSource(Protocol):
 
 @runtime_checkable
 class Acquirable(Protocol):
-    """The Composite component implemented by :class:`Leaf` and Episode."""
+    """Implemented by :class:`Leaf` and parent-owned ChildEpisodeUnit."""
 
     label: str
 
@@ -856,10 +957,10 @@ def _leaf_acquisition(
     projected = result(unit, accepted)
     if isinstance(projected, GoalProposal):
         return _AcquiredUnit(
-            contribution=Contribution(controller_input=None, output=accepted),
+            contribution=Contribution(controller_input=None),
             goal_proposal=projected,
         )
-    return _AcquiredUnit(Contribution(projected, accepted))
+    return _AcquiredUnit(Contribution(controller_input=projected))
 
 
 async def _leaf_acquisition_async(
@@ -879,10 +980,10 @@ async def _leaf_acquisition_async(
         projected = await projected
     if isinstance(projected, GoalProposal):
         return _AcquiredUnit(
-            contribution=Contribution(controller_input=None, output=accepted),
+            contribution=Contribution(controller_input=None),
             goal_proposal=projected,
         )
-    return _AcquiredUnit(Contribution(projected, accepted))
+    return _AcquiredUnit(Contribution(controller_input=projected))
 
 
 @dataclass(frozen=True)
@@ -912,10 +1013,11 @@ class Episode:
     key: str
     source: UnitSource
     request: EpisodeRequest
+    build_result: Callable[
+        [EpisodeRecord], ClosedRecord | Awaitable[ClosedRecord]
+    ]
     on_unit: Optional[Callable[[Any, Contribution, UnitView], Any]] = None
     on_close: Optional[Callable[[EpisodeRecord], Any]] = None
-    to_parent: Optional[Callable[[EpisodeRecord], EpisodeUpdate]] = None
-    bound: Optional[int] = None
     resume_units: tuple[ResumeUnit, ...] = ()
 
     def __post_init__(self) -> None:
@@ -930,18 +1032,12 @@ class Episode:
                 "Episode.source must implement UnitSource.next(view); wrap a "
                 "plain iterable with leaves(...)"
             )
-        if self.to_parent is not None and not callable(self.to_parent):
-            raise TypeError("Episode.to_parent must be callable")
+        if not callable(self.build_result):
+            raise TypeError("Episode.build_result must be callable")
         if self.on_close is not None and not callable(self.on_close):
             raise TypeError("Episode.on_close must be callable")
         if not isinstance(self.request, EpisodeRequest):
             raise TypeError("Episode.request must be an EpisodeRequest")
-        if self.bound is not None and (
-            not isinstance(self.bound, int) or self.bound < 0
-        ):
-            raise ValueError(
-                "Episode.bound must be None or a non-negative integer"
-            )
         if not isinstance(self.resume_units, tuple) or any(
             not isinstance(unit, ResumeUnit) for unit in self.resume_units
         ):
@@ -966,37 +1062,6 @@ class Episode:
     ) -> EpisodeRef:
         path = tuple(parent_path) + ((grain.name, str(key)),)
         return EpisodeRef(run_id=ctx.require_run_id(), path=path)
-
-    def _as_parent_unit(self, record: EpisodeRecord) -> _AcquiredUnit:
-        if self.to_parent is None:
-            raise TypeError(
-                f"nested Episode {record.path!r} has no to_parent function"
-            )
-        update = self.to_parent(record)
-        if not isinstance(update, EpisodeUpdate):
-            raise TypeError("Episode.to_parent() must return EpisodeUpdate")
-        if update.record_id != record.episode_id:
-            raise ValueError(
-                "EpisodeUpdate.record_id must identify the completed child record"
-            )
-        if update.goal != record.goal:
-            raise ValueError(
-                "EpisodeUpdate.goal must preserve the completed Episode Goal"
-            )
-        return _AcquiredUnit(
-            contribution=Contribution(
-                controller_input=update.controller_input,
-                output=update.output,
-                episode_update=update,
-            ),
-            child_record=record,
-        )
-
-    def acquire(self, ctx: "Context") -> _AcquiredUnit:
-        return self._as_parent_unit(self.run(ctx))
-
-    async def acquire_async(self, ctx: "Context") -> _AcquiredUnit:
-        return self._as_parent_unit(await self.run_async(ctx))
 
     def run(self, ctx: "Context") -> EpisodeRecord:
         self._validate_position(ctx)
@@ -1041,7 +1106,6 @@ class Episode:
             key=self.key,
             path=scope,
             units_consumed=len(records),
-            bound=self.bound,
             updates=tuple(
                 record.episode_update
                 for record in records
@@ -1059,9 +1123,14 @@ class Episode:
             raise ValueError("a root Episode Goal may not name a parent Goal")
 
     def _validate_child(self, item: Any) -> None:
-        if not isinstance(item, Episode):
+        if isinstance(item, Episode):
+            raise TypeError(
+                "a nested Episode must be carried by a parent-owned "
+                "ChildEpisodeUnit"
+            )
+        if not isinstance(item, ChildEpisodeUnit):
             return
-        if item.goal.parent_goal_id != self.goal.goal_id:
+        if item.child.goal.parent_goal_id != self.goal.goal_id:
             raise ValueError(
                 "a child Episode Goal must name the containing Episode Goal"
             )
@@ -1082,7 +1151,6 @@ class Episode:
             ended_by=ended_by,
             unit_records=tuple(records),
             controller_state=ctx.runtime.state(scope),
-            safety_bound=self.bound,
             path=path,
             end_reason=end_reason,
             episode_ref=EpisodeRef(run_id=ctx.require_run_id(), path=path),
@@ -1130,7 +1198,6 @@ class Episode:
             )
         contribution = Contribution(
             controller_input=controller_input,
-            output=acquired.contribution.output,
             episode_update=acquired.contribution.episode_update,
             goal_result=goal_result,
         )
@@ -1142,6 +1209,7 @@ class Episode:
             unit_ref=unit_ref,
             episode_update=acquired.contribution.episode_update,
             child=acquired.child_record,
+            child_result=acquired.child_result,
             goal_result=goal_result,
         )
         view = UnitView(
@@ -1217,14 +1285,11 @@ class Episode:
         if records and self._state_stops(ctx.runtime.state(scope)):
             return self._record(ctx, scope, records, END_YIELD_STOP, "")
         while True:
-            if self.bound is not None and len(records) >= self.bound:
-                ended_by, end_reason = END_BOUND_HIT, END_REASON_UNIT_BOUND
-                break
             item = self.source.next(self._view(ctx, scope, records))
             if item is None:
                 break
             if isinstance(item, SourceEnd):
-                ended_by, end_reason = item.kind, item.reason
+                ended_by, end_reason = item.kind, item.kind
                 break
             self._validate_child(item)
             acquired = item.acquire(ctx)
@@ -1254,16 +1319,13 @@ class Episode:
         if records and self._state_stops(ctx.runtime.state(scope)):
             return self._record(ctx, scope, records, END_YIELD_STOP, "")
         while True:
-            if self.bound is not None and len(records) >= self.bound:
-                ended_by, end_reason = END_BOUND_HIT, END_REASON_UNIT_BOUND
-                break
             item = self.source.next(self._view(ctx, scope, records))
             if inspect.isawaitable(item):
                 item = await item
             if item is None:
                 break
             if isinstance(item, SourceEnd):
-                ended_by, end_reason = item.kind, item.reason
+                ended_by, end_reason = item.kind, item.kind
                 break
             self._validate_child(item)
             acquired = item.acquire_async(ctx)
@@ -1288,6 +1350,113 @@ class Episode:
                 ended_by = end
                 break
         return self._record(ctx, scope, records, ended_by, end_reason)
+
+
+@dataclass(frozen=True)
+class ChildEpisodeUnit:
+    """A parent-owned invocation edge around one child Episode.
+
+    The child owns ``build_result``. This wrapper owns the only callback that
+    can interpret that closed result for the parent. The unprojected result is
+    retained in the audit record and never enters the running parent view.
+    """
+
+    child: Episode
+    receive_result: Callable[
+        [ClosedRecord, EpisodeCompletion, EpisodeRequest],
+        ClosedRecord | Awaitable[ClosedRecord],
+    ]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.child, Episode):
+            raise TypeError("ChildEpisodeUnit.child must be an Episode")
+        if not callable(self.receive_result):
+            raise TypeError("ChildEpisodeUnit.receive_result must be callable")
+
+    @property
+    def label(self) -> str:
+        return self.child.label
+
+    def _finish(self, record: EpisodeRecord) -> _AcquiredUnit:
+        child_result = self.child.build_result(record)
+        if inspect.isawaitable(child_result):
+            raise TypeError(
+                "an async Episode.build_result callback requires acquire_async()"
+            )
+        child_result = _require_closed_record(
+            child_result,
+            "Episode.build_result()",
+        )
+        completion = EpisodeCompletion.from_record(record)
+        controller_input = self.receive_result(
+            child_result,
+            completion,
+            self.child.request,
+        )
+        if inspect.isawaitable(controller_input):
+            raise TypeError(
+                "an async ChildEpisodeUnit.receive_result callback requires "
+                "acquire_async()"
+            )
+        controller_input = _require_closed_record(
+            controller_input,
+            "ChildEpisodeUnit.receive_result()",
+        )
+        update = EpisodeUpdate(
+            record_id=record.episode_id,
+            goal=record.goal,
+            completion=completion,
+            controller_input=controller_input,
+        )
+        return _AcquiredUnit(
+            contribution=Contribution(
+                controller_input=controller_input,
+                episode_update=update,
+            ),
+            child_record=record,
+            child_result=child_result,
+        )
+
+    async def _finish_async(self, record: EpisodeRecord) -> _AcquiredUnit:
+        child_result = self.child.build_result(record)
+        if inspect.isawaitable(child_result):
+            child_result = await child_result
+        child_result = _require_closed_record(
+            child_result,
+            "Episode.build_result()",
+        )
+        completion = EpisodeCompletion.from_record(record)
+        controller_input = self.receive_result(
+            child_result,
+            completion,
+            self.child.request,
+        )
+        if inspect.isawaitable(controller_input):
+            controller_input = await controller_input
+        controller_input = _require_closed_record(
+            controller_input,
+            "ChildEpisodeUnit.receive_result()",
+        )
+        update = EpisodeUpdate(
+            record_id=record.episode_id,
+            goal=record.goal,
+            completion=completion,
+            controller_input=controller_input,
+        )
+        return _AcquiredUnit(
+            contribution=Contribution(
+                controller_input=controller_input,
+                episode_update=update,
+            ),
+            child_record=record,
+            child_result=child_result,
+        )
+
+    def acquire(self, ctx: "Context") -> _AcquiredUnit:
+        return self._finish(self.child.run(ctx))
+
+    async def acquire_async(self, ctx: "Context") -> _AcquiredUnit:
+        return await self._finish_async(await self.child.run_async(ctx))
 
 
 class _LeafSource:
@@ -1439,8 +1608,6 @@ class Context:
         """Whether ``grain`` can occupy the next structural position."""
 
         parent = self.path
-        if self.tree.max_depth is not None and len(parent) >= self.tree.max_depth:
-            return False
         return any(item == grain for item in self._allowed_next(parent))
 
     def enter(self, grain: Grain, key: str) -> Scope:
@@ -1450,10 +1617,6 @@ class Context:
         if known is not None and known is not grain and known != grain:
             raise ValueError(f"grain {grain.name!r} was declared more than once")
         parent = self.path
-        if self.tree.max_depth is not None and len(parent) >= self.tree.max_depth:
-            raise ValueError(
-                f"EpisodeTree depth bound {self.tree.max_depth} was reached"
-            )
         allowed = self._allowed_next(parent)
         declared = next(
             (item for item in allowed if item.name == grain.name),

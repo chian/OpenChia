@@ -12,12 +12,12 @@ past that); see the **routing table** at the end and read the area file before e
 OpenChia is a Hermes fork that keeps the same CLI, messaging gateway, TUI,
 desktop app, providers, and execution tools while replacing model-facing
 delegation with Duet-approved Episodes. The Duet is the human, its restricted
-conversational LLM, and the host protocol. It approves a task-specific Creator
-Episode; each Creator unit freezes one nested design, launches one child Run
-Episode, receives its mandatory log reference and typed goal measurements, and
-iterates numerically. Ordinary task Episodes execute predeclared topology and
-cannot create Episodes. Creation capability is explicit, default-off, and
-requires a complete Creator contract. There is no persistent head Episode.
+conversational LLM, and the host protocol. Together they specify, revise, and
+approve the complete nested Episode workflow. The host freezes that exact
+workflow. EpisodeBuilder later materializes explicit task-specific modules;
+only built modules can launch. Each task Episode executes only its predeclared
+topology and contract. There is no persistent head Episode and no intermediate
+design role.
 Inherited Hermes capabilities remain extended primarily through **plugins and
 skills**, not by growing the core.
 
@@ -208,6 +208,9 @@ hermes-agent/
 ├── hermes_logging.py     # agent.log / errors.log / gateway.log (profile-aware)
 ├── batch_runner.py       # Parallel batch processing
 ├── agent/                # turn_*.py loop phases, providers, memory, compression, prompt builder
+├── method_loop/          # generic Episode loop, nesting, identities, and routing
+├── episode_library/      # durable task-specific reference Episode designs
+├── numeric_control_library/ # credit, rarefaction, continuation, and composition
 ├── hermes_cli/           # CLI subcommands, setup, config, plugins loader, skins, updater
 │   └── web_routers/      # Dashboard FastAPI routers (one per surface); web_server.py mounts them
 ├── tools/                # Tool implementations, auto-discovered via tools/registry.py

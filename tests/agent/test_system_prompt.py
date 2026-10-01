@@ -408,50 +408,18 @@ class TestOpenChiaRolePrompts:
         assert "# Duet protocol" in combined
         assert "current workflow hash" in combined
         assert "episode_workflow_update" in combined
-        assert "responsive design conversation, not a form" in combined
-        assert "As soon as a coherent part of the Episode tree is settled" in combined
-        assert "only the human's trusted /review command" in combined
-        assert "persistent orchestration Episode" not in combined
 
     def test_workflow_critic_is_narrow_and_cannot_approve(self):
         prompt = _prompt_parts(
             _make_agent(
                 valid_tool_names=[],
-                _creator_workflow_critic_prompt_isolated=True,
+                _workflow_critic_prompt_isolated=True,
             )
         )
         combined = "\n".join(prompt.values())
         assert "exactly one named review lens" in combined
         assert "approve it" in combined
         assert "Duet protocol" not in combined
-
-    def test_creator_prompt_names_design_run_inspect_and_mandatory_log(self):
-        prompt = _prompt_parts(
-            _make_agent(
-                valid_tool_names=["creator_log_read"],
-                _creator_episode_prompt_isolated=True,
-            )
-        )
-        combined = "\n".join(prompt.values())
-        assert "design--run--inspect cycle" in combined
-        assert "mandatory run log" in combined
-        assert "only when the human explicitly requests /review" in combined
-        assert "workflow_review" not in combined
-        assert "do not approve or directly launch a child candidate" in combined
-        assert "already approved parent workflow" in combined
-
-    def test_task_prompt_has_no_creation_authority(self):
-        prompt = _prompt_parts(
-            _make_agent(
-                valid_tool_names=["episode_progress", "web_search"],
-                _task_episode_prompt_isolated=True,
-            )
-        )
-        combined = "\n".join(prompt.values())
-        assert "one task Episode" in combined
-        assert "Do not design or open another work loop" in combined
-        assert "Duet protocol" not in combined
-
 
 class TestNamedProfileHintIntegration:
     """The same defect through the REAL resolution chain (#72894).

@@ -3,8 +3,6 @@
 The Duet is the human--LLM collaboration that designs Episode workflows.
 It is deliberately not an Episode.  These records keep human authority,
 model proposals, host validation, and Episode execution as separate facts.
-Only closed, JSON-shaped records cross from Creator Episodes back into the
-Duet conversation.
 """
 
 from __future__ import annotations
@@ -15,21 +13,15 @@ import hashlib
 import json
 import math
 import re
-from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
 from agent.episode_contracts import (
-    EpisodeCreationSpec,
-    EpisodeCreatorContextReference,
-    EpisodeWorkflowDesignProjection,
     EpisodeWorkflowSpec,
     OpaqueId,
     Sha256Digest,
 )
 
 
-DUET_SCHEMA_VERSION = 1
-DEFAULT_CREATOR_PROPOSAL_BOUND = 8
 MAX_DEFICIT_DETAIL_CHARS = 512
 
 _FIELD_PATH = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
@@ -54,15 +46,6 @@ def _identifier(value: object, name: str) -> str:
 def _integer(value: object, name: str, *, minimum: int = 0) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ValueError(f"{name} must be an integer >= {minimum}")
-    return value
-
-
-def _number(value: object, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{name} must be numeric")
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite")
     return value
 
 
@@ -131,15 +114,11 @@ class DuetProvenance(str, Enum):
 class DuetDesignState(str, Enum):
     DESIGNING = "designing"
     WAITING_ON_DUET = "waiting_on_duet"
-    EXPERIMENTING = "experimenting"
     REFINING = "refining"
     AWAITING_WORKFLOW_APPROVAL = "awaiting_workflow_approval"
     SEALED = "sealed"
-    LAUNCHED = "launched"
     REJECTED = "rejected"
     CANCELLED = "cancelled"
-    NO_PROGRESS = "no_progress"
-    BOUND_HIT = "bound_hit"
     FAILED = "failed"
 
 
@@ -155,20 +134,6 @@ class DuetMessageKind(str, Enum):
     RETRY = "retry"
 
 
-class CreatorActivityStage(str, Enum):
-    """Host-observed stage of one Creator execution attempt."""
-
-    INITIALIZING = "initializing"
-    GATHERING_CONTEXT = "gathering_context"
-    DESIGNING = "designing"
-    REVISING = "revising"
-    SUBMITTING = "submitting"
-    RUNNING_CANDIDATE = "running_candidate"
-    EVALUATING = "evaluating"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
 DUET_SEARCH_TOOLS = frozenset({"web_search", "web_extract"})
 DUET_PROTOCOL_TOOLS = frozenset(
     {
@@ -176,19 +141,10 @@ DUET_PROTOCOL_TOOLS = frozenset(
         "duet_status",
         "episode_workflow_read",
         "episode_workflow_update",
-        "duet_decision",
-        "creator_context_artifact",
-        "creator_context_read",
     }
 )
 DUET_ALLOWED_TOOLS = DUET_SEARCH_TOOLS | DUET_PROTOCOL_TOOLS
-OPENCHIA_CONTROL_PLANE_TOOLS = DUET_PROTOCOL_TOOLS | frozenset(
-    {
-        "creator_log_read",
-        "workflow_candidate",
-        "episode_progress",
-    }
-)
+OPENCHIA_CONTROL_PLANE_TOOLS = DUET_PROTOCOL_TOOLS
 DUET_FORBIDDEN_TOOLS = frozenset(
     {
         "terminal",
@@ -253,9 +209,6 @@ class DuetIdentity:
 class DuetPolicy:
     policy_id: OpaqueId
     capability_allowlist: tuple[str, ...] = tuple(sorted(DUET_ALLOWED_TOOLS))
-    minimum_method_credit: float = 0.0
-    creator_proposal_bound: int = DEFAULT_CREATOR_PROPOSAL_BOUND
-    maximum_creator_depth: int = 1
 
     def __post_init__(self) -> None:
         _opaque(self.policy_id, "policy_id")
@@ -268,28 +221,10 @@ class DuetPolicy:
                 f"{sorted(unknown | forbidden)}"
             )
         object.__setattr__(self, "capability_allowlist", allowlist)
-        credit = _number(self.minimum_method_credit, "minimum_method_credit")
-        if not 0 <= credit <= 1:
-            raise ValueError("minimum_method_credit must lie in [0, 1]")
-        object.__setattr__(self, "minimum_method_credit", credit)
-        object.__setattr__(
-            self,
-            "creator_proposal_bound",
-            _integer(self.creator_proposal_bound, "creator_proposal_bound", minimum=1),
-        )
-        object.__setattr__(
-            self,
-            "maximum_creator_depth",
-            _integer(self.maximum_creator_depth, "maximum_creator_depth", minimum=1),
-        )
-
     def as_record(self) -> dict[str, Any]:
         return {
             "policy_id": self.policy_id.value,
             "capability_allowlist": list(self.capability_allowlist),
-            "minimum_method_credit": self.minimum_method_credit,
-            "creator_proposal_bound": self.creator_proposal_bound,
-            "maximum_creator_depth": self.maximum_creator_depth,
         }
 
     @classmethod
@@ -297,9 +232,6 @@ class DuetPolicy:
         required = {
             "policy_id",
             "capability_allowlist",
-            "minimum_method_credit",
-            "creator_proposal_bound",
-            "maximum_creator_depth",
         }
         if not isinstance(record, Mapping) or set(record) != required:
             raise ValueError("stored Duet policy has an invalid shape")
@@ -309,9 +241,6 @@ class DuetPolicy:
         return cls(
             policy_id=OpaqueId(record["policy_id"]),
             capability_allowlist=tuple(allowlist),
-            minimum_method_credit=record["minimum_method_credit"],
-            creator_proposal_bound=record["creator_proposal_bound"],
-            maximum_creator_depth=record["maximum_creator_depth"],
         )
 
 
@@ -347,125 +276,6 @@ class ContractDeficit:
 
 
 @dataclass(frozen=True)
-class CreatorGuidance:
-    """Trusted human instruction delivered to a Creator at a unit boundary."""
-
-    guidance_id: OpaqueId
-    duet_id: OpaqueId
-    creator_episode_id: OpaqueId
-    expected_unit_index: int
-    instruction: str
-    human_authority_id: OpaqueId
-
-    def __post_init__(self) -> None:
-        for name in (
-            "guidance_id",
-            "duet_id",
-            "creator_episode_id",
-            "human_authority_id",
-        ):
-            _opaque(getattr(self, name), name)
-        object.__setattr__(
-            self,
-            "expected_unit_index",
-            _integer(self.expected_unit_index, "expected_unit_index"),
-        )
-        object.__setattr__(
-            self,
-            "instruction",
-            _text(self.instruction, "instruction", maximum=8192),
-        )
-
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "guidance_id": self.guidance_id.value,
-            "duet_id": self.duet_id.value,
-            "creator_episode_id": self.creator_episode_id.value,
-            "expected_unit_index": self.expected_unit_index,
-            "instruction": self.instruction,
-            "human_authority_id": self.human_authority_id.value,
-        }
-
-
-@dataclass(frozen=True)
-class AdmittedCreatorContract:
-    """One actual Creator Episode contract admitted from a frozen workflow."""
-
-    artifact_id: OpaqueId
-    duet_id: OpaqueId
-    source_design_artifact_id: OpaqueId
-    source_design_hash: Sha256Digest
-    workflow_approval_id: OpaqueId
-    node_local_id: str
-    content_hash: Sha256Digest
-    contract: EpisodeCreationSpec
-
-    def __post_init__(self) -> None:
-        for name in (
-            "artifact_id",
-            "duet_id",
-            "source_design_artifact_id",
-            "workflow_approval_id",
-        ):
-            _opaque(getattr(self, name), name)
-        if not isinstance(self.source_design_hash, Sha256Digest):
-            raise ValueError("source_design_hash must be a Sha256Digest")
-        object.__setattr__(
-            self,
-            "node_local_id",
-            _identifier(self.node_local_id, "node_local_id"),
-        )
-        if not isinstance(self.content_hash, Sha256Digest):
-            raise ValueError("content_hash must be a Sha256Digest")
-        if not isinstance(self.contract, EpisodeCreationSpec):
-            raise ValueError("contract must be an EpisodeCreationSpec")
-        if self.content_hash != self.contract.spec_hash:
-            raise ValueError("frozen contract hash does not match its content")
-        if not self.contract.can_create_episodes or self.contract.creator_contract is None:
-            raise ValueError("a frozen Creator contract must grant explicit Creator capability")
-
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "artifact_id": self.artifact_id.value,
-            "duet_id": self.duet_id.value,
-            "source_design_artifact_id": self.source_design_artifact_id.value,
-            "source_design_hash": self.source_design_hash.value,
-            "workflow_approval_id": self.workflow_approval_id.value,
-            "node_local_id": self.node_local_id,
-            "content_hash": self.content_hash.value,
-            "contract": self.contract.as_record(),
-        }
-
-    @classmethod
-    def from_record(cls, value: object) -> "AdmittedCreatorContract":
-        if not isinstance(value, Mapping) or set(value) != {
-            "schema_version",
-            "artifact_id",
-            "duet_id",
-            "source_design_artifact_id",
-            "source_design_hash",
-            "workflow_approval_id",
-            "node_local_id",
-            "content_hash",
-            "contract",
-        } or value.get("schema_version") != 1:
-            raise ValueError("admitted Creator contract has an invalid shape")
-        return cls(
-            artifact_id=OpaqueId(value["artifact_id"]),
-            duet_id=OpaqueId(value["duet_id"]),
-            source_design_artifact_id=OpaqueId(
-                value["source_design_artifact_id"]
-            ),
-            source_design_hash=Sha256Digest(value["source_design_hash"]),
-            workflow_approval_id=OpaqueId(value["workflow_approval_id"]),
-            node_local_id=value["node_local_id"],
-            content_hash=Sha256Digest(value["content_hash"]),
-            contract=EpisodeCreationSpec.from_record(value["contract"]),
-        )
-
-
-@dataclass(frozen=True)
 class DuetApproval:
     approval_id: OpaqueId
     duet_id: OpaqueId
@@ -497,171 +307,16 @@ class DuetApproval:
 
 
 @dataclass(frozen=True)
-class CreatorProgressEnvelope:
-    creator_episode_id: OpaqueId
-    sequence: int
-    state: DuetDesignState
-    candidate_revision: int
-    deficit_count: int
-    validation_codes: tuple[str, ...]
-    accepted_evidence_ids: tuple[OpaqueId, ...]
-    method_credit: Optional[float]
-
-    def __post_init__(self) -> None:
-        _opaque(self.creator_episode_id, "creator_episode_id")
-        object.__setattr__(self, "sequence", _integer(self.sequence, "sequence"))
-        if not isinstance(self.state, DuetDesignState):
-            raise ValueError("state must be a DuetDesignState")
-        object.__setattr__(self, "candidate_revision", _integer(self.candidate_revision, "candidate_revision"))
-        object.__setattr__(self, "deficit_count", _integer(self.deficit_count, "deficit_count"))
-        object.__setattr__(self, "validation_codes", _string_tuple(self.validation_codes, "validation_codes"))
-        if not isinstance(self.accepted_evidence_ids, tuple) or any(
-            not isinstance(item, OpaqueId) for item in self.accepted_evidence_ids
-        ):
-            raise ValueError("accepted_evidence_ids must be a tuple of OpaqueIds")
-        if len(set(self.accepted_evidence_ids)) != len(self.accepted_evidence_ids):
-            raise ValueError("accepted_evidence_ids must be unique")
-        if self.method_credit is not None:
-            credit = _number(self.method_credit, "method_credit")
-            if not 0 <= credit <= 1:
-                raise ValueError("method_credit must lie in [0, 1]")
-            object.__setattr__(self, "method_credit", credit)
-
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "creator_episode_id": self.creator_episode_id.value,
-            "sequence": self.sequence,
-            "state": self.state.value,
-            "candidate_revision": self.candidate_revision,
-            "deficit_count": self.deficit_count,
-            "validation_codes": list(self.validation_codes),
-            "accepted_evidence_ids": [item.value for item in self.accepted_evidence_ids],
-            "method_credit": self.method_credit,
-        }
-
-
-@dataclass(frozen=True)
-class CreatorActivityEnvelope:
-    """Durable, structured live activity without model reasoning or prose."""
-
-    creator_episode_id: OpaqueId
-    attempt: int
-    event_index: int
-    stage: CreatorActivityStage
-    activity_code: str
-    attempt_started_at: float
-    observed_at: float
-    details: Mapping[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        _opaque(self.creator_episode_id, "creator_episode_id")
-        object.__setattr__(
-            self,
-            "attempt",
-            _integer(self.attempt, "attempt", minimum=1),
-        )
-        object.__setattr__(
-            self,
-            "event_index",
-            _integer(self.event_index, "event_index", minimum=1),
-        )
-        if not isinstance(self.stage, CreatorActivityStage):
-            raise ValueError("stage must be a CreatorActivityStage")
-        object.__setattr__(
-            self,
-            "activity_code",
-            _identifier(self.activity_code, "activity_code"),
-        )
-        attempt_started_at = _number(self.attempt_started_at, "attempt_started_at")
-        observed_at = _number(self.observed_at, "observed_at")
-        if attempt_started_at < 0 or observed_at < attempt_started_at:
-            raise ValueError(
-                "Creator activity timestamps must be ordered non-negative values"
-            )
-        object.__setattr__(self, "attempt_started_at", attempt_started_at)
-        object.__setattr__(self, "observed_at", observed_at)
-        details = _json_value(self.details, "details")
-        if not isinstance(details, dict):
-            raise ValueError("details must be a mapping")
-        object.__setattr__(self, "details", MappingProxyType(details))
-
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "creator_episode_id": self.creator_episode_id.value,
-            "attempt": self.attempt,
-            "event_index": self.event_index,
-            "stage": self.stage.value,
-            "activity_code": self.activity_code,
-            "attempt_started_at": self.attempt_started_at,
-            "observed_at": self.observed_at,
-            "details": dict(self.details),
-        }
-
-
-@dataclass(frozen=True)
-class FrozenWorkflowDesign:
-    """A workflow candidate produced by one real Creator Episode."""
-
-    artifact_id: OpaqueId
-    duet_id: OpaqueId
-    creator_episode_id: OpaqueId
-    revision: int
-    workflow_hash: Sha256Digest
-    workflow: EpisodeWorkflowSpec
-    context_receipts: tuple[EpisodeCreatorContextReference, ...] = ()
-
-    def __post_init__(self) -> None:
-        for name in ("artifact_id", "duet_id", "creator_episode_id"):
-            _opaque(getattr(self, name), name)
-        object.__setattr__(
-            self,
-            "revision",
-            _integer(self.revision, "revision", minimum=1),
-        )
-        if not isinstance(self.workflow_hash, Sha256Digest):
-            raise ValueError("workflow_hash must be a Sha256Digest")
-        if not isinstance(self.workflow, EpisodeWorkflowSpec):
-            raise ValueError("workflow must be an EpisodeWorkflowSpec")
-        if self.workflow_hash != self.workflow.workflow_hash:
-            raise ValueError("workflow hash does not match its content")
-        if not isinstance(self.context_receipts, tuple) or any(
-            not isinstance(item, EpisodeCreatorContextReference)
-            for item in self.context_receipts
-        ):
-            raise ValueError(
-                "context_receipts must contain Creator context references"
-            )
-        receipt_ids = tuple(item.artifact_id for item in self.context_receipts)
-        if len(set(receipt_ids)) != len(receipt_ids):
-            raise ValueError("context_receipts must be unique")
-
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "artifact_id": self.artifact_id.value,
-            "duet_id": self.duet_id.value,
-            "creator_episode_id": self.creator_episode_id.value,
-            "revision": self.revision,
-            "workflow_hash": self.workflow_hash.value,
-            "workflow": self.workflow.as_record(),
-            "context_receipts": [
-                item.as_record() for item in self.context_receipts
-            ],
-        }
-
-
-@dataclass(frozen=True)
 class WorkflowAdmissionAuthority:
     """Host-owned ceiling for admitting one Duet-designed workflow.
 
     This is not an Episode and never runs a model. Its sole purpose is to
-    freeze the host capability and recursive-depth boundary used to validate
-    and launch the human-approved workflow.
+    freeze the host capability boundary used to validate and launch the
+    human-approved workflow.
     """
 
     duet_id: OpaqueId
     assignable_capability_names: tuple[str, ...]
-    maximum_creator_depth: int
 
     def __post_init__(self) -> None:
         _opaque(self.duet_id, "duet_id")
@@ -673,24 +328,12 @@ class WorkflowAdmissionAuthority:
                 "assignable_capability_names",
             ),
         )
-        object.__setattr__(
-            self,
-            "maximum_creator_depth",
-            _integer(
-                self.maximum_creator_depth,
-                "maximum_creator_depth",
-                minimum=1,
-            ),
-        )
-
     def authority_record(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
             "duet_id": self.duet_id.value,
             "assignable_capability_names": list(
                 self.assignable_capability_names
             ),
-            "maximum_creator_depth": self.maximum_creator_depth,
         }
 
     @property
@@ -713,14 +356,12 @@ class WorkflowAdmissionAuthority:
         if not isinstance(value, Mapping):
             raise ValueError("workflow admission authority must be a mapping")
         expected = {
-            "schema_version",
             "duet_id",
             "assignable_capability_names",
-            "maximum_creator_depth",
             "authority_id",
             "content_hash",
         }
-        if set(value) != expected or value.get("schema_version") != 1:
+        if set(value) != expected:
             raise ValueError("workflow admission authority has an invalid shape")
         capabilities = value["assignable_capability_names"]
         if not isinstance(capabilities, list):
@@ -728,7 +369,6 @@ class WorkflowAdmissionAuthority:
         authority = cls(
             duet_id=OpaqueId(value["duet_id"]),
             assignable_capability_names=tuple(capabilities),
-            maximum_creator_depth=value["maximum_creator_depth"],
         )
         if (
             authority.authority_id.value != value["authority_id"]
@@ -778,7 +418,6 @@ class FrozenDuetWorkflow:
 
     def as_record(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
             "artifact_id": self.artifact_id.value,
             "duet_id": self.duet_id.value,
             "revision": self.revision,
@@ -796,7 +435,6 @@ class FrozenDuetWorkflow:
             not isinstance(value, Mapping)
             or set(value)
             != {
-                "schema_version",
                 "artifact_id",
                 "duet_id",
                 "revision",
@@ -807,7 +445,6 @@ class FrozenDuetWorkflow:
                 "source_draft_artifact_id",
                 "source_draft_hash",
             }
-            or value.get("schema_version") != 1
         ):
             raise ValueError("frozen Duet workflow has an invalid shape")
         return cls(
@@ -827,82 +464,6 @@ class FrozenDuetWorkflow:
         )
 
 
-@dataclass(frozen=True)
-class WorkflowCandidate:
-    artifact_id: OpaqueId
-    duet_id: OpaqueId
-    creator_episode_id: OpaqueId
-    revision: int
-    workflow_hash: Sha256Digest
-    workflow: EpisodeWorkflowSpec
-    projection: EpisodeWorkflowDesignProjection
-
-    def __post_init__(self) -> None:
-        for name in ("artifact_id", "duet_id", "creator_episode_id"):
-            _opaque(getattr(self, name), name)
-        object.__setattr__(self, "revision", _integer(self.revision, "revision", minimum=1))
-        if not isinstance(self.workflow_hash, Sha256Digest):
-            raise ValueError("workflow_hash must be a Sha256Digest")
-        if not isinstance(self.workflow, EpisodeWorkflowSpec):
-            raise ValueError("workflow must be an EpisodeWorkflowSpec")
-        if self.workflow_hash != self.workflow.workflow_hash:
-            raise ValueError("workflow hash does not match its content")
-        if not isinstance(self.projection, EpisodeWorkflowDesignProjection):
-            raise ValueError("projection must be an EpisodeWorkflowDesignProjection")
-
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "artifact_id": self.artifact_id.value,
-            "duet_id": self.duet_id.value,
-            "creator_episode_id": self.creator_episode_id.value,
-            "revision": self.revision,
-            "workflow_hash": self.workflow_hash.value,
-            "workflow": self.workflow.as_record(),
-            "projection": self.projection.as_record(),
-        }
-
-
-@dataclass(frozen=True)
-class DuetDecision:
-    message_id: OpaqueId
-    duet_id: OpaqueId
-    creator_episode_id: OpaqueId
-    kind: DuetMessageKind
-    expected_unit_index: int
-    code: str
-    field_ids: tuple[str, ...] = ()
-    guidance_artifact_ids: tuple[OpaqueId, ...] = ()
-
-    def __post_init__(self) -> None:
-        for name in ("message_id", "duet_id", "creator_episode_id"):
-            _opaque(getattr(self, name), name)
-        if not isinstance(self.kind, DuetMessageKind):
-            raise ValueError("kind must be a DuetMessageKind")
-        object.__setattr__(self, "expected_unit_index", _integer(self.expected_unit_index, "expected_unit_index"))
-        object.__setattr__(self, "code", _identifier(self.code, "code"))
-        object.__setattr__(self, "field_ids", _string_tuple(self.field_ids, "field_ids"))
-        if not isinstance(self.guidance_artifact_ids, tuple) or any(
-            not isinstance(item, OpaqueId) for item in self.guidance_artifact_ids
-        ):
-            raise ValueError("guidance_artifact_ids must be a tuple of OpaqueIds")
-        if len(set(self.guidance_artifact_ids)) != len(self.guidance_artifact_ids):
-            raise ValueError("guidance_artifact_ids must be unique")
-
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "message_id": self.message_id.value,
-            "duet_id": self.duet_id.value,
-            "creator_episode_id": self.creator_episode_id.value,
-            "kind": self.kind.value,
-            "expected_unit_index": self.expected_unit_index,
-            "code": self.code,
-            "field_ids": list(self.field_ids),
-            "guidance_artifact_ids": [
-                item.value for item in self.guidance_artifact_ids
-            ],
-        }
-
-
 def content_id(kind: str, value: object) -> OpaqueId:
     """Mint a stable opaque identifier from canonical JSON content."""
 
@@ -914,31 +475,21 @@ def digest_record(value: object) -> Sha256Digest:
 
 
 __all__ = [
-    "AdmittedCreatorContract",
     "ApprovalKind",
     "ContractDeficit",
-    "CreatorActivityEnvelope",
-    "CreatorActivityStage",
-    "CreatorGuidance",
-    "CreatorProgressEnvelope",
-    "DEFAULT_CREATOR_PROPOSAL_BOUND",
     "DUET_ALLOWED_TOOLS",
     "DUET_FORBIDDEN_TOOLS",
     "DUET_PROTOCOL_TOOLS",
     "OPENCHIA_CONTROL_PLANE_TOOLS",
-    "DUET_SCHEMA_VERSION",
     "DUET_SEARCH_TOOLS",
     "DuetApproval",
-    "DuetDecision",
     "DuetDesignState",
     "DuetIdentity",
     "DuetMessageKind",
     "DuetPolicy",
     "DuetProvenance",
     "FrozenDuetWorkflow",
-    "FrozenWorkflowDesign",
     "WorkflowAdmissionAuthority",
-    "WorkflowCandidate",
     "canonical_json",
     "content_id",
     "digest_record",

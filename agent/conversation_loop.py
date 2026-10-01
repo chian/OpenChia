@@ -1526,7 +1526,7 @@ def _run_api_retry_loop(agent, s: _LoopState) -> Optional[Dict[str, Any]]:
 class ConversationIterationVerdict:
     """Result of exactly one Hermes model/tool iteration.
 
-    Creator Episode bindings may consume this operation as one acquired unit.
+    Episode bindings may consume this operation as one acquired unit.
     The ordinary user conversation remains a Duet conversation and owns its
     own repetition; it is not silently promoted into an Episode.
     """
@@ -1587,7 +1587,7 @@ def advance_conversation_iteration(agent: Any, s: _LoopState) -> ConversationIte
 
 @dataclass(frozen=True)
 class PreparedConversationTurn:
-    """A reusable turn boundary for Duet and Creator conversations."""
+    """A reusable turn boundary for Duet and task conversations."""
 
     state: Optional[_LoopState] = None
     result: Optional[Dict[str, Any]] = None

@@ -220,7 +220,6 @@ class TestOpenChiaProtocolToolSelection:
             "duet_status",
             "episode_workflow_read",
             "episode_workflow_update",
-            "duet_decision",
         }
         assert duet <= names(
             enabled_toolsets=["duet"]
@@ -231,18 +230,7 @@ class TestOpenChiaProtocolToolSelection:
         assert duet.isdisjoint(
             names(disabled_toolsets=["duet"])
         )
-        assert "creator_log_read" in names(enabled_toolsets=["creator_protocol"])
-        assert "creator_context_artifact" in names(
-            enabled_toolsets=["creator_protocol"]
-        )
-        assert "creator_context_read" in names(
-            enabled_toolsets=["creator_protocol"]
-        )
-        assert "openchia_scope" in names(
-            enabled_toolsets=["openchia_protocol"]
-        )
-        assert "workflow_candidate" in names(enabled_toolsets=["creator_protocol"])
-        assert "episode_progress" in names(enabled_toolsets=["episode_protocol"])
+        assert "openchia_scope" in names(enabled_toolsets=["duet"])
         assert "delegate_task" not in names()
 
     def test_episode_control_tools_cannot_be_deferred(self):
@@ -253,8 +241,6 @@ class TestOpenChiaProtocolToolSelection:
             enabled_toolsets=[
                 "openchia_protocol",
                 "duet",
-                "creator_protocol",
-                "episode_protocol",
             ],
             quiet_mode=True,
             skip_tool_search_assembly=True,
@@ -263,13 +249,7 @@ class TestOpenChiaProtocolToolSelection:
             "duet_status",
             "episode_workflow_read",
             "episode_workflow_update",
-            "duet_decision",
-            "creator_context_artifact",
-            "creator_context_read",
             "openchia_scope",
-            "creator_log_read",
-            "workflow_candidate",
-            "episode_progress",
         }
         visible, deferred = classify_tools(
             raw, frozenset(controls)

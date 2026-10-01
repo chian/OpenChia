@@ -98,32 +98,14 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
 
     if not status:
         return "Duet · describe the outcome you want · /help"
-    if status.get("launch"):
-        run_state = str(status.get("final_run_state") or "launched")
-        execution = status.get("workflow_execution") or {}
-        activity = execution.get("current_activity") or {}
-        activity_code = str(activity.get("activity_code") or "").replace("_", " ")
-        heading = f"Run · {run_state}"
-        if activity_code:
-            heading += f" · {activity_code}"
-        failure = execution.get("failure") or {}
-        if run_state == "failed" and failure:
-            message = " ".join(str(failure.get("message") or "").split())[:512]
-            owner = str(failure.get("owner") or "unknown")
-            suggestion = " ".join(
-                str(failure.get("suggested_action") or "").split()
-            )[:512]
-            return (
-                f"{heading}\n"
-                f"{failure.get('error_code', 'runtime_error')}: {message}\n"
-                f"owner: {owner} · {suggestion}\n"
-                "/episode · /logs"
-            )
-        return f"{heading} · /logs"
-
     episode_workflow = status.get("episode_workflow") or {}
     if episode_workflow:
         workflow_revision = int(episode_workflow.get("revision") or 0)
+        if status.get("state") == "sealed":
+            return (
+                f"Episode workflow r{workflow_revision} · frozen and approved\n"
+                "EpisodeBuilder materialization is the next stage · /episode"
+            )
         validation_state = str(
             episode_workflow.get("validation_state") or "draft"
         )
@@ -164,11 +146,11 @@ class OpenChiaCLI(HermesCLI):
     }
     _openchia_commands = {
         "/episode": "Inspect or tree-edit the nested Episode workflow",
-        "/duet": "Show the current design, validation, and Run state",
+        "/duet": "Show the current design and approval state",
         "/openchia": "Alias for /duet",
         "/queue": "Queue a message for the foreground Duet's next turn",
         "/bg": "Start or continue a separate background Duet",
-        "/approve": "Approve and launch the ready Episode workflow",
+        "/approve": "Freeze and approve the ready Episode workflow",
         "/review": "Explicitly review the current Episode workflow with critics",
         "/logs": "List persisted Run Episode logs",
         "/stop": "Interrupt the current turn and stop owned background work",
@@ -339,6 +321,9 @@ class OpenChiaCLI(HermesCLI):
         self._console_print("  [DUET] -- draft --> [EPISODE WORKFLOW]")
         self._console_print("                         | validate")
         self._console_print("                         v")
+        self._console_print("                  [FROZEN DESIGN]")
+        self._console_print("                         | EpisodeBuilder")
+        self._console_print("                         v")
         self._console_print("                       [RUN]")
         self._console_print()
 
@@ -353,7 +338,7 @@ class OpenChiaCLI(HermesCLI):
 
     def _print_random_tip(self) -> None:
         self._console_print(
-            "[dim]The Duet shapes the workflow; validation Runs return typed progress and logs.[/]"
+            "[dim]The Duet shapes and approves the workflow; EpisodeBuilder materializes it for a Run.[/]"
         )
 
     def _tui_background_ui_active(self) -> bool:
@@ -505,13 +490,9 @@ class OpenChiaCLI(HermesCLI):
         return lower == "/episode" or lower.startswith("/episode ")
 
     def _tui_enter_inline_command(self, event: Any, text: str, has_images: bool) -> bool:
-        """Keep Episode inspection responsive while the Duet is producing a turn."""
+        """Give every full-screen Episode view exclusive terminal ownership."""
 
-        if (
-            self._agent_running
-            and not has_images
-            and self._is_episode_command(text)
-        ):
+        if not has_images and self._is_episode_command(text):
             action = text.strip()[len("/episode") :].strip().split(maxsplit=1)
             if not action or action[0].lower() in {"show", "status", "edit"}:
                 from prompt_toolkit.application import run_in_terminal
@@ -917,14 +898,14 @@ class OpenChiaCLI(HermesCLI):
                 "  /episode          inspect the designed Episode workflow as a nested tree\n"
                 "  /episode edit     edit one bounded part of that Episode workflow\n"
                 "  /episode diff     show exact workflow changes since the last view\n"
-                "  /duet             show the current design, validation, and Run state\n"
+                "  /duet             show the current design and approval state\n"
                 "  /queue PROMPT      queue a message for the foreground Duet's next turn\n"
                 "  /bg PROMPT         start a separate background Duet\n"
                 "  /bg send ID TEXT   continue a background Duet\n"
                 "  /bg list           list background Duets open in this process\n"
                 "  /bg status ID      inspect a background Duet's state\n"
                 "  /bg close ID       close its live context while keeping persisted state\n"
-                "  /approve          approve and launch the ready Episode workflow\n"
+                "  /approve          freeze and approve the ready Episode workflow\n"
                 "  /review           explicitly run or show the Episode design critics\n"
                 "  /logs             list persisted Run Episode logs\n"
                 "  /stop             interrupt the current turn and stop owned background work\n"
@@ -951,7 +932,7 @@ class OpenChiaCLI(HermesCLI):
             try:
                 receipt = self._openchia_host.approve_current()
                 self._print_openchia(
-                    f"Approved and launched {receipt.kind}: "
+                    f"Frozen and approved {receipt.kind}: "
                     f"{receipt.artifact_id.value}"
                 )
             except Exception as exc:

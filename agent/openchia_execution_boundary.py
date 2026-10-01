@@ -7,7 +7,6 @@ from pathlib import Path
 import sys
 from typing import Any, Mapping, Optional
 
-from agent.generic_creator_runtime import IsolatedExecutorAttestation
 from agent.tool_dispatch_helpers import _extract_file_mutation_targets
 
 
@@ -18,15 +17,35 @@ _CONTROL_PLANE_MUTATORS = frozenset(
     {
         "duet_approve",
         "duet_revoke_approval",
-        "duet_submit_creator",
         "duet_freeze_workflow",
         "duet_launch_workflow",
-        "creator_contract_update",
         "approval_update",
         "capability_grant",
         "credit_configuration_update",
     }
 )
+
+
+@dataclass(frozen=True)
+class IsolatedExecutorAttestation:
+    """Host-issued evidence for the mechanical task-execution boundary."""
+
+    executor_id: str
+    filesystem_namespace_isolated: bool
+    process_namespace_isolated: bool
+    process_ownership_enforced: bool
+    host_runtime_read_only: bool
+
+    @property
+    def permits_effectful_recursion(self) -> bool:
+        return all(
+            (
+                self.filesystem_namespace_isolated,
+                self.process_namespace_isolated,
+                self.process_ownership_enforced,
+                self.host_runtime_read_only,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -154,4 +173,4 @@ class OpenChiaExecutionBoundary:
         return None
 
 
-__all__ = ["OpenChiaExecutionBoundary"]
+__all__ = ["IsolatedExecutorAttestation", "OpenChiaExecutionBoundary"]

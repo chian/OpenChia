@@ -49,52 +49,15 @@ _BASE_SECTIONS = (
     ),
 )
 
-_CREDIT_SECTION = EpisodeSection(
-    "credit_assignment",
-    "Credit assignment",
-    "Edit evidence requirements, weighted credit, and the typed return contract.",
-    (
-        ("creator_contract", "evidence_requirements"),
-        ("creator_contract", "credit_assignment"),
-        ("creator_contract", "return_contract"),
-    ),
-)
-
 _RAREFACTION_SECTION = EpisodeSection(
     "rarefaction",
     "Rarefaction",
-    "Edit the target, minimum useful yield, and stagnation observation window.",
+    (
+        "Edit the measured success target and the registered rarefaction "
+        "function that estimates future yield."
+    ),
     (("stopping",),),
 )
-
-_SAFETY_SECTION = EpisodeSection(
-    "safety",
-    "Safety bounds",
-    "Edit iteration, child, depth, and elapsed-time limits.",
-    (("safety_bounds",),),
-)
-
-_AUTHORITY_SECTION = EpisodeSection(
-    "creator_authority",
-    "Creator authority",
-    "Edit structured context and the exact capability ceiling for child Episodes.",
-    (
-        ("creator_contract", "design_context"),
-        ("creator_contract", "design_scope"),
-        ("creator_contract", "assignable_capability_names"),
-        ("creator_contract", "may_assign_creator_capability"),
-        ("creator_contract", "required_existing_evidence_ids"),
-    ),
-)
-
-_UNSET_CREATOR_SECTION = EpisodeSection(
-    "creator_contract",
-    "Creation authority · none",
-    "This is an ordinary task Episode. Replace null with a complete Creator "
-    "contract only when this Episode must design child Episodes at runtime.",
-    (("creator_contract",),),
-)
-
 
 @dataclass
 class EpisodeNode:
@@ -276,17 +239,7 @@ class EpisodeEditorModel:
         return False
 
     def sections_for(self, episode: EpisodeNode) -> tuple[EpisodeSection, ...]:
-        sections = [*_BASE_SECTIONS]
-        creator = episode.contract.get("creator_contract", self.missing_value)
-        if isinstance(creator, Mapping):
-            sections.append(_CREDIT_SECTION)
-        elif creator != self.missing_value:
-            sections.append(_UNSET_CREATOR_SECTION)
-        sections.append(_RAREFACTION_SECTION)
-        if isinstance(creator, Mapping):
-            sections.append(_AUTHORITY_SECTION)
-        sections.append(_SAFETY_SECTION)
-        return tuple(sections)
+        return (*_BASE_SECTIONS, _RAREFACTION_SECTION)
 
     def visible_entries(self) -> list[EpisodeTreeEntry]:
         entries: list[EpisodeTreeEntry] = []
@@ -601,8 +554,7 @@ class EpisodeTreeEditor:
             self.selected_section = None
             self._set_editor_text(
                 "This Episode is a navigation node.\n\n"
-                "Expand it, then choose Goal, Planning, Task, Credit assignment, "
-                "Rarefaction, or another relevant section.",
+                "Expand it, then choose Goal, Planning, Task, or Rarefaction.",
                 editable=False,
             )
             self.status = f"Selected {entry.episode.name}."

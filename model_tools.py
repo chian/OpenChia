@@ -618,12 +618,6 @@ _AGENT_LOOP_TOOLS = {
     "duet_status",
     "episode_workflow_read",
     "episode_workflow_update",
-    "duet_decision",
-    "creator_context_artifact",
-    "creator_context_read",
-    "creator_log_read",
-    "workflow_candidate",
-    "episode_progress",
 }
 
 # Legacy tool-name aliases accepted at every dispatch seam (old sessions/saved

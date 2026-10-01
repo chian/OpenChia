@@ -1159,7 +1159,7 @@ HIGH_EFFORT_SILENCE_FLOOR_SECONDS = 300.0
 
 # Known reasoning-model families can pause between substantive Responses events even when the
 # caller leaves reasoning effort at its default. A 12-second small-request idle fuse killed a
-# healthy GPT-5.6 Creator critic after it had already begun reasoning. Keep this distinct from
+        # healthy GPT-5.6 review worker after it had already begun reasoning. Keep this distinct from
 # the much larger whole-call stale floor: it protects an individual event gap without making a
 # genuinely dead stream wait ten minutes. Explicit operator values still win.
 REASONING_MODEL_EVENT_IDLE_FLOOR_SECONDS = 120.0

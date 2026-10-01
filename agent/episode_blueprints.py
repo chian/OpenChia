@@ -1,31 +1,20 @@
-"""Translate model-friendly Episode blueprints into host-owned contracts.
+"""Translate model-friendly Episode blueprints into immutable design contracts.
 
-Models describe goals, measurements, stopping rules, capabilities, and topology.
-They never mint opaque identities, select schema versions, or assert creation
-authority.  This module is the strict boundary that adds those host-owned
-fields before the immutable contracts in :mod:`agent.episode_contracts` are
-constructed.
+Models describe goals, progress credit, continuation semantics, capabilities,
+topology, and optional durable library references. Executable function binding
+belongs to EpisodeBuilder, after the Duet design has been frozen.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any, Mapping
 
 from agent.episode_contracts import (
-    EPISODE_CREATION_SCHEMA_VERSION,
-    EPISODE_WORKFLOW_SCHEMA_VERSION,
-    CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
-    EpisodeContractError,
     EpisodeCreationSpec,
     EpisodeWorkflowSpec,
-    MAX_CREATOR_CONTEXT_ARTIFACTS,
     MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
     MAX_EPISODE_GOAL_CHARS,
-    OpaqueId,
-    contract_field,
 )
-from agent.episode_progress_adapters import model_progress_adapters
 
 
 CREATION_BLUEPRINT_FIELDS = (
@@ -35,30 +24,15 @@ CREATION_BLUEPRINT_FIELDS = (
     "progress",
     "stopping",
     "execution_capability_names",
-    "creator_contract",
     "deliverable",
-    "safety_bounds",
 )
 _CREATION_FIELDS = set(CREATION_BLUEPRINT_FIELDS)
-_PROGRESS_FIELDS = {
-    "description",
-    "unit",
-    "direction",
-    "baseline",
-    "adapter_id",
-}
 _WORKFLOW_NODE_FIELDS = {
     "local_id",
     "workflow_parent_local_id",
     "contract",
 }
-_MODEL_PROGRESS_ADAPTER_IDS = tuple(
-    adapter.adapter_id for adapter in model_progress_adapters()
-)
-_BLUEPRINT_PROGRESS_ADAPTER_IDS = (
-    CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER,
-    *_MODEL_PROGRESS_ADAPTER_IDS,
-)
+_OPTIONAL_WORKFLOW_NODE_FIELDS = {"episode_reference"}
 
 
 def _object(value: object, name: str) -> Mapping[str, Any]:
@@ -76,92 +50,41 @@ def _exact_fields(record: Mapping[str, Any], expected: set[str], name: str) -> N
         )
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-
-
 def creation_blueprint_from_spec(spec: EpisodeCreationSpec) -> dict[str, Any]:
     """Project an internal contract into the schema a model may edit."""
 
     if not isinstance(spec, EpisodeCreationSpec):
         raise TypeError("creation blueprint projection requires an EpisodeCreationSpec")
     record = spec.as_record()
-    progress = dict(record["progress"])
-    progress.pop("metric_id")
     return {
         "goal": record["goal"],
         "unit": record["unit"],
         "result": record["result"],
-        "progress": progress,
+        "progress": record["progress"],
         "stopping": record["stopping"],
         "execution_capability_names": record["execution_capability_names"],
-        "creator_contract": record["creator_contract"],
         "deliverable": record["deliverable"],
-        "safety_bounds": record["safety_bounds"],
     }
 
 
 def creation_spec_from_blueprint(
     value: object,
-    *,
-    identity_namespace: str,
 ) -> EpisodeCreationSpec:
-    """Validate a blueprint and add only host-owned contract fields."""
+    """Validate a model-facing Episode design contract."""
 
     record = _object(value, "Episode creation blueprint")
     _exact_fields(record, _CREATION_FIELDS, "Episode creation blueprint")
-    with contract_field("progress"):
-        progress = _object(record["progress"], "progress blueprint")
-        _exact_fields(progress, _PROGRESS_FIELDS, "progress blueprint")
-    if not isinstance(identity_namespace, str) or not identity_namespace:
-        raise ValueError("identity_namespace must be non-empty text")
-    metric_material = _canonical_json(
-        {
-            "namespace": identity_namespace,
-            "progress": progress,
-        }
-    )
-    metric_id = OpaqueId.mint("metric", metric_material)
-    creator_contract = record["creator_contract"]
-    if (
-        creator_contract is not None
-        and progress["adapter_id"] != CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER
-    ):
-        raise EpisodeContractError(
-            "Creator blueprints must use the host-owned "
-            f"{CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER} progress adapter",
-            field_path=("progress",),
-        )
     internal = {
-        "schema_version": EPISODE_CREATION_SCHEMA_VERSION,
         "goal": record["goal"],
         "unit": record["unit"],
         "result": record["result"],
-        "progress": {"metric_id": metric_id.value, **dict(progress)},
+        "progress": record["progress"],
         "stopping": record["stopping"],
-        "can_create_episodes": creator_contract is not None,
         "execution_capability_names": record["execution_capability_names"],
-        "creator_contract": creator_contract,
         "deliverable": record["deliverable"],
-        "safety_bounds": record["safety_bounds"],
         "capability_inheritance": "inherit_parent",
     }
-    spec = EpisodeCreationSpec.from_record(internal)
-    from agent.episode_progress_adapters import validate_progress_contract
-
-    with contract_field("progress"):
-        validate_progress_contract(
-            spec.progress,
-            spec.stopping,
-            model_created=creator_contract is None,
-        )
-    return spec
+    return EpisodeCreationSpec.from_record(internal)
 
 
 def workflow_blueprint_from_spec(workflow: EpisodeWorkflowSpec) -> dict[str, Any]:
@@ -173,6 +96,11 @@ def workflow_blueprint_from_spec(workflow: EpisodeWorkflowSpec) -> dict[str, Any
                 "local_id": item.local_id,
                 "workflow_parent_local_id": item.workflow_parent_local_id,
                 "contract": creation_blueprint_from_spec(item.contract),
+                "episode_reference": (
+                    None
+                    if item.episode_reference is None
+                    else item.episode_reference.as_record()
+                ),
             }
             for item in workflow.episodes
         ]
@@ -181,10 +109,8 @@ def workflow_blueprint_from_spec(workflow: EpisodeWorkflowSpec) -> dict[str, Any
 
 def workflow_spec_from_blueprint(
     value: object,
-    *,
-    identity_namespace: str,
 ) -> EpisodeWorkflowSpec:
-    """Translate a complete workflow blueprint and derive every metric ID."""
+    """Translate one complete Duet workflow blueprint."""
 
     record = _object(value, "Episode workflow blueprint")
     _exact_fields(record, {"episodes"}, "Episode workflow blueprint")
@@ -194,21 +120,25 @@ def workflow_spec_from_blueprint(
     episodes = []
     for index, raw_node in enumerate(raw_episodes):
         node = _object(raw_node, f"workflow node {index}")
-        _exact_fields(node, _WORKFLOW_NODE_FIELDS, f"workflow node {index}")
-        local_id = node["local_id"]
+        actual_fields = set(node)
+        if not _WORKFLOW_NODE_FIELDS.issubset(actual_fields) or not actual_fields.issubset(
+            _WORKFLOW_NODE_FIELDS | _OPTIONAL_WORKFLOW_NODE_FIELDS
+        ):
+            raise ValueError(
+                f"malformed workflow node {index}: "
+                f"missing={sorted(_WORKFLOW_NODE_FIELDS - actual_fields)!r}, "
+                f"unknown={sorted(actual_fields - _WORKFLOW_NODE_FIELDS - _OPTIONAL_WORKFLOW_NODE_FIELDS)!r}"
+            )
         episodes.append(
             {
-                "local_id": local_id,
+                "local_id": node["local_id"],
                 "workflow_parent_local_id": node["workflow_parent_local_id"],
-                "contract": creation_spec_from_blueprint(
-                    node["contract"],
-                    identity_namespace=f"{identity_namespace}:{local_id}",
-                ).as_record(),
+                "contract": creation_spec_from_blueprint(node["contract"]).as_record(),
+                "episode_reference": node.get("episode_reference"),
             }
         )
     return EpisodeWorkflowSpec.from_record(
         {
-            "schema_version": EPISODE_WORKFLOW_SCHEMA_VERSION,
             "episodes": episodes,
         }
     )
@@ -237,215 +167,6 @@ EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA = {
 }
 
 
-EPISODE_SAFETY_BOUNDS_BLUEPRINT_SCHEMA = {
-    "type": ["object", "null"],
-    "properties": {
-        "max_iterations": {"type": ["integer", "null"], "minimum": 1},
-        "max_child_episodes": {"type": ["integer", "null"], "minimum": 1},
-        "max_depth": {"type": ["integer", "null"], "minimum": 1},
-        "max_elapsed_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
-    },
-    "required": [
-        "max_iterations",
-        "max_child_episodes",
-        "max_depth",
-        "max_elapsed_seconds",
-    ],
-    "additionalProperties": False,
-}
-
-
-_EVIDENCE_REQUIREMENT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "requirement_id": {"type": "string"},
-        "evidence_kind_id": {"type": "string"},
-        "acceptance_source_id": {"type": "string"},
-        "minimum_count": {"type": "integer", "minimum": 1},
-    },
-    "required": [
-        "requirement_id",
-        "evidence_kind_id",
-        "acceptance_source_id",
-        "minimum_count",
-    ],
-    "additionalProperties": False,
-}
-
-
-_CREDIT_COMPONENT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "component_id": {"type": "string"},
-        "measurement_id": {"type": "string"},
-        "direction": {"type": "string", "enum": ["increase", "decrease"]},
-        "normalization_baseline": {"type": "number"},
-        "normalization_target": {"type": "number"},
-        "weight": {"type": "number", "minimum": 0},
-        "evidence_requirement_ids": {
-            "type": "array",
-            "minItems": 1,
-            "items": {"type": "string"},
-            "uniqueItems": True,
-        },
-    },
-    "required": [
-        "component_id",
-        "measurement_id",
-        "direction",
-        "normalization_baseline",
-        "normalization_target",
-        "weight",
-        "evidence_requirement_ids",
-    ],
-    "additionalProperties": False,
-}
-
-
-_CREATOR_CONTEXT_REFERENCE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "artifact_id": {"type": "string"},
-        "content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-        "artifact_kind": {"type": "string"},
-        "schema_version": {"type": "integer", "minimum": 1},
-        "purpose": {"type": "string"},
-        "required": {"type": "boolean"},
-    },
-    "required": [
-        "artifact_id",
-        "content_hash",
-        "artifact_kind",
-        "schema_version",
-        "purpose",
-        "required",
-    ],
-    "additionalProperties": False,
-}
-
-
-_CREATOR_CONTEXT_SCHEMA = {
-    "type": "object",
-    "description": (
-        "A lossless manifest of immutable context artifacts. Artifact content is read "
-        "exactly through creator_context_read; summaries are not authoritative."
-    ),
-    "properties": {
-        "schema_version": {"const": 1},
-        "entrypoint_artifact_id": {"type": "string"},
-        "artifact_references": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": MAX_CREATOR_CONTEXT_ARTIFACTS,
-            "items": _CREATOR_CONTEXT_REFERENCE_SCHEMA,
-        },
-        "unresolved_question_ids": {
-            "type": "array",
-            "items": {"type": "string"},
-            "uniqueItems": True,
-        },
-    },
-    "required": [
-        "schema_version",
-        "entrypoint_artifact_id",
-        "artifact_references",
-        "unresolved_question_ids",
-    ],
-    "additionalProperties": False,
-}
-
-
-EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA = {
-    "type": ["object", "null"],
-    "description": (
-        "A bounded workflow-design commission. Non-null grants Creator authority; null "
-        "creates an ordinary task Episode."
-    ),
-    "properties": {
-        "design_context": _CREATOR_CONTEXT_SCHEMA,
-        "design_scope": {
-            "type": "string",
-            "maxLength": MAX_EPISODE_GOAL_CHARS,
-        },
-        "assignable_capability_names": {
-            "type": "array",
-            "items": {"type": "string"},
-            "uniqueItems": True,
-        },
-        "may_assign_creator_capability": {"type": "boolean"},
-        "evidence_requirements": {
-            "type": "array",
-            "minItems": 1,
-            "items": _EVIDENCE_REQUIREMENT_SCHEMA,
-        },
-        "required_existing_evidence_ids": {
-            "type": "array",
-            "items": {"type": "string"},
-            "uniqueItems": True,
-        },
-        "credit_assignment": {
-            "type": "object",
-            "properties": {
-                "aggregation": {
-                    "type": "string",
-                    "enum": ["normalized_weighted_sum_v1"],
-                },
-                "components": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": _CREDIT_COMPONENT_SCHEMA,
-                },
-            },
-            "required": ["aggregation", "components"],
-            "additionalProperties": False,
-        },
-        "return_contract": {
-            "type": "object",
-            "properties": {
-                "measurement_ids": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {"type": "string"},
-                    "uniqueItems": True,
-                },
-                "credit_component_ids": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {"type": "string"},
-                    "uniqueItems": True,
-                },
-                "status_fields": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": [
-                            "workflow_valid",
-                            "measurements_complete",
-                            "evidence_requirements_met",
-                            "credit_complete",
-                        ],
-                    },
-                    "uniqueItems": True,
-                },
-            },
-            "required": ["measurement_ids", "credit_component_ids", "status_fields"],
-            "additionalProperties": False,
-        },
-    },
-    "required": [
-        "design_context",
-        "design_scope",
-        "assignable_capability_names",
-        "may_assign_creator_capability",
-        "evidence_requirements",
-        "required_existing_evidence_ids",
-        "credit_assignment",
-        "return_contract",
-    ],
-    "additionalProperties": False,
-}
-
-
 EPISODE_CREATION_BLUEPRINT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -465,36 +186,23 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
             "description": "The concrete artifact, state, or typed outcome produced.",
         },
         "progress": {
-            "type": "object",
-            "description": "One host-observable numeric progress quantity.",
-            "properties": {
-                "description": {"type": "string"},
-                "unit": {"type": "string"},
-                "direction": {"type": "string", "enum": ["increase", "decrease"]},
-                "baseline": {"type": "number"},
-                "adapter_id": {
-                    "type": "string",
-                    "enum": list(_BLUEPRINT_PROGRESS_ADAPTER_IDS),
-                    "description": (
-                        "Select only a host-registered progress adapter. Creator Episodes "
-                        f"must use {CREATOR_METHOD_CREDIT_PROGRESS_ADAPTER}; ordinary task "
-                        "Episodes must use one of the other listed adapters."
-                    ),
-                },
-            },
-            "required": sorted(_PROGRESS_FIELDS),
-            "additionalProperties": False,
+            "type": "string",
+            "maxLength": MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
+            "description": (
+                "A concise code specification for the measured numeric credit or "
+                "progress signal produced after each unit. EpisodeBuilder binds its "
+                "implementation explicitly in the built Episode module."
+            ),
         },
         "stopping": {
-            "type": "object",
-            "description": "Success target and numerical no-progress behavior.",
-            "properties": {
-                "target": {"type": "number"},
-                "minimum_delta": {"type": "number", "exclusiveMinimum": 0},
-                "stagnation_observations": {"type": "integer", "minimum": 2},
-            },
-            "required": ["target", "minimum_delta", "stagnation_observations"],
-            "additionalProperties": False,
+            "type": "string",
+            "maxLength": MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
+            "description": (
+                "A concise code specification for numerical continuation and closure. "
+                "It states how measured credit and paired-incidence future-credit "
+                "estimates determine another unit or a typed stop. EpisodeBuilder "
+                "binds the referenced functions and parameters explicitly."
+            ),
         },
         "execution_capability_names": {
             "type": "array",
@@ -502,9 +210,7 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
             "items": {"type": "string"},
             "uniqueItems": True,
         },
-        "creator_contract": EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA,
         "deliverable": EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA,
-        "safety_bounds": EPISODE_SAFETY_BOUNDS_BLUEPRINT_SCHEMA,
     },
     "required": sorted(_CREATION_FIELDS),
     "additionalProperties": False,
@@ -523,6 +229,23 @@ EPISODE_WORKFLOW_BLUEPRINT_SCHEMA = {
                     "local_id": {"type": "string"},
                     "workflow_parent_local_id": {"type": ["string", "null"]},
                     "contract": EPISODE_CREATION_BLUEPRINT_SCHEMA,
+                    "episode_reference": {
+                        "oneOf": [
+                            {"type": "null"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "episode_id": {"type": "string"},
+                                },
+                                "required": ["episode_id"],
+                                "additionalProperties": False,
+                            },
+                        ],
+                        "description": (
+                            "Optional durable Episode library design to use as a "
+                            "reference while building this node."
+                        ),
+                    },
                 },
                 "required": sorted(_WORKFLOW_NODE_FIELDS),
                 "additionalProperties": False,
@@ -537,9 +260,7 @@ EPISODE_WORKFLOW_BLUEPRINT_SCHEMA = {
 __all__ = [
     "CREATION_BLUEPRINT_FIELDS",
     "EPISODE_CREATION_BLUEPRINT_SCHEMA",
-    "EPISODE_CREATOR_CONTRACT_BLUEPRINT_SCHEMA",
     "EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA",
-    "EPISODE_SAFETY_BOUNDS_BLUEPRINT_SCHEMA",
     "EPISODE_WORKFLOW_BLUEPRINT_SCHEMA",
     "creation_blueprint_from_spec",
     "creation_spec_from_blueprint",

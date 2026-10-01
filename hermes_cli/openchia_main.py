@@ -7,7 +7,7 @@ import sys
 
 OPENCHIA_HELP = """usage: openchia [options]
 
-OpenChia starts an interactive human-LLM Duet that specifies Creator Episodes,
+OpenChia starts an interactive human-LLM Duet that specifies nested Episodes,
 evaluates nested Episode workflows, and launches an approved workflow.
 
 options:

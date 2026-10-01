@@ -63,10 +63,7 @@ def test_duet_agent_surface_is_exact_and_search_cannot_expand_it(tmp_path):
         "owns": "human_facing_design_of_the_episode_workflow",
         "may_design_descendant_task_tree": True,
         "may_launch_descendant_task_tree": False,
-        "maximum_creator_depth": policy.maximum_creator_depth,
-        "implicit_root_creator": False,
         "host_validates_freezes_and_launches_approved_workflow": True,
-        "creator_contracts_apply_only_to_explicit_creator_nodes": True,
     }
 
 

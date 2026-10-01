@@ -5,8 +5,11 @@ OpenChia is based on Hermes Agent at commit
 MIT `LICENSE` (copyright 2025 Nous Research).
 
 The `method_loop/` package is adapted from `chian/nano-graphrag` at commit
-`efe161dfec7595f7168b3ea626d61011147cc130` and remains covered by its MIT
-license:
+`efe161dfec7595f7168b3ea626d61011147cc130`. The source-backed question-pipeline
+Episode collection in `episode_library/` and its numerical components in
+`numeric_control_library/` come from commit
+`546526a77bd34ca79ea16f16549640d22fa86851`. Both remain covered by the
+nano-graphrag MIT license:
 
 > MIT License
 >
@@ -29,4 +32,3 @@ license:
 > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
-

@@ -13,14 +13,12 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 __all__ = [
-    "IDENTITY_VERSION",
     "EpisodeRef",
     "normalize_structural_path",
     "StructuralPath",
     "UnitRef",
 ]
 
-IDENTITY_VERSION = "runtime_identity_v1"
 StructuralPath = tuple[tuple[str, str], ...]
 
 
@@ -56,7 +54,6 @@ def _index(name: str, value: object) -> int:
 
 def _identifier(kind: str, material: Mapping[str, object]) -> str:
     payload = {
-        "identity_version": IDENTITY_VERSION,
         "kind": kind,
         **material,
     }
@@ -93,7 +90,6 @@ class EpisodeRef:
 
     def as_record(self) -> dict:
         return {
-            "identity_version": IDENTITY_VERSION,
             "run_id": self.run_id,
             "path": [list(segment) for segment in self.path],
             "episode_id": self.episode_id,
@@ -103,9 +99,9 @@ class EpisodeRef:
     def from_record(cls, record: Mapping[str, object]) -> "EpisodeRef":
         if not isinstance(record, Mapping):
             raise TypeError("EpisodeRef state must be a mapping")
-        expected = {"identity_version", "run_id", "path", "episode_id"}
-        if set(record) != expected or record["identity_version"] != IDENTITY_VERSION:
-            raise ValueError("malformed or unsupported EpisodeRef state")
+        expected = {"run_id", "path", "episode_id"}
+        if set(record) != expected:
+            raise ValueError("malformed EpisodeRef state")
         ref = cls(run_id=record["run_id"], path=record["path"])
         if record["episode_id"] != ref.episode_id:
             raise ValueError("EpisodeRef episode_id does not match run_id and path")
@@ -136,7 +132,6 @@ class UnitRef:
 
     def as_record(self) -> dict:
         return {
-            "identity_version": IDENTITY_VERSION,
             "episode_id": self.episode_id,
             "unit_index": self.unit_index,
             "unit_id": self.unit_id,
@@ -146,9 +141,9 @@ class UnitRef:
     def from_record(cls, record: Mapping[str, object]) -> "UnitRef":
         if not isinstance(record, Mapping):
             raise TypeError("UnitRef state must be a mapping")
-        expected = {"identity_version", "episode_id", "unit_index", "unit_id"}
-        if set(record) != expected or record["identity_version"] != IDENTITY_VERSION:
-            raise ValueError("malformed or unsupported UnitRef state")
+        expected = {"episode_id", "unit_index", "unit_id"}
+        if set(record) != expected:
+            raise ValueError("malformed UnitRef state")
         ref = cls(record["episode_id"], record["unit_index"])
         if record["unit_id"] != ref.unit_id:
             raise ValueError("UnitRef unit_id does not match episode_id and unit_index")
