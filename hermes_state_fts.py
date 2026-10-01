@@ -325,13 +325,30 @@ class SessionFtsSetupMixin:
             except sqlite3.OperationalError:
                 pass
 
-    def _ensure_fts_schema(self, cursor: sqlite3.Cursor, table_name: str, ddl: str) -> bool:
+    def _ensure_fts_schema(
+        self,
+        cursor: sqlite3.Cursor,
+        table_name: str,
+        ddl: str,
+        *,
+        transactional: bool = False,
+    ) -> bool:
+        """Create *table_name* (and its triggers) from *ddl*.
+
+        ``transactional=True`` runs the script statement by statement so it stays inside
+        the caller's open transaction or savepoint. The default ``executescript`` path
+        issues an implicit COMMIT first, which silently ends any enclosing transaction and
+        discards its savepoints — fatal when the caller intends to roll the DDL back.
+        """
         status = self._fts_table_probe(cursor, table_name)
         if status is None:
             return False
         try:
             # Run even when the table exists: recreates triggers a no-FTS5 runtime dropped.
-            cursor.executescript(ddl)
+            if transactional:
+                self._execute_ddl_script_transactional(cursor, ddl)
+            else:
+                cursor.executescript(ddl)
             return True
         except sqlite3.OperationalError as exc:
             if not self._is_fts5_unavailable_error(exc):
