@@ -379,6 +379,39 @@ class RefinementTarget:
         return target
 
 
+def is_implementation_directive_target(target: RefinementTarget) -> bool:
+    """Return whether ``target`` is an executable Builder refinement scope.
+
+    Artifact identity, stable-target membership, and Episode membership are
+    validated by the transition that owns those facts.  This predicate owns
+    only the shared structural vocabulary used by proposal and build
+    admission.
+    """
+
+    if not isinstance(target, RefinementTarget):
+        return False
+    if target.layer is not RefinementTargetLayer.MATERIALIZATION_IMPLEMENTATION:
+        return False
+    if target.episode_local_id is None:
+        return target.json_pointer == "/workflow_global"
+    episode_root = "/episodes/" + target.episode_local_id.replace(
+        "~", "~0"
+    ).replace("/", "~1")
+    if target.json_pointer == episode_root:
+        return True
+    if target.json_pointer in {
+        episode_root + "/parts/node_plan",
+        episode_root + "/parts/parent_owned_edges",
+        episode_root + "/parts/emitted_module",
+    }:
+        return True
+    source_symbol_root = episode_root + "/source_symbols/"
+    return (
+        target.json_pointer.startswith(source_symbol_root)
+        and target.json_pointer != source_symbol_root
+    )
+
+
 @dataclass(frozen=True)
 class DuetWorkspaceNote:
     """Immutable human prose anchored to one exact persisted workspace part.
@@ -836,4 +869,5 @@ __all__ = [
     "RefinementProposal",
     "RefinementTarget",
     "RefinementTargetLayer",
+    "is_implementation_directive_target",
 ]

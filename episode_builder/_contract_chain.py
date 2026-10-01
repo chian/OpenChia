@@ -22,6 +22,7 @@ from iterative_episode_refiner.contracts import (
     RefinementDecision,
     RefinementProposal,
     RefinementTargetLayer,
+    is_implementation_directive_target,
 )
 
 from ._contract_base import (
@@ -311,18 +312,17 @@ class ApprovedBuildRequest:
                         "implementation directive target is not the predecessor "
                         "Materialized Specification"
                     )
-                if target.episode_local_id is None:
-                    if target.json_pointer != "/workflow_global":
-                        raise ValueError(
-                            "workflow-wide implementation directive requires "
-                            "the exact workflow-global target"
-                        )
-                elif (
-                    target.episode_local_id not in episodes_by_id
-                    or not target.json_pointer
+                if not is_implementation_directive_target(target):
+                    raise ValueError(
+                        "implementation directive does not target an executable "
+                        "Materialized Specification scope"
+                    )
+                if (
+                    target.episode_local_id is not None
+                    and target.episode_local_id not in episodes_by_id
                 ):
                     raise ValueError(
-                        "implementation directive requires an exact Episode part"
+                        "implementation directive names an unknown Episode"
                     )
             for note in ordered_notes:
                 target = note.target

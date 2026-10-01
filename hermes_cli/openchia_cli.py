@@ -6,7 +6,6 @@ import json
 import time
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,95 +23,11 @@ from hermes_cli.openchia_commands import (
 )
 
 
-_MISSING = object()
 _MISSING_EPISODE_VALUE = "<OPENCHIA: value required>"
-
-
-@dataclass
-class _EpisodeViewState:
-    """Last authoritative Workspace artifacts observed for one Duet."""
-
-    architecture_revision: int | None = None
-    architecture_configuration: dict[str, Any] | None = None
-    architecture_last_changes: (
-        tuple[int, int, tuple[dict[str, Any], ...]] | None
-    ) = None
-    materialized_id: str | None = None
-    materialized_document: dict[str, Any] | None = None
-    materialized_last_changes: (
-        tuple[str, str, tuple[dict[str, Any], ...]] | None
-    ) = None
 
 
 class _HostPreparedDuetTurn(str):
     """An ordinary turn whose human instruction is already host-persisted."""
-
-
-def episode_configuration_changes(
-    before: Mapping[str, Any],
-    after: Mapping[str, Any],
-) -> tuple[dict[str, Any], ...]:
-    """Return stable JSON-pointer changes between two Architectures."""
-
-    changes: list[dict[str, Any]] = []
-
-    def pointer_token(value: object) -> str:
-        return str(value).replace("~", "~0").replace("/", "~1")
-
-    def stable_list_map(value: list[Any]) -> dict[str, Any] | None:
-        for identity_field in ("local_id", "key", "target_id", "note_id"):
-            if not all(
-                isinstance(item, Mapping)
-                and isinstance(item.get(identity_field), str)
-                for item in value
-            ):
-                continue
-            result = {str(item[identity_field]): item for item in value}
-            if len(result) == len(value):
-                return result
-        return None
-
-    def visit(path: str, old: Any, new: Any) -> None:
-        if isinstance(old, Mapping) and isinstance(new, Mapping):
-            for key in sorted(set(old) | set(new)):
-                child_path = path + "/" + pointer_token(key)
-                visit(
-                    child_path,
-                    old.get(key, _MISSING),
-                    new.get(key, _MISSING),
-                )
-            return
-        if isinstance(old, list) and isinstance(new, list):
-            old_items = stable_list_map(old)
-            new_items = stable_list_map(new)
-            if old_items is not None and new_items is not None:
-                visit(path, old_items, new_items)
-                return
-            for index in range(max(len(old), len(new))):
-                child_path = path + "/" + str(index)
-                visit(
-                    child_path,
-                    old[index] if index < len(old) else _MISSING,
-                    new[index] if index < len(new) else _MISSING,
-                )
-            return
-        if old is not _MISSING and new is not _MISSING and old == new:
-            return
-        if old is _MISSING:
-            kind = "added"
-        elif new is _MISSING:
-            kind = "removed"
-        else:
-            kind = "changed"
-        change = {"path": path or "/", "kind": kind}
-        if old is not _MISSING:
-            change["before"] = old
-        if new is not _MISSING:
-            change["after"] = new
-        changes.append(change)
-
-    visit("", before, after)
-    return tuple(changes)
 
 
 class OpenChiaCLI(
@@ -178,7 +93,6 @@ class OpenChiaCLI(
         self._openchia_host: OpenChiaHost | None = None
         self._openchia_status_cache: dict[str, Any] | None = None
         self._openchia_status_at = 0.0
-        self._episode_views: dict[str, _EpisodeViewState] = {}
         self._openchia_tearing_down = False
         super().__init__(**kwargs)
         self.busy_input_mode = "queue"
@@ -562,182 +476,6 @@ class OpenChiaCLI(
                 lines.append(f"      after:  {self._json_value(change['after'])}")
         return "\n".join(lines)
 
-    def _current_episode_changes(
-        self,
-        snapshot: Mapping[str, Any],
-        view_state: _EpisodeViewState,
-    ) -> tuple[int, int, tuple[dict[str, Any], ...]]:
-        revision = int(snapshot["revision"])
-        previous_revision = view_state.architecture_revision
-        previous = view_state.architecture_configuration
-        if previous_revision is None or previous is None:
-            return revision, revision, ()
-        changes = episode_configuration_changes(
-            previous,
-            snapshot["configuration"],
-        )
-        return previous_revision, revision, changes
-
-    @staticmethod
-    def _materialized_diff_document(
-        snapshot: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Project stable implementation content without per-build identities."""
-
-        def target_record(value: object) -> dict[str, Any]:
-            target = value if isinstance(value, Mapping) else {}
-            return {
-                "json_pointer": target.get("json_pointer"),
-                "episode_local_id": target.get("episode_local_id"),
-            }
-
-        def part_record(value: object) -> dict[str, Any]:
-            part = value if isinstance(value, Mapping) else {}
-            key = part.get("key")
-            result = {
-                "key": key,
-                "part_hash": part.get("part_hash"),
-                "target": target_record(part.get("target")),
-            }
-            if key == "workflow_overview":
-                declaration = part.get("declaration")
-                stable_declaration = (
-                    dict(declaration)
-                    if isinstance(declaration, Mapping)
-                    else {}
-                )
-                for volatile in (
-                    "specification_id",
-                    "content_hash",
-                    "build_request_id",
-                    "build_attempt_id",
-                    "plan_id",
-                ):
-                    stable_declaration.pop(volatile, None)
-                result.pop("part_hash", None)
-                result["declaration"] = stable_declaration
-            return result
-
-        global_parts = snapshot.get("global_parts")
-        episodes = snapshot.get("episodes")
-        return {
-            "workflow_hash": snapshot.get("workflow_hash"),
-            "status": snapshot.get("status"),
-            "global_parts": [
-                part_record(value)
-                for value in (
-                    global_parts if isinstance(global_parts, list) else []
-                )
-            ],
-            "episodes": [
-                {
-                    "local_id": episode.get("local_id"),
-                    "name": episode.get("name"),
-                    "parent_local_id": episode.get("parent_local_id"),
-                    "target": target_record(episode.get("target")),
-                    "parts": [
-                        part_record(value)
-                        for value in (
-                            episode.get("parts")
-                            if isinstance(episode.get("parts"), list)
-                            else []
-                        )
-                    ],
-                }
-                for episode in (
-                    episodes if isinstance(episodes, list) else []
-                )
-                if isinstance(episode, Mapping)
-            ],
-        }
-
-    def _current_materialized_changes(
-        self,
-        snapshot: Mapping[str, Any],
-        view_state: _EpisodeViewState,
-    ) -> tuple[str, str, tuple[dict[str, Any], ...]]:
-        identity = str(snapshot["anchor_artifact_id"])
-        document = self._materialized_diff_document(snapshot)
-        if (
-            view_state.materialized_id is None
-            or view_state.materialized_document is None
-        ):
-            return identity, identity, ()
-        changes = episode_configuration_changes(
-            view_state.materialized_document,
-            document,
-        )
-        return view_state.materialized_id, identity, changes
-
-    @staticmethod
-    def _episode_view_key(host: OpenChiaHost) -> str:
-        return host.identity.duet_id.value
-
-    def _episode_view_state(self, host: OpenChiaHost) -> _EpisodeViewState:
-        return self._episode_views.setdefault(
-            self._episode_view_key(host),
-            _EpisodeViewState(),
-        )
-
-    def _remember_episode_view(
-        self,
-        host: OpenChiaHost,
-        workspace: Mapping[str, Any],
-    ) -> None:
-        view_state = self._episode_view_state(host)
-        architecture = workspace["architecture_snapshot"]
-        view_state.architecture_revision = int(architecture["revision"])
-        view_state.architecture_configuration = json.loads(
-            json.dumps(architecture["configuration"], ensure_ascii=False)
-        )
-        materialized = workspace.get("materialized_snapshot")
-        if isinstance(materialized, Mapping):
-            view_state.materialized_id = str(
-                materialized["anchor_artifact_id"]
-            )
-            view_state.materialized_document = json.loads(
-                json.dumps(
-                    self._materialized_diff_document(materialized),
-                    ensure_ascii=False,
-                )
-            )
-
-    def _visible_episode_changes(
-        self,
-        host: OpenChiaHost,
-        snapshot: Mapping[str, Any],
-    ) -> tuple[int, int, tuple[dict[str, Any], ...]]:
-        view_state = self._episode_view_state(host)
-        changes = self._current_episode_changes(snapshot, view_state)
-        if changes[2]:
-            view_state.architecture_last_changes = changes
-        elif changes[0] != changes[1]:
-            view_state.architecture_last_changes = changes
-        elif (
-            changes[0] == changes[1]
-            and view_state.architecture_last_changes is not None
-        ):
-            changes = view_state.architecture_last_changes
-        return changes
-
-    def _visible_materialized_changes(
-        self,
-        host: OpenChiaHost,
-        snapshot: Mapping[str, Any],
-    ) -> tuple[str, str, tuple[dict[str, Any], ...]]:
-        view_state = self._episode_view_state(host)
-        changes = self._current_materialized_changes(snapshot, view_state)
-        if changes[2]:
-            view_state.materialized_last_changes = changes
-        elif changes[0] != changes[1]:
-            view_state.materialized_last_changes = changes
-        elif (
-            changes[0] == changes[1]
-            and view_state.materialized_last_changes is not None
-        ):
-            changes = view_state.materialized_last_changes
-        return changes
-
     @staticmethod
     def _workspace_followup_prompt(
         note_ids: tuple[str, ...],
@@ -776,28 +514,12 @@ class OpenChiaCLI(
             duet_turn_active = bool(host is None and self._agent_running)
         workspace = active_host.episode_workspace_snapshot()
         architecture = workspace["architecture_snapshot"]
-        architecture_changes = self._visible_episode_changes(
-            active_host,
-            architecture,
-        )
         architecture_changed_paths = tuple(
-            sorted(
-                {
-                    *(item["path"] for item in architecture_changes[2]),
-                    *workspace.get("changed_paths", ()),
-                }
-            )
+            workspace.get("changed_paths", ())
         )
         materialized = workspace["materialized_snapshot"]
-        materialized_changes = (
-            None
-            if materialized is None
-            else self._visible_materialized_changes(active_host, materialized)
-        )
-        materialized_changed_paths = (
-            ()
-            if materialized_changes is None
-            else tuple(item["path"] for item in materialized_changes[2])
+        materialized_changed_paths = tuple(
+            workspace.get("materialized_changed_paths", ())
         )
         from hermes_cli.openchia_episode_editor import open_episode_workspace
 
@@ -806,11 +528,12 @@ class OpenChiaCLI(
             materialized_snapshot=materialized,
             notes=workspace["notes"],
             save_note=active_host.record_workspace_note,
+            notes_enabled=bool(workspace.get("notes_enabled", True)),
             architecture_changed_paths=architecture_changed_paths,
             materialized_changed_paths=materialized_changed_paths,
             edit_architecture=(edit_architecture and not duet_turn_active),
             architecture_edit_notice=(
-                "Duet turn active: Architecture edits wait; browsing and notes remain available."
+                "Duet turn active: Architecture edits wait; browsing remains available."
                 if edit_architecture and duet_turn_active
                 else None
             ),
@@ -840,7 +563,6 @@ class OpenChiaCLI(
                     f"Saved Workflow Architecture revision {receipt['revision']} "
                     f"({receipt['artifact_id']})."
                 )
-        self._remember_episode_view(active_host, workspace)
         if result.saved_note_ids:
             prompt = self._workspace_followup_prompt(
                 result.saved_note_ids,
@@ -863,32 +585,24 @@ class OpenChiaCLI(
     ) -> None:
         active_host = self._episode_host() if host is None else host
         workspace = active_host.episode_workspace_snapshot()
-        architecture = self._visible_episode_changes(
-            active_host,
-            workspace["architecture_snapshot"],
-        )
         sections = [
             self._render_workspace_changes(
                 "Architecture",
-                f"r{architecture[0]}",
-                f"r{architecture[1]}",
-                architecture[2],
+                workspace.get("architecture_change_from"),
+                workspace.get("architecture_change_to"),
+                tuple(workspace.get("architecture_changes", ())),
             )
         ]
         materialized = workspace["materialized_snapshot"]
         if materialized is None:
             sections.append("Materialized Specification: not available")
         else:
-            changes = self._visible_materialized_changes(
-                active_host,
-                materialized,
-            )
             sections.append(
                 self._render_workspace_changes(
                     "Materialized Specification",
-                    changes[0],
-                    changes[1],
-                    changes[2],
+                    workspace.get("materialized_change_from"),
+                    workspace.get("materialized_change_to"),
+                    tuple(workspace.get("materialized_changes", ())),
                 )
             )
         self._print_openchia("\n\n".join(sections))
@@ -976,5 +690,4 @@ class OpenChiaCLI(
 
 __all__ = [
     "OpenChiaCLI",
-    "episode_configuration_changes",
 ]

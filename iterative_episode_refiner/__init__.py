@@ -11,6 +11,7 @@ from .contracts import (
     RefinementProposal,
     RefinementTarget,
     RefinementTargetLayer,
+    is_implementation_directive_target,
 )
 from .service import IterativeEpisodeRefiner
 
@@ -27,4 +28,5 @@ __all__ = [
     "RefinementProposal",
     "RefinementTarget",
     "RefinementTargetLayer",
+    "is_implementation_directive_target",
 ]

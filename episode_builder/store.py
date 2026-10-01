@@ -24,6 +24,7 @@ from ._contract_chain import (
     BuildAdmissionReport,
     BuildManifest,
     WorkflowMaterializationPlan,
+    is_implementation_directive_target,
 )
 
 if TYPE_CHECKING:
@@ -259,22 +260,11 @@ class BuildStore:
                             raise ValueError(
                                 "refinement target Episode ID and pointer disagree"
                             )
-                editable_suffixes = {
-                    "/parts/node_plan",
-                    "/parts/parent_owned_edges",
-                    "/parts/emitted_module",
-                }
                 for target in directive_targets:
-                    if not (
-                        any(
-                            target.json_pointer.endswith(suffix)
-                            for suffix in editable_suffixes
-                        )
-                        or "/source_symbols/" in target.json_pointer
-                    ):
+                    if not is_implementation_directive_target(target):
                         raise ValueError(
-                            "implementation directive target is not an editable "
-                            "Materialized Specification part"
+                            "implementation directive does not target an executable "
+                            "Materialized Specification scope"
                         )
         return self._put_record(
             "requests",

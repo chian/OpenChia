@@ -106,6 +106,7 @@ class _EpisodeWorkspace:
         materialized_changed_paths: Sequence[str],
         edit_architecture: bool,
         architecture_edit_notice: Optional[str],
+        notes_enabled: bool,
         save_note: SaveNoteCallback,
         missing_value: str,
     ) -> None:
@@ -113,6 +114,8 @@ class _EpisodeWorkspace:
             raise ValueError("save_note must be callable")
         if not isinstance(edit_architecture, bool):
             raise ValueError("edit_architecture must be boolean")
+        if not isinstance(notes_enabled, bool):
+            raise ValueError("notes_enabled must be boolean")
         for name, paths in (
             ("architecture_changed_paths", architecture_changed_paths),
             ("materialized_changed_paths", materialized_changed_paths),
@@ -144,6 +147,7 @@ class _EpisodeWorkspace:
             )
         self.views = tuple(views)
         self.notes = list(notes_from_records(notes))
+        self.notes_enabled = notes_enabled
         self.save_note_callback = save_note
         self.allow_architecture_edit = (
             edit_architecture and self.architecture.host_editable
@@ -165,6 +169,10 @@ class _EpisodeWorkspace:
         self._loaded_detail_text = ""
         if architecture_edit_notice is not None:
             self._status = architecture_edit_notice
+        elif not self.notes_enabled:
+            self._status = (
+                "Browsing is available; notes activate after this Architecture is materialized."
+            )
         elif self.allow_architecture_edit:
             self._status = "Architecture editing is available."
         elif edit_architecture:
@@ -235,7 +243,9 @@ class _EpisodeWorkspace:
             multiline=True,
             wrap_lines=True,
             prompt="Note> ",
-            read_only=Condition(lambda: self._detail().target is None),
+            read_only=Condition(
+                lambda: not self.notes_enabled or self._detail().target is None
+            ),
         )
         self.status_control = FormattedTextControl(self._status_fragments)
         self.status_window = Window(
@@ -254,7 +264,9 @@ class _EpisodeWorkspace:
             )
         self.close_button = Button("Close", handler=self._close)
 
-        button_items: list[Any] = [self.save_note_button]
+        button_items: list[Any] = []
+        if self.notes_enabled:
+            button_items.append(self.save_note_button)
         if self.save_architecture_button is not None:
             button_items.append(self.save_architecture_button)
         button_items.append(self.close_button)
@@ -611,6 +623,12 @@ class _EpisodeWorkspace:
     def _save_note(self) -> None:
         if not self._commit_detail_edit():
             return
+        if not self.notes_enabled:
+            self._set_status(
+                "Notes become available after this Architecture is materialized.",
+                error=True,
+            )
+            return
         target = self._detail().target
         if target is None:
             self._set_status(
@@ -812,6 +830,13 @@ class _EpisodeWorkspace:
         return fragments
 
     def _notes_fragments(self) -> StyleAndTextTuples:
+        if not self.notes_enabled:
+            return [
+                (
+                    "class:notes.empty",
+                    "Notes become available after this Architecture is materialized.",
+                )
+            ]
         target = self._detail().target
         notes = self._notes_for_target(target)
         if target is None:
@@ -837,9 +862,12 @@ class _EpisodeWorkspace:
         return fragments
 
     def _status_fragments(self) -> StyleAndTextTuples:
-        architecture_help = (
-            " · Ctrl-S save architecture" if self.allow_architecture_edit else ""
-        )
+        actions = []
+        if self.notes_enabled:
+            actions.append("Ctrl-N save note")
+        if self.allow_architecture_edit:
+            actions.append("Ctrl-S save architecture")
+        actions.append("Esc back/close")
         return [
             (
                 "class:status.error" if self._status_is_error else "class:status",
@@ -849,7 +877,7 @@ class _EpisodeWorkspace:
                 "class:help",
                 "\nCtrl-Tab/Shift-Ctrl-Tab view · Tab/Shift-Tab pane · "
                 "arrows navigate · Enter open · "
-                f"Ctrl-N save note{architecture_help} · Esc back/close",
+                + " · ".join(actions),
             ),
         ]
 
@@ -860,9 +888,9 @@ class _EpisodeWorkspace:
             self.detail_tabs_window,
             self.detail_area,
             self.notes_window,
-            self.note_input,
-            self.save_note_button,
         ]
+        if self.notes_enabled:
+            items.extend((self.note_input, self.save_note_button))
         if self.save_architecture_button is not None:
             items.append(self.save_architecture_button)
         items.append(self.close_button)
@@ -994,7 +1022,8 @@ class _EpisodeWorkspace:
         @bindings.add("right", filter=has_focus(self.notes_window))
         @bindings.add("enter", filter=has_focus(self.notes_window))
         def _notes_to_input(event: Any) -> None:
-            get_app().layout.focus(self.note_input)
+            if self.notes_enabled:
+                get_app().layout.focus(self.note_input)
 
         for index in range(min(9, len(self.views))):
 
@@ -1046,6 +1075,7 @@ def open_episode_workspace(
     materialized_snapshot: Optional[Mapping[str, Any]],
     notes: Sequence[Mapping[str, Any]],
     save_note: SaveNoteCallback,
+    notes_enabled: bool = True,
     architecture_changed_paths: Sequence[str] = (),
     materialized_changed_paths: Sequence[str] = (),
     edit_architecture: bool = False,
@@ -1070,6 +1100,7 @@ def open_episode_workspace(
         materialized_changed_paths=materialized_changed_paths,
         edit_architecture=edit_architecture,
         architecture_edit_notice=architecture_edit_notice,
+        notes_enabled=notes_enabled,
         save_note=save_note,
         missing_value=missing_value,
     )

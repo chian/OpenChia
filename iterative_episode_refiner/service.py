@@ -46,6 +46,7 @@ from .contracts import (
     RefinementProposal,
     RefinementTarget,
     RefinementTargetLayer,
+    is_implementation_directive_target,
 )
 
 
@@ -715,6 +716,11 @@ class IterativeEpisodeRefiner:
                 )
         for directive in proposal.implementation_directives:
             self._validate_target_against_baseline(directive.target, baseline)
+            if not is_implementation_directive_target(directive.target):
+                raise DuetProtocolError(
+                    "implementation directive does not target an executable "
+                    "Materialized Specification scope"
+                )
         self.store.put_artifacts_with_events(
             artifacts=(
                 _artifact_spec(

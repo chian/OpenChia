@@ -56,6 +56,7 @@ _INITIAL_EDITABLE_STATES = frozenset(
         DuetDesignState.AWAITING_WORKFLOW_APPROVAL.value,
     }
 )
+_MISSING = object()
 
 
 class WorkspaceAuthorityReader(Protocol):
@@ -463,6 +464,162 @@ def materialized_target_index(
     return index
 
 
+def _materialized_diff_document(
+    snapshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project stable implementation content without per-build identities."""
+
+    def target_record(value: object) -> dict[str, Any]:
+        target = value if isinstance(value, Mapping) else {}
+        return {
+            "json_pointer": target.get("json_pointer"),
+            "episode_local_id": target.get("episode_local_id"),
+        }
+
+    def part_record(value: object) -> dict[str, Any]:
+        part = value if isinstance(value, Mapping) else {}
+        key = part.get("key")
+        result = {
+            "key": key,
+            "part_hash": part.get("part_hash"),
+            "target": target_record(part.get("target")),
+        }
+        if key == "workflow_overview":
+            declaration = part.get("declaration")
+            stable_declaration = (
+                dict(declaration) if isinstance(declaration, Mapping) else {}
+            )
+            for volatile in (
+                "specification_id",
+                "content_hash",
+                "build_request_id",
+                "build_attempt_id",
+                "plan_id",
+            ):
+                stable_declaration.pop(volatile, None)
+            result.pop("part_hash", None)
+            result["declaration"] = stable_declaration
+        return result
+
+    global_parts = snapshot.get("global_parts")
+    episodes = snapshot.get("episodes")
+    return {
+        "workflow_hash": snapshot.get("workflow_hash"),
+        "status": snapshot.get("status"),
+        "global_parts": [
+            part_record(value)
+            for value in (
+                global_parts if isinstance(global_parts, list) else []
+            )
+        ],
+        "episodes": [
+            {
+                "local_id": episode.get("local_id"),
+                "name": episode.get("name"),
+                "parent_local_id": episode.get("parent_local_id"),
+                "target": target_record(episode.get("target")),
+                "parts": [
+                    part_record(value)
+                    for value in (
+                        episode.get("parts")
+                        if isinstance(episode.get("parts"), list)
+                        else []
+                    )
+                ],
+            }
+            for episode in (
+                episodes if isinstance(episodes, list) else []
+            )
+            if isinstance(episode, Mapping)
+        ],
+    }
+
+
+def _projection_changes(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    """Return stable identity-addressed changes between two projections."""
+
+    changes: list[dict[str, Any]] = []
+
+    def stable_list_map(value: list[Any]) -> Optional[dict[str, Any]]:
+        for identity_field in ("local_id", "key"):
+            if not all(
+                isinstance(item, Mapping)
+                and isinstance(item.get(identity_field), str)
+                for item in value
+            ):
+                continue
+            result = {str(item[identity_field]): item for item in value}
+            if len(result) == len(value):
+                return result
+        return None
+
+    def visit(path: str, old: object, new: object) -> None:
+        if isinstance(old, Mapping) and isinstance(new, Mapping):
+            for key in sorted(set(old) | set(new)):
+                child_path = path + "/" + _pointer_token(str(key))
+                visit(
+                    child_path,
+                    old.get(key, _MISSING),
+                    new.get(key, _MISSING),
+                )
+            return
+        if isinstance(old, list) and isinstance(new, list):
+            old_items = stable_list_map(old)
+            new_items = stable_list_map(new)
+            if old_items is not None and new_items is not None:
+                visit(path, old_items, new_items)
+                return
+            for index in range(max(len(old), len(new))):
+                child_path = path + "/" + str(index)
+                visit(
+                    child_path,
+                    old[index] if index < len(old) else _MISSING,
+                    new[index] if index < len(new) else _MISSING,
+                )
+            return
+        if old is not _MISSING and new is not _MISSING and old == new:
+            return
+        if old is _MISSING:
+            kind = "added"
+        elif new is _MISSING:
+            kind = "removed"
+        else:
+            kind = "changed"
+        change: dict[str, Any] = {"path": path or "/", "kind": kind}
+        if old is not _MISSING:
+            change["before"] = _json_copy(old)
+        if new is not _MISSING:
+            change["after"] = _json_copy(new)
+        changes.append(change)
+
+    visit("", before, after)
+    return tuple(changes)
+
+
+def architecture_projection_changes(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    """Return exact changes between two persisted Architecture documents."""
+
+    return _projection_changes(before, after)
+
+
+def materialized_projection_changes(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    """Return stable part-addressed changes between two materializations."""
+
+    return _projection_changes(
+        _materialized_diff_document(before),
+        _materialized_diff_document(after),
+    )
+
+
 class RefinementWorkspace:
     """Exact Architecture/Materialized views over one captured authority head."""
 
@@ -612,29 +769,162 @@ class RefinementWorkspace:
             "pending_refinement": pending_refinement,
         }
 
-    def _architecture_changed_paths(
+    @staticmethod
+    def _frozen_architecture(frozen: FrozenDuetWorkflow) -> dict[str, Any]:
+        return {
+            "source_artifact_id": frozen.artifact_id.value,
+            "content_hash": frozen.workflow_hash.value,
+            "workflow_hash": frozen.workflow_hash.value,
+            "revision": frozen.revision,
+            "configuration": workflow_blueprint_from_spec(frozen.workflow),
+        }
+
+    def _previous_initial_architecture(
         self,
-        status: Optional[Mapping[str, Any]] = None,
-    ) -> tuple[str, ...]:
-        if status is None:
-            status = self.authority.duet_status(self.identity.duet_id)
-        active = status.get("active_refinement")
-        decision: Optional[RefinementDecision] = None
-        if isinstance(active, Mapping) and isinstance(
-            active.get("decision_artifact_id"),
-            str,
+        current: Mapping[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        """Resolve the immutable initial draft immediately before ``current``."""
+
+        current_revision = current.get("revision")
+        if not isinstance(current_revision, int):
+            raise RefinementWorkspaceError(
+                "current Architecture revision is malformed"
+            )
+        candidates: list[Mapping[str, Any]] = []
+        for artifact in self.store.artifacts_by_kind(
+            duet_id=self.identity.duet_id.value,
+            kind=EPISODE_WORKFLOW_DRAFT_ARTIFACT_KIND,
         ):
-            artifact = self.refiner.read_artifact(
-                self.identity.duet_id,
-                OpaqueId(active["decision_artifact_id"]),
+            record = artifact.get("record")
+            if not isinstance(record, Mapping):
+                raise RefinementWorkspaceError(
+                    "stored Architecture draft is malformed"
+                )
+            revision = record.get("revision")
+            if (
+                record.get("refinement_id") is None
+                and isinstance(revision, int)
+                and revision < current_revision
+            ):
+                candidates.append(artifact)
+        if not candidates:
+            return None
+        prior_revision = max(
+            int(_mapping(item["record"], "Architecture draft")["revision"])
+            for item in candidates
+        )
+        nearest = [
+            item
+            for item in candidates
+            if _mapping(item["record"], "Architecture draft").get("revision")
+            == prior_revision
+        ]
+        if len(nearest) != 1:
+            raise RefinementWorkspaceError(
+                "previous Architecture revision is ambiguous"
             )
-            decision = RefinementDecision.from_record(artifact["record"])
-        elif status["state"] == DuetDesignState.SEALED.value:
-            authorization = self.authority.resolve_current_build_authorization(
-                self.identity.duet_id
+        artifact_id = nearest[0].get("artifact_id")
+        if not isinstance(artifact_id, str):
+            raise RefinementWorkspaceError(
+                "previous Architecture identity is malformed"
             )
-            decision = authorization.refinement_decision
-        return () if decision is None else decision.changed_workflow_paths
+        draft = self.authority.read_episode_workflow_draft(
+            self.identity.duet_id,
+            OpaqueId(artifact_id),
+        )
+        if (
+            draft.get("artifact_id") != artifact_id
+            or draft.get("content_hash") != nearest[0].get("content_hash")
+            or draft.get("revision") != prior_revision
+        ):
+            raise RefinementWorkspaceError(
+                "previous Architecture draft differs from its artifact"
+            )
+        return {
+            "source_artifact_id": draft["artifact_id"],
+            "content_hash": draft["content_hash"],
+            "workflow_hash": draft["workflow_hash"],
+            "revision": draft["revision"],
+            "configuration": draft["workflow"],
+        }
+
+    def _architecture_comparison(
+        self,
+        *,
+        architecture: Mapping[str, Any],
+        baseline: Optional[RefinementBaseline],
+        predecessor_baseline: Optional[RefinementBaseline],
+        authority_head_approval_id: Optional[str],
+    ) -> tuple[
+        str,
+        str,
+        tuple[dict[str, Any], ...],
+    ]:
+        """Compare the latest Architecture with its persisted predecessor."""
+
+        before: Optional[dict[str, Any]] = None
+        after: Mapping[str, Any] = architecture
+        pending = architecture.get("pending_refinement")
+        candidate = (
+            pending.get("candidate_architecture")
+            if isinstance(pending, Mapping)
+            else None
+        )
+        if authority_head_approval_id is None:
+            before = self._previous_initial_architecture(architecture)
+        elif isinstance(candidate, Mapping):
+            if baseline is None:
+                raise RefinementWorkspaceError(
+                    "pending Architecture refinement has no predecessor baseline"
+                )
+            _approval, frozen, _authority = (
+                self.authority.verify_workflow_approval(
+                    baseline.workflow_approval_id
+                )
+            )
+            if (
+                frozen.artifact_id != baseline.frozen_workflow_artifact_id
+                or frozen.workflow_hash != baseline.workflow_hash
+            ):
+                raise RefinementWorkspaceError(
+                    "pending Architecture predecessor is stale"
+                )
+            before = self._frozen_architecture(frozen)
+            after = candidate
+        elif predecessor_baseline is not None:
+            _approval, frozen, _authority = (
+                self.authority.verify_workflow_approval(
+                    predecessor_baseline.workflow_approval_id
+                )
+            )
+            if (
+                frozen.artifact_id
+                != predecessor_baseline.frozen_workflow_artifact_id
+                or frozen.workflow_hash != predecessor_baseline.workflow_hash
+            ):
+                raise RefinementWorkspaceError(
+                    "refinement predecessor workflow is stale"
+                )
+            before = self._frozen_architecture(frozen)
+        if before is None:
+            revision = architecture.get("revision")
+            return f"r{revision}", f"r{revision}", ()
+        before_configuration = _mapping(
+            before.get("configuration"),
+            "previous Architecture",
+        )
+        after_configuration = _mapping(
+            after.get("configuration"),
+            "latest Architecture",
+        )
+        return (
+            f"r{before.get('revision')}",
+            f"r{after.get('revision')}",
+            architecture_projection_changes(
+                before_configuration,
+                after_configuration,
+            ),
+        )
 
     def architecture_snapshot(self) -> dict[str, Any]:
         return json.loads(canonical_json(self._architecture_snapshot()))
@@ -678,6 +968,77 @@ class RefinementWorkspace:
         return self.baseline_for_authority_head(
             head if isinstance(head, str) else None
         )
+
+    def _carried_baseline(
+        self,
+        *,
+        status: Mapping[str, Any],
+        authority_head_approval_id: Optional[str],
+    ) -> Optional[RefinementBaseline]:
+        """Resolve the prior build carried while its successor is unbuilt."""
+
+        if (
+            authority_head_approval_id is None
+            or status.get("state") != DuetDesignState.SEALED.value
+        ):
+            return None
+        authorization = self.authority.resolve_current_build_authorization(
+            self.identity.duet_id
+        )
+        if (
+            authorization.authority_approval.approval_id.value
+            != authority_head_approval_id
+        ):
+            raise RefinementWorkspaceError(
+                "current build authorization differs from the workspace authority head"
+            )
+        decision = authorization.refinement_decision
+        if decision is None:
+            return None
+        baseline, _proposal, _notes = self.refiner.approved_chain(decision)
+        if (
+            baseline.duet_id != self.identity.duet_id
+            or decision.baseline_id != baseline.baseline_id
+            or decision.baseline_workflow_hash != baseline.workflow_hash
+            or authorization.authority_approval.predecessor_approval_id
+            != baseline.authority_head_approval_id
+        ):
+            raise RefinementWorkspaceError(
+                "refinement predecessor differs from the current authority chain"
+            )
+        return baseline
+
+    def _baseline_predecessor(
+        self,
+        baseline: RefinementBaseline,
+    ) -> Optional[RefinementBaseline]:
+        """Resolve the build immediately before one materialized baseline."""
+
+        request = self.build_store.read_build_request(
+            baseline.build_request_id
+        )
+        if (
+            request.frozen_workflow.duet_id != self.identity.duet_id
+            or request.authority_approval.approval_id
+            != baseline.authority_head_approval_id
+            or request.workflow_approval.approval_id
+            != baseline.workflow_approval_id
+            or request.frozen_workflow.artifact_id
+            != baseline.frozen_workflow_artifact_id
+            or request.frozen_workflow.workflow_hash != baseline.workflow_hash
+        ):
+            raise RefinementWorkspaceError(
+                "materialized baseline differs from its approved build request"
+            )
+        predecessor = request.refinement_baseline
+        if predecessor is None:
+            return None
+        stored = self.refiner.load_baseline(predecessor.baseline_id)
+        if stored.as_record() != predecessor.as_record():
+            raise RefinementWorkspaceError(
+                "materialized predecessor differs from its persisted baseline"
+            )
+        return stored
 
     def evidence_from_baseline(
         self,
@@ -796,14 +1157,72 @@ class RefinementWorkspace:
         baseline = self.baseline_for_authority_head(
             authority_head_approval_id
         )
+        carried_baseline = (
+            None
+            if baseline is not None
+            else self._carried_baseline(
+                status=status,
+                authority_head_approval_id=authority_head_approval_id,
+            )
+        )
+        display_baseline = baseline or carried_baseline
+        predecessor_baseline = (
+            None
+            if baseline is None
+            else self._baseline_predecessor(baseline)
+        )
+        (
+            architecture_change_from,
+            architecture_change_to,
+            architecture_changes,
+        ) = self._architecture_comparison(
+            architecture=architecture,
+            baseline=baseline,
+            predecessor_baseline=(
+                carried_baseline or predecessor_baseline
+            ),
+            authority_head_approval_id=authority_head_approval_id,
+        )
+        architecture_changed_paths = tuple(
+            change["path"] for change in architecture_changes
+        )
         materialized = None
-        if baseline is not None:
-            specification, receipt, manifest = self.materialized_context(baseline)
+        materialized_changes: tuple[dict[str, Any], ...] = ()
+        materialized_from_id: Optional[str] = None
+        materialized_to_id: Optional[str] = None
+        if display_baseline is not None:
+            specification, receipt, manifest = self.materialized_context(
+                display_baseline
+            )
             materialized = materialized_workspace_projection(
                 specification,
                 receipt,
                 manifest,
             )
+            materialized_from_id = specification.specification_id.value
+            materialized_to_id = specification.specification_id.value
+            if (
+                display_baseline is not None
+                and predecessor_baseline is not None
+                and predecessor_baseline.baseline_id
+                != display_baseline.baseline_id
+            ):
+                previous_specification, previous_receipt, previous_manifest = (
+                    self.materialized_context(predecessor_baseline)
+                )
+                previous_materialized = materialized_workspace_projection(
+                    previous_specification,
+                    previous_receipt,
+                    previous_manifest,
+                )
+                materialized_changes = materialized_projection_changes(
+                    previous_materialized,
+                    materialized,
+                )
+                materialized_from_id = (
+                    previous_specification.specification_id.value
+                )
+        if baseline is not None:
             notes = self.refiner.list_workspace_notes(
                 self.identity.duet_id,
                 baseline.baseline_id,
@@ -825,7 +1244,23 @@ class RefinementWorkspace:
                 else json.loads(canonical_json(materialized))
             ),
             "notes": [note.as_record() for note in notes],
-            "changed_paths": list(self._architecture_changed_paths(status)),
+            "changed_paths": list(architecture_changed_paths),
+            "architecture_changes": [
+                _json_copy(change) for change in architecture_changes
+            ],
+            "architecture_change_from": architecture_change_from,
+            "architecture_change_to": architecture_change_to,
+            "materialized_changed_paths": [
+                change["path"] for change in materialized_changes
+            ],
+            "materialized_changes": [
+                _json_copy(change) for change in materialized_changes
+            ],
+            "materialized_change_from": materialized_from_id,
+            "materialized_change_to": materialized_to_id,
+            "notes_enabled": (
+                baseline is not None or authority_head_approval_id is None
+            ),
             "baseline_id": (
                 None if baseline is None else baseline.baseline_id.value
             ),
@@ -856,7 +1291,7 @@ class RefinementWorkspace:
     ) -> dict[str, dict[str, Any]]:
         index = architecture_target_index(snapshot["architecture_snapshot"])
         materialized = snapshot["materialized_snapshot"]
-        if materialized is not None:
+        if materialized is not None and snapshot.get("baseline_id") is not None:
             for target_id, selection in materialized_target_index(
                 materialized
             ).items():
@@ -1067,6 +1502,10 @@ class RefinementWorkspace:
         target = RefinementTarget.from_record(target_record)
         with self._note_lock:
             snapshot, baseline = self.context()
+            if not bool(snapshot.get("notes_enabled")):
+                raise DuetProtocolError(
+                    "notes become available after the latest Architecture is materialized"
+                )
             selection = self._target_index(snapshot).get(target.target_id.value)
             if (
                 selection is None
@@ -1164,5 +1603,6 @@ __all__ = [
     "WorkspaceAuthorityReader",
     "architecture_target_index",
     "materialized_target_index",
+    "materialized_projection_changes",
     "materialized_workspace_projection",
 ]
