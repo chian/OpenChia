@@ -261,6 +261,12 @@ class OpenChiaCLI(
 
     def _status(self, *, refresh: bool = False) -> dict[str, Any] | None:
         host = self._openchia_host
+        if (
+            host is None
+            and getattr(self, "_resumed", False)
+            and getattr(self, "conversation_history", None)
+        ):
+            host = self._ensure_openchia_host()
         if host is None:
             return None
         now = time.monotonic()
