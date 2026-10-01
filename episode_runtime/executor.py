@@ -48,6 +48,7 @@ from .protocol import (
 )
 from .store import RunStore, RunStoreConflict
 from .identity import load_verified_bootstrap_program, verify_runtime_identity
+from .interpreter import current_interpreter_executable
 
 
 class RunExecutionError(RuntimeError):
@@ -695,7 +696,7 @@ class SystemdRunExecutor:
     run_store: RunStore
     repository_root: Path
     resources: ExecutorResources
-    python_executable: Path = Path("/proc/self/exe")
+    python_executable: Path = field(default_factory=current_interpreter_executable)
     python_runtime_root: Optional[Path] = None
     systemd_run: Path = Path("/usr/bin/systemd-run")
     systemctl: Path = Path("/usr/bin/systemctl")
@@ -1260,7 +1261,7 @@ def make_systemd_run_executor_factory(
     root = root.resolve(strict=True)
     if not root.is_dir():
         raise ValueError("runtime repository must exist")
-    interpreter = Path(os.readlink("/proc/self/exe")).resolve(strict=True)
+    interpreter = current_interpreter_executable()
     base_prefix = Path(sys.base_prefix).expanduser().resolve(strict=True)
     python_runtime_root = (
         base_prefix if _hidden_by_protect_home(interpreter) else None

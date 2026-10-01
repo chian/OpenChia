@@ -16,6 +16,7 @@ from typing import Mapping
 from agent.duet_contracts import canonical_json
 from agent.episode_contracts import Sha256Digest
 
+from .interpreter import current_interpreter_executable
 from .contracts import (
     InterpreterRuntimeIdentity,
     RuntimeIdentity,
@@ -199,7 +200,7 @@ def _stdlib_entry_digest(path: Path, name: str) -> Sha256Digest:
 
 def _current_executable(path: str | Path | None = None) -> Path:
     selected = Path(
-        os.readlink("/proc/self/exe") if path is None else path
+        current_interpreter_executable() if path is None else path
     ).expanduser()
     if selected.is_symlink():
         raise RuntimeIdentityError("Python executable cannot be a symlink")
