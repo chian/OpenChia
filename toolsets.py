@@ -470,6 +470,12 @@ def profile_role_toolsets(profile_home: Optional[Path] = None) -> Tuple[Set[str]
     return granted, denied
 
 
+#: Toolsets this fork removed on purpose. Configs written by upstream Hermes (and by
+#: older OpenChia builds) still list them under ``platform_toolsets``; they resolve to
+#: nothing and must not be reported as typos at startup.
+RETIRED_TOOLSETS = frozenset({"delegation"})
+
+
 def validate_toolset(name: str) -> bool:
     return (name in {"all", "*"} or name in TOOLSETS
             or name in _get_plugin_toolset_names() or name in _get_registry_toolset_aliases())

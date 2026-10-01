@@ -778,6 +778,27 @@ class TestPluginToolsetStartupValidation:
         assert "voice_stak" in printed[0]
         assert "voice_stack" not in printed[0]
 
+    def test_retired_toolset_is_silent_but_a_typo_beside_it_still_warns(self, monkeypatch):
+        """``delegation`` was removed by this fork; configs written by upstream Hermes still
+        list it. It must not be reported as a typo, while a real typo next to it still is."""
+        _, printed = self._init_toolsets(
+            monkeypatch,
+            ["terminal", "delegation"],
+            registry={"terminal"},
+            plugin_keys=set(),
+        )
+        assert printed == []
+
+        _, printed = self._init_toolsets(
+            monkeypatch,
+            ["terminal", "delegation", "voice_stak"],
+            registry={"terminal"},
+            plugin_keys=set(),
+        )
+        assert len(printed) == 1
+        assert "voice_stak" in printed[0]
+        assert "delegation" not in printed[0]
+
 
 
 

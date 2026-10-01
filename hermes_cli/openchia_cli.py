@@ -86,6 +86,7 @@ class OpenChiaCLI(
             "/image",
             "/redraw",
             "/quit",
+            "/exit",  # the base CLI's alias of /quit (hermes_cli/commands.py)
         }
     )
 
