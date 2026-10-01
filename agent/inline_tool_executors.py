@@ -264,15 +264,33 @@ def _duet_status(agent, args: dict, ctx: InlineToolContext) -> Any:
         return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
 
 
+_ABSENT_DRAFT_SPELLINGS = frozenset({"", "null", "none"})
+
+
+def _absent_draft_field(value: Any) -> Any:
+    """Fold the model-facing spellings of "no draft yet" onto ``None``.
+
+    The CAS fields are declared ``string | null`` (``integer | null``), but a model
+    may still spell absence as the string ``"null"``, ``"none"`` or ``""`` — observed
+    in a live Duet whose six first-draft submissions were all rejected as conflicts.
+    A real draft identity, hash or revision never looks like those, so folding
+    them onto ``None`` cannot weaken the guard: a prior draft still requires its
+    exact values.
+    """
+    if isinstance(value, str) and value.strip().lower() in _ABSENT_DRAFT_SPELLINGS:
+        return None
+    return value
+
+
 def _episode_architecture_submit(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
         callback = getattr(agent, "_episode_architecture_submitter", None)
         if not callable(callback):
             raise RuntimeError("no host-bound Architecture submitter")
         candidate = args.get("candidate_workflow_architecture")
-        artifact_id = args.get("expected_artifact_id")
-        content_hash = args.get("expected_content_hash")
-        revision = args.get("expected_revision")
+        artifact_id = _absent_draft_field(args.get("expected_artifact_id"))
+        content_hash = _absent_draft_field(args.get("expected_content_hash"))
+        revision = _absent_draft_field(args.get("expected_revision"))
         note_ids = args.get("human_note_ids")
         if not isinstance(candidate, Mapping):
             raise ValueError("candidate workflow Architecture must be an object")
