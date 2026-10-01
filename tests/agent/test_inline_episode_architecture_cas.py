@@ -1,9 +1,12 @@
 """The Architecture-submit executor folds model spellings of "no draft yet" onto None.
 
-A live Duet (2026-10-01) sent ``expected_workflow_hash`` as the string ``"null"``
-(then ``""`` and ``"none"``) for its first draft; the host compared against ``None``
-and rejected all six submissions as conflicts. The CAS fields are ``string | null``,
-and a real draft identity never spells like those words, so folding them is safe.
+A live Duet (2026-10-01) sent its first-draft CAS guard as the string ``"null"``
+(then ``""`` and ``"none"``) — on the then-current tool that field was
+``expected_workflow_hash``; on ``episode_architecture_submit`` it is
+``expected_content_hash`` beside ``expected_artifact_id`` / ``expected_revision``.
+The host compared against ``None`` and rejected all six submissions as conflicts.
+The CAS fields are ``string | null`` (``integer | null``), and a real draft identity
+never spells like those words, so folding them is safe.
 """
 from __future__ import annotations
 
