@@ -90,6 +90,7 @@ def test_editor_projects_nested_episode_hierarchy_and_scoped_sections():
         ("builder", 1),
         ("qualification", 1),
     ]
+    assert model.expanded_episode_ids == {"orchestrator"}
     root_sections = [item.label for item in model.sections_for(model.roots[0])]
     assert root_sections[:5] == [
         "Goal",
@@ -101,6 +102,9 @@ def test_editor_projects_nested_episode_hierarchy_and_scoped_sections():
     assert "Creator authority" in root_sections
 
     child = model.roots[0].children[0]
+    child_sections = [item.label for item in model.sections_for(child)]
+    assert "Creation authority · none" in child_sections
+    assert "Creator contract" not in child_sections
     goal_section = model.sections_for(child)[0]
     model.apply_section(
         child,
@@ -114,6 +118,54 @@ def test_editor_projects_nested_episode_hierarchy_and_scoped_sections():
     assert edited["episodes"][1]["contract"]["goal"] == "Build and test one item"
     assert edited["episodes"][1]["contract"]["result"] == "one accepted item"
     assert edited["episodes"][2]["contract"] == sibling_contract
+
+
+def test_editor_marks_only_the_episode_sections_changed_since_the_last_view():
+    document = {
+        "episodes": [
+            {
+                "local_id": "root",
+                "workflow_parent_local_id": None,
+                "contract": _contract("Coordinate"),
+            },
+            {
+                "local_id": "child",
+                "workflow_parent_local_id": "root",
+                "contract": _contract("Build"),
+            },
+        ]
+    }
+    model = EpisodeEditorModel(
+        document,
+        missing_value=MISSING,
+        changed_paths=("episodes.1.contract.goal",),
+    )
+    child = model.roots[0].children[0]
+    sections = {section.key: section for section in model.sections_for(child)}
+
+    assert model.episode_changed(child) is True
+    assert model.section_changed(child, sections["goal"]) is True
+    assert model.section_changed(child, sections["planning"]) is False
+
+
+def test_editor_identifies_the_exact_parent_cycle():
+    document = {
+        "episodes": [
+            {
+                "local_id": "first",
+                "workflow_parent_local_id": "second",
+                "contract": _contract("First"),
+            },
+            {
+                "local_id": "second",
+                "workflow_parent_local_id": "first",
+                "contract": _contract("Second"),
+            },
+        ]
+    }
+
+    with pytest.raises(ValueError, match="first -> second -> first"):
+        EpisodeEditorModel(document, missing_value=MISSING)
 
 
 def test_editor_rejects_partial_section_replacement_and_marks_missing_values():

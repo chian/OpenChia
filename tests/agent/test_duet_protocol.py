@@ -327,6 +327,48 @@ def test_duet_workflow_is_exact_hash_guarded_source_of_truth(duet):
         )
 
 
+def test_duet_status_revalidates_a_persisted_workflow_under_current_rules(duet):
+    identity, _policy, store, service = duet
+    _spec, blueprint = _workflow(EpisodeDesignSpec("root", None, _task_spec()))
+    blueprint_hash = Sha256Digest.of_record(blueprint)
+    stale_record = {
+        "schema_version": 1,
+        "duet_id": identity.duet_id.value,
+        "creator_episode_id": None,
+        "revision": 1,
+        "source_stage": "duet",
+        "workflow_blueprint_hash": blueprint_hash.value,
+        "workflow_blueprint": blueprint,
+        "workflow_hash": None,
+        "validation_deficits": [
+            {
+                "code": "retired_validation_rule",
+                "field_path": "creator_contract",
+                "blocking": True,
+                "detail": None,
+            }
+        ],
+        "ready": False,
+    }
+    store.put_artifact(
+        artifact_id="episode_workflow_draft_stale_validation",
+        duet_id=identity.duet_id.value,
+        kind="episode_workflow_draft",
+        revision=1,
+        content_hash=blueprint_hash.value,
+        record=stale_record,
+    )
+
+    status = service.duet_status(identity.duet_id)
+
+    assert status["ready"] is True
+    assert status["episode_workflow_draft"]["ready"] is True
+    assert status["episode_workflow_draft"]["validation_deficits"] == []
+    assert store.get_artifact("episode_workflow_draft_stale_validation")[
+        "record"
+    ] == stale_record
+
+
 def test_approval_freezes_and_launches_workflow_without_fake_creator(duet):
     identity, _policy, store, service = duet
     workflow, blueprint = _workflow(

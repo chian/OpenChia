@@ -1944,16 +1944,24 @@ class DuetService:
         workflow_draft = None
         if draft_artifact is not None:
             draft_record = draft_artifact["record"]
+            current_workflow, current_deficits = self.validate_duet_workflow(
+                duet_id,
+                draft_record.get("workflow_blueprint"),
+            )
             workflow_draft = {
                 "artifact_id": draft_artifact["artifact_id"],
                 "revision": draft_artifact["revision"],
                 "content_hash": draft_artifact["content_hash"],
                 "source_stage": draft_record["source_stage"],
-                "workflow_hash": draft_record.get("workflow_hash"),
-                "ready": bool(draft_record.get("ready")),
-                "validation_deficits": list(
-                    draft_record.get("validation_deficits") or ()
+                "workflow_hash": (
+                    None
+                    if current_workflow is None
+                    else current_workflow.workflow_hash.value
                 ),
+                "ready": not current_deficits,
+                "validation_deficits": [
+                    item.as_record() for item in current_deficits
+                ],
             }
 
         approval = self.store.latest_approval(

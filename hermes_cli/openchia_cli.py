@@ -65,6 +65,15 @@ def episode_configuration_changes(
                     new.get(key, _MISSING),
                 )
             return
+        if isinstance(old, list) and isinstance(new, list):
+            for index in range(max(len(old), len(new))):
+                child_path = f"{path}.{index}" if path else str(index)
+                visit(
+                    child_path,
+                    old[index] if index < len(old) else _MISSING,
+                    new[index] if index < len(new) else _MISSING,
+                )
+            return
         if old is not _MISSING and new is not _MISSING and old == new:
             return
         if old is _MISSING:
@@ -456,26 +465,37 @@ class OpenChiaCLI(HermesCLI):
             json.dumps(snapshot["configuration"], ensure_ascii=False)
         )
 
-    def _show_episode_configuration(self) -> None:
-        host = self._episode_host()
-        snapshot = host.episode_workflow_configuration()
-        changes = self._current_episode_changes(snapshot)
-        self._episode_last_changes = changes
-        from hermes_cli.openchia_episode_editor import view_episode_document
-
-        view_episode_document(
-            snapshot["configuration"],
-            missing_value=_MISSING_EPISODE_VALUE,
-        )
-        self._remember_episode_view(snapshot)
-
-    def _show_episode_changes(self) -> None:
-        snapshot = self._episode_host().episode_workflow_configuration()
+    def _visible_episode_changes(
+        self,
+        snapshot: Mapping[str, Any],
+    ) -> tuple[int, int, tuple[dict[str, Any], ...]]:
         changes = self._current_episode_changes(snapshot)
         if changes[2]:
             self._episode_last_changes = changes
         elif changes[0] == changes[1] and self._episode_last_changes is not None:
             changes = self._episode_last_changes
+        return changes
+
+    def _show_episode_configuration(self) -> None:
+        host = self._episode_host()
+        snapshot = host.episode_workflow_configuration()
+        changes = self._visible_episode_changes(snapshot)
+        from hermes_cli.openchia_episode_editor import view_episode_document
+
+        view_episode_document(
+            snapshot["configuration"],
+            missing_value=_MISSING_EPISODE_VALUE,
+            changed_paths=tuple(item["path"] for item in changes[2]),
+            revision=int(snapshot["revision"]),
+            validation_deficits=tuple(
+                snapshot.get("validation_deficits") or ()
+            ),
+        )
+        self._remember_episode_view(snapshot)
+
+    def _show_episode_changes(self) -> None:
+        snapshot = self._episode_host().episode_workflow_configuration()
+        changes = self._visible_episode_changes(snapshot)
         self._print_openchia(self._render_episode_changes(*changes))
 
     @staticmethod
@@ -522,12 +542,18 @@ class OpenChiaCLI(HermesCLI):
         if action == "edit":
             with host.episode_workflow_edit_session() as snapshot:
                 document = snapshot["configuration"]
-                self._show_episode_changes()
+                changes = self._visible_episode_changes(snapshot)
+                self._print_openchia(self._render_episode_changes(*changes))
                 from hermes_cli.openchia_episode_editor import edit_episode_document
 
                 edited = edit_episode_document(
                     document,
                     missing_value=_MISSING_EPISODE_VALUE,
+                    changed_paths=tuple(item["path"] for item in changes[2]),
+                    revision=int(snapshot["revision"]),
+                    validation_deficits=tuple(
+                        snapshot.get("validation_deficits") or ()
+                    ),
                 )
                 if edited is None or edited == document:
                     self._remember_episode_view(

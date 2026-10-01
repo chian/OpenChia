@@ -299,6 +299,58 @@ def test_episode_read_uses_terminal_tree_during_duet_turn(monkeypatch):
     ]
 
 
+def test_episode_visual_receives_revision_validation_and_recent_changes(monkeypatch):
+    observed = {}
+    before = {
+        "episodes": [
+            {
+                "local_id": "root",
+                "workflow_parent_local_id": None,
+                "contract": {"goal": "old"},
+            }
+        ]
+    }
+    after = {
+        "episodes": [
+            {
+                "local_id": "root",
+                "workflow_parent_local_id": None,
+                "contract": {"goal": "new"},
+            }
+        ]
+    }
+    snapshot = {
+        "revision": 2,
+        "configuration": after,
+        "fields": {},
+        "validation_deficits": [
+            {"code": "capability_escalation", "field_path": "episodes.0"}
+        ],
+    }
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    cli._episode_view_revision = 1
+    cli._episode_view_configuration = before
+    cli._episode_last_changes = None
+    cli._episode_host = lambda: SimpleNamespace(
+        episode_workflow_configuration=lambda: snapshot
+    )
+    monkeypatch.setattr(
+        "hermes_cli.openchia_episode_editor.view_episode_document",
+        lambda document, **kwargs: observed.update(
+            {"document": document, **kwargs}
+        ),
+    )
+
+    cli._show_episode_configuration()
+
+    assert observed["document"] == after
+    assert observed["revision"] == 2
+    assert observed["validation_deficits"] == tuple(
+        snapshot["validation_deficits"]
+    )
+    assert observed["changed_paths"] == ("episodes.0.contract.goal",)
+
+
 def test_review_rejects_arguments_without_falling_through_to_general_agent(
     monkeypatch,
 ):

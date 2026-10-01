@@ -89,8 +89,9 @@ _AUTHORITY_SECTION = EpisodeSection(
 
 _UNSET_CREATOR_SECTION = EpisodeSection(
     "creator_contract",
-    "Creator contract",
-    "Set the complete Creator contract, or use null for an ordinary task Episode.",
+    "Creation authority · none",
+    "This is an ordinary task Episode. Replace null with a complete Creator "
+    "contract only when this Episode must design child Episodes at runtime.",
     (("creator_contract",),),
 )
 
@@ -99,6 +100,7 @@ _UNSET_CREATOR_SECTION = EpisodeSection(
 class EpisodeNode:
     node_id: str
     name: str
+    document_index: int
     contract: dict[str, Any]
     children: list["EpisodeNode"] = field(default_factory=list)
 
@@ -133,15 +135,20 @@ def _set_at(value: dict[str, Any], path: tuple[str, ...], replacement: Any) -> N
 class EpisodeEditorModel:
     """Mutable working copy projected as Episodes and named design sections."""
 
-    def __init__(self, document: Mapping[str, Any], *, missing_value: str) -> None:
+    def __init__(
+        self,
+        document: Mapping[str, Any],
+        *,
+        missing_value: str,
+        changed_paths: tuple[str, ...] = (),
+    ) -> None:
         if not isinstance(document, Mapping):
             raise TypeError("Episode editor document must be an object")
         self.document: dict[str, Any] = deepcopy(dict(document))
         self.missing_value = missing_value
+        self.changed_paths = frozenset(changed_paths)
         self.roots = self._episode_roots()
-        self.expanded_episode_ids = {
-            node.node_id for node in self._walk_episodes(self.roots)
-        }
+        self.expanded_episode_ids = {node.node_id for node in self.roots}
 
     @staticmethod
     def _walk_episodes(roots: list[EpisodeNode]) -> list[EpisodeNode]:
@@ -195,6 +202,7 @@ class EpisodeEditorModel:
             nodes[node_id] = EpisodeNode(
                 node_id=node_id,
                 name=self._episode_name(raw, contract, index),
+                document_index=index,
                 contract=contract,
             )
             parent = raw.get("workflow_parent_local_id")
@@ -212,12 +220,60 @@ class EpisodeEditorModel:
                 )
             else:
                 nodes[parent_id].children.append(nodes[node_id])
-        if not roots:
-            raise ValueError("workflow Episode hierarchy contains a cycle")
+        cycle = self._parent_cycle(parent_ids, ordered_ids)
+        if cycle is not None:
+            raise ValueError(
+                "workflow Episode hierarchy contains a cycle: "
+                + " -> ".join(cycle)
+            )
         visited = self._walk_episodes(roots)
         if len(visited) != len(nodes) or len({node.node_id for node in visited}) != len(nodes):
             raise ValueError("workflow Episode hierarchy contains a cycle")
         return roots
+
+    @staticmethod
+    def _parent_cycle(
+        parent_ids: Mapping[str, Optional[str]],
+        ordered_ids: list[str],
+    ) -> Optional[tuple[str, ...]]:
+        resolved: set[str] = set()
+        for start in ordered_ids:
+            path: list[str] = []
+            positions: dict[str, int] = {}
+            cursor: Optional[str] = start
+            while cursor is not None and cursor not in resolved:
+                if cursor in positions:
+                    offset = positions[cursor]
+                    return tuple([*path[offset:], cursor])
+                positions[cursor] = len(path)
+                path.append(cursor)
+                cursor = parent_ids.get(cursor)
+            resolved.update(path)
+        return None
+
+    def episode_changed(self, episode: EpisodeNode) -> bool:
+        prefix = f"episodes.{episode.document_index}"
+        return any(
+            path == prefix or path.startswith(prefix + ".")
+            for path in self.changed_paths
+        )
+
+    def section_changed(
+        self,
+        episode: EpisodeNode,
+        section: EpisodeSection,
+    ) -> bool:
+        base = f"episodes.{episode.document_index}.contract"
+        for section_path in section.paths:
+            prefix = f"{base}.{'.'.join(section_path)}"
+            if any(
+                path == prefix
+                or path.startswith(prefix + ".")
+                or prefix.startswith(path + ".")
+                for path in self.changed_paths
+            ):
+                return True
+        return False
 
     def sections_for(self, episode: EpisodeNode) -> tuple[EpisodeSection, ...]:
         sections = [*_BASE_SECTIONS]
@@ -311,9 +367,18 @@ class EpisodeTreeEditor:
         *,
         missing_value: str,
         read_only: bool = False,
+        changed_paths: tuple[str, ...] = (),
+        revision: Optional[int] = None,
+        validation_deficits: tuple[Mapping[str, Any], ...] = (),
     ) -> None:
-        self.model = EpisodeEditorModel(document, missing_value=missing_value)
+        self.model = EpisodeEditorModel(
+            document,
+            missing_value=missing_value,
+            changed_paths=changed_paths,
+        )
         self.read_only = read_only
+        self.revision = revision
+        self.validation_deficits = validation_deficits
         self.selected_index = 0
         self.selected_section: Optional[tuple[EpisodeNode, EpisodeSection]] = None
         self.status = "Select a section to inspect it."
@@ -373,11 +438,23 @@ class EpisodeTreeEditor:
             height=1,
         )
         title = "OPENCHIA EPISODE VIEW" if read_only else "OPENCHIA EPISODE EDITOR"
-        subtitle = (
-            "Choose an Episode section to inspect its exact structured content."
-            if read_only
-            else "Choose an Episode section; only that bounded part is edited."
+        if validation_deficits:
+            codes = [
+                str(item.get("code") or "invalid_workflow")
+                for item in validation_deficits
+            ]
+            state = f"checks failed: {codes[0]}"
+            if len(codes) > 1:
+                state += f" +{len(codes) - 1}"
+        else:
+            state = "checks passed"
+        revision_label = "draft" if revision is None else f"r{revision}"
+        changed_label = (
+            "no changes since last view"
+            if not changed_paths
+            else f"{len(changed_paths)} changed value(s) since last view"
         )
+        subtitle = f"{revision_label} · {state} · {changed_label}"
         root = HSplit(
             [
                 Window(
@@ -411,6 +488,7 @@ class EpisodeTreeEditor:
                     "tree.section": "fg:#b4c4be",
                     "tree.selected": "reverse",
                     "tree.missing": "fg:#e1b56f",
+                    "tree.changed": "bold fg:#e1b56f",
                     "button": "fg:#d8eee5 bg:#33443e",
                     "button.focused": "bold fg:#17201d bg:#8fb9a8",
                     "frame.border": "fg:#60756d",
@@ -450,6 +528,8 @@ class EpisodeTreeEditor:
             if entry.kind == "section" and entry.section is not None:
                 if not self.model.section_complete(entry.episode, entry.section):
                     style += " class:tree.missing"
+                if self.model.section_changed(entry.episode, entry.section):
+                    style += " class:tree.changed"
             if selected:
                 style += " class:tree.selected"
             indent = "   " * entry.depth
@@ -459,12 +539,20 @@ class EpisodeTreeEditor:
                     if entry.episode.node_id in self.model.expanded_episode_ids
                     else "[+]"
                 )
-                label = f"{indent}{marker} {entry.episode.name}\n"
+                changed = "  Δ" if self.model.episode_changed(entry.episode) else ""
+                label = f"{indent}{marker} {entry.episode.name}{changed}\n"
             else:
                 completeness = "" if self.model.section_complete(
                     entry.episode, entry.section
                 ) else "  !"
-                label = f"{indent}|- {entry.section.label}{completeness}\n"
+                changed = (
+                    "  Δ"
+                    if self.model.section_changed(entry.episode, entry.section)
+                    else ""
+                )
+                label = (
+                    f"{indent}|- {entry.section.label}{completeness}{changed}\n"
+                )
             fragments.append((style, label, self._mouse_handler(index)))
         return fragments
 
@@ -641,16 +729,28 @@ def edit_episode_document(
     document: Mapping[str, Any],
     *,
     missing_value: str,
+    changed_paths: tuple[str, ...] = (),
+    revision: Optional[int] = None,
+    validation_deficits: tuple[Mapping[str, Any], ...] = (),
 ) -> dict[str, Any] | None:
     """Open the nested editor and return a complete edited working copy."""
 
-    return EpisodeTreeEditor(document, missing_value=missing_value).run()
+    return EpisodeTreeEditor(
+        document,
+        missing_value=missing_value,
+        changed_paths=changed_paths,
+        revision=revision,
+        validation_deficits=validation_deficits,
+    ).run()
 
 
 def view_episode_document(
     document: Mapping[str, Any],
     *,
     missing_value: str,
+    changed_paths: tuple[str, ...] = (),
+    revision: Optional[int] = None,
+    validation_deficits: tuple[Mapping[str, Any], ...] = (),
 ) -> None:
     """Open the same nested Episode tree without permitting mutations."""
 
@@ -658,6 +758,9 @@ def view_episode_document(
         document,
         missing_value=missing_value,
         read_only=True,
+        changed_paths=changed_paths,
+        revision=revision,
+        validation_deficits=validation_deficits,
     ).run()
 
 
