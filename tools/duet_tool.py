@@ -42,8 +42,10 @@ EPISODE_ARCHITECTURE_SUBMIT_SCHEMA = {
     "name": "episode_architecture_submit",
     "description": (
         "Submit the complete mutable workflow Architecture during initial Duet "
-        "design. Bind a replacement to the exact current draft identity, or use "
-        "null draft fields for the first Architecture. The host validates and "
+        "design. Bind a replacement to the exact current draft identity (the "
+        "artifact id, content hash and revision exactly as duet_status reports "
+        "them), or pass JSON null — not the string \"null\" — in all three "
+        "expected_* fields for the first Architecture. The host validates and "
         "persists the candidate; approved Architectures use the separate "
         "refinement operation."
     ),
