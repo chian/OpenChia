@@ -523,7 +523,7 @@ class ContainerRunExecutor(_RunExecutorBase):
             *self._launch_arguments(registration, launch_identity, mounts, bootstrap_program),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
 
     # --- inspection ---------------------------------------------------------

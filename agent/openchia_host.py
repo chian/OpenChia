@@ -114,6 +114,13 @@ _INITIAL_EDITABLE_STATES = frozenset(
 )
 
 
+def _describe_exception(exc: BaseException) -> str:
+    """One-line host error text including any diagnostic notes (PEP 678)."""
+    text = f"{type(exc).__name__}: {exc}"
+    notes = [str(note) for note in getattr(exc, "__notes__", ()) if str(note).strip()]
+    return text if not notes else f"{text} [{'; '.join(notes)}]"
+
+
 class OpenChiaHostError(RuntimeError):
     """The host cannot honor an exact Duet or Builder operation."""
 
@@ -1006,7 +1013,7 @@ class OpenChiaHost:
                         },
                     )
                 except Exception as exc:
-                    error = f"{type(exc).__name__}: {exc}"
+                    error = _describe_exception(exc)
                     with self._build_lock:
                         self._build_state = "host_error"
                         self._build_error = error
@@ -1527,9 +1534,9 @@ class OpenChiaHost:
                                 registration
                             )
                         except Exception as exc:
-                            error = f"{type(exc).__name__}: {exc}"
+                            error = _describe_exception(exc)
                     except BaseException as exc:
-                        error = f"{type(exc).__name__}: {exc}"
+                        error = _describe_exception(exc)
                         try:
                             evidence = self._read_terminal_evidence(
                                 registration
