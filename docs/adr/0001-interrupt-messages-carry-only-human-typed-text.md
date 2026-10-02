@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+Implementation: not yet landed; follow-up implementation pending.
+
 ## Context
 
 The interrupt message field can currently carry system-generated text. The turn finalizer copies that field into the turn result, and the CLI and gateway consumers can then replay it as the user's next prompt. A system control event consequently becomes apparent user input.
