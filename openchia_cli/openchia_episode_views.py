@@ -841,6 +841,20 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
                 )
                 for key, label, description, value, json_pointer, editable in part_definitions
             )
+            if "epistemic" in contract:
+                parts += (self._architecture_part(
+                    local_id=local_id,
+                    key="epistemic",
+                    label="Reasoning and learning",
+                    description=(
+                        "Frozen result schema, admission, yield and projection functions; "
+                        "evidence criteria, allowed actions and maximum learning scope."
+                    ),
+                    payload={"epistemic": contract["epistemic"]},
+                    paths=("contract.epistemic",),
+                    json_pointer=contract_pointer + "/epistemic",
+                    editable=True,
+                ),)
             goal = contract.get("goal")
             name = local_id
             if isinstance(goal, str) and goal.strip() and goal != self.missing_value:
@@ -898,6 +912,7 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
             "progress",
             "stopping",
             "numeric_control",
+            "epistemic",
             "execution_capability_names",
             "deliverable",
         }

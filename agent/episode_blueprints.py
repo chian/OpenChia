@@ -23,6 +23,7 @@ from agent.episode_contracts import (
     Sha256Digest,
 )
 from function_library import LibraryFunction
+from function_library.epistemic import epistemic_function_library
 from numeric_control_library.continuation import continuation_function_library
 from numeric_control_library.rarefaction import rarefaction_function_library
 
@@ -201,7 +202,7 @@ def creation_blueprint_from_spec(spec: EpisodeCreationSpec) -> dict[str, Any]:
     if not isinstance(spec, EpisodeCreationSpec):
         raise TypeError("creation blueprint projection requires an EpisodeCreationSpec")
     record = spec.as_record()
-    return {
+    blueprint = {
         "goal": record["goal"],
         "unit": record["unit"],
         "result": record["result"],
@@ -211,6 +212,9 @@ def creation_blueprint_from_spec(spec: EpisodeCreationSpec) -> dict[str, Any]:
         "execution_capability_names": record["execution_capability_names"],
         "deliverable": record["deliverable"],
     }
+    if "epistemic" in record:
+        blueprint["epistemic"] = record["epistemic"]
+    return blueprint
 
 
 def creation_spec_from_blueprint(
@@ -219,7 +223,7 @@ def creation_spec_from_blueprint(
     """Validate a model-facing Episode design contract."""
 
     record = _object(value, "Episode creation blueprint")
-    _exact_fields(record, _CREATION_FIELDS, "Episode creation blueprint")
+    _exact_fields(record, _CREATION_FIELDS | ({"epistemic"} if "epistemic" in record else set()), "Episode creation blueprint")
     internal = {
         "goal": record["goal"],
         "unit": record["unit"],
@@ -231,6 +235,8 @@ def creation_spec_from_blueprint(
         "deliverable": record["deliverable"],
         "capability_inheritance": "inherit_parent",
     }
+    if "epistemic" in record:
+        internal["epistemic"] = record["epistemic"]
     spec = EpisodeCreationSpec.from_record(internal)
     admit_numerical_control(spec.numeric_control)
     return spec
@@ -391,6 +397,29 @@ EPISODE_NUMERICAL_CONTROL_BLUEPRINT_SCHEMA = {
 EPISODE_CREATION_BLUEPRINT_SCHEMA = {
     "type": "object",
     "properties": {
+        "epistemic": {
+            "type": "object",
+            "description": "Optional exact reasoning policy: required for reasoning.generic and reasoning.inquiry. Evidence is human-approved source data. Components are exact registered epistemic selections.",
+            "properties": {
+                "goal_class": {"type": "string"}, "domain": {"type": "string"},
+                "allowed_actions": {"type": "array", "items": {"type": "string"}},
+                "environment": {"type": "object"},
+                "assumptions": {"type": "array", "items": {"type": "string"}},
+                "required_fields": {"type": "array", "items": {"type": "string"}},
+                "required_evidence": {"type": "array", "items": {"type": "string"}},
+                "scope_tier": {"type": "string", "enum": ["episode", "workflow"]},
+                "policy_strength": {"type": "string", "enum": ["advisory", "enforceable"]},
+                "evidence": {"type": "array", "items": {"type": "object", "properties": {
+                    "kind": {"type": "string"}, "text": {"type": "string"}, "observation": {"type": "object"}},
+                    "required": ["kind", "text", "observation"], "additionalProperties": False}},
+                "components": {"type": "object", "properties": {
+                    function.interface.split(".")[-1]: _selection_schema(function)
+                    for function in epistemic_function_library.functions()
+                }, "required": ["result_schema", "state_projector", "admission", "yield_function", "result_projection"], "additionalProperties": False},
+            },
+            "required": ["goal_class", "domain", "allowed_actions", "environment", "assumptions", "required_fields", "required_evidence", "scope_tier", "policy_strength", "evidence", "components"],
+            "additionalProperties": False,
+        },
         "goal": {
             "type": "string",
             "maxLength": MAX_EPISODE_GOAL_CHARS,
