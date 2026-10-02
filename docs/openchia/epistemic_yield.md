@@ -136,6 +136,10 @@ cannot publish successful reasoning completion without the host's receipt.
 
 ## Validation: distinguish machinery from reasoning
 
+The first [live acceptance receipt](epistemic_yield_acceptance.md) records an
+independently verified optimal schedule, including the actual model's answer
+and a human-checkable optimality argument.
+
 `test_epistemic_learning.py` checks real durable IO, crash replay, authority,
 conditional retrieval, exclusions, revisions, duplicate credit and forged
 commits. `test_reasoning_workflow.py` exercises approval, materialization,
