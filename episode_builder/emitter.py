@@ -30,6 +30,7 @@ from ._contract_plan import (
 )
 from .declaration import DECLARATION_EXPORT, build_module_declaration
 from .reference import EpisodeReferenceContext
+from .admission import constructor_signatures
 
 
 _DOTTED_MODULE = re.compile(
@@ -490,6 +491,54 @@ def _child_summary(
     }
 
 
+_CONSTRUCTION_EXAMPLE = """\
+# Shape only. Every <...> is copied from admitted_node_plan / frozen_episode_contract.
+from episode_library.models import EpisodeLibraryDesign
+from function_library.models import FunctionImplementation, LibraryFunction
+from method_loop import EpisodeBindingDeclaration, EpisodeControllerBinding, EpisodeFunctionBinding, EpisodeTopologyRole
+from handoff_library import ADMIT_DUET_LAUNCH_REQUEST, HandoffPayloadContract
+from numeric_control_library import MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND, COMPOSE_INCIDENCE_CONTROLLER
+
+OPEN_TASK_SOURCE = LibraryFunction(          # one per generated_component_specs entry
+    library=<plan binding .library>, function_id=<plan binding .function_id>, interface=<plan binding .interface>,
+    description=..., input_type=..., output_type=..., effect=..., failure_contract=...,
+    implementation=FunctionImplementation(module="<target_module_name>", symbol="open_task_source", is_async=False),
+    provenance={"materialization_kind": "episode_builder", "contract_hash": <contract_hash>,
+                "episode_local_id": <local_id>, "component_role": "open_source"},
+)
+
+def _binding(name, entry, definition_id):   # entry = one admitted_node_plan.selected_function_bindings item
+    return EpisodeFunctionBinding(name=name, library=entry["library"], function_id=entry["function_id"],
+                                  interface=entry["interface"], definition_id=definition_id,
+                                  arguments=entry["arguments"])
+
+BINDING = EpisodeBindingDeclaration(
+    grain_name=<plan.grain_name>, interface=<plan.interface>,
+    topology_role=EpisodeTopologyRole.LEAF,          # or .BRANCH, per plan.topology_role
+    goal=<contract.goal>, unit=<contract.unit>, result=<contract.result>,
+    progress=<contract.progress>, stopping=<contract.stopping>,          # verbatim strings
+    admit_request=_binding("admit_request", <entry role admit_request>, ADMIT_DUET_LAUNCH_REQUEST.definition_id),
+    open_source=_binding("open_source", <entry role open_source>, OPEN_TASK_SOURCE.definition_id),
+    controller=EpisodeControllerBinding(
+        schema=_binding("schema", <entry role controller.schema>, <that LibraryFunction>.definition_id),
+        composer=_binding("composer", ..., COMPOSE_INCIDENCE_CONTROLLER.definition_id),
+        credit=_binding("credit", ..., MARGINAL_DOMINATED_HYPERVOLUME.definition_id),
+        rarefaction=_binding("rarefaction", ..., PAIRED_INCIDENCE.definition_id),
+        continuation=_binding("continuation", ..., PREDICTED_CREDIT_UPPER_BOUND.definition_id),
+    ),
+    build_result=_binding("build_result", <entry role build_result>, <that LibraryFunction>.definition_id),
+    components=(_binding("<binding-name>", <entry role component.<binding-name>>, <that LibraryFunction>.definition_id), ...),
+    child_slots=(),                                    # tuple of EpisodeChildSlot for a branch
+)
+DESIGN = EpisodeLibraryDesign(
+    qualified_name=<plan.interface>, title="<short title>", binding=BINDING,
+    function_definitions=(ADMIT_DUET_LAUNCH_REQUEST, OPEN_TASK_SOURCE, COMPOSE_INCIDENCE_CONTROLLER,
+                          MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND, ...),
+    source_symbols=(),
+)
+"""
+
+
 _EMITTER_SYSTEM_PROMPT = """You are the scoped Python-module emitter inside OpenChia EpisodeBuilder.
 Materialize exactly one already-admitted task-specific Episode plan as a
 complete importable Python module. The frozen Duet contract owns the workflow
@@ -711,6 +760,44 @@ _MODULE_CONTRACT = {
         "edge.<slot>.receive_result": (
             "matching EpisodeChildSlot.receive_result"
         ),
+    },
+    "constructor_signatures": {
+        "rule": (
+            "construct each class below with keyword arguments naming exactly "
+            "its listed fields and supply every required one; a derived field "
+            "is computed by the class and is never passed; host admission "
+            "rejects a call with an unknown or missing field before the "
+            "module can run"
+        ),
+        "classes": constructor_signatures(),
+    },
+    "binding_construction": {
+        "EpisodeFunctionBinding": (
+            "one per admitted_node_plan.selected_function_bindings entry: name is "
+            "the entry role without its 'component.' or 'controller.' prefix with "
+            "'.' replaced by '_'; library, function_id, interface and arguments "
+            "are copied verbatim from the entry; definition_id is the "
+            ".definition_id of the LibraryFunction object the binding selects "
+            "(an imported library constant for source 'library', this module's "
+            "generated LibraryFunction constant for source 'generated')"
+        ),
+        "EpisodeBindingDeclaration": (
+            "grain_name, interface and topology_role from the admitted node "
+            "plan; goal, unit, result, progress and stopping copied verbatim "
+            "from frozen_episode_contract; admit_request, open_source, "
+            "build_result, controller (an EpisodeControllerBinding), components "
+            "(a tuple) and child_slots (a tuple of EpisodeChildSlot) hold the "
+            "EpisodeFunctionBindings above; the runtime linker rejects any "
+            "value that differs from the frozen contract"
+        ),
+        "EpisodeLibraryDesign": (
+            "qualified_name is the plan interface, binding is the BINDING "
+            "object itself, function_definitions is a tuple holding exactly one "
+            "LibraryFunction per selection BINDING makes (no extra, none "
+            "missing; each must match its binding's library, function_id and "
+            "interface), source_symbols is () unless porting a reference"
+        ),
+        "example": _CONSTRUCTION_EXAMPLE,
     },
     "reference_port_provenance": {
         "materialization_kind": "reference_port",
