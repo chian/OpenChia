@@ -766,6 +766,14 @@ def _inspect_source(
                 f"module_source.{name}",
                 f"{name} must be a synchronous def; the runtime calls it directly",
             )
+        elif _function_parameters(function) is None:
+            add(
+                "builder_signature_invalid",
+                f"module_source.{name}",
+                f"{name} parameters must be exactly {parameters!r} as plain "
+                "positional parameters; the def uses default values, "
+                "*args/**kwargs, keyword-only or positional-only parameters",
+            )
         elif _function_parameters(function) != parameters:
             add(
                 "builder_signature_invalid",
