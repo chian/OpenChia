@@ -208,7 +208,26 @@ def _assigned_values(tree: ast.Module) -> dict[str, list[ast.expr]]:
     return result
 
 
-def _function_parameters(function: ast.FunctionDef) -> tuple[str, ...] | None:
+def _top_level_functions(
+    tree: ast.Module,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    """Index every top-level def, synchronous or async.
+
+    Generated components that call the brokered libraries (``http_json``,
+    ``http_request``, the model calls) are necessarily ``async def``; only the
+    four builders the runtime calls directly must stay synchronous, and the
+    caller checks that separately.
+    """
+    return {
+        statement.name: statement
+        for statement in tree.body
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _function_parameters(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[str, ...] | None:
     arguments = function.args
     if (
         arguments.posonlyargs
@@ -420,11 +439,7 @@ def _inspect_source(
             f"required exports are assigned more than once: {duplicated!r}",
         )
 
-    functions = {
-        statement.name: statement
-        for statement in tree.body
-        if isinstance(statement, ast.FunctionDef)
-    }
+    functions = _top_level_functions(tree)
     module_values = set(assigned)
     required_builders = {
         "build_controller_factory": _BUILD_CONTROLLER_FACTORY_PARAMETERS,
@@ -438,6 +453,12 @@ def _inspect_source(
                 "module_exports_incomplete",
                 f"module_source.{name}",
                 f"module omits synchronous {name}()",
+            )
+        elif isinstance(function, ast.AsyncFunctionDef):
+            add(
+                "builder_async_forbidden",
+                f"module_source.{name}",
+                f"{name} must be a synchronous def; the runtime calls it directly",
             )
         elif _function_parameters(function) != parameters:
             add(
