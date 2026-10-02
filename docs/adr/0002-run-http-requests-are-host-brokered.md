@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-Implementation: in progress on branch `feat/http-broker` (chian/OpenChia#8); not yet landed.
+Implementation: implemented in chian/OpenChia#11 (closes #8).
 
 ## Context
 
