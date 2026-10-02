@@ -23,6 +23,7 @@ from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
 from episode_library.models import EpisodeReference
+from function_library.epistemic_contract import EpistemicContract
 
 
 DEFAULT_EPISODE_UNIT = (
@@ -663,7 +664,7 @@ class EpisodeCreationSpec:
     )
     capability_inheritance: CapabilityInheritance = CapabilityInheritance.PARENT
     egress_allowlist: tuple[EpisodeEgressRule, ...] = ()
-
+    epistemic: Optional[EpistemicContract] = None
     def __post_init__(self) -> None:
         with contract_field("goal"):
             object.__setattr__(
@@ -736,9 +737,14 @@ class EpisodeCreationSpec:
             raise ValueError(
                 "Episodes must inherit parent execution capabilities"
             )
+        with contract_field("epistemic"):
+            if self.epistemic is not None:
+                if not isinstance(self.epistemic, EpistemicContract):
+                    raise ValueError("epistemic must be an EpistemicContract")
+                self.epistemic.validate_components()
 
     def as_record(self) -> dict[str, Any]:
-        return {
+        record = {
             "goal": self.goal,
             "unit": self.unit,
             "result": self.result,
@@ -754,6 +760,9 @@ class EpisodeCreationSpec:
             "deliverable": self.deliverable.as_record(),
             "capability_inheritance": self.capability_inheritance.value,
         }
+        if self.epistemic is not None:
+            record["epistemic"] = self.epistemic.as_record()
+        return record
 
     def to_json(self) -> str:
         return _dump_json(self.as_record())
@@ -778,7 +787,7 @@ class EpisodeCreationSpec:
                 "egress_allowlist",
                 "deliverable",
                 "capability_inheritance",
-            },
+            } | ({"epistemic"} if "epistemic" in record else set()),
             "Episode creation spec",
         )
         inheritance = _enum(
@@ -816,6 +825,8 @@ class EpisodeCreationSpec:
             deliverable=deliverable,
             capability_inheritance=inheritance,
             egress_allowlist=egress_allowlist,
+            epistemic=(EpistemicContract.from_record(record["epistemic"])
+                       if "epistemic" in record else None),
         )
 
     @classmethod

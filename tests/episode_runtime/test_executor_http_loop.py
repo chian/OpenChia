@@ -235,6 +235,23 @@ async def _unused_model_transport(request):  # pragma: no cover - never called
 
 def test_one_http_round_trip_is_brokered_and_recorded(tmp_path, monkeypatch):
     monkeypatch.setattr(executor_module, "verify_runtime_identity", lambda *a, **k: None)
+
+    # Learning is orthogonal to this test: the real LearningBroker inspects the
+    # materialized source package (APPROVED_BUILD_REQUEST.json ...), which the
+    # minimal stub package here does not carry.
+    import episode_runtime.learning_broker as learning_module
+
+    class _NoLearning:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __call__(self, *args, **kwargs):
+            raise AssertionError("no learning request expected in the HTTP loop test")
+
+        def validate_completion(self, typed_status=None):
+            return None
+
+    monkeypatch.setattr(learning_module, "LearningBroker", _NoLearning)
     monkeypatch.setattr(
         executor_module, "load_verified_bootstrap_program", lambda *a, **k: ""
     )

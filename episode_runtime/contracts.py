@@ -305,6 +305,7 @@ class RunEffectMode(str, Enum):
 class RunEventOrigin(str, Enum):
     HOST = "host"
     WORKER = "worker"
+    HOST_LEARNING = "host_learning"
 
 
 class RunEventKind(str, Enum):
@@ -317,15 +318,29 @@ class RunEventKind(str, Enum):
     MODEL_RESPONDED = "model_responded"
     HTTP_REQUESTED = "http_requested"
     HTTP_RESPONDED = "http_responded"
+    LEARNING_EVIDENCE = "learning_evidence"
+    LEARNING_OPENED = "learning_opened"
+    LEARNING_SELECTED = "learning_selected"
+    LEARNING_ATTEMPT = "learning_attempt"
+    LEARNING_REPAIR_REQUESTED = "learning_repair_requested"
+    LEARNING_COMMITTED = "learning_committed"
     RUN_SUCCEEDED = "run_succeeded"
     RUN_FAILED = "run_failed"
     RUN_CANCELLED = "run_cancelled"
+    RUN_BLOCKED = "run_blocked"
+    RUN_INTERRUPTED = "run_interrupted"
+    RUN_INVALID = "run_invalid"
+    RUN_RESOURCE_LIMITED = "run_resource_limited"
 
 
 class RunTerminalStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    BLOCKED = "blocked"
+    INTERRUPTED = "interrupted"
+    INVALID = "invalid"
+    RESOURCE_LIMITED = "resource_limited"
 
 
 class RuntimeMountKind(str, Enum):
@@ -381,6 +396,10 @@ _TERMINAL_EVENT_BY_STATUS = {
     RunTerminalStatus.SUCCEEDED: RunEventKind.RUN_SUCCEEDED,
     RunTerminalStatus.FAILED: RunEventKind.RUN_FAILED,
     RunTerminalStatus.CANCELLED: RunEventKind.RUN_CANCELLED,
+    RunTerminalStatus.BLOCKED: RunEventKind.RUN_BLOCKED,
+    RunTerminalStatus.INTERRUPTED: RunEventKind.RUN_INTERRUPTED,
+    RunTerminalStatus.INVALID: RunEventKind.RUN_INVALID,
+    RunTerminalStatus.RESOURCE_LIMITED: RunEventKind.RUN_RESOURCE_LIMITED,
 }
 TERMINAL_EVENT_KINDS = frozenset(_TERMINAL_EVENT_BY_STATUS.values())
 

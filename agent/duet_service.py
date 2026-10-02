@@ -394,7 +394,12 @@ class DuetService:
                 try:
                     from episode_library import episode_library
 
-                    episode_library.resolve_optional(item.episode_reference)
+                    reference = episode_library.resolve_optional(item.episode_reference)
+                    if reference is not None and any(
+                        function.interface.startswith("epistemic.") for function in reference.function_definitions
+                    ) and item.contract.epistemic is None:
+                        deficits.append(ContractDeficit("missing_epistemic_contract", "epistemic",
+                                                       detail=f"{item.local_id}: reasoning requires an explicit frozen epistemic contract"))
                 except (TypeError, ValueError) as exc:
                     deficits.append(
                         ContractDeficit(

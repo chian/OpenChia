@@ -64,6 +64,19 @@ reference hashes, and exact numerical function records. The planning model
 writes implementation details and task-specific prompts. Its structured return
 must echo the host-owned values exactly. A mismatch is a blocking finding.
 
+The finalized child node plan is the sole source for the child identity,
+interface, and request/result payload contracts repeated by its parent's edge.
+The Builder instantiates those exact values in the parent planner's output
+template. The planner writes the parent-owned slot name and request/result
+projection specifications around them while those child facts remain
+field-identical. Slot names describe the child's role in that parent and match
+the edge binding roles and child-builder keys. Admitted edges store their
+payload contracts directly from the finalized child plan.
+Structural admission bindings use the exact
+library definition selected by node position and carry the same complete
+payload-contract records. Generic empty handoff examples express schema
+notation; task-specific edges carry the finalized child's exact vocabulary.
+
 The source package is immutable and human-readable. It contains each Episode
 module, the approved input, the plan, inspection findings, and the manifest
 that binds their hashes. Building does not import generated Python, construct
