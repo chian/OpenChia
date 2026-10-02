@@ -31,6 +31,7 @@ from ._contract_plan import (
 from .declaration import DECLARATION_EXPORT, build_module_declaration
 from .reference import EpisodeReferenceContext
 from .admission import constructor_signatures
+from .planner import materializer_function_catalog
 
 
 _DOTTED_MODULE = re.compile(
@@ -562,6 +563,13 @@ listed in required_module_contract.import_surface.admitted_import_roots;
 write each FunctionImplementation exactly as
 required_module_contract.builder_runtime.generated_implementation states.
 
+The selected_library_definitions identify exact reusable functions. Their
+library/function_id labels are semantic identities; implementation.module and
+implementation.symbol identify the actual Python code. Preserve the registered
+functions' computed definition IDs. Use the public imports and construction rules
+in required_module_contract.library_exports and
+required_module_contract.constructor_signatures.
+
 Every edge receive_result implementation first calls
 handoff_library.admit_child_result with the matching parent request, declared
 RESULT_CHANNEL_IDS, and the exact edge result payload contract. It then
@@ -936,6 +944,11 @@ class EpisodeModuleEmitter:
             _child_summary(slot_name, direct_children[slot_name])
             for slot_name in sorted(direct_children)
         ]
+        selected_library_ids = {
+            binding["definition_id"]
+            for binding in plan.selected_function_bindings
+            if binding["source"] == "library"
+        }
         prompt = _canonical(
             {
                 "target_module_name": target_module_name,
@@ -958,6 +971,11 @@ class EpisodeModuleEmitter:
                     "root" if plan.parent_local_id is None else "child"
                 ),
                 "required_module_contract": _MODULE_CONTRACT,
+                "selected_library_definitions": [
+                    definition
+                    for definition in materializer_function_catalog()
+                    if definition["definition_id"] in selected_library_ids
+                ],
                 "required_response": {
                     "module_source": "complete raw Python module source",
                     "derivation_notes": {
