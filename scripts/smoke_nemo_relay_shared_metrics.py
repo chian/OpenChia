@@ -669,7 +669,7 @@ def main() -> int:
             sys.executable,
             "-c",
             "\n".join([
-                "from hermes_cli.observability import relay_shared_metrics",
+                "from openchia_cli.observability import relay_shared_metrics",
                 "from tools.skill_usage import (",
                 "    STATE_ACTIVE, STATE_ARCHIVED, STATE_STALE, bump_patch,",
                 "    bump_use, record_created, record_installed, set_state,",
@@ -720,7 +720,7 @@ def main() -> int:
     package_paths, packages = _validate_packages(
         telemetry / "outbox",
         hermes_repo
-        / "hermes_cli"
+        / "openchia_cli"
         / "observability"
         / "schemas"
         / "hermes.shared_metrics.v2.schema.json",

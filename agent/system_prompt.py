@@ -101,7 +101,7 @@ def _plugin_session_info(agent: Any) -> Dict[str, str]:
 
 
 def _ambient_plugin_profile_name() -> str:
-    from hermes_cli.profiles import get_active_profile_name
+    from openchia_cli.profiles import get_active_profile_name
     return str(get_active_profile_name() or "default")
 
 
@@ -128,7 +128,7 @@ def _frozen_plugin_prompt_sections(agent: Any) -> tuple:
         rendered = _restore_plugin_prompt_sections(stored_prompt)
     else:
         try:
-            from hermes_cli.plugins import render_system_prompt_sections
+            from openchia_cli.plugins import render_system_prompt_sections
             rendered = tuple(render_system_prompt_sections(_plugin_session_info(agent)))
         except Exception as exc:
             rendered = getattr(agent, "_plugin_system_prompt_sections_previous", None)
@@ -145,7 +145,7 @@ def _restore_plugin_prompt_sections(prompt: str) -> tuple:
     """Recover frozen section bytes from the persisted full prompt.  Only the
     exact canonical container emitted by core is accepted — user/project text
     may resemble a frame."""
-    from hermes_cli.plugins import (
+    from openchia_cli.plugins import (
         MAX_SYSTEM_PROMPT_SECTION_CHARS, PLUGIN_SECTIONS_END, PLUGIN_SECTIONS_START,
         RenderedPluginSystemPromptSection, format_system_prompt_sections,
     )
@@ -174,7 +174,7 @@ def restore_plugin_prompt_sections(agent: Any, prompt: str) -> None:
 
 
 def _plugin_section_blocks(sections: tuple, position: str) -> List[str]:
-    from hermes_cli.plugins import format_system_prompt_sections
+    from openchia_cli.plugins import format_system_prompt_sections
     block = format_system_prompt_sections([s for s in sections if s.position == position])
     return [block] if block else []
 
@@ -469,7 +469,7 @@ def _telegram_rich_messages_enabled() -> bool:
     adapter uses (top-level ``platforms.telegram.extra`` overrides
     ``gateway.platforms.telegram.extra`` at the leaf). False on any read failure."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
         _cfg = load_config_readonly()
         _gw = (((_cfg.get("gateway") or {}).get("platforms") or {}).get("telegram") or {}).get("extra")
         _top = ((_cfg.get("platforms") or {}).get("telegram") or {}).get("extra")

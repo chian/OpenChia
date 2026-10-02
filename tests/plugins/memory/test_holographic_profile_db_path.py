@@ -15,8 +15,8 @@ from unittest.mock import patch
 import pytest
 import hermes_yaml as yaml
 
-import hermes_cli.memory_setup as memory_setup
-from hermes_cli.profiles import create_profile, rename_profile
+import openchia_cli.memory_setup as memory_setup
+from openchia_cli.profiles import create_profile, rename_profile
 from plugins.memory.holographic import HolographicMemoryProvider, _load_plugin_config
 
 
@@ -64,7 +64,7 @@ def test_default_db_path_follows_the_profile_that_opens_it(root, monkeypatch, li
         source = create_profile("alpha", no_alias=True)
         answers = _setup_with_defaults(monkeypatch, source)
         monkeypatch.setenv("HERMES_HOME", str(root))
-        with patch("hermes_cli.profiles.check_alias_collision", return_value="skip"):
+        with patch("openchia_cli.profiles.check_alias_collision", return_value="skip"):
             profile = rename_profile("alpha", "beta")
 
     assert _opened_db(monkeypatch, profile) == (profile / "memory_store.db").resolve()

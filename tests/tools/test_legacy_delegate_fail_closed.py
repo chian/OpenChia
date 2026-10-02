@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from hermes_cli.plugins import PluginContext, PluginManager, PluginManifest
+from openchia_cli.plugins import PluginContext, PluginManager, PluginManifest
 from tools.registry import ToolRegistry, registry
 
 

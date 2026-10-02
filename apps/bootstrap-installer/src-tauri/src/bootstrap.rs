@@ -310,7 +310,7 @@ fn resolve_marker_commit(install_root: &Path, pin: &Pin, marker_path: &Path) -> 
 }
 
 /// UTC ISO-8601 with milliseconds, the `completedAt` format install.ps1,
-/// Electron (`toISOString`) and hermes_cli/source_stamp.py all write.
+/// Electron (`toISOString`) and openchia_cli/source_stamp.py all write.
 fn iso8601_utc(since_epoch: std::time::Duration) -> String {
     let secs = since_epoch.as_secs();
     let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);

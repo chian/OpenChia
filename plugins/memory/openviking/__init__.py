@@ -38,7 +38,7 @@ from agent.message_content import flatten_message_text
 from agent.memory_provider import MemoryProvider, spawn_context_thread
 from agent.secret_scope import get_secret
 from agent.skill_commands import extract_user_instruction_from_skill_message
-from hermes_cli.version_info import get_version_info
+from openchia_cli.version_info import get_version_info
 from hermes_constants import get_hermes_home
 from tools.registry import tool_error
 from utils import atomic_json_write, env_var_enabled
@@ -743,7 +743,7 @@ def _is_local_openviking_url(value: str) -> bool:
 
 def _load_hermes_openviking_config() -> dict:
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
 
         config = load_config_readonly()
         memory_config = config.get("memory", {}) if isinstance(config, dict) else {}
@@ -1272,7 +1272,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
         if endpoint:
             normalized["endpoint"] = _normalize_openviking_url(endpoint)
 
-        from hermes_cli.config import load_config, save_config
+        from openchia_cli.config import load_config, save_config
 
         config = load_config()
         if not isinstance(config.get("memory"), dict):

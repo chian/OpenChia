@@ -40,7 +40,7 @@ def resolve_identity() -> Dict[str, Any]:
     ``owner`` is advisory (local ref naming; the server derives the real one). The JWT is decoded
     WITHOUT verification: safe, the claims only decide whether to attempt sync, never authz."""
     try:
-        from hermes_cli.auth import resolve_nous_runtime_credentials
+        from openchia_cli.auth import resolve_nous_runtime_credentials
         creds = resolve_nous_runtime_credentials() or {}
     except Exception as e:
         raise SyncInertError(f"no Nous credentials: {e}") from e
@@ -68,7 +68,7 @@ _TRUE, _FALSE = {"1", "true", "yes", "on"}, {"0", "false", "no", "off", ""}
 def _sync_config(key: str) -> Any:
     """``sync.<key>`` from config.yaml, or None. Lazy import: must not import the CLI at module load."""
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         return ((load_config() or {}).get("sync") or {}).get(key)
     except Exception as e:
         logger.debug("skills_sync_client: config sync.%s read failed: %s", key, e)

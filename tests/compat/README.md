@@ -45,7 +45,7 @@ seam: only the isolated takeover command is accepted, and the real temporary
 request/result bridge still runs. Each test resets the parent result cache so
 one export cannot pass just because another already handed off. The tests retain
 historical arguments and return shapes, and forbid old-parent fallbacks.
-`tests/hermes_cli/test_old_updater_takeover.py` separately executes a real child
+`tests/openchia_cli/test_old_updater_takeover.py` separately executes a real child
 to prove waiting, status propagation and no reentry; these export probes do not
 replace that integration coverage.
 

@@ -23,7 +23,7 @@ class TestRetryAfterHeaderOneParser:
         and silently drop the RFC 7231 date form; all three must now agree with the canonical."""
         from agent.agent_runtime_helpers import extract_api_error_context
         from agent.nous_rate_guard import _parse_reset_seconds
-        from hermes_cli.anon_auth import _retry_after_seconds as anon_retry_after
+        from openchia_cli.anon_auth import _retry_after_seconds as anon_retry_after
         import time
 
         header = _http_date(90)
@@ -42,7 +42,7 @@ class TestRetryAfterHeaderOneParser:
         assert 85 <= ctx["reset_at"] - time.time() <= 91
 
     def test_metrics_sender_clamps_on_top_of_the_shared_parser(self):
-        from hermes_cli.observability.shared_metrics_sender import _retry_after_seconds
+        from openchia_cli.observability.shared_metrics_sender import _retry_after_seconds
 
         assert _retry_after_seconds(_http_date(120), 7) in (119, 120)
         assert _retry_after_seconds("0", 7) == 1          # floor survives

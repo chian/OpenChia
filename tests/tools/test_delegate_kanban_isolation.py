@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 # The subprocess-boundary tests below spawn ``sys.executable -c`` with a tmp
-# cwd. Without an explicit PYTHONPATH the child resolves ``hermes_cli`` /
+# cwd. Without an explicit PYTHONPATH the child resolves ``openchia_cli`` /
 # ``agent`` through whatever install is on sys.path (in a worktree that is the
 # MAIN checkout's editable install, which may not contain the code under
 # test). Pin the repo root so the child always imports the tree being tested.
@@ -37,8 +37,8 @@ def _make_running_kanban_task(monkeypatch, tmp_path):
     monkeypatch.setenv("HERMES_KANBAN_WORKSPACE", str(workspace))
     monkeypatch.setenv("HERMES_KANBAN_ATTACHMENTS_ROOT", str(attachments_root))
 
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
 
     kb._INITIALIZED_PATHS.clear()
     kb.init_db()
@@ -185,7 +185,7 @@ def test_auto_heartbeat_reports_failure_without_mutating_fenced_child_board(
     delegate child stays fenced too, quietly, without consuming the worker's heartbeat window."""
     kb, tid, _workspace, _attachments_root = _make_running_kanban_task(monkeypatch, tmp_path)
     from agent.delegation_context import delegated_child_context
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools
 
     conn = kbc.connect()
@@ -234,7 +234,7 @@ def test_delegate_child_kanban_cli_cannot_delete_parent_board(
     from tools.environments.local import LocalEnvironment
 
     code = (
-        "from hermes_cli import kanban; "
+        "from openchia_cli import kanban; "
         "import argparse; "
         "p=argparse.ArgumentParser(); "
         "sub=p.add_subparsers(dest='cmd'); "
@@ -260,7 +260,7 @@ def test_delegate_child_kanban_cli_cannot_delete_parent_board(
 
 def test_delegate_child_attach_url_guard_leaves_no_row_or_file(monkeypatch, tmp_path):
     kb, tid, _workspace, attachments_root = _make_running_kanban_task(monkeypatch, tmp_path)
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db_connect as kbc
 
     from agent.delegation_context import delegated_child_context
     from tools import kanban_tools
@@ -295,7 +295,7 @@ def test_child_attempting_default_complete_does_not_finish_parent_or_delete_work
 ):
     """Deterministic E2E: a delegated child cannot complete its parent task."""
     kb, tid, workspace, _attachments_root = _make_running_kanban_task(monkeypatch, tmp_path)
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db_connect as kbc
     from tools import delegate_tool
     from tools import kanban_tools
 

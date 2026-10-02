@@ -32,10 +32,10 @@ def test_cli_keeps_discovered_home_when_launch_selection_changes(tmp_path, monke
     def run(argv, env, report_path, timeout):
         # Exercise the actual startup resolver with the production child env/flags.
         code = ('import json,sys; sys.argv=["hermes"]+json.loads(sys.argv[1]); '
-                'import hermes_cli.main; from hermes_constants import get_hermes_home; '
+                'import openchia_cli.main; from hermes_constants import get_hermes_home; '
                 'print(json.dumps(str(get_hermes_home())))')
-        # Everything after the launcher (binary or ``python -m hermes_cli.main``) is the CLI argv.
-        cli_argv = argv[3:] if argv[1:3] == ["-m", "hermes_cli.main"] else argv[1:]
+        # Everything after the launcher (binary or ``python -m openchia_cli.main``) is the CLI argv.
+        cli_argv = argv[3:] if argv[1:3] == ["-m", "openchia_cli.main"] else argv[1:]
         result = real_run([sys.executable, "-c", code, json.dumps(cli_argv)],
                           env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result.stderr

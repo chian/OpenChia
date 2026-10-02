@@ -336,7 +336,7 @@ def _read_claude_code_credentials_from_keychain() -> Optional[Dict[str, Any]]:
 
 def claude_code_credentials_path() -> Path:
     """Claude Code's shared OAuth file; every profile reads/writes this same path. Honours ``CLAUDE_CONFIG_DIR``
-    like the Claude CLI itself (blank = unset, as in ``hermes_cli.foreign_sessions``). The supported opt-out of
+    like the Claude CLI itself (blank = unset, as in ``openchia_cli.foreign_sessions``). The supported opt-out of
     borrowing the login is ``auth.adopt_external_logins: false`` in config.yaml."""
     override = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
     root = Path(override).expanduser() if override else Path.home() / ".claude"
@@ -468,7 +468,7 @@ def _refresh_oauth_token(creds: Dict[str, Any]) -> Optional[str]:
     token instead of racing it into ``invalid_grant``. Read, decision, POST and write-back share the pool's
     path-keyed cross-process lock (else two profiles can spend one refresh token)."""
     try:
-        from hermes_cli.auth import AUTH_LOCK_TIMEOUT_SECONDS, _auth_store_lock, env_float
+        from openchia_cli.auth import AUTH_LOCK_TIMEOUT_SECONDS, _auth_store_lock, env_float
         refresh_timeout_seconds = env_float("HERMES_ANTHROPIC_REFRESH_TIMEOUT_SECONDS", 20)
         lock_timeout_seconds = max(float(AUTH_LOCK_TIMEOUT_SECONDS), float(refresh_timeout_seconds) + 5.0)
         cred_path = claude_code_credentials_path()
@@ -771,7 +771,7 @@ def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
         "", f"  {auth_url}", "",
     ]))
     try:
-        from hermes_cli.auth import _can_open_graphical_browser as _can_open_gui
+        from openchia_cli.auth import _can_open_graphical_browser as _can_open_gui
     except Exception:
         _can_open_gui = lambda: True  # noqa: E731 — degrade to prior behavior
     if _can_open_gui():

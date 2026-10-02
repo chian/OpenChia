@@ -283,9 +283,9 @@ COMPONENT_PREFIXES = {
     "gateway": ("gateway", "hermes_plugins", "plugins.platforms"),
     "agent": ("agent", "run_agent", "model_tools", "batch_runner"),
     "tools": ("tools",),
-    "cli": ("hermes_cli", "cli"),
+    "cli": ("openchia_cli", "cli"),
     "cron": ("cron",),
-    "gui": ("hermes_cli.web_server", "hermes_cli.pty_bridge", "hermes_cli.desktop", "tui_gateway", "uvicorn"),
+    "gui": ("openchia_cli.web_server", "openchia_cli.pty_bridge", "openchia_cli.desktop", "tui_gateway", "uvicorn"),
 }
 
 
@@ -441,7 +441,7 @@ class _ManagedRotatingFileHandler(RotatingFileHandler):
     """
 
     def __init__(self, *args, **kwargs):
-        from hermes_cli.config import is_managed
+        from openchia_cli.config import is_managed
         self._managed = is_managed()
         self._unavailable_reported = False
         super().__init__(*args, **kwargs)
@@ -898,10 +898,10 @@ def _read_logging_config():
     """Best-effort read of ``logging.*`` from config.yaml."""
     try:
         # Prefer the shared effective-config cache (managed overlay included, so an administrator
-        # can pin logging.*) so this reuses hermes_cli.main's early parse (one config.yaml parse
+        # can pin logging.*) so this reuses openchia_cli.main's early parse (one config.yaml parse
         # per process); fall back to a direct parse for bare hermes_logging consumers.
         try:
-            from hermes_cli.config_effective import load_user_config_effective
+            from openchia_cli.config_effective import load_user_config_effective
             cfg = load_user_config_effective(get_config_path())
         except Exception:
             from utils import fast_safe_load

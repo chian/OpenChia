@@ -27,7 +27,7 @@ export const withoutKey = <T>(record: Record<string, T>, key: string) => {
 export const redactedValue = (v: string) => (v.length <= 8 ? '••••' : `${v.slice(0, 4)}...${v.slice(-4)}`)
 
 // The backend wraps stored-key previews in a write-guard sentinel
-// (hermes_cli/web_routers/_common.redacted_credential_preview): show the inner
+// (openchia_cli/web_routers/_common.redacted_credential_preview): show the inner
 // preview, and a plain mask for the label-less forms.
 export const credentialPreview = (value: null | string | undefined): null | string => {
   if (!value?.startsWith('«redacted')) {
@@ -257,7 +257,7 @@ export function setNested(obj: HermesConfigRecord, path: string, value: unknown)
 }
 
 function personalityOptions(config: HermesConfigRecord): string[] {
-  // The Python runtime (`hermes_cli.personality.available_personalities`) honours both
+  // The Python runtime (`openchia_cli.personality.available_personalities`) honours both
   // the root-level `personalities` block and `agent.personalities` (agent wins on a name
   // clash). Read both so a root-registered persona the CLI/gateway resolve also appears in
   // the dropdown (#123297).

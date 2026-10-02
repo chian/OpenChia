@@ -41,7 +41,7 @@ async def test_handle_model_command_stores_request_overrides_for_named_custom_pr
     monkeypatch,
 ):
     import gateway.run as gateway_run
-    from hermes_cli.model_switch import ModelSwitchResult
+    from openchia_cli.model_switch import ModelSwitchResult
 
     hermes_home = tmp_path / ".hermes"
     hermes_home.mkdir()
@@ -65,10 +65,10 @@ custom_providers:
     monkeypatch.setattr(gateway_run, "_hermes_home", hermes_home)
     # resolve_persist_behavior() reads the profile config through get_hermes_home(); without this
     # the sandbox home looks like a fresh install and the --provider switch persists globally.
-    monkeypatch.setattr("hermes_cli.config.get_hermes_home", lambda: hermes_home)
+    monkeypatch.setattr("openchia_cli.config.get_hermes_home", lambda: hermes_home)
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
     monkeypatch.setattr(
-        "hermes_cli.model_switch.switch_model",
+        "openchia_cli.model_switch.switch_model",
         lambda **kw: ModelSwitchResult(
             success=True,
             new_model="rotator-openrouter-coding",

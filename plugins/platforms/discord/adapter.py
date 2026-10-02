@@ -928,7 +928,7 @@ class VoiceReceiver:
     def pcm_to_wav(pcm_data: bytes, output_path: str, src_rate: int = 48000, src_channels: int = 2):
         """Convert raw PCM to 16kHz mono WAV via ffmpeg into *output_path* (not stdout: ffmpeg
         can't seek a pipe, so piped WAV carries placeholder RIFF sizes strict readers misreport)."""
-        from hermes_cli._subprocess_compat import windows_hide_flags
+        from openchia_cli._subprocess_compat import windows_hide_flags
         subprocess.run(
             [
                 resolve_ffmpeg_executable(), "-y", "-loglevel", "error", "-f", "s16le",
@@ -948,7 +948,7 @@ def _read_dm_role_auth_guild() -> Optional[int]:
     """Return the guild ID opted-in for DM role-based auth, or None (secure default). Read from
     config.yaml ``discord.dm_role_auth_guild`` only (behavioral, not a secret); int or numeric string."""
     try:
-        from hermes_cli.config import read_raw_config
+        from openchia_cli.config import read_raw_config
         cfg = read_raw_config() or {}
         discord_cfg = cfg.get("discord", {}) or {}
         raw = discord_cfg.get("dm_role_auth_guild")
@@ -982,7 +982,7 @@ def _read_discord_prompt_timeout() -> int:
     (default 300), clamped to [MIN, MAX] so a typo can't make prompts vanish or outlive tokens."""
     raw: Any = None
     try:
-        from hermes_cli.config import read_raw_config
+        from openchia_cli.config import read_raw_config
         cfg = read_raw_config() or {}
         approvals_cfg = cfg.get("approvals", {}) or {}
         raw = approvals_cfg.get("discord_prompt_timeout")
@@ -1565,7 +1565,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
     def _platform_events_subscribed() -> bool:
         """has_hook fast-path shared by every Discord fire-site."""
         try:
-            from hermes_cli.lifecycle import has_hook
+            from openchia_cli.lifecycle import has_hook
             return has_hook("gateway_platform_event")
         except Exception:
             return False
@@ -3364,7 +3364,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
             ],
         }
         try:
-            from hermes_cli.config import read_raw_config
+            from openchia_cli.config import read_raw_config
             cfg = read_raw_config() or {}
             fx = ((cfg.get("discord") or {}).get("voice_fx") or {})
             if isinstance(fx, dict):
@@ -3378,7 +3378,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
     def _load_discord_int_config(self, key: str, default: int, *, minimum: int = 0) -> int:
         """Read a non-secret integer from the top-level ``discord`` config."""
         try:
-            from hermes_cli.config import read_raw_config
+            from openchia_cli.config import read_raw_config
             cfg = read_raw_config() or {}
             raw = (cfg.get("discord") or {}).get(key, default)
             value = int(raw)
@@ -4117,7 +4117,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
             return adapters, runner.config
         from gateway.config import load_gateway_config
         from gateway.run import _async_profile_runtime_scope
-        from hermes_cli.profiles import get_profile_dir
+        from openchia_cli.profiles import get_profile_dir
         async with _async_profile_runtime_scope(get_profile_dir(profile)):
             return adapters, load_gateway_config()
 
@@ -4136,7 +4136,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
         try:
             if profile:
                 from gateway.run import _async_profile_runtime_scope
-                from hermes_cli.profiles import get_profile_dir
+                from openchia_cli.profiles import get_profile_dir
                 async with _async_profile_runtime_scope(get_profile_dir(profile)):
                     await self._deliver_unauthorized_slash_alert(
                         runner, profile, user_name, user_id, chan_id, guild_id, command_text, reason)
@@ -4466,7 +4466,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
                 # e.g. name conflict with a subcommand group.
                 pass
         try:
-            from hermes_cli.commands import COMMAND_REGISTRY, _is_gateway_available, _resolve_config_gates
+            from openchia_cli.commands import COMMAND_REGISTRY, _is_gateway_available, _resolve_config_gates
             try:
                 already_registered = {cmd.name for cmd in tree.get_commands()}
             except Exception:
@@ -4480,7 +4480,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
             logger.warning("Discord auto-register from COMMAND_REGISTRY failed: %s", e)
         # Mirror PluginContext.register_command() commands into the native slash picker.
         try:
-            from hermes_cli.commands import _iter_plugin_command_entries
+            from openchia_cli.commands import _iter_plugin_command_entries
             for plugin_name, plugin_desc, plugin_args_hint in _iter_plugin_command_entries():
                 _auto_register(plugin_name, plugin_desc, plugin_args_hint)
         except Exception as e:
@@ -4614,7 +4614,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
     def _refresh_skill_catalog_state(self) -> None:
         """Re-scan disk and repopulate ``self._skill_entries``/``_skill_lookup`` in place.
         No Discord API calls: autocomplete and handler read these attributes directly."""
-        from hermes_cli.commands_platforms import discord_skill_commands_by_category
+        from openchia_cli.commands_platforms import discord_skill_commands_by_category
         reserved = getattr(self, "_skill_group_reserved_names", set())
         categories, uncategorized, hidden = discord_skill_commands_by_category(
             reserved_names=set(reserved),
@@ -5643,7 +5643,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
         """Two-step select-menu model picker (provider → model) via ``ModelPickerView``."""
         def _build(_channel):
             try:
-                from hermes_cli.providers import get_label
+                from openchia_cli.providers import get_label
                 provider_label = get_label(current_provider)
             except Exception:
                 provider_label = current_provider
@@ -6554,7 +6554,7 @@ def _define_discord_view_classes() -> None:
 
         async def _expensive_warning_for(self, model_id: str):
             try:
-                from hermes_cli.model_selection_guards import combined_selection_warning
+                from openchia_cli.model_selection_guards import combined_selection_warning
                 # Pricing lookup can hit models.dev on a cache miss — keep it off the event loop.
                 return await asyncio.to_thread(combined_selection_warning, model_id, provider=self._selected_provider)
             except Exception:
@@ -6616,7 +6616,7 @@ def _define_discord_view_classes() -> None:
                 return
             self._build_provider_select()
             try:
-                from hermes_cli.providers import get_label
+                from openchia_cli.providers import get_label
                 provider_label = get_label(self.current_provider)
             except Exception:
                 provider_label = self.current_provider
@@ -7132,7 +7132,7 @@ def _discord_token_shape_error(token: str) -> Optional[str]:
 
 def _prompt_discord_bot_token(prompt) -> str:
     """Prompt for the bot token, re-prompting once when the answer is a numeric app ID."""
-    from hermes_cli.cli_output import print_error
+    from openchia_cli.cli_output import print_error
     token = ""
     for _attempt in range(2):
         token = prompt("Discord bot token", password=True)
@@ -7148,11 +7148,11 @@ def _prompt_discord_bot_token(prompt) -> str:
 
 def interactive_setup() -> None:
     """Guide the user through Discord bot setup: token, allowlist, home channel (lazy CLI imports)."""
-    from hermes_cli.config import get_env_value, remove_env_value, save_env_value
-    from hermes_cli.cli_output import (
+    from openchia_cli.config import get_env_value, remove_env_value, save_env_value
+    from openchia_cli.cli_output import (
         prompt, prompt_yes_no, print_header, print_info, print_success,
     )
-    from hermes_cli.setup_platforms import declines_reconfigure
+    from openchia_cli.setup_platforms import declines_reconfigure
     def _info_lines(*lines: str) -> None:
         for line in lines:
             print_info(line)

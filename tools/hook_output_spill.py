@@ -31,7 +31,7 @@ def get_spill_config() -> Dict[str, Any]:
     """Return resolved hook output-spill config. Never raises."""
     section: Dict[str, Any] = {}
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         cfg = load_config() or {}
         hooks = cfg.get("hooks") if isinstance(cfg, dict) else None
         if isinstance(hooks, dict) and isinstance(hooks.get("output_spill"), dict):

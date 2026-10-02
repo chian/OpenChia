@@ -110,7 +110,7 @@ def _set_model(rid, params, key, value, session):
         return _err(rid, 4002, "model value required")
     confirmed = bool(params.get("confirm_expensive_model", False))
     if session:
-        from hermes_cli.model_switch import parse_model_switch_args
+        from openchia_cli.model_switch import parse_model_switch_args
         sid = params.get("session_id", "")
         parsed_flags = parse_model_switch_args(value)
         if session.get("running"):
@@ -143,7 +143,7 @@ def _set_model(rid, params, key, value, session):
         # --once keeps its specific 5001; other sessionless model sets 4001 so
         # --global cannot persist profile defaults before session.create (#106397:
         # an older Desktop client sent a fresh-draft pick this way).
-        from hermes_cli.model_switch import parse_model_switch_args
+        from openchia_cli.model_switch import parse_model_switch_args
         if parse_model_switch_args(str(value)).is_once:
             result = _apply_model_switch("", {"agent": None}, value, confirm_expensive_model=confirmed)
         else:
@@ -177,7 +177,7 @@ def _set_fast(rid, params, key, value, session):
         return _err(rid, 4002, f"unknown fast mode: {value}")
     overrides = None
     if nv == "fast":
-        from hermes_cli.models import resolve_fast_mode_overrides
+        from openchia_cli.models import resolve_fast_mode_overrides
         if agent is not None:
             target_model = getattr(agent, "model", None)
         else:  # a pre-build session may carry a picked model (desktop draft): validate against THAT
@@ -230,7 +230,7 @@ def _set_verbose(rid, params, key, value, session):
 
 def _set_focus(rid, params, key, value, session):
     # /focus: enabling stashes the configured tool_progress mode and pins it "off"; disabling restores.
-    from hermes_cli.focus_view import FOCUS_TOOL_PROGRESS_MODE, normalize_tool_progress_mode, resolve_focus_arg
+    from openchia_cli.focus_view import FOCUS_TOOL_PROGRESS_MODE, normalize_tool_progress_mode, resolve_focus_arg
     d_f = _display_cfg()
     cur_focus = bool(d_f.get("focus_view", False))
     action, target = resolve_focus_arg(str(value or ""), cur_focus)
@@ -435,8 +435,8 @@ def _set_prompt(rid, params, key, value, session):
 @_cfgset_guarded
 def _set_personality(rid, params, key, value, session):
     pname, new_prompt = _validate_personality(str(value or ""), _load_cfg_raw())
-    # Persists via hermes_cli.personality (single owner), never the user-owned system prompt.
-    from hermes_cli.personality import persist_personality
+    # Persists via openchia_cli.personality (single owner), never the user-owned system prompt.
+    from openchia_cli.personality import persist_personality
     persist_personality(pname)
     history_reset, info = _apply_personality_to_session(params.get("session_id", ""), session, new_prompt, pname)
     return _kv(rid, key, str(value or "none"), history_reset=history_reset,

@@ -129,13 +129,13 @@ def test_turn_wait_seconds_falls_back_to_module_constant(monkeypatch):
     def _boom():
         raise RuntimeError("no config")
 
-    monkeypatch.setattr("hermes_cli.config.load_config", _boom)
+    monkeypatch.setattr("openchia_cli.config.load_config", _boom)
     assert bot_relay.turn_wait_seconds() == float(bot_relay.TURN_WAIT_SECONDS_FALLBACK)
 
 
 def test_turn_wait_seconds_reads_config(monkeypatch):
     monkeypatch.setattr(
-        "hermes_cli.config.load_config",
+        "openchia_cli.config.load_config",
         lambda: {"bot_mode": {"turn_wait_seconds": 7}},
     )
     assert bot_relay.turn_wait_seconds() == 7.0
@@ -292,7 +292,7 @@ def test_relay_deliver_returns_target_busy_error(tmp_path, monkeypatch):
 
         return _Done()
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run)
 
     held = threading.Event()
     release = threading.Event()
@@ -327,7 +327,7 @@ def test_relay_deliver_serializes_then_succeeds(tmp_path, monkeypatch):
         stdout = "pong"
         stderr = ""
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", lambda *a, **k: _Proc())
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", lambda *a, **k: _Proc())
 
     held = threading.Event()
     release = threading.Event()
@@ -385,7 +385,7 @@ def test_every_relay_refusal_carries_its_typed_reason(tmp_path, monkeypatch, fai
     def _raise(argv, **kwargs):
         raise failure
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _raise)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _raise)
 
     out = srv._methods["bot_relay.deliver"](1, {"profile": "ops", "message": "x"})
 

@@ -64,7 +64,7 @@ def test_prebuilt_bundle_present_and_no_runtime_install(built_image: str) -> Non
     py = (
         "import json\n"
         "from pathlib import Path\n"
-        "from hermes_cli.main_tui_launch import _make_tui_argv\n"
+        "from openchia_cli.main_tui_launch import _make_tui_argv\n"
         "ui = Path('/opt/hermes/ui-tui')\n"
         "argv, cwd = _make_tui_argv(ui, tui_dev=False)\n"
         "out = {\n"
@@ -91,7 +91,7 @@ import json
 import os
 import subprocess
 import sys
-from hermes_cli.main_tui_launch import _apply_tui_python_env
+from openchia_cli.main_tui_launch import _apply_tui_python_env
 
 env = dict(os.environ)
 _apply_tui_python_env(env)

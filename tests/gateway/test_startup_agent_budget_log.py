@@ -5,7 +5,7 @@ import logging
 import pytest
 
 from gateway.run import GatewayRunner, _bridge_max_turns_to_env, _current_max_iterations
-from hermes_cli.config import TURN_LIMIT_UNLIMITED
+from openchia_cli.config import TURN_LIMIT_UNLIMITED
 
 @pytest.mark.parametrize(
     ("max_turns", "expected"),

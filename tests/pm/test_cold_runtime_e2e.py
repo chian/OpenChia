@@ -98,7 +98,7 @@ def test_cold_cli_builds_own_runtime_discovers_plugins_and_repairs_app(tmp_path,
     source = Path(__file__).resolve().parents[2]
     repo = tmp_path / "source"
     repo.mkdir()
-    for name in ("pm", "hermes_cli"):
+    for name in ("pm", "openchia_cli"):
         shutil.copytree(source / name, repo / name,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     for name in ("utils.py", "hermes_constants.py", "hermes_yaml.py",
@@ -182,7 +182,7 @@ assert importlib.util.find_spec('yaml') is None
 assert importlib.util.find_spec('packaging') is None
 assert importlib.util.find_spec('idna') is None
 """
-    cli = "\nsys.argv = ['hermes', 'pm', {action!r}]; import hermes_cli.main\n"
+    cli = "\nsys.argv = ['hermes', 'pm', {action!r}]; import openchia_cli.main\n"
     try:
         assert not store.exists()
         assert not (hermes_home / "installs").exists()

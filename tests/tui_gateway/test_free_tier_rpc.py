@@ -10,8 +10,8 @@ import time
 import pytest
 
 import tui_gateway.server as srv
-from hermes_cli import anon_auth
-from hermes_cli.auth import _auth_store_lock, _load_auth_store, _save_auth_store
+from openchia_cli import anon_auth
+from openchia_cli.auth import _auth_store_lock, _load_auth_store, _save_auth_store
 
 
 def _jwt(**claims) -> str:
@@ -31,7 +31,7 @@ def _fresh_process_memos():
     """``free_tier.provision`` routes through the boot record when one exists; a record another
     test file left behind (has_identity) would make it skip the mint. Per-process state, per test,
     both ways so this file leaves nothing behind either."""
-    from hermes_cli import free_tier_bootstrap
+    from openchia_cli import free_tier_bootstrap
 
     def _reset():
         free_tier_bootstrap.reset_for_tests()
@@ -56,7 +56,7 @@ def guest(tmp_path, monkeypatch):
 
 
 def _set_guest_off(monkeypatch):
-    from hermes_cli import config as cfg_mod
+    from openchia_cli import config as cfg_mod
     monkeypatch.setattr(anon_auth, "guest_enabled", lambda: False)
     return cfg_mod
 

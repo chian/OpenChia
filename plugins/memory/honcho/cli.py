@@ -11,7 +11,7 @@ from pathlib import Path
 from hermes_constants import get_hermes_home
 from plugins.memory.honcho.client import _first_parsed, _host_block, profile_host_key, resolve_active_host, resolve_config_path, HOST
 from plugins.memory.honcho.session_peers import sanitize_peer_id
-from hermes_cli.config import cfg_get
+from openchia_cli.config import cfg_get
 from utils import read_json_or_empty
 
 RULE = "─" * 40
@@ -219,7 +219,7 @@ def _prompt(label: str, default: str | None = None, secret: bool = False) -> str
     sys.stdout.write(f"  {label}{f' [{default}]' if default else ''}: ")
     sys.stdout.flush()
     if secret and sys.stdin.isatty():
-        from hermes_cli.secret_prompt import masked_secret_prompt
+        from openchia_cli.secret_prompt import masked_secret_prompt
         val = masked_secret_prompt("")
     else:  # non-TTY (piped input, test runners) reads plaintext
         val = sys.stdin.readline().strip()
@@ -309,7 +309,7 @@ def _sync_profiles(verbose: bool) -> int:
     """Clone host blocks for profiles lacking one; returns the count created."""
     say = print if verbose else (lambda *a: None)
     try:
-        from hermes_cli.profiles import list_profiles
+        from openchia_cli.profiles import list_profiles
         profiles = list_profiles()
     except Exception as e:
         return say(f"  Could not list profiles: {e}\n") or 0
@@ -603,9 +603,9 @@ def _device_login_available() -> bool:
 
 
 def _headless() -> tuple[bool, bool]:
-    """(is_remote, can_open_browser) — degrades safely if hermes_cli internals move."""
+    """(is_remote, can_open_browser) — degrades safely if openchia_cli internals move."""
     try:
-        from hermes_cli.auth import _can_open_graphical_browser, _is_remote_session
+        from openchia_cli.auth import _can_open_graphical_browser, _is_remote_session
         return _is_remote_session(), _can_open_graphical_browser()
     except Exception:
         return False, True
@@ -873,7 +873,7 @@ def _setup_wizard(args) -> None:
     print(f"\n  Config written to {write_path}")
 
     try:  # auto-enable Honcho as memory provider in config.yaml
-        from hermes_cli.config import load_config, save_config
+        from openchia_cli.config import load_config, save_config
         hermes_config = load_config()
         hermes_config.setdefault("memory", {})["provider"] = "honcho"
         save_config(hermes_config)
@@ -922,7 +922,7 @@ def _active_profile_name() -> str:
     if _profile_override:
         return _profile_override
     try:
-        from hermes_cli.profiles import get_active_profile_name
+        from openchia_cli.profiles import get_active_profile_name
         return get_active_profile_name()
     except Exception:
         return "default"
@@ -931,7 +931,7 @@ def _active_profile_name() -> str:
 def _all_profile_host_configs() -> list[tuple[str, str, dict]]:
     """(profile_name, host_key, host_block) for every known profile, reading honcho.json once."""
     try:
-        from hermes_cli.profiles import list_profiles
+        from openchia_cli.profiles import list_profiles
         profiles = list_profiles()
     except Exception:
         return [(_active_profile_name(), _host_key(), {})]
@@ -1054,7 +1054,7 @@ def _state_db_path() -> Path:
     """Return the state.db path for the targeted profile."""
     if _profile_override and _profile_override not in {"default", "custom"}:
         try:
-            from hermes_cli.profiles import get_profile_dir
+            from openchia_cli.profiles import get_profile_dir
             return get_profile_dir(_profile_override) / "state.db"
         except Exception:
             pass
@@ -1895,7 +1895,7 @@ def honcho_command(args) -> None:
     sub = getattr(args, "honcho_command", None)
     if sub == "setup":  # honcho setup goes through the unified memory-provider path
         print("\n  Honcho is configured via the memory provider system.\n  Running 'hermes memory setup'...\n")
-        from hermes_cli.memory_setup import cmd_setup_provider
+        from openchia_cli.memory_setup import cmd_setup_provider
         return cmd_setup_provider("honcho")
     handler = cmd_status if sub is None else _HANDLERS.get(sub)
     if handler is None:

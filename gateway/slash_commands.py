@@ -30,7 +30,7 @@ from gateway.slash_commands_model import GatewayModelCommandsMixin
 from gateway.slash_commands_session import GatewaySessionCommandsMixin
 from gateway.slash_commands_login import GatewayLoginCommandsMixin
 from gateway.slash_commands_status import HISTORY_UNREADABLE, GatewayStatusCommandsMixin
-from hermes_cli.config import atomic_config_write, cfg_get
+from openchia_cli.config import atomic_config_write, cfg_get
 from utils import atomic_json_write, is_truthy_value
 
 logger = logging.getLogger("gateway.run")
@@ -95,7 +95,7 @@ def _nested_dict(root: dict, *keys: str) -> dict:
 def _write_raw_config_leaf(config_path: Path, keys: tuple, value) -> None:
     """Set one leaf through a strict raw round-trip. The behavioral read is fail-open (``{}``) and
     expanded, so writing it back wipes the file after a read error and persists ``${VAR}`` values."""
-    from hermes_cli.config import read_user_config_raw
+    from openchia_cli.config import read_user_config_raw
     raw = read_user_config_raw(config_path)
     *parents, leaf = keys
     _nested_dict(raw, *parents)[leaf] = value
@@ -108,7 +108,7 @@ def _preview(text: str, limit: int = 60) -> str:
 
 def _execute(command: str, **ctx_kwargs):
     """Run *command* through the shared slash executor on the gateway surface."""
-    from hermes_cli.slash_exec import CommandContext, execute_command
+    from openchia_cli.slash_exec import CommandContext, execute_command
     return execute_command(command, CommandContext(surface="gateway", **ctx_kwargs))
 
 
@@ -138,10 +138,10 @@ def _spawn_detached_update(hermes_cmd, output_path, exit_code_path) -> None:
     import shutil
     import subprocess
     if sys.platform == "win32":
-        from hermes_cli._subprocess_compat import windows_detach_popen_kwargs
+        from openchia_cli._subprocess_compat import windows_detach_popen_kwargs
         subprocess.Popen(
             [sys.executable, "-c", _WINDOWS_UPDATE_HELPER, str(output_path), str(exit_code_path),
-             sys.executable, "-m", "hermes_cli.main", "update", "--gateway"],
+             sys.executable, "-m", "openchia_cli.main", "update", "--gateway"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **windows_detach_popen_kwargs())
         return
     hermes_cmd_str = " ".join(shlex.quote(part) for part in hermes_cmd)
@@ -249,7 +249,7 @@ class GatewaySlashCommandsMixin(
         from gateway.run import _gateway_config_home
         # Persist to config (default) unless --session opted out, mirroring the text /model command path
         # above so a picked model survives across sessions like a typed one (#49066).
-        from hermes_cli.config import read_user_config_raw
+        from openchia_cli.config import read_user_config_raw
         config_path = _gateway_config_home() / "config.yaml"
         session_key = self._session_key_for_source(event.source)
 
@@ -347,7 +347,7 @@ class GatewaySlashCommandsMixin(
     async def _handle_kanban_command(self, event: MessageEvent) -> str:
         """Handle /kanban — delegate to the shared kanban CLI (DB work in a thread pool). Allowed
         while an agent runs: the board is profile-agnostic and never touches agent state."""
-        from hermes_cli.kanban import run_slash
+        from openchia_cli.kanban import run_slash
 
         # Strip the leading "/kanban" (with or without slash), leaving args.
         text = (event.text or "").strip().lstrip("/")
@@ -402,9 +402,9 @@ class GatewaySlashCommandsMixin(
             return False
 
         def _sub():
-            from hermes_cli import kanban_db as _kb
-            from hermes_cli import kanban_db_connect as _kbc
-            from hermes_cli import kanban_db_notify as _kbn
+            from openchia_cli import kanban_db as _kb
+            from openchia_cli import kanban_db_connect as _kbc
+            from openchia_cli import kanban_db_notify as _kbn
             conn = _kbc.connect(board=requested_board)
             try:
                 _kbn.add_notify_sub(
@@ -652,7 +652,7 @@ class GatewaySlashCommandsMixin(
             return t("gateway.set_home.save_failed", error=e)
         # Preserve legacy home env vars for existing cron/setup consumers.
         try:
-            from hermes_cli.config import save_env_value
+            from openchia_cli.config import save_env_value
             save_env_value(_home_target_env_var(platform_name), str(chat_id))
             save_env_value(_home_thread_env_var(platform_name), str(thread_id or ""))
         except Exception as e:
@@ -892,7 +892,7 @@ class GatewaySlashCommandsMixin(
     async def _handle_memory_command(self, event: MessageEvent) -> str:
         """Handle /memory — review pending memory writes + toggle the approval gate. Entries are small
         enough to review inline, so the full flow works on every platform."""
-        from hermes_cli.write_approval_commands import handle_pending_subcommand
+        from openchia_cli.write_approval_commands import handle_pending_subcommand
         from tools import write_approval as wa
         from tools.memory_tool import load_on_disk_store
         # Apply approved writes against a fresh on-disk store (the gateway has no long-lived agent;
@@ -908,7 +908,7 @@ class GatewaySlashCommandsMixin(
         """Handle /skills on the gateway — pending skill-write review only (hub stays CLI-only). Gated
         by ``skills.write_approval`` but still answers when staged writes exist after the gate is off
         (never stranded). ``diff`` is truncated for chat."""
-        from hermes_cli.write_approval_commands import handle_pending_subcommand
+        from openchia_cli.write_approval_commands import handle_pending_subcommand
         from tools import write_approval as wa
         args = event.get_command_args().strip().split()
         sub = args[0].lower() if args else ""
@@ -936,7 +936,7 @@ class GatewaySlashCommandsMixin(
     async def _handle_approvals_command(self, event: MessageEvent) -> str:
         """Show or persist the profile-wide dangerous-command approval mode."""
         from gateway.slash_access import policy_for_runner_source
-        from hermes_cli.approval_mode import run_approval_mode_command
+        from openchia_cli.approval_mode import run_approval_mode_command
         requested = event.get_command_args().strip() or None
         # This mutates profile-wide security policy. The central slash gate can allow selected
         # commands to non-admin users, so enforce admin again at this side-effect boundary.
@@ -1233,7 +1233,7 @@ class GatewaySlashCommandsMixin(
     async def _handle_debug_command(self, event: MessageEvent) -> str:
         """Handle /debug — upload ONLY the summary (system info + log tails), never full logs, to
         protect privacy; ``hermes debug share`` from the CLI does full uploads."""
-        from hermes_cli.debug import (_GATEWAY_PRIVACY_NOTICE, _best_effort_sweep_expired_pastes,
+        from openchia_cli.debug import (_GATEWAY_PRIVACY_NOTICE, _best_effort_sweep_expired_pastes,
                                       _capture_dump, _is_dpaste_url, _schedule_auto_delete,
                                       collect_debug_report, upload_to_pastebin)
 
@@ -1265,7 +1265,7 @@ class GatewaySlashCommandsMixin(
         restart it may trigger; marker files let this or the next gateway process notify the user."""
         import json
         from gateway.run import _hermes_home, _resolve_hermes_bin
-        from hermes_cli.config import is_managed, format_managed_message
+        from openchia_cli.config import is_managed, format_managed_message
         # Block non-messaging platforms (API server, webhooks, ACP); plugin platforms with
         # allow_update_command=True are also allowed.
         src = event.source
@@ -1286,7 +1286,7 @@ class GatewaySlashCommandsMixin(
         # with the steward's own update mechanism instead of git-pulling a
         # tree `hermes update` does not own.
         try:
-            from hermes_cli.config import (
+            from openchia_cli.config import (
                 detect_install_method,
                 recommended_update_command_for_method,
             )

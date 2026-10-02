@@ -105,10 +105,10 @@ class TestTheFrozenFileIsSane:
         for anchor in (
             "hermes_constants::with_hermes_node_path",
             "hermes_constants::venv_python_path",
-            "hermes_cli.gitlock::clear_stale_git_locks",
-            "hermes_cli.managed_uv::ensure_uv",
-            "hermes_cli.managed_uv::rebuild_venv",
-            "hermes_cli._subprocess_compat::run",
+            "openchia_cli.gitlock::clear_stale_git_locks",
+            "openchia_cli.managed_uv::ensure_uv",
+            "openchia_cli.managed_uv::rebuild_venv",
+            "openchia_cli._subprocess_compat::run",
         ):
             assert anchor in bare, (
                 f"{anchor} missing from the frozen surface — the freeze "
@@ -129,12 +129,12 @@ class TestTheFrozenFileIsSane:
         assert history.get("complete_history") is True
         assert history["commits"] > 0
         assert history["roots"] and history["entrypoint_paths"]
-        assert "hermes_cli/main.py" in history["entrypoint_paths"], (
+        assert "openchia_cli/main.py" in history["entrypoint_paths"], (
             "the freeze omitted the original inline cmd_update history"
         )
         assert history["history_ref"]
         analyzed = set(history["files_analyzed"])
-        for must_see in ("hermes_cli/update_cmd.py", "hermes_cli/managed_uv.py"):
+        for must_see in ("openchia_cli/update_cmd.py", "openchia_cli/managed_uv.py"):
             assert must_see in analyzed, (
                 f"{must_see} was not analyzed for the freeze — the audit "
                 f"lost part of the update flow; a vacuously small surface "

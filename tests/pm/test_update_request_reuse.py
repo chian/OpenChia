@@ -20,7 +20,7 @@ from tests.pm._range_server import RangeHandler, dl_server, url  # noqa: F401
 
 @pytest.fixture
 def upstream(dl_server, monkeypatch):
-    from hermes_cli import urllib_security
+    from openchia_cli import urllib_security
 
     calls = []
     failures = {}

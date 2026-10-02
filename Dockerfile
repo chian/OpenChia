@@ -206,7 +206,7 @@ COPY pm/ pm/
 # 'hermes_constants'" without it on the path. Copy the module next to pm.
 COPY hermes_constants.py hermes_constants.py
 # PM imports the shared stdlib locking owner before deps exist.
-COPY hermes_cli/__init__.py hermes_cli/runtime_state.py hermes_cli/
+COPY openchia_cli/__init__.py openchia_cli/runtime_state.py openchia_cli/
 COPY scripts/bundles/payload.py scripts/bundles/payload.py
 RUN set -eu; \
     python3 -c 'from pm import ensure; [ensure(name, explicit=True) for name in ("uv", "chromium", "npm", "ffmpeg", "ripgrep")]'; \
@@ -331,7 +331,7 @@ RUN cd plugins/platforms/photon/sidecar && \
 
 # Shared product outputs are independent of application dependency assembly.
 COPY --from=frontend_build /opt/products/tui /opt/hermes/ui-tui
-COPY --from=frontend_build /opt/products/web /opt/hermes/hermes_cli/web_dist
+COPY --from=frontend_build /opt/products/web /opt/hermes/openchia_cli/web_dist
 # ---------- Bot Screen X socket directory ----------
 # Xvnc would create this itself (/tmp is 1777); pre-creating it keeps ownership
 # deterministic when HERMES_UID is remapped between boots.
@@ -379,7 +379,7 @@ RUN mkdir -p /opt/hermes/bin && \
 # before `docker build`, so the bulk `COPY . .` above already placed a
 # full-provenance /opt/hermes/install-stamp.json next to the code.
 # .dockerignore excludes .git, so the stamp is the only commit channel the
-# image carries: hermes_cli/version_info.py reads it at runtime (stamp
+# image carries: openchia_cli/version_info.py reads it at runtime (stamp
 # first, live git second, unknown third), and both `hermes dump` and
 # banner.get_git_banner_state() consume it through version_info.
 #
@@ -427,7 +427,7 @@ COPY --chmod=0755 docker/cont-init.d/015-supervise-perms /etc/cont-init.d/015-su
 COPY --chmod=0755 docker/cont-init.d/02-reconcile-profiles /etc/cont-init.d/02-reconcile-profiles
 
 # ---------- Runtime ----------
-ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
+ENV HERMES_WEB_DIST=/opt/hermes/openchia_cli/web_dist
 # Point the TUI launcher at the prebuilt bundle baked at build time (Layer 8:
 # `ui-tui && npm run build`). This makes _make_tui_argv take the prebuilt-bundle
 # fast path (`node --expose-gc /opt/hermes/ui-tui/dist/entry.js`) and skip the

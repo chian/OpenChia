@@ -3,7 +3,7 @@
 
 from typing import Any
 
-from hermes_cli.version_info import get_version_info
+from openchia_cli.version_info import get_version_info
 from providers import register_provider
 from providers.base import ProviderProfile
 

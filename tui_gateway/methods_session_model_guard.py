@@ -17,8 +17,8 @@ def model_override_conflict(params: dict, build_scope) -> dict | None:
     model = str(params.get("model") or "").strip()
     if not model:
         return None
-    from hermes_cli.models_validate import static_model_provider_conflict
-    from hermes_cli.runtime_provider import resolve_requested_provider
+    from openchia_cli.models_validate import static_model_provider_conflict
+    from openchia_cli.runtime_provider import resolve_requested_provider
 
     provider = str(params.get("provider") or "").strip()
     if not provider:

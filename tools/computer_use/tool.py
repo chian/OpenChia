@@ -812,7 +812,7 @@ def _should_route_through_aux_vision() -> bool:
     stage = "import"
     try:
         from agent.auxiliary_client import _read_main_model, _read_main_provider
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         from hermes_constants import hermes_home_key
         from tools.computer_use.vision_routing import should_route_capture_to_aux_vision
         stage = "config read"
@@ -829,7 +829,7 @@ def _should_route_through_aux_vision() -> bool:
 def _capture_after_mode() -> str:
     """Mode for ``capture_after`` follow-ups. Default ``som`` (screenshot)."""
     with contextlib.suppress(Exception):
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         mode = str(((load_config() or {}).get("computer_use") or {}).get("capture_after_mode", "som") or "som")
         return mode if (mode := mode.strip().lower()) in {"som", "vision", "ax"} else "som"
     return "som"

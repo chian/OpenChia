@@ -92,7 +92,7 @@ def voice_live_turn_note(context: str = "") -> str:
 
 def _voice_section() -> Dict[str, Any]:
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         voice = load_config().get("voice")
     except Exception:
         return {}

@@ -4,7 +4,7 @@ name: PM Bundle
 # `hermes pm bundle`: repo snapshot + tool store + facts + a relocatable
 # venv built on the staged python-build-standalone interpreter. Each
 # payload is smoke-tested on its native runner — the staged interpreter
-# boots hermes_cli out of the payload with no network and no PYTHONPATH —
+# boots openchia_cli out of the payload with no network and no PYTHONPATH —
 # as a pre-merge check for the pm tooling itself.
 #
 # Staging is native per target (no cross-target wheel tables anywhere):

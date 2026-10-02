@@ -197,7 +197,7 @@ async def test_gateway_internal_events_bypass_estop(hermes_home):
 
 
 def test_cli_pause_engages_with_reason(hermes_home, capsys):
-    from hermes_cli.subcommands.pause import cmd_pause
+    from openchia_cli.subcommands.pause import cmd_pause
 
     rc = cmd_pause(argparse.Namespace(reason="ops incident"))
     assert rc == 0
@@ -207,7 +207,7 @@ def test_cli_pause_engages_with_reason(hermes_home, capsys):
 
 
 def test_cli_pause_idempotent(hermes_home, capsys):
-    from hermes_cli.subcommands.pause import cmd_pause
+    from openchia_cli.subcommands.pause import cmd_pause
 
     assert cmd_pause(argparse.Namespace(reason=None)) == 0
     assert cmd_pause(argparse.Namespace(reason=None)) == 0
@@ -215,7 +215,7 @@ def test_cli_pause_idempotent(hermes_home, capsys):
 
 
 def test_cli_resume_disengages(hermes_home, capsys):
-    from hermes_cli.subcommands.pause import cmd_pause, cmd_resume
+    from openchia_cli.subcommands.pause import cmd_pause, cmd_resume
 
     cmd_pause(argparse.Namespace(reason=None))
     rc = cmd_resume(argparse.Namespace())
@@ -232,7 +232,7 @@ def test_cli_resume_disengages(hermes_home, capsys):
 
 
 def test_status_line_when_paused(hermes_home):
-    from hermes_cli.status import _estop_status_line
+    from openchia_cli.status import _estop_status_line
 
     assert _estop_status_line() is None
     estop.engage(reason="ops")
@@ -326,7 +326,7 @@ async def test_gateway_pause_command_engages_and_resumes(hermes_home):
 
 
 def test_pause_command_registered_for_gateway():
-    from hermes_cli.commands import GATEWAY_KNOWN_COMMANDS, resolve_command
+    from openchia_cli.commands import GATEWAY_KNOWN_COMMANDS, resolve_command
 
     cmd = resolve_command("pause")
     assert cmd is not None and cmd.name == "pause"

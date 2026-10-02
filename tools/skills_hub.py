@@ -8,7 +8,7 @@ cache, lock file, taps and audit log. Install/uninstall/update live in
 ``skills_hub_search``, and the adapters in the other ``tools.skills_hub_*``
 siblings; import each name from its defining module.
 
-Used by hermes_cli/skills_hub.py for CLI commands and the /skills slash command.
+Used by openchia_cli/skills_hub.py for CLI commands and the /skills slash command.
 """
 
 import json

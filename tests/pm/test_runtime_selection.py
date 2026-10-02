@@ -141,7 +141,7 @@ def test_manual_repair_bypasses_damaged_generation_activation(tmp_path, monkeypa
         "environment": str(environment), "extras": [], "stamp": "old",
     }}}), encoding="utf-8")
     env = {**os.environ, "PYTHONPATH": str(repo)}
-    result = subprocess.run([sys.executable, "-S", "-m", "hermes_cli.main", "pm", "repair", "--help"],
+    result = subprocess.run([sys.executable, "-S", "-m", "openchia_cli.main", "pm", "repair", "--help"],
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert "hermes pm repair" in result.stdout

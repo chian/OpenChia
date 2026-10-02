@@ -217,12 +217,12 @@ test('exit-before-announcement error carries the buffered output tail (stdout pa
   const child = makeFakeChild()
 
   const wait = waitForDashboardPortAnnouncement(child, {
-    describeOutputTail: () => '\nRecent backend output:\nModuleNotFoundError: hermes_cli'
+    describeOutputTail: () => '\nRecent backend output:\nModuleNotFoundError: openchia_cli'
   })
 
   child.emit('exit', 1, null)
 
-  await assert.rejects(wait, /exited before port announcement \(1\)[\s\S]*ModuleNotFoundError: hermes_cli/)
+  await assert.rejects(wait, /exited before port announcement \(1\)[\s\S]*ModuleNotFoundError: openchia_cli/)
 })
 
 test('exit-before-announcement error carries the buffered output tail (ready-file path)', async () => {

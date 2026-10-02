@@ -31,8 +31,8 @@ with tempfile.TemporaryDirectory(prefix="hermes-desktop-backend-") as temporary:
     home = Path(temporary)
     hermes_home = home / ".hermes"
     legacy = hermes_home / "hermes-agent"
-    (legacy / "hermes_cli").mkdir(parents=True)
-    (legacy / "hermes_cli" / "main.py").touch()
+    (legacy / "openchia_cli").mkdir(parents=True)
+    (legacy / "openchia_cli" / "main.py").touch()
     launcher = legacy / "venv" / "bin" / "hermes"
     launcher.parent.mkdir(parents=True)
     # The old runtime passes discovery but cannot initialize a session. It

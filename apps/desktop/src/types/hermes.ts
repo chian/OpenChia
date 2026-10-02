@@ -160,7 +160,7 @@ export interface FreeTierStatus {
   notice_pending: boolean
   /** Present only while `enabled` and no identity exists: why the last attempt
    *  to create one failed. `error_code` is one of the backend's `anon_*` codes
-   *  (`hermes_cli/anon_auth.py`), `error` its sentence, `retryable` whether a
+   *  (`openchia_cli/anon_auth.py`), `error` its sentence, `retryable` whether a
    *  later attempt can succeed, `retry_after` the seconds still to wait. */
   error?: string
   error_code?: string
@@ -186,7 +186,7 @@ export interface EnvVarInfo {
   is_password: boolean
   is_set: boolean
   // Backend-derived provider grouping hints (from the unified provider catalog
-  // in hermes_cli/provider_catalog.py). When present, the Keys tab groups by
+  // in openchia_cli/provider_catalog.py). When present, the Keys tab groups by
   // this provider identity — the SAME one `hermes model` uses — instead of
   // desktop-only env-var prefix guesses. Empty for non-provider env vars.
   provider?: string
@@ -1116,7 +1116,7 @@ export interface ProfileDesktopOverlay {
 
 // ── Projects ───────────────────────────────────────────────────────────────
 // A first-class, per-profile, human-named workspace spanning one or more
-// folders. Mirrors hermes_cli/projects_db.Project.to_dict().
+// folders. Mirrors openchia_cli/projects_db.Project.to_dict().
 export interface ProjectFolder {
   path: string
   label: null | string

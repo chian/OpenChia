@@ -1,4 +1,4 @@
-"""Persistent slash-command worker — one HermesCLI per TUI session.
+"""Persistent slash-command worker — one OpenChiaCLIBase per TUI session.
 
 Protocol: reads JSON lines from stdin {id, command}, writes {id, ok, output|error} to stdout.
 """
@@ -25,7 +25,7 @@ import threading
 import time
 
 import cli as cli_mod
-from cli import HermesCLI
+from cli import OpenChiaCLIBase
 from tui_gateway._env import env_float
 from tui_gateway._stdin_recovery import handle_spurious_eof
 from rich.console import Console
@@ -43,12 +43,12 @@ def _is_orphaned(original_ppid, getppid=os.getppid) -> bool:
 
 
 def _prepare_slash_worker_runtime() -> None:
-    """Start bounded MCP discovery before HermesCLI snapshots tools: each slash_worker child is its
+    """Start bounded MCP discovery before OpenChiaCLIBase snapshots tools: each slash_worker child is its
     own process — the parent ``hermes serve`` discovery thread does not populate this registry.
 
     See #61891.
     """
-    from hermes_cli.mcp_startup import start_background_mcp_discovery, wait_for_mcp_discovery
+    from openchia_cli.mcp_startup import start_background_mcp_discovery, wait_for_mcp_discovery
     start_background_mcp_discovery(logger=logger, thread_name="slash-worker-mcp-discovery")
     wait_for_mcp_discovery()
 
@@ -97,7 +97,7 @@ def _refuse_skill_slash(command: str) -> None:
         raise SkillSlashRefused(base)
 
 
-def _run(cli: HermesCLI, command: str) -> str:
+def _run(cli: OpenChiaCLIBase, command: str) -> str:
     cmd = (command or "").strip()
     if not cmd:
         return ""
@@ -138,15 +138,15 @@ def main():
     args = p.parse_args()
     os.environ["HERMES_SESSION_KEY"] = args.session_key
     os.environ["HERMES_INTERACTIVE"] = "1"
-    # Start before the (hundreds-of-ms) HermesCLI build — that window is itself an orphan risk if the
+    # Start before the (hundreds-of-ms) OpenChiaCLIBase build — that window is itself an orphan risk if the
     # gateway dies mid-spawn.
     _start_parent_death_watchdog(os.getppid())
     _prepare_slash_worker_runtime()
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         # --provider pins the CLI to the parent agent's resolved provider (a MoA session's virtual
-        # "moa" provider included). Without it HermesCLI re-resolves from config and dispatches the
+        # "moa" provider included). Without it OpenChiaCLIBase re-resolves from config and dispatches the
         # MoA preset NAME to the configured real provider (#57283).
-        cli = HermesCLI(model=args.model or None, provider=args.provider or None,
+        cli = OpenChiaCLIBase(model=args.model or None, provider=args.provider or None,
                         compact=True, resume=args.session_key, verbose=False)
     # Spurious stdin-EOF recovery (same shared-file-description O_NONBLOCK issue as the gateway entry
     # point — any child inheriting fd 0 can flip the flag).
@@ -173,7 +173,7 @@ def main():
             # Workers persist for the TUI session: release allocator pages at the command boundary like
             # other long-lived gateway processes (trim_memory's shared cooldown coalesces nearby activity).
             try:
-                from hermes_cli.mem_trim import trim_memory
+                from openchia_cli.mem_trim import trim_memory
                 trim_memory(reason="slash worker command completion")
             except Exception as exc:
                 # debug, not warning — a persistent failure would repeat every command.

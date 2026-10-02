@@ -6,7 +6,7 @@ from .method_ctx import bind_module
 
 
 def handle_request(req: dict) -> dict | None:
-    from hermes_cli.backend_retirement import retirement
+    from openchia_cli.backend_retirement import retirement
 
     with retirement.work() as admitted:
         if not admitted:
@@ -61,7 +61,7 @@ def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
             return normalized
         if normalized[1] not in _LONG_HANDLERS:
             return handle_request(req)
-        from hermes_cli.backend_retirement import retirement
+        from openchia_cli.backend_retirement import retirement
 
         # Reserve BEFORE enqueueing: a queued handler has accepted work even though no worker runs yet.
         if not retirement.acquire():

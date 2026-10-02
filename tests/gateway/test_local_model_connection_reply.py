@@ -197,8 +197,8 @@ class TestQuotaExhaustedIsNotAnAuthFailure:
         from gateway.run_turn_runner import TurnRunner
         from gateway.session import SessionSource
         from gateway.turn_context import TurnContext
-        from hermes_cli.auth import AuthError
-        from hermes_cli.auth_constants import CODEX_RATE_LIMITED_CODE
+        from openchia_cli.auth import AuthError
+        from openchia_cli.auth_constants import CODEX_RATE_LIMITED_CODE
 
         def _resolve(**_kwargs):
             try:

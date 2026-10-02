@@ -29,12 +29,12 @@ def fake_root(tmp_path, monkeypatch):
 def _live_record(hermes_home):
     return {
         "pid": _LIVE_PID, "kind": "hermes-gateway", "gateway_state": "running", "start_time": 1000,
-        "argv": ["python", "-m", "hermes_cli.main", "-p", "eagle", "gateway", "run"],
+        "argv": ["python", "-m", "openchia_cli.main", "-p", "eagle", "gateway", "run"],
         "hermes_home": str(hermes_home),
     }
 
 
-def _alive(monkeypatch, cmdline="python -m hermes_cli.main -p eagle gateway run"):
+def _alive(monkeypatch, cmdline="python -m openchia_cli.main -p eagle gateway run"):
     monkeypatch.setattr(status, "_pid_exists", lambda pid: pid == _LIVE_PID)
     monkeypatch.setattr(status, "_get_process_start_time", lambda pid: 1000)
     monkeypatch.setattr(status, "_read_process_cmdline", lambda pid: cmdline)

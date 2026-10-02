@@ -93,9 +93,9 @@ def acp(tmp_path, monkeypatch):
     provider = _LoopbackProvider()
 
     import acp_adapter.session as acp_session
-    import hermes_cli.config as cli_config
-    import hermes_cli.mcp_startup as mcp_startup
-    import hermes_cli.runtime_provider as runtime_provider
+    import openchia_cli.config as cli_config
+    import openchia_cli.mcp_startup as mcp_startup
+    import openchia_cli.runtime_provider as runtime_provider
 
     monkeypatch.setattr(cli_config, "load_config", lambda *a, **k: {
         "model": {"provider": "openai-compat", "default": _MODEL, "context_length": 131072},

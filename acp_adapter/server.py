@@ -317,14 +317,14 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
     ) -> tuple[str | None, str, str]:
         """Rebuild the session agent on a new model -> (old provider, new provider, model).
 
-        Resolution goes through ``hermes_cli.model_switch.switch_model`` seeded with the live
+        Resolution goes through ``openchia_cli.model_switch.switch_model`` seeded with the live
         agent route — the same catalog/alias/credential validation as CLI/gateway/TUI ``/model``
         — so ACP never hands the session a model no provider can serve. ``provider:model`` picker
         ids become ``--provider``. ACP never persists. ``keep_endpoint`` carries base_url/api_mode
         over when the provider is unchanged."""
-        from hermes_cli.config import get_compatible_custom_providers, load_config
-        from hermes_cli.model_switch import switch_model
-        from hermes_cli.models import parse_model_input
+        from openchia_cli.config import get_compatible_custom_providers, load_config
+        from openchia_cli.model_switch import switch_model
+        from openchia_cli.models import parse_model_input
 
         current_provider = getattr(state.agent, "provider", None)
         explicit_provider, model_input = parse_model_input(raw_model, "")
@@ -477,7 +477,7 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
         (``agent/turn_context.py``). No-op if discovery finished, join timed out, registry
         unchanged, or session closed."""
         try:
-            from hermes_cli.mcp_startup import mcp_discovery_in_flight
+            from openchia_cli.mcp_startup import mcp_discovery_in_flight
         except Exception:
             return
         if not mcp_discovery_in_flight():
@@ -486,7 +486,7 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
 
         def _wait_then_refresh() -> None:
             try:
-                from hermes_cli.mcp_startup import join_mcp_discovery
+                from openchia_cli.mcp_startup import join_mcp_discovery
 
                 if not join_mcp_discovery(timeout=30.0):
                     return
@@ -524,7 +524,7 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
         self, protocol_version: int | None = None, client_capabilities: ClientCapabilities | None = None,
         client_info: Implementation | None = None, **kwargs: Any,
     ) -> InitializeResponse:
-        from hermes_cli.version_info import get_version_info
+        from openchia_cli.version_info import get_version_info
 
         auth_methods = build_auth_methods()
         logger.info(

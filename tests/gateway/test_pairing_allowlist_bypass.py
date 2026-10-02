@@ -101,7 +101,7 @@ def test_approval_adds_to_configured_allowlist(store, monkeypatch):
     monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "owner1")
     # save_env_value writes to .env under HERMES_HOME; patch it to capture.
     captured = {}
-    import hermes_cli.config as cfg
+    import openchia_cli.config as cfg
 
     monkeypatch.setattr(cfg, "save_env_value",
                         lambda k, v: (captured.__setitem__(k, v),
@@ -116,7 +116,7 @@ def test_revoke_removes_from_allowlist(store, monkeypatch):
     monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "owner1,newuser99")
     saved = {}
     removed = []
-    import hermes_cli.config as cfg
+    import openchia_cli.config as cfg
 
     monkeypatch.setattr(cfg, "save_env_value",
                         lambda k, v: (saved.__setitem__(k, v),
@@ -137,7 +137,7 @@ def test_revoke_whatsapp_device_jid_removes_bare_allowlist_entry(store, monkeypa
     """
     monkeypatch.setenv("WHATSAPP_ALLOWED_USERS", "already,15551234567")
     saved = {}
-    import hermes_cli.config as cfg
+    import openchia_cli.config as cfg
 
     monkeypatch.setattr(
         cfg,
@@ -162,7 +162,7 @@ def test_revoke_whatsapp_removes_all_alias_forms_from_allowlist(store, monkeypat
         "keeper,15551234567,15551234567@s.whatsapp.net",
     )
     saved = {}
-    import hermes_cli.config as cfg
+    import openchia_cli.config as cfg
 
     monkeypatch.setattr(
         cfg,
@@ -179,7 +179,7 @@ def test_revoke_whatsapp_cloud_device_jid_removes_bare_allowlist_entry(store, mo
     """Cloud pairing uses platform whatsapp_cloud — same JID/phone alias rules."""
     monkeypatch.setenv("WHATSAPP_CLOUD_ALLOWED_USERS", "already,15551234567")
     saved = {}
-    import hermes_cli.config as cfg
+    import openchia_cli.config as cfg
 
     monkeypatch.setattr(
         cfg,
@@ -200,7 +200,7 @@ def test_revoke_whatsapp_cloud_device_jid_removes_bare_allowlist_entry(store, mo
 def test_revoke_whatsapp_preserves_wildcard_allowlist_entry(store, monkeypatch):
     monkeypatch.setenv("WHATSAPP_ALLOWED_USERS", "*,15551234567")
     saved = {}
-    import hermes_cli.config as cfg
+    import openchia_cli.config as cfg
 
     monkeypatch.setattr(
         cfg,
@@ -229,7 +229,7 @@ def test_revoke_whatsapp_sole_entry_denies_live_adapter_without_restart(
     from gateway.platforms.whatsapp_common import WhatsAppBehaviorMixin
     from gateway.run import GatewayRunner
     import gateway.run as gateway_run
-    import hermes_cli.config as cfg
+    import openchia_cli.config as cfg
 
     monkeypatch.setenv("WHATSAPP_ALLOWED_USERS", "15551234567")
     monkeypatch.setattr(

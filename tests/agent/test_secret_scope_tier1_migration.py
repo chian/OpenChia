@@ -267,7 +267,7 @@ class TestAuxiliaryScopedKeyEnv:
                 _scoped_key_env("OPENAI_API_KEY")
 
 
-# ── Cluster F: hermes_cli config env readers ───────────────────────────────
+# ── Cluster F: openchia_cli config env readers ───────────────────────────────
 
 class TestScopedEnvironGet:
     """``_scoped_environ_get`` (feeds ``get_env_value`` / ``get_env_value_prefer_dotenv``)
@@ -276,7 +276,7 @@ class TestScopedEnvironGet:
     failure."""
 
     def test_scope_failure_never_borrows_env(self, monkeypatch):
-        from hermes_cli.config import _scoped_environ_get
+        from openchia_cli.config import _scoped_environ_get
 
         monkeypatch.setenv("SOME_PROFILE_KEY", "other-profile")
         ss.set_multiplex_active(True)
@@ -285,7 +285,7 @@ class TestScopedEnvironGet:
                 _scoped_environ_get("SOME_PROFILE_KEY")
 
     def test_unscoped_multiplex_propagates(self, monkeypatch):
-        from hermes_cli.config import _scoped_environ_get
+        from openchia_cli.config import _scoped_environ_get
 
         monkeypatch.setenv("SOME_PROFILE_KEY", "launch-env")
         ss.set_multiplex_active(True)
@@ -293,7 +293,7 @@ class TestScopedEnvironGet:
             _scoped_environ_get("SOME_PROFILE_KEY")
 
     def test_single_profile_env_read(self, monkeypatch):
-        from hermes_cli.config import _scoped_environ_get
+        from openchia_cli.config import _scoped_environ_get
 
         monkeypatch.setenv("SOME_PROFILE_KEY", "own-env")
         assert _scoped_environ_get("SOME_PROFILE_KEY") == "own-env"

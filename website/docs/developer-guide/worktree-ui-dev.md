@@ -43,7 +43,7 @@ htui() {
   local root
   root="$(_hermes_root)" || { echo "htui: not in a Hermes checkout" >&2; return 1; }
   ( cd "$root" && PYTHONPATH="$root" \
-      "$HERMES_MAIN_CHECKOUT/.venv/bin/python" -m hermes_cli.main --tui --dev "$@" )
+      "$HERMES_MAIN_CHECKOUT/.venv/bin/python" -m openchia_cli.main --tui --dev "$@" )
 }
 ```
 
@@ -144,7 +144,7 @@ Both functions resolve the enclosing checkout and link deps the same way:
 _hermes_root() {
   local root
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1
-  [[ -f "$root/hermes_cli/main.py" && -d "$root/ui-tui" ]] && print -r "$root"
+  [[ -f "$root/openchia_cli/main.py" && -d "$root/ui-tui" ]] && print -r "$root"
 }
 
 # Symlink node_modules from the deps checkout — never over an existing tree.

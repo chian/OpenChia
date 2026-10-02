@@ -88,8 +88,8 @@ def reload_plugins_verb(runner: Any, loop: asyncio.AbstractEventLoop) -> Callabl
 
     def _handler(params: Optional[dict] = None) -> dict:
         from hermes_constants import get_hermes_home, hermes_home_key
-        from hermes_cli.plugins import discover_plugins, get_plugin_manager
-        from hermes_cli.plugins_activation import activation_summaries
+        from openchia_cli.plugins import discover_plugins, get_plugin_manager
+        from openchia_cli.plugins_activation import activation_summaries
         from gateway.run import _profile_runtime_scope
         params = params or {}
         gateway_home = Path(get_hermes_home())

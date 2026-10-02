@@ -11,7 +11,7 @@ import shutil
 import sys
 import threading
 from typing import Any, Dict, List, Optional, Set, Tuple
-from hermes_cli.stderr_timestamp import stamp_line, timestamp
+from openchia_cli.stderr_timestamp import stamp_line, timestamp
 from tools.mcp_tool_common import _env_ref_name, _prepend_path
 
 logger = logging.getLogger("tools.mcp_tool")
@@ -157,7 +157,7 @@ def _build_safe_env(user_env: Optional[dict]) -> dict:
     keys, ``XDG_*``, vars injected by an external secret source (users configured that backend
     precisely so subprocesses can consume them), plus the server config's own ``env``."""
     from agent.secret_scope import get_secret
-    from hermes_cli.env_loader import secret_source_names
+    from openchia_cli.env_loader import secret_source_names
     env = {
         key: value for key, value in os.environ.items()
         if key in _SAFE_ENV_KEYS or key.upper() in _SAFE_ENV_KEYS_CASE_INSENSITIVE or key.startswith("XDG_")}
@@ -410,7 +410,7 @@ def _warn_hidden_whitespace(server_name: str, config: dict) -> List[str]:
 def _filter_suspicious_mcp_servers(servers: Dict[str, dict]) -> Dict[str, dict]:
     """Drop exfiltration-shaped MCP configs before any stdio spawn path."""
     try:
-        from hermes_cli.mcp_security import validate_mcp_server_entry
+        from openchia_cli.mcp_security import validate_mcp_server_entry
     except Exception:
         return servers
     safe_servers = {}
@@ -426,7 +426,7 @@ def _filter_suspicious_mcp_servers(servers: Dict[str, dict]) -> Dict[str, dict]:
 def _portable_mcp_servers(safe_servers: Dict[str, dict]) -> None:
     """Merge plugin-provided (portable) MCP servers into *safe_servers*; native config wins on a clash. Never raises."""
     try:
-        from hermes_cli.plugins import discover_plugins, get_plugin_manager
+        from openchia_cli.plugins import discover_plugins, get_plugin_manager
         discover_plugins()
         portable = get_plugin_manager().get_portable_mcp_servers()
         for name, cfg in _filter_suspicious_mcp_servers(portable).items():
@@ -441,13 +441,13 @@ def _portable_mcp_servers(safe_servers: Dict[str, dict]) -> None:
 def _load_mcp_config() -> Dict[str, dict]:
     """``mcp_servers`` from config.yaml as ``{name: config}`` (empty on error / safe mode), ``${VAR}`` interpolated."""
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         from utils import env_var_enabled as _env_enabled
         if _env_enabled("HERMES_SAFE_MODE"):
             return {}
         servers = load_config().get("mcp_servers")
         try:  # ensure .env vars are available for interpolation
-            from hermes_cli.env_loader import load_hermes_dotenv
+            from openchia_cli.env_loader import load_hermes_dotenv
             load_hermes_dotenv()
         except Exception:
             pass

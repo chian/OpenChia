@@ -19,11 +19,11 @@ from gateway.status import (
 
 
 ACCEPT = [
-    "pythonw.exe -m hermes_cli.main gateway run",
-    r"C:\Users\me\hermes\venv\Scripts\pythonw.exe -m hermes_cli.main gateway run",
-    "python -m hermes_cli.main --profile work gateway run",
-    "python -m hermes_cli.main gateway run --replace",
-    "python -m hermes_cli/main.py gateway run",
+    "pythonw.exe -m openchia_cli.main gateway run",
+    r"C:\Users\me\hermes\venv\Scripts\pythonw.exe -m openchia_cli.main gateway run",
+    "python -m openchia_cli.main --profile work gateway run",
+    "python -m openchia_cli.main gateway run --replace",
+    "python -m openchia_cli/main.py gateway run",
     "python gateway/run.py",
     "hermes-gateway.exe",
     "hermes gateway",          # bare `hermes gateway` defaults to run
@@ -31,23 +31,23 @@ ACCEPT = [
     # profile selector AFTER the `gateway` token (argv is profile-position
     # agnostic — _apply_profile_override strips --profile/-p anywhere)
     "hermes gateway --profile work run",
-    "python -m hermes_cli.main gateway -p work run",
+    "python -m openchia_cli.main gateway -p work run",
     "hermes gateway --profile=work run",
     # a profile literally NAMED "gateway"
     "hermes -p gateway gateway run",
-    "python -m hermes_cli.main --profile gateway gateway run",
+    "python -m openchia_cli.main --profile gateway gateway run",
     # quoted Windows paths with spaces (shlex-aware tokenization)
     r'"C:\Program Files\Hermes\hermes-gateway.exe"',
     r'"C:\Program Files\Hermes\gateway\run.py" run',
-    r'"C:\Program Files\Py\pythonw.exe" -m hermes_cli.main gateway run',
+    r'"C:\Program Files\Py\pythonw.exe" -m openchia_cli.main gateway run',
 ]
 
 REJECT = [
     "python -m tui_gateway",                              # unrelated module
-    "python -m hermes_cli.main gateway status",           # other subcommand
-    "python -m hermes_cli.main gateway restart",
-    "python -m hermes_cli.main gateway stop",
-    "python -m hermes_cli.main --profile x dashboard",    # non-gateway subcommand
+    "python -m openchia_cli.main gateway status",           # other subcommand
+    "python -m openchia_cli.main gateway restart",
+    "python -m openchia_cli.main gateway stop",
+    "python -m openchia_cli.main --profile x dashboard",    # non-gateway subcommand
     "some random python -m mygateway thing",
     "",
     None,
@@ -65,35 +65,35 @@ def test_rejects_non_gateway_run(cmd):
 
 
 # ``python -c <src> <old_pid> <gateway argv…>`` — the detached restart watcher
-# (hermes_cli.gateway._spawn_gateway_restart_watcher). Its trailing argv is the command it will
+# (openchia_cli.gateway._spawn_gateway_restart_watcher). Its trailing argv is the command it will
 # spawn LATER, so reading identity off it made the updater's post-relaunch liveness poll vouch for
 # the watcher instead of a gateway (#107002).
 INLINE_SOURCE_REJECT = [
-    'python -c "import time; time.sleep(1)" 14980 python -m hermes_cli.main gateway run',
+    'python -c "import time; time.sleep(1)" 14980 python -m openchia_cli.main gateway run',
     r'"C:\Users\me\hermes\venv\Scripts\python.exe" -c "import os" 14980 '
-    r'"C:\Users\me\hermes\venv\Scripts\python.exe" -m hermes_cli.main gateway run',
-    'python -u -c "import os" 14980 python -m hermes_cli.main --profile work gateway run',
+    r'"C:\Users\me\hermes\venv\Scripts\python.exe" -m openchia_cli.main gateway run',
+    'python -u -c "import os" 14980 python -m openchia_cli.main --profile work gateway run',
     'python -uc "import os" 14980 hermes gateway run',
     # Options that take a SEPARATE operand must not end the option walk before ``-c`` (the operand
     # is not the start of the program's own argv). The repo itself spawns ``-I -S -B -X utf8 …``
-    # (hermes_cli/_old_updater.py, _update_takeover.py), so this shape is not hypothetical.
-    'python -X utf8 -c "import os" 14980 python -m hermes_cli.main gateway run',
-    'python -W ignore -c "import os" 14980 python -m hermes_cli.main gateway run',
+    # (openchia_cli/_old_updater.py, _update_takeover.py), so this shape is not hypothetical.
+    'python -X utf8 -c "import os" 14980 python -m openchia_cli.main gateway run',
+    'python -W ignore -c "import os" 14980 python -m openchia_cli.main gateway run',
     'python --check-hash-based-pycs always -c "import os" 14980 hermes gateway run',
-    'python -I -S -B -X utf8 -c "import os" 14980 python -m hermes_cli.main gateway run',
+    'python -I -S -B -X utf8 -c "import os" 14980 python -m openchia_cli.main gateway run',
     # ``-q`` (quiet) takes NO operand, unlike ``-Q``; a case-folded walk would skip past the ``-c``.
-    'python -q -c "import os" 14980 python -m hermes_cli.main gateway run',
+    'python -q -c "import os" 14980 python -m openchia_cli.main gateway run',
 ]
 
 
 # Real gateways whose interpreter carries operand-taking options must STILL be recognised — the
 # value-aware walk must not over-reject. Mirror image of INLINE_SOURCE_REJECT.
 INTERPRETER_OPTION_ACCEPT = [
-    "python -X utf8 -m hermes_cli.main gateway run",
-    "python -W ignore -m hermes_cli.main gateway run",
-    "python -q -m hermes_cli.main gateway run",
-    "python -I -S -B -X utf8 -m hermes_cli.main gateway run",
-    "python --check-hash-based-pycs always -m hermes_cli.main gateway run",
+    "python -X utf8 -m openchia_cli.main gateway run",
+    "python -W ignore -m openchia_cli.main gateway run",
+    "python -q -m openchia_cli.main gateway run",
+    "python -I -S -B -X utf8 -m openchia_cli.main gateway run",
+    "python --check-hash-based-pycs always -m openchia_cli.main gateway run",
 ]
 
 
@@ -142,7 +142,7 @@ def test_spawn_intent_rejects_non_gateway_commands(cmd):
 def test_spawn_intent_keeps_read_only_subcommands_spawnable():
     """The guard only blocks run/start/restart; a ``-c``-wrapped ``gateway status`` must stay
     launchable (tests/test_live_system_guard_self_test.py asserts it passes through)."""
-    cmd = 'python -c "import sys; print(sys.argv[1:])" -m hermes_cli.main gateway status'
+    cmd = 'python -c "import sys; print(sys.argv[1:])" -m openchia_cli.main gateway status'
     assert spawn_intent(cmd) == "status"
 
 

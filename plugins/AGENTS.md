@@ -7,7 +7,7 @@ Applies on top of the root `AGENTS.md`. Authoring guide + canonical compat contr
 ## Plugins never touch core (Teknium, May 2026)
 
 Plugins live in their own directory and work within the ABCs / hooks / `ctx` surface we provide.
-A plugin MUST NOT modify `run_agent.py`, `cli.py`, `gateway/run.py`, `hermes_cli/main.py`, etc.
+A plugin MUST NOT modify `run_agent.py`, `cli.py`, `gateway/run.py`, `openchia_cli/main.py`, etc.
 If it needs a capability the framework lacks, widen the **generic** plugin surface (new hook, new
 ctx method) and have the plugin use it — never hardcode plugin-specific logic into core (PR #5295
 removed 95 lines of hardcoded honcho argparse from `main.py`). Plugin setup goes through
@@ -19,7 +19,7 @@ command. A hook with no concrete consumer is speculative infrastructure and is r
 - **No new in-tree memory providers (May 2026).** `plugins/memory/` is closed (honcho, mem0,
   supermemory, byterover, holographic, openviking, retaindb stay; bug fixes welcome; hindsight moved
   to the plugin catalog in Sep 2026 — `plugin-catalog/hindsight.yaml`, auto-installed by
-  `hermes_cli/memory_provider_migration.py` for homes still configured for it). New
+  `openchia_cli/memory_provider_migration.py` for homes still configured for it). New
   backends ship as standalone repos implementing the same `MemoryProvider` ABC, discovered through
   the same path, integrated via `hermes memory setup` / `post_setup()`.
 - **No new third-party-product plugins (June 2026).** Observability/metrics backends, vendor SaaS
@@ -44,9 +44,9 @@ installed plugin from the same check at `update`, `enable` and load (`gate_manif
 provenance lives on the installer-owned `.install-metadata.json` record (`catalog` block, sha =
 checked-out commit), NEVER in the tree: the in-tree `.hermes-catalog.json` is a convenience copy the
 Desktop reads for "Install here"; Python never trusts it (a repo can ship a forged one).
-Code: `hermes_cli/plugin_catalog.py` (loader, live refresh from
+Code: `openchia_cli/plugin_catalog.py` (loader, live refresh from
 `/docs/api/plugin-catalog.json` published by the docs build, in-tree fallback),
-`hermes_cli/plugins_cmd_catalog.py` (resolution, `.hermes-catalog.json` provenance sidecar,
+`openchia_cli/plugins_cmd_catalog.py` (resolution, `.hermes-catalog.json` provenance sidecar,
 search/info/validate, re-pin on `update`, dashboard/TUI payloads). Never add a second name index:
 bare names resolve through the catalog or error.
 
@@ -54,7 +54,7 @@ bare names resolve through the catalog or error.
 
 | Kind | Where | Discovery | Notes |
 |---|---|---|---|
-| General | `plugins/<name>/`, `~/.hermes/plugins/`, `./.hermes/plugins/`, pip entry points | `PluginManager` (`hermes_cli/plugins.py`), later-wins | `register(ctx)` registers hooks (`pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`), tools (`ctx.register_tool`), CLI subcommands (`ctx.register_cli_command` — argparse tree wired into `hermes` at startup, no `main.py` change) |
+| General | `plugins/<name>/`, `~/.hermes/plugins/`, `./.hermes/plugins/`, pip entry points | `PluginManager` (`openchia_cli/plugins.py`), later-wins | `register(ctx)` registers hooks (`pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`), tools (`ctx.register_tool`), CLI subcommands (`ctx.register_cli_command` — argparse tree wired into `hermes` at startup, no `main.py` change) |
 | Memory provider | `plugins/memory/<name>/` | `plugins/memory/__init__.py`: bundled → `$HERMES_HOME/plugins/` → `./.hermes/plugins/` (opt-in `HERMES_ENABLE_PROJECT_PLUGINS`) → `hermes_agent.memory_providers` entry points; **bundled-first** | Activated by name via `memory.provider`, so a dropped-in dir must not shadow a shipped one (reverse of general later-wins). Enumerates without importing. Implements `MemoryProvider` ABC (`agent/memory_provider.py`), orchestrated by `agent/memory_manager.py`: `sync_turn`, `prefetch`, `shutdown`, optional `post_setup`. `cli.py` with `register_cli(subparser)` is wired by `discover_plugin_cli_commands()` — only for the ACTIVE provider, so `hermes --help` stays clean |
 | Model provider | `plugins/model-providers/<name>/` | `providers/__init__.py._discover_providers()`, **lazy**, on first `get_provider_profile()`/`list_providers()`; bundled → `$HERMES_HOME/plugins/model-providers/` → legacy `providers/<name>.py` | `__init__.py` calls `providers.register_provider(ProviderProfile(...))` at load; **last-writer-wins** so a user plugin overrides a bundled profile. `PluginManager` records `kind: model-provider` manifests but does NOT import them (would double-instantiate); manifests without `kind:` are auto-coerced by source heuristic (`register_provider` + `ProviderProfile`) |
 | Context engine / image-gen / others | `plugins/context_engine/`, `plugins/image_gen/`, ... | ABC + orchestrator + per-plugin directory | Plug into `agent/context_engine.py`, `agent/image_gen_provider.py` |
@@ -66,7 +66,7 @@ bare names resolve through the catalog or error.
 tool) and `run_agent.py` (lifecycle). A non-forced `discover_plugins()` short-circuits on `_discovered`: every
 mid-run load path (install/enable/update on any surface, `reload-plugins` verb) runs
 `discover_plugins(force=True)`, and `PluginManager.on_plugin_loaded` fires from inside that sweep for the
-newly loaded plugins with an activation summary (`hermes_cli/plugins_activation.py`: handlers live now;
+newly loaded plugins with an activation summary (`openchia_cli/plugins_activation.py`: handlers live now;
 tools/prompt next session; `deferred.mcp_servers` until `mcp.reload`). Never emit that event from an RPC. Auxiliary LLM calls (titling, compression, MoA, vision, ...)
 fire `pre_auxiliary_call`/`post_auxiliary_call` from `agent/auxiliary_hooks.py` (payload = the
 `*_api_request` shape + `aux_task`); they never fire the turn-scoped `pre/post_api_request` (#79733). When a plugin changes a default, add a migration guard keyed
@@ -108,7 +108,7 @@ native `api:` match, or version literals on unrelated payloads. Documented surfa
 PR #102117 moved internals into `<stem>_<topic>` siblings. The temporary compat layer that kept the
 old import paths alive for external plugins was removed after its 2026-09-14 window; an old path now
 raises `ImportError`, surfaced as the plugin's load error in `hermes plugins list`. Plugins build on
-`ctx` and the documented ABCs. Never add re-export shims for an internal move. `hermes_cli/plugin_compat.py`
+`ctx` and the documented ABCs. Never add re-export shims for an internal move. `openchia_cli/plugin_compat.py`
 survives only as three inert stubs that already-running pre-removal updaters import.
 
 ## Tests

@@ -442,7 +442,7 @@ def kill_tagged(ph: ParityHome) -> None:
 
 
 def hermes_argv(*args: str) -> list[str]:
-    return [sys.executable, "-m", "hermes_cli.main", *args]
+    return [sys.executable, "-m", "openchia_cli.main", *args]
 
 
 def terminate(proc: subprocess.Popen, timeout: float = 30.0) -> int | None:

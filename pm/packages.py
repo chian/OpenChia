@@ -248,7 +248,7 @@ class Python(_BionicDebArm, BinaryPackage, DebPackage):
         super().stage(store, staged, version, target)
         binary = self.binary(staged, target)
         if binary is not None and sys.platform == "darwin":
-            from hermes_cli.macos_signing import sign_managed_python
+            from openchia_cli.macos_signing import sign_managed_python
 
             sign_managed_python(binary)
         # python-build-standalone ships the x64 VC runtime (vcruntime140_1.dll)

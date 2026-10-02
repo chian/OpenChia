@@ -37,7 +37,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 # ── Sandbox HERMES_HOME before ANY test module is imported ──────────────────
-# `hermes_cli/main.py` calls `setup_logging()` at MODULE level, which resolves
+# `openchia_cli/main.py` calls `setup_logging()` at MODULE level, which resolves
 # `get_hermes_home()` and attaches rotating file handlers to the ROOT logger.
 # So merely importing it - which many test modules do, directly or
 # transitively - points the whole pytest session's logging at the operator's
@@ -382,7 +382,7 @@ def _hermetic_environment(tmp_path, monkeypatch):
     #    ~/.hermes/plugins/ (which, per step 3, is now empty — but the
     #    singleton might still be cached from a previous test).
     try:
-        import hermes_cli.plugins as _plugins_mod
+        import openchia_cli.plugins as _plugins_mod
         monkeypatch.setattr(_plugins_mod, "_plugin_manager", None)
         # Also clear the keyed per-home manager cache (and any plugin
         # submodules it left in sys.modules) so a manager built for a
@@ -431,7 +431,7 @@ def _neutralize_kanban_memory_guard(request, monkeypatch):
     if request.node.get_closest_marker("real_memory_guard"):
         return
     try:
-        from hermes_cli import kanban_db_dispatch as _kbd_mod
+        from openchia_cli import kanban_db_dispatch as _kbd_mod
     except Exception:
         return
     monkeypatch.setattr(_kbd_mod, "_system_memory_sample", lambda: {}, raising=False)
@@ -448,7 +448,7 @@ def _neutralize_git_safe_directory_read(request, monkeypatch):
     if request.node.get_closest_marker("real_safe_directory"):
         return
     try:
-        from hermes_cli import _subprocess_compat
+        from openchia_cli import _subprocess_compat
     except Exception:
         return
     monkeypatch.setattr(_subprocess_compat, "_user_safe_directories", lambda base_env: [], raising=False)
@@ -458,14 +458,14 @@ def _neutralize_git_safe_directory_read(request, monkeypatch):
 def _close_leaked_session_dbs():
     """Close every SessionDB a test constructed but forgot to close.
 
-    Root cause of OOM incident 20260816: ~40 files under tests/hermes_cli/
+    Root cause of OOM incident 20260816: ~40 files under tests/openchia_cli/
     build ``SessionDB(...)`` directly and never call ``close()``. Each open
     instance holds the writer connection (state.db + -wal fds), up to
     ``_READ_POOL_MAX`` pooled read connections, per-connection SQLite page
     caches, and — once token accounting has run — an ``atexit`` registration
     that pins the instance alive until interpreter exit. Under the sanctioned
     per-file-process runner this is invisible, but a raw single-process
-    ``pytest tests/hermes_cli/`` accumulated 16-25 GB RSS and had to be
+    ``pytest tests/openchia_cli/`` accumulated 16-25 GB RSS and had to be
     OOM-killed three times in one day.
 
     Rather than editing every test file, ``SessionDB.__init__`` registers each
@@ -624,20 +624,20 @@ def _kanban_write_guard(_hermetic_environment, monkeypatch):
     ``~/.hermes`` captured at import time. Hermetic tests that legitimately
     move HERMES_HOME to sibling tempdirs are unaffected.
 
-    Only patches when ``hermes_cli.kanban_db_connect`` is *already imported*
+    Only patches when ``openchia_cli.kanban_db_connect`` is *already imported*
     — a ``sys.modules`` probe, not an import — so the guard never drags the
     kanban module into unrelated test processes.
 
     Uses ``monkeypatch.setattr`` so pytest restores ``connect`` automatically
     after each test (no stacked wrappers or state leakage across tests).
     """
-    _kdb = sys.modules.get("hermes_cli.kanban_db")
-    _kdbc = sys.modules.get("hermes_cli.kanban_db_connect")
+    _kdb = sys.modules.get("openchia_cli.kanban_db")
+    _kdbc = sys.modules.get("openchia_cli.kanban_db_connect")
     if _kdb is None or _kdbc is None:
         return
 
     # The sys.modules probe can observe the module MID-IMPORT: a fixture
-    # boundary firing while another test's lazy `import hermes_cli.kanban_db`
+    # boundary firing while another test's lazy `import openchia_cli.kanban_db`
     # is still executing sees a partially initialized module whose `connect`
     # doesn't exist yet (AttributeError flake, caught in a full-suite run).
     # A half-imported module has no callers yet either — nothing to guard
@@ -957,7 +957,7 @@ def _wal_is_usable() -> bool:
 #   2. Any later test in that process that drives a turn to completion hits
 #      the TTS dispatch in ``prompt.submit``, which checks
 #      ``_voice_tts_enabled()`` — now true — and fires
-#      ``hermes_cli.voice.speak_text(final_response)`` on a daemon thread.
+#      ``openchia_cli.voice.speak_text(final_response)`` on a daemon thread.
 #   3. ``speak_text`` needs no API key to be audible: ``tools/tts_tool.py``
 #      defaults to the ``edge`` provider, which is keyless.
 #
@@ -968,12 +968,12 @@ def _wal_is_usable() -> bool:
 # live-system guard intercepts ``os.kill`` rather than trusting every caller
 # to mock it:
 #
-#  • ``hermes_cli.voice.speak_text`` — the synth+playback entry point both
+#  • ``openchia_cli.voice.speak_text`` — the synth+playback entry point both
 #    gateway call sites late-import, so patching the module attribute catches
 #    them wherever they import it from.
-#  • ``hermes_cli.voice.play_audio_file`` — the module-level binding
+#  • ``openchia_cli.voice.play_audio_file`` — the module-level binding
 #    ``speak_text`` actually plays through. Patching the binding inside
-#    ``hermes_cli.voice`` (not ``tools.voice_mode``) keeps the real function
+#    ``openchia_cli.voice`` (not ``tools.voice_mode``) keeps the real function
 #    available to the tests that legitimately exercise it with a mocked
 #    audio backend (``tests/tools/test_voice_mode.py``).
 #
@@ -1268,7 +1268,7 @@ def _audio_playback_guard(request, monkeypatch):
         return
 
     try:
-        import hermes_cli.voice as _voice
+        import openchia_cli.voice as _voice
     except Exception:
         # Optional audio deps missing — nothing importable to speak with.
         yield

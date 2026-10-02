@@ -25,7 +25,7 @@ use crate::powershell::{pump_child, DRAIN_GRACE};
 
 /// `hermes update` exit code meaning "another hermes process is holding the
 /// venv shim open / dirty precondition" — see _cmd_update_impl in
-/// hermes_cli/main.py (sys.exit(2)). We surface a targeted message for this.
+/// openchia_cli/main.py (sys.exit(2)). We surface a targeted message for this.
 const UPDATE_EXIT_CONCURRENT: i32 = 2;
 
 /// How long to wait for the old desktop process to release files under the
@@ -95,7 +95,7 @@ pub async fn start_update(app: AppHandle) -> Result<(), String> {
 /// hard ceiling) and self-heal rather than wait forever.
 ///
 /// The marker is also the cross-process update lock: `hermes update` claims
-/// the same file (see `hermes_cli/update_lock.py`) so a dashboard-spawned
+/// the same file (see `openchia_cli/update_lock.py`) so a dashboard-spawned
 /// update and this updater can't mutate one checkout at the same time.
 /// `acquire` therefore REFUSES when a live foreign owner holds it rather than
 /// overwriting — the pre-fix clobber is what let a dashboard `hermes update`
@@ -109,7 +109,7 @@ struct UpdateMarkerGuard {
 
 /// Never treat a marker older than this as a live update. Mirrors
 /// UPDATE_MARKER_MAX_AGE_MS in apps/desktop/electron/update-marker.ts and
-/// UPDATE_MARKER_MAX_AGE_SECONDS in hermes_cli/update_lock.py — all three read
+/// UPDATE_MARKER_MAX_AGE_SECONDS in openchia_cli/update_lock.py — all three read
 /// this one file, so a shorter ceiling in any of them would steal a lock the
 /// others still consider live.
 const UPDATE_MARKER_MAX_AGE_SECS: u64 = 20 * 60;
@@ -279,7 +279,7 @@ async fn run_update(app: AppHandle) -> Result<()> {
     // straggler-cleanup kills it, and the relaunch/kill cycle loops. The guard
     // removes the marker on every exit path (incl. early returns / panics).
     //
-    // The same marker is the cross-process update lock (hermes_cli/
+    // The same marker is the cross-process update lock (openchia_cli/
     // update_lock.py claims it too), so a live foreign owner means another
     // updater — most often a dashboard-spawned `hermes update` — is already
     // mutating this checkout. Refuse instead of running a second one over it.
@@ -867,7 +867,7 @@ async fn resolve_hermes(install_root: &Path) -> Option<PathBuf> {
     }
     // Earlier PM publication lived in user-bin only. The CLI's existing
     // version surface proves which source tree that command belongs to.
-    if install_root.join("hermes_cli/_launchers.py").is_file() {
+    if install_root.join("openchia_cli/_launchers.py").is_file() {
         let mut directories = vec![crate::paths::hermes_home().join("bin")];
         if let Some(home) = dirs::home_dir() { directories.push(home.join(".local/bin")); }
         if let Some(parent) = install_root.parent() { directories.push(parent.join("bin")); }
@@ -921,12 +921,12 @@ fn update_child_env(install_root: &Path) -> Vec<(String, OsString)> {
     // output instead.
     envs.push(("PYTHONUNBUFFERED".to_string(), OsString::from("1")));
     // We hold the update-in-progress marker for this whole run, and the
-    // `hermes update` child claims that SAME lock (hermes_cli/update_lock.py).
+    // `hermes update` child claims that SAME lock (openchia_cli/update_lock.py).
     // Name our pid so the child recognizes the live holder as its own
     // orchestrator and runs under our claim — without this every GUI update
     // refuses its parent's marker with exit 2 ("Hermes is still running")
     // and no number of retries can ever succeed. Keep the variable name in
-    // sync with HANDOFF_PID_ENV in hermes_cli/update_lock.py.
+    // sync with HANDOFF_PID_ENV in openchia_cli/update_lock.py.
     envs.push((
         "HERMES_UPDATE_HANDOFF_PID".to_string(),
         OsString::from(std::process::id().to_string()),

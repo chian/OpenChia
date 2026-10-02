@@ -34,7 +34,7 @@ def test_browser_exec_child_environment(tmp_path, monkeypatch):
                      "print(json.dumps({'argv': sys.argv, 'stdin': sys.stdin.read(), 'env': dict(os.environ)}))\n",
                      encoding="utf-8")
     monkeypatch.setattr(bu, "_find_cli", lambda: [sys.executable, str(probe)])
-    monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: {"browser": {"backend": "browser-use"}})
+    monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: {"browser": {"backend": "browser-use"}})
     monkeypatch.setattr("tools.browser_tool_cdp._get_cdp_override", lambda: "")
     monkeypatch.setattr("tools.browser_tool_cdp._resolve_cdp_override", lambda url: url)
     monkeypatch.setattr("tools.browser_tool_cloud._get_cloud_provider", lambda: None)

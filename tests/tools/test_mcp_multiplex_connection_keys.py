@@ -121,7 +121,7 @@ def test_same_named_server_with_other_credentials_is_a_separate_connection(two_p
     # stdio identity still resolves in ITS OWN scope, so an equal value shares the owner's child.
     import sys
     import agent.secret_scope as secret_scope
-    import hermes_cli.env_loader as env_loader
+    import openchia_cli.env_loader as env_loader
     monkeypatch.setattr(secret_scope, "_MULTIPLEX_ACTIVE", True)
     monkeypatch.setattr(env_loader, "_SECRET_SOURCES", {"FIXTURE_TOKEN": "op"})
     for profile in ("a", "b"):

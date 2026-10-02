@@ -3,7 +3,7 @@
 The provider list is NEVER hardcoded: :func:`discover_catalog` runs the real plugin discovery
 (``providers.list_providers()``) in a clean child interpreter, so a new plugin under
 ``plugins/model-providers/`` joins every matrix automatically. Each row is driven through the
-real ``python -m hermes_cli.main`` in a hermetic HOME against
+real ``python -m openchia_cli.main`` in a hermetic HOME against
 :class:`tests.fakes.providers.catalog_fake.CatalogFake`, redirected the way the product documents
 (``model.provider`` + ``model.base_url`` in config.yaml; ``/anthropic`` path for the Anthropic
 Messages dialect). Every other provider's key is present as a decoy, and all non-loopback egress
@@ -154,7 +154,7 @@ _CATALOG: list[Row] | None = None
 
 _DISCOVER = """
 import json, providers
-from hermes_cli.providers import host_mandated_api_mode
+from openchia_cli.providers import host_mandated_api_mode
 out = []
 for p in providers.list_providers():
     key = next((e for e in p.env_vars if not e.endswith("_BASE_URL")), None)
@@ -221,7 +221,7 @@ def run_hermes(home: Path, cwd: Path, env_extra: dict[str, str], *args: str,
                timeout: float = TURN_TIMEOUT) -> subprocess.CompletedProcess:
     """Run the real CLI; a child that outlives ``timeout`` is killed (rc -9, reason in stderr)."""
     with tempfile.TemporaryFile("w+", encoding="utf-8") as out, tempfile.TemporaryFile("w+", encoding="utf-8") as err:
-        proc = subprocess.Popen([sys.executable, "-m", "hermes_cli.main", *args], cwd=cwd,
+        proc = subprocess.Popen([sys.executable, "-m", "openchia_cli.main", *args], cwd=cwd,
                                 env=hermetic_env(home, env_extra), stdout=out, stderr=err, text=True,
                                 stdin=subprocess.DEVNULL)
         try:

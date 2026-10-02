@@ -77,21 +77,21 @@ _ALLOWED: dict[tuple[str, str], str] = {
         "can only run what is on that subshell's PATH, which local.py populates "
         "with the managed dirs — so PATH is the correct question to ask here."
     ),
-    ("hermes_cli/main_tui_launch.py", "node"): (
+    ("openchia_cli/main_tui_launch.py", "node"): (
         "PM-composed launch context: `which(node)` runs against the PATH "
         "pm.ensure('node'|'npm') just composed (store dirs first), not the ambient one."
     ),
-    ("hermes_cli/main_tui_launch.py", "npm"): (
+    ("openchia_cli/main_tui_launch.py", "npm"): (
         "Same PM-composed launch context as the node lookup above."
     ),
-    ("hermes_cli/source_build.py", "node"): (
+    ("openchia_cli/source_build.py", "node"): (
         "PM-composed build context: `which(node)` runs against the PATH pm's "
         "ensure('npm')/env_for('node') just composed, not the ambient one."
     ),
-    ("hermes_cli/source_build.py", "npm"): (
+    ("openchia_cli/source_build.py", "npm"): (
         "Same PM-composed build context as the node lookup above."
     ),
-    ("hermes_cli/main_desktop.py", "npm"): (
+    ("openchia_cli/main_desktop.py", "npm"): (
         "Desktop build resolves npm inside the PM-prepared build_env PATH."
     ),
     ("pm/workspace.py", "npm"): (
@@ -364,7 +364,7 @@ def test_managed_uv_helpers_exist():
     exists only so the frozen historical updater fixture can import it, and
     its entry points route to relaunch instead of doing venv work. PM owns
     real uv resolution now; the module itself must keep the names live."""
-    from hermes_cli import managed_uv
+    from openchia_cli import managed_uv
 
     assert callable(managed_uv.resolve_uv)
     assert callable(managed_uv.ensure_uv)

@@ -24,7 +24,7 @@ description: "设置一个持续目标，让 Hermes 跨轮次持续工作直到�
 ## 快速开始
 
 ```
-/goal Fix every failing test in tests/hermes_cli/ and make sure scripts/run_tests.sh passes for that directory
+/goal Fix every failing test in tests/openchia_cli/ and make sure scripts/run_tests.sh passes for that directory
 ```
 
 你将看到：

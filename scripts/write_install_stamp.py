@@ -2,7 +2,7 @@
 
 All packagers (Docker, Nix, desktop) call this script to produce the same
 ``install-stamp.json`` file. Runtime surfaces (CLI, TUI, desktop) read the
-stamp through ``hermes_cli.version_info`` — no env vars, no separate
+stamp through ``openchia_cli.version_info`` — no env vars, no separate
 docker/nix code paths.
 
 Usage::
@@ -35,12 +35,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Bootstrap the repo root onto sys.path so the canary tag shape can come
-# from hermes_cli.update_channel — the single authority — instead of a
-# re-typed regex (hermes_cli/__init__.py is import-light).
+# from openchia_cli.update_channel — the single authority — instead of a
+# re-typed regex (openchia_cli/__init__.py is import-light).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from hermes_cli import update_channel  # noqa: E402
-from hermes_cli.steward import UPDATE_MECHANISMS  # noqa: E402
+from openchia_cli import update_channel  # noqa: E402
+from openchia_cli.steward import UPDATE_MECHANISMS  # noqa: E402
 
 STAMP_SCHEMA_VERSION = 2
 _REPO_ROOT = Path(__file__).parent.parent.resolve()

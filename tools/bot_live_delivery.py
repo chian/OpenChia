@@ -19,7 +19,7 @@ from utils import atomic_json_write, atomic_write_text, fsync_directory
 from pathlib import Path
 from typing import Any, Callable
 
-from hermes_cli.active_sessions import _FileLock
+from openchia_cli.active_sessions import _FileLock
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ _TERMINAL = frozenset({"settled", "failed", "cancelled", "ambiguous"})
 
 def find_canonical_owner(profile_home: Path | str) -> dict[str, Any] | None:
     """Return the exact Bot Chat tip's lease, including unsupported CLI owners."""
-    from hermes_cli.active_sessions import active_session_registry_snapshot
+    from openchia_cli.active_sessions import active_session_registry_snapshot
     from hermes_state import SessionDB
 
     home = Path(profile_home).resolve()

@@ -218,7 +218,7 @@ async function detectRemotePlatform(ssh, explicitHermesPath = '') {
 }
 
 function helperCommand(runtime, operation, args = []) {
-  const argv = [runtime.python, '-m', 'hermes_cli.windows_ssh_runtime', operation, ...args]
+  const argv = [runtime.python, '-m', 'openchia_cli.windows_ssh_runtime', operation, ...args]
 
   const script = [
     '$ErrorActionPreference="Stop"',
@@ -248,8 +248,8 @@ async function helper(ssh, runtime, operation, args = [], stdinData?) {
 }
 
 function atomicWindowsSpawnCommand(runtime, reservation: any = {}) {
-  const argv = [runtime.python, '-m', 'hermes_cli.windows_ssh_runtime', 'spawn']
-  const helper = operation => [runtime.python, '-m', 'hermes_cli.windows_ssh_runtime', operation]
+  const argv = [runtime.python, '-m', 'openchia_cli.windows_ssh_runtime', 'spawn']
+  const helper = operation => [runtime.python, '-m', 'openchia_cli.windows_ssh_runtime', operation]
 
   const script = [
     '$ErrorActionPreference="Stop"',

@@ -40,9 +40,9 @@ backend (env-bound) and as a secondary served by one process (override-bound).
 - `src/lib/desktop-slash-commands.ts` is the load-bearing file: `DESKTOP_COMMAND_SPECS` (built-ins
   and their desktop surfaces) + the block-list. A command's desktop disposition (terminal-only /
   messaging-only / settings-owned / advanced / hidden) is authored ONCE, as `desktop=` on its
-  `CommandDef` in `hermes_cli/commands.py`; the live `commands.catalog` carries it, and
+  `CommandDef` in `openchia_cli/commands.py`; the live `commands.catalog` carries it, and
   `src/lib/desktop-slash-registry.json` (regenerate with `scripts/dump_desktop_slash_registry.py`;
-  `tests/hermes_cli/test_desktop_slash_registry.py` + the vitest file fail on drift) is the offline
+  `tests/openchia_cli/test_desktop_slash_registry.py` + the vitest file fail on drift) is the offline
   fallback. Only names the Python registry has never heard of (`/density`, `/details`, `/logs`,
   `/mouse` — Ink-local; `/pets`) live in `TS_ONLY_NO_DESKTOP_SURFACE`. `isDesktopSlashCommand(name)`
   gates **execution** (true

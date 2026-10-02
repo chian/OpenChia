@@ -17,7 +17,7 @@ from tools.registry import tool_error
 from utils import is_truthy_value
 from .store import MemoryStore
 from .retrieval import FactRetriever
-from hermes_cli.config import cfg_get
+from openchia_cli.config import cfg_get
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ _EXTRACT_CATEGORIES = (
 
 def _load_plugin_config() -> dict:
     try:
-        from hermes_cli.config import load_config_readonly  # canonical: managed-scope overlay + ${VAR} expansion
+        from openchia_cli.config import load_config_readonly  # canonical: managed-scope overlay + ${VAR} expansion
         return cfg_get(load_config_readonly(), "plugins", "hermes-memory-store", default={}) or {}
     except Exception:
         return {}
@@ -119,7 +119,7 @@ class HolographicMemoryProvider(MemoryProvider):
         """Write config to config.yaml under plugins.hermes-memory-store."""
         # The canonical writer: config lock, managed-mode refusal, default stripping, atomic replace.
         # ``merge_existing`` keeps every other section; *hermes_home* is the active profile already.
-        from hermes_cli.config import save_config
+        from openchia_cli.config import save_config
         values = dict(values)
         # This profile's own DB spelled out (older setups wrote it; the dashboard form re-submits what it
         # read) pins every clone and rename of the profile to this file, so it is stored as the placeholder.

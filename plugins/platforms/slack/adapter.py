@@ -61,7 +61,7 @@ except ImportError:  # pragma: no cover - plugin loaded outside package context
 logger = logging.getLogger(__name__)
 
 # User-Agent prefix (``HermesAgent/<version>``) for platform-partner attribution of API calls.
-from hermes_cli.version_info import get_version_info
+from openchia_cli.version_info import get_version_info
 
 _HERMES_SLACK_USER_AGENT_PREFIX = f"HermesAgent/{get_version_info().base_version}"
 
@@ -395,7 +395,7 @@ def _rewrite_known_bang_command(text: str) -> str:
     if not text.startswith("!"):
         return text
     try:
-        from hermes_cli.commands import is_gateway_known_command
+        from openchia_cli.commands import is_gateway_known_command
         first_token = text[1:].split(maxsplit=1)[0]
         cmd_name = first_token.split("@", 1)[0].lower()
         if cmd_name and "/" not in cmd_name and is_gateway_known_command(cmd_name):
@@ -1661,7 +1661,7 @@ class SlackAdapter(BasePlatformAdapter):
         # Every COMMAND_REGISTRY command is a native slash via one regex matcher. Commands must
         # ALSO be declared in the app manifest (`hermes slack manifest`): Socket Mode won't
         # deliver undeclared commands at all.
-        from hermes_cli.commands_platforms import slack_native_slashes
+        from openchia_cli.commands_platforms import slack_native_slashes
         _slash_names = [name for name, _d, _h in slack_native_slashes()]
         if _slash_names:
             _slash_pattern = re.compile(
@@ -1700,7 +1700,7 @@ class SlackAdapter(BasePlatformAdapter):
         a ``(action_id, plugin)`` already registered on the live app is skipped, so the late
         re-wire (#87770) never stacks a second listener that would run the callback twice."""
         try:
-            from hermes_cli.plugins import get_plugin_manager
+            from openchia_cli.plugins import get_plugin_manager
             _plugin_handlers = get_plugin_manager().get_slack_action_handlers()
         except Exception as e:  # pragma: no cover - defensive
             logger.warning("[Slack] Could not load plugin action handlers: %s", e)
@@ -5129,7 +5129,7 @@ class SlackAdapter(BasePlatformAdapter):
             thread_ts = self._resolve_thread_ts(None, metadata)
 
             try:
-                from hermes_cli.providers import get_label
+                from openchia_cli.providers import get_label
                 provider_label = get_label(current_provider)
             except Exception:
                 provider_label = current_provider
@@ -5308,7 +5308,7 @@ class SlackAdapter(BasePlatformAdapter):
             state["stage"] = "provider"
             state["selected_provider_slug"] = ""
             try:
-                from hermes_cli.providers import get_label
+                from openchia_cli.providers import get_label
                 provider_label = get_label(
                     state.get("current_provider", "")
                 )
@@ -6067,7 +6067,7 @@ class SlackAdapter(BasePlatformAdapter):
         if slash_name not in {"hermes", ""}:
             return f"/{slash_name}" if not raw_text else f"/{slash_name} {raw_text}"
         legacy_text = raw_text.strip()
-        from hermes_cli.commands_platforms import slack_subcommand_map
+        from openchia_cli.commands_platforms import slack_subcommand_map
         subcommand_map = slack_subcommand_map()
         subcommand_map["compact"] = "/compress"
         first_word = legacy_text.split()[0] if legacy_text.split() else ""
@@ -6458,7 +6458,7 @@ class SlackAdapter(BasePlatformAdapter):
 # ``interactive_setup``, ``_apply_yaml_config``, ``_is_connected``) that replace the
 # per-platform core touchpoints (the ``Platform.SLACK`` elif in ``gateway/run.py``, the ``slack_cfg``
 # YAML→env block in ``gateway/config.py``, the ``_setup_slack`` wizard + ``_PLATFORMS["slack"]`` static dict
-# in ``hermes_cli/{setup,gateway}.py``, and the ``_send_slack`` dispatch in ``tools/send_message_tool.py``).
+# in ``openchia_cli/{setup,gateway}.py``, and the ``_send_slack`` dispatch in ``tools/send_message_tool.py``).
 # ──────────────────────────────────────────────────────────────────────────
 _slack_dm_cache: Dict[str, str] = {}
 _SLACK_DM_CACHE_MAX = 5000
@@ -6771,9 +6771,9 @@ _SETUP_HOME_CHANNEL_HELP = (
 
 def _write_slack_manifest_and_instruct() -> None:
     """Write the manifest under HERMES_HOME and print paste instructions; non-fatal."""
-    from hermes_cli.cli_output import print_info, print_success, print_warning
+    from openchia_cli.cli_output import print_info, print_success, print_warning
     try:
-        from hermes_cli.slack_cli import _build_full_manifest
+        from openchia_cli.slack_cli import _build_full_manifest
         from hermes_constants import get_hermes_home
         manifest = _build_full_manifest(
             bot_name="Hermes", bot_description="Your Hermes agent on Slack")
@@ -6796,10 +6796,10 @@ def _write_slack_manifest_and_instruct() -> None:
 def interactive_setup() -> None:
     """Guide the user through Slack bot setup (manifest, tokens, allowlist, home channel).
     CLI helpers are lazy-imported to keep the plugin's import surface small."""
-    from hermes_cli.config import remove_env_value, save_env_value
-    from hermes_cli.cli_output import (
+    from openchia_cli.config import remove_env_value, save_env_value
+    from openchia_cli.cli_output import (
         prompt, prompt_yes_no, print_header, print_info, print_success, print_warning)
-    from hermes_cli.setup_platforms import declines_reconfigure
+    from openchia_cli.setup_platforms import declines_reconfigure
 
     print_header("Slack")
     if declines_reconfigure("Slack", "Reconfigure Slack?", "SLACK_BOT_TOKEN"):

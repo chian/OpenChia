@@ -70,7 +70,7 @@ def _kill_dispatcher_after(board: Board, kind: str | None) -> None:
     """Launch one real dispatch tick and SIGKILL it once a new ``kind`` event lands (None: at once)."""
     before = _event_count(board, kind) if kind else 0
     proc = subprocess.Popen(
-        [PY, "-m", "hermes_cli.main", "kanban", "dispatch", "--json"], cwd=str(board.root),
+        [PY, "-m", "openchia_cli.main", "kanban", "dispatch", "--json"], cwd=str(board.root),
         env=board.env(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:

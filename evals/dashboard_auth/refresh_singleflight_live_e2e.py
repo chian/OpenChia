@@ -22,10 +22,10 @@ for m in [k for k in sys.modules if k.startswith(("hermes", "tools", "plugins"))
 
 import uvicorn  # noqa: E402
 
-from hermes_cli import web_server  # noqa: E402
-from hermes_cli.dashboard_auth import register_provider  # noqa: E402
-from hermes_cli.dashboard_auth.base import RefreshExpiredError, Session  # noqa: E402
-from tests.hermes_cli.conftest_dashboard_auth import StubAuthProvider  # noqa: E402
+from openchia_cli import web_server  # noqa: E402
+from openchia_cli.dashboard_auth import register_provider  # noqa: E402
+from openchia_cli.dashboard_auth.base import RefreshExpiredError, Session  # noqa: E402
+from tests.openchia_cli.conftest_dashboard_auth import StubAuthProvider  # noqa: E402
 
 
 class SlowRotatingIdP(StubAuthProvider):

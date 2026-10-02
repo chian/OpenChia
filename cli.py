@@ -29,24 +29,24 @@ logger = logging.getLogger(__name__)
 os.environ["HERMES_QUIET"] = "1"  # suppress our modules' startup chatter
 
 
-from hermes_cli.cli_agent_setup_mixin import CLIAgentSetupMixin
-from hermes_cli.cli_commands_mixin import CLICommandsMixin
-from hermes_cli.cli_billing_mixin import CLIBillingMixin
-from hermes_cli.cli_loops_mixin import CLILoopsMixin
-from hermes_cli.cli_info_mixin import CLIInfoMixin
-from hermes_cli.cli_terminal_mixin import CLITerminalMixin
-from hermes_cli.cli_modal_mixin import CLIModalMixin
-from hermes_cli.cli_stream_mixin import CLIStreamMixin
-from hermes_cli.cli_session_mixin import CLISessionMixin
-from hermes_cli.cli_model_switch_mixin import CLIModelSwitchMixin
-from hermes_cli.cli_voice_mixin import CLIVoiceMixin
-from hermes_cli.cli_status_bar_mixin import CLIStatusBarMixin
-from hermes_cli.cli_tui_mixin import CLITuiMixin
-from hermes_cli.cli_process_notifications import CLIProcessNotificationsMixin
-from hermes_cli.cli_init_mixin import CLIInitMixin
-from hermes_cli.cli_tui_runtime_mixin import CLITuiRuntimeMixin
+from openchia_cli.cli_agent_setup_mixin import CLIAgentSetupMixin
+from openchia_cli.cli_commands_mixin import CLICommandsMixin
+from openchia_cli.cli_billing_mixin import CLIBillingMixin
+from openchia_cli.cli_loops_mixin import CLILoopsMixin
+from openchia_cli.cli_info_mixin import CLIInfoMixin
+from openchia_cli.cli_terminal_mixin import CLITerminalMixin
+from openchia_cli.cli_modal_mixin import CLIModalMixin
+from openchia_cli.cli_stream_mixin import CLIStreamMixin
+from openchia_cli.cli_session_mixin import CLISessionMixin
+from openchia_cli.cli_model_switch_mixin import CLIModelSwitchMixin
+from openchia_cli.cli_voice_mixin import CLIVoiceMixin
+from openchia_cli.cli_status_bar_mixin import CLIStatusBarMixin
+from openchia_cli.cli_tui_mixin import CLITuiMixin
+from openchia_cli.cli_process_notifications import CLIProcessNotificationsMixin
+from openchia_cli.cli_init_mixin import CLIInitMixin
+from openchia_cli.cli_tui_runtime_mixin import CLITuiRuntimeMixin
 # Extracted clusters (mechanical split, #116911); re-exported here so `cli.<name>` stays the seam.
-from hermes_cli.cli_shutdown import (  # noqa: F401,E402
+from openchia_cli.cli_shutdown import (  # noqa: F401,E402
     _CLEANUP_STEPS,
     _arm_exit_watchdog,
     _emit_interrupted_session_end,
@@ -68,11 +68,11 @@ from hermes_cli.cli_shutdown import (  # noqa: F401,E402
     _sync_process_session_id,
     _wait_for_oneshot_background_completions,
 )
-from hermes_cli.cli_auto_maintenance import (  # noqa: F401,E402
+from openchia_cli.cli_auto_maintenance import (  # noqa: F401,E402
     _run_checkpoint_auto_maintenance,
     _run_state_db_auto_maintenance,
 )
-from hermes_cli.cli_render import (  # noqa: F401,E402
+from openchia_cli.cli_render import (  # noqa: F401,E402
     ChatConsole,
     _ACCENT,
     _ACCENT_ANSI_DEFAULT,
@@ -139,7 +139,7 @@ from hermes_cli.cli_render import (  # noqa: F401,E402
     _wrap_panel_text,
     _wrap_panel_text_keep_ws,
 )
-from hermes_cli.cli_config_load import (  # noqa: F401,E402
+from openchia_cli.cli_config_load import (  # noqa: F401,E402
     _AUXILIARY_TASK_ENV,
     _CWD_PLACEHOLDERS,
     _TERMINAL_ENV_MAPPINGS,
@@ -153,7 +153,7 @@ from hermes_cli.cli_config_load import (  # noqa: F401,E402
     _resolve_prefill_messages_file,
     load_cli_config,
 )
-from hermes_cli.cli_terminal_input import (  # noqa: F401,E402
+from openchia_cli.cli_terminal_input import (  # noqa: F401,E402
     _BACKSLASH_LINE_CONTINUATION_RE,
     _DSR_CPR_ESC_RE,
     _DSR_CPR_VISIBLE_RE,
@@ -191,7 +191,7 @@ from hermes_cli.cli_terminal_input import (  # noqa: F401,E402
     _terminal_supports_extended_enter_keys,
     _termux_example_image_path,
 )
-from hermes_cli.cli_single_query import (  # noqa: F401,E402
+from openchia_cli.cli_single_query import (  # noqa: F401,E402
     _TERMINAL_PROVIDER_REASONS,
     _TRANSIENT_PROVIDER_REASONS,
     _collect_kanban_task_images,
@@ -222,7 +222,7 @@ except (ImportError, AttributeError):
     _STEADY_CURSOR = None
 
 try:
-    from hermes_cli import pt_input_extras as _pt_extras
+    from openchia_cli import pt_input_extras as _pt_extras
 
     _pt_extras.install_shift_enter_alias()
     _pt_extras.install_ctrl_enter_alias()
@@ -280,7 +280,7 @@ def _reverse_alias_for_display(model_name: str) -> str:
                 rmap[m] = alias
 
         try:
-            from hermes_cli.config import load_config
+            from openchia_cli.config import load_config
             cfg = load_config() or {}
             ma = cfg.get("model_aliases")
             if isinstance(ma, dict):
@@ -327,7 +327,7 @@ _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧
 
 # ~/.hermes/.env first, project .env as dev fallback; user env files override stale shell exports.
 from hermes_constants import get_hermes_home
-from hermes_cli.env_loader import load_hermes_dotenv
+from openchia_cli.env_loader import load_hermes_dotenv
 
 _hermes_home = get_hermes_home()
 _project_env = Path(__file__).parent / '.env'
@@ -387,7 +387,7 @@ except Exception:
 
 # Agent/tool systems load lazily: bare startup only needs the prompt.
 def get_tool_definitions(*args, **kwargs):
-    from hermes_cli.mcp_startup import wait_for_mcp_discovery
+    from openchia_cli.mcp_startup import wait_for_mcp_discovery
     from model_tools import get_tool_definitions as _get_tool_definitions
 
     wait_for_mcp_discovery()
@@ -443,13 +443,13 @@ def _prepare_deferred_agent_startup() -> None:
     _deferred_agent_startup_done = True
     _accept_hooks = os.environ.get("HERMES_ACCEPT_HOOKS", "").lower() in {"1", "true", "yes", "on"}
     try:
-        from hermes_cli.plugins import discover_plugins
+        from openchia_cli.plugins import discover_plugins
 
         discover_plugins()
     except Exception:
         logger.warning("plugin discovery failed at deferred CLI startup", exc_info=True)
     try:
-        from hermes_cli.mcp_startup import start_background_mcp_discovery
+        from openchia_cli.mcp_startup import start_background_mcp_discovery
 
         start_background_mcp_discovery(logger=logger, thread_name="termux-cli-mcp-discovery")
     except Exception:
@@ -457,7 +457,7 @@ def _prepare_deferred_agent_startup() -> None:
     try:
         from agent.shell_hooks import register_from_config
         from agent.outbound_webhooks import register_from_config as register_outbound_webhooks
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
 
         _hooks_cfg = load_config()
         register_from_config(_hooks_cfg, accept_hooks=_accept_hooks)
@@ -555,7 +555,7 @@ def _reset_terminal_input_modes_on_exit() -> None:
         tty.flush()
 
 
-from hermes_cli.worktree_ops import (
+from openchia_cli.worktree_ops import (
     _git_quiet,
     _git_repo_root,
     _maintain_pack_health,
@@ -702,7 +702,7 @@ def _replay_output_history(fit=None, output=None) -> None:
 
 
 _strip_leaked_bracketed_paste_wrappers = _lazy_shim(
-    "hermes_cli.input_sanitize", "strip_leaked_bracketed_paste_wrappers", "_strip_leaked_bracketed_paste_wrappers"
+    "openchia_cli.input_sanitize", "strip_leaked_bracketed_paste_wrappers", "_strip_leaked_bracketed_paste_wrappers"
 )
 
 
@@ -759,7 +759,7 @@ build_bundle_invocation_message = _lazy_shim("agent.skill_bundles", "build_bundl
 def _get_plugin_cmd_handler_names() -> set:
     """Return plugin command names (without slash prefix) for dispatch matching."""
     try:
-        from hermes_cli.plugins import get_plugin_commands
+        from openchia_cli.plugins import get_plugin_commands
         return set(get_plugin_commands().keys())
     except Exception:
         return set()
@@ -812,7 +812,7 @@ def _normalize_moa_model(model: Optional[str]) -> tuple[Optional[str], Optional[
             return "moa", preset
     return None, model
 
-_split_model_config_default = _lazy_shim("hermes_cli.config", "split_model_config_default", "_split_model_config_default")
+_split_model_config_default = _lazy_shim("openchia_cli.config", "split_model_config_default", "_split_model_config_default")
 
 
 class _VoiceInputMessage:
@@ -874,13 +874,13 @@ class _ChatTurn:
     stop_event: Optional[threading.Event] = None
     tts_normal_exit: bool = False
     voice_prefix: str = ""
-from hermes_cli.cli_chat_turn_mixin import CLIChatTurnMixin
+from openchia_cli.cli_chat_turn_mixin import CLIChatTurnMixin
 
 
 _PASTE_REF_RE = re.compile(r'\[Pasted text #\d+: \d+ lines \u2192 (.+?)\]')
 
 
-class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin, CLITuiMixin, CLIStatusBarMixin, CLIVoiceMixin, CLIModelSwitchMixin, CLISessionMixin, CLIStreamMixin, CLIModalMixin, CLITerminalMixin, CLIInfoMixin, CLILoopsMixin, CLIChatTurnMixin):
+class OpenChiaCLIBase(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin, CLITuiMixin, CLIStatusBarMixin, CLIVoiceMixin, CLIModelSwitchMixin, CLISessionMixin, CLIStreamMixin, CLIModalMixin, CLITerminalMixin, CLIInfoMixin, CLILoopsMixin, CLIChatTurnMixin):
     """Interactive REPL for the Hermes Agent."""
 
     # Seeded -q first message (see _should_seed_interactive); run() re-creates
@@ -918,7 +918,7 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
         if self._active_session_lease is not None:
             return True
         try:
-            from hermes_cli.active_sessions import format_refusal_stderr, try_acquire_active_session
+            from openchia_cli.active_sessions import format_refusal_stderr, try_acquire_active_session
 
             lease, message = try_acquire_active_session(
                 session_id=self.session_id,
@@ -993,7 +993,7 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
     def _show_security_advisories(self):
         """Startup banner for unacked security advisories, on stderr (piped stdout stays clean); 24h rate-limited."""
         try:
-            from hermes_cli.security_advisories import detect_compromised, startup_banner
+            from openchia_cli.security_advisories import detect_compromised, startup_banner
 
             banner = startup_banner(detect_compromised())
             if banner:
@@ -1062,7 +1062,7 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
             # registry walk already loaded plus the pure notices module (a heavy import here races
             # importlib's module locks against the main thread).
             from model_tools import check_tool_availability
-            from hermes_cli.tool_availability_notices import (
+            from openchia_cli.tool_availability_notices import (
                 current_terminal_backend, filter_to_enabled_toolsets, tool_availability_warning_lines,
             )
             from tools.terminal_tool import terminal_backend_unavailable_reason
@@ -1184,15 +1184,15 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
         cmd_lower = command.lower().strip()  # lowercase only for matching; args keep their case
         cmd_original = command.strip()
 
-        # Aliases resolve via the central registry (hermes_cli/commands.py).
-        from hermes_cli.commands import resolve_command as _resolve_cmd
+        # Aliases resolve via the central registry (openchia_cli/commands.py).
+        from openchia_cli.commands import resolve_command as _resolve_cmd
         _base_word = cmd_lower.split()[0].lstrip("/")
         _cmd_def = _resolve_cmd(_base_word)
         canonical = _cmd_def.name if _cmd_def else _base_word
 
         # Observer-only pre_command plugin hook (return values ignored; never raises).
         if _cmd_def is not None:
-            from hermes_cli.plugins import fire_pre_command_hook
+            from openchia_cli.plugins import fire_pre_command_hook
             fire_pre_command_hook(
                 surface="cli", command=canonical, alias_used=_base_word, args_raw=_slash_args(cmd_original),
                 session_key=getattr(self, "session_id", None), platform="cli",
@@ -1258,7 +1258,7 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
             # shell=True is intentional (user-authored config snippets, never LLM controlled);
             # the env is sanitized because this process holds every API key.
             from tools.environments.local import build_subprocess_env
-            from hermes_cli._subprocess_compat import windows_hide_flags
+            from openchia_cli._subprocess_compat import windows_hide_flags
             result = subprocess.run(
                 exec_cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=30, env=build_subprocess_env(),
@@ -1278,7 +1278,7 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
         return True
 
     def _run_plugin_slash_command(self, base_cmd: str, user_args: str) -> None:
-        from hermes_cli.plugins import get_plugin_command_handler, resolve_plugin_command_result
+        from openchia_cli.plugins import get_plugin_command_handler, resolve_plugin_command_result
 
         plugin_handler = get_plugin_command_handler(base_cmd.lstrip("/"))
         if not plugin_handler:
@@ -1334,7 +1334,7 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
 
     def _expand_slash_prefix(self, cmd_original: str, cmd_lower: str, skill_commands, skill_bundles) -> bool:
         """Unique-prefix expansion against built-in COMMANDS + skill commands/bundles (agrees with tab-completion)."""
-        from hermes_cli.commands import COMMANDS
+        from openchia_cli.commands import COMMANDS
         typed_base = cmd_lower.split()[0]
         all_known = set(COMMANDS) | set(skill_commands) | set(skill_bundles)
         matches = [c for c in all_known if c.startswith(typed_base)]
@@ -1355,7 +1355,7 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
             _cprint(f"{_DIM}Did you mean: {', '.join(sorted(matches))}?{_RST}")
         else:
             # Exact token with no handler (never re-dispatch the same token: recursion), or no match.
-            from hermes_cli.cli_unknown_command import unknown_command_lines
+            from openchia_cli.cli_unknown_command import unknown_command_lines
             lead, pointer = unknown_command_lines(cmd_lower, all_known)
             _cprint(f"\033[1;31m{lead}{_RST}")
             _cprint(f"{_DIM}{_ACCENT}{pointer}{_RST}")
@@ -1504,12 +1504,12 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
         # /update relaunch happens here, after prompt_toolkit restored terminal modes, on the
         # main thread (the process_loop thread would skip cleanup / only exit itself on Windows).
         if self._pending_relaunch:
-            from hermes_cli.relaunch import relaunch
+            from openchia_cli.relaunch import relaunch
             relaunch(self._pending_relaunch, preserve_inherited=False)
 
 
 def _build_cli_from_args(model, toolsets, provider, reasoning, api_key, base_url, max_turns, run_budget, verbose, compact, resume, checkpoints, pass_session_id, ignore_rules, skills, cli_class=None):
-    """Resolve the toolset list (explicit / coding posture / platform default), construct HermesCLI, and start the background skills preload."""
+    """Resolve the toolset list (explicit / coding posture / platform default), construct OpenChiaCLIBase, and start the background skills preload."""
     toolsets_list = None
     if isinstance(toolsets, str) and toolsets:
         toolsets_list = [t.strip() for t in toolsets.split(",")]
@@ -1526,15 +1526,15 @@ def _build_cli_from_args(model, toolsets, provider, reasoning, api_key, base_url
         except Exception:
             toolsets_list = None
         if toolsets_list is None:
-            from hermes_cli.tools_config import _get_platform_tools
+            from openchia_cli.tools_config import _get_platform_tools
             toolsets_list = sorted(_get_platform_tools(CLI_CONFIG, "cli"))
 
     parsed_skills = _parse_skills_argument(skills)
 
     try:
-        cli_type = HermesCLI if cli_class is None else cli_class
-        if not isinstance(cli_type, type) or not issubclass(cli_type, HermesCLI):
-            raise TypeError("cli_class must be a HermesCLI subclass")
+        cli_type = OpenChiaCLIBase if cli_class is None else cli_class
+        if not isinstance(cli_type, type) or not issubclass(cli_type, OpenChiaCLIBase):
+            raise TypeError("cli_class must be an OpenChiaCLIBase subclass")
         cli = cli_type(
             model=model,
             toolsets=toolsets_list,
@@ -1723,7 +1723,7 @@ def main(
     """
     # UTF-8 stdio on Windows before any print (Rich box-drawing would UnicodeEncodeError on cp1252).
     with suppress(Exception):
-        from hermes_cli.stdio import configure_windows_stdio
+        from openchia_cli.stdio import configure_windows_stdio
         configure_windows_stdio()
 
     os.environ["HERMES_INTERACTIVE"] = "1"  # terminal_tool: interactive sudo prompts with timeout
@@ -1733,8 +1733,8 @@ def main(
         return
 
     if not (list_tools or list_toolsets):
-        from hermes_cli.process_identity import register_self
-        from hermes_cli.shared_profile_warning import shared_profile_warning
+        from openchia_cli.process_identity import register_self
+        from openchia_cli.shared_profile_warning import shared_profile_warning
 
         register_self("cli")
         warning = shared_profile_warning()

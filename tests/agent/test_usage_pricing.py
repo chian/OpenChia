@@ -364,7 +364,7 @@ def test_curated_google_flash_models_resolve_official_snapshot_pricing(monkeypat
     direct Gemini and Vertex routes — a model pickable via the aggregators but
     ``unknown`` to Google-route accounting is a catalog/pricing drift.
     """
-    from hermes_cli.models_catalog_static import OPENROUTER_MODELS, _PROVIDER_MODELS
+    from openchia_cli.models_catalog_static import OPENROUTER_MODELS, _PROVIDER_MODELS
 
     monkeypatch.setattr(
         "agent.usage_pricing.fetch_endpoint_model_metadata",

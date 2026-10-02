@@ -331,7 +331,7 @@ fi
 # sweep so host-owned files in a bind-mounted $HERMES_HOME are never
 # touched — same targeted-ownership contract as the subdir chown above
 # (issue #19788, PR #19795). The list mirrors the top-level *file*
-# entries of hermes_cli.profile_distribution.USER_OWNED_EXCLUDE plus the
+# entries of openchia_cli.profile_distribution.USER_OWNED_EXCLUDE plus the
 # runtime lock files; keep them in sync if that set changes.
 for f in \
     auth.json auth.lock .env \
@@ -529,7 +529,7 @@ elif ! grep -q '^API_SERVER_KEY=..*' "$HERMES_HOME/.env" 2>/dev/null; then
 fi
 
 # --- Sync deploy-injected Nous routing overrides into every profile .env ---
-# Under multiplex, hermes_cli.auth_nous reads HERMES_PORTAL_BASE_URL (or its
+# Under multiplex, openchia_cli.auth_nous reads HERMES_PORTAL_BASE_URL (or its
 # NOUS_PORTAL_BASE_URL alias) and NOUS_INFERENCE_BASE_URL through the profile
 # secret scope (agent.secret_scope.get_secret, #108319 / #111809), built from
 # <profile>/.env with no os.environ fallback — a value that lives only in the
@@ -656,7 +656,7 @@ fi
 # collect_generations keeps anything younger than a day.
 s6-setuidgid hermes "$INSTALL_DIR/.venv/bin/python" -c '
 from pathlib import Path
-from hermes_cli.runtime_state import collect_generations
+from openchia_cli.runtime_state import collect_generations
 from pm.environments import install_state_dir
 from pm.recovery import refresh_dependencies
 from pm.runtime import collect_runtime_generations

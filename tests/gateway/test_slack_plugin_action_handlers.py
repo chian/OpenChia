@@ -64,7 +64,7 @@ _slack_mod.SLACK_AVAILABLE = True
 from gateway.config import PlatformConfig  # noqa: E402
 from plugins.platforms.slack.adapter import SlackAdapter  # noqa: E402
 
-from hermes_cli.plugins import (  # noqa: E402
+from openchia_cli.plugins import (  # noqa: E402
     PluginContext,
     PluginManager,
     PluginManifest,
@@ -188,7 +188,7 @@ def _connect_with_recording_app(
          patch.dict(os.environ, {"SLACK_APP_TOKEN": "xapp-fake"}), \
          patch("gateway.status.acquire_scoped_lock", return_value=(True, None)), \
          patch("gateway.status.release_scoped_lock"), \
-         patch("hermes_cli.plugins.get_plugin_manager", return_value=fake_mgr), \
+         patch("openchia_cli.plugins.get_plugin_manager", return_value=fake_mgr), \
          patch("asyncio.create_task"):
         result = asyncio.run(adapter.connect())
 
@@ -254,7 +254,7 @@ class TestSlackAdapterPluginActionWiring:
              patch.dict(os.environ, {"SLACK_APP_TOKEN": "xapp-fake"}), \
              patch("gateway.status.acquire_scoped_lock", return_value=(True, None)), \
              patch("gateway.status.release_scoped_lock"), \
-             patch("hermes_cli.plugins.get_plugin_manager",
+             patch("openchia_cli.plugins.get_plugin_manager",
                    side_effect=RuntimeError("plugins broken")), \
              patch("asyncio.create_task"):
             result = asyncio.run(adapter.connect())

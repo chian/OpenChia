@@ -76,15 +76,15 @@ That's it. After dropping these two files, the following **auto-wire** with no o
 
 | Integration | Where | What it gets |
 |---|---|---|
-| Credential resolution | `hermes_cli/auth.py` | `PROVIDER_REGISTRY["acme-inference"]` populated from profile |
-| `--provider` CLI flag | `hermes_cli/main.py` | Accepts `acme-inference` |
-| `/model --provider`, model picker switch | `hermes_cli/providers.py::resolve_provider_full` | Resolves `acme-inference` and every alias to the profile (switch lands on `name`, so `acme` persists as `acme-inference`); user `providers:` / `custom_providers:` blocks keep precedence. A profile with an empty `base_url` (endpoint minted at runtime) resolves too, on the last rung |
-| `hermes model` picker | `hermes_cli/models.py` | Appears in `CANONICAL_PROVIDERS`, model list fetched from `{base_url}/models` |
-| `hermes doctor` | `hermes_cli/doctor.py` | Health check for `ACME_API_KEY` + `{base_url}/models` probe |
-| `hermes setup` | `hermes_cli/config.py` | `ACME_API_KEY` appears in `OPTIONAL_ENV_VARS` and the setup wizard |
+| Credential resolution | `openchia_cli/auth.py` | `PROVIDER_REGISTRY["acme-inference"]` populated from profile |
+| `--provider` CLI flag | `openchia_cli/main.py` | Accepts `acme-inference` |
+| `/model --provider`, model picker switch | `openchia_cli/providers.py::resolve_provider_full` | Resolves `acme-inference` and every alias to the profile (switch lands on `name`, so `acme` persists as `acme-inference`); user `providers:` / `custom_providers:` blocks keep precedence. A profile with an empty `base_url` (endpoint minted at runtime) resolves too, on the last rung |
+| `hermes model` picker | `openchia_cli/models.py` | Appears in `CANONICAL_PROVIDERS`, model list fetched from `{base_url}/models` |
+| `hermes doctor` | `openchia_cli/doctor.py` | Health check for `ACME_API_KEY` + `{base_url}/models` probe |
+| `hermes setup` | `openchia_cli/config.py` | `ACME_API_KEY` appears in `OPTIONAL_ENV_VARS` and the setup wizard |
 | URL reverse-mapping | `agent/model_metadata.py` | Hostname → provider name for auto-detection |
 | Auxiliary model | `agent/auxiliary_client.py` | Uses `default_aux_model` for compression / summarization |
-| Runtime resolution | `hermes_cli/runtime_provider.py` | Returns correct `base_url`, `api_key`, `api_mode` |
+| Runtime resolution | `openchia_cli/runtime_provider.py` | Returns correct `base_url`, `api_key`, `api_mode` |
 | Transport | `agent/transports/chat_completions.py` | Profile path generates kwargs via `prepare_messages` / `build_extra_body` / `build_api_kwargs_extras` |
 
 ## ProviderProfile fields
@@ -154,7 +154,7 @@ and the dashboard's `/api/model/info`. Precedence: explicit user
 `_default`. Models the plugin does not declare keep the catalog/heuristic path.
 
 Not covered: the picker's `fast` badge (a model-name heuristic in
-`hermes_cli/models.py::model_supports_fast_mode`), reasoning-effort vocabulary
+`openchia_cli/models.py::model_supports_fast_mode`), reasoning-effort vocabulary
 (`agent/reasoning_effort.py`), and transport request fields. Declarations do not
 add models to a picker — use `fallback_models` / `fetch_models` for that. The
 registry is discovered once per process: restart Hermes after editing them.
@@ -322,7 +322,7 @@ register_provider(ProviderProfile(
 
 In a fresh Hermes process, `get_provider_profile("gmi").base_url` returns the staging URL. No repo patch, no rebuild. Because user plugins are discovered after bundled ones, the user `register_provider()` call wins.
 
-The override also reaches the runtime. Built-in providers have a row in `hermes_cli.auth.PROVIDER_REGISTRY` (the table `resolve_runtime_provider()` reads its endpoint and env vars from); a `$HERMES_HOME` plugin re-registering that name rewrites the row's profile-derived fields, so inference goes to the staging URL, not the bundled one:
+The override also reaches the runtime. Built-in providers have a row in `openchia_cli.auth.PROVIDER_REGISTRY` (the table `resolve_runtime_provider()` reads its endpoint and env vars from); a `$HERMES_HOME` plugin re-registering that name rewrites the row's profile-derived fields, so inference goes to the staging URL, not the bundled one:
 
 | Profile field | Registry row field | When |
 |---|---|---|
@@ -428,7 +428,7 @@ register_provider(ProviderProfile(
 |---|---|
 | `auth_handler(action, args)` | `args` is the parsed `hermes auth` namespace for CLI actions; the interactive setup picker passes a minimal namespace carrying only `provider`, so read options with `getattr(args, name, None)`. Truthy = handled (Hermes prints nothing more, exit 0); falsy = fall back to the built-in path **for that action**. An exception becomes `SystemExit("<provider> auth handler failed for `&lt;action&gt;`: …")`. |
 | `refresh_credential(entry)` | Receives the `PooledCredential`; returns a mapping of rotated values or `None`. Keys that are `PooledCredential` fields (`access_token`, `refresh_token`, `expires_at_ms`, …) replace the row's fields; every other key (`expires_in`, `token_type`, `scope` — the raw token-endpoint shape) lands in `entry.extra` and round-trips through `auth.json`. Returning `None`/an empty mapping means the plugin could not rotate: the row is benched exactly like a failed refresh request (never reported as refreshed, so a dead bearer is not replayed). Its presence is what makes the provider *refreshable* — `hermes auth refresh <name>` and the main-loop 401 recovery call it through the pool with no core name list involved; the auxiliary client's 401 recovery reaches it only for pooled rows it already treats as recoverable (api-key rows and the built-in OAuth routes). |
-| Refresh failures | Raise `hermes_cli.auth_constants.AuthError(..., relogin_required=True)` (or with `code` `invalid_grant` / `invalid_token` / `refresh_token_reused`) when the grant is dead: the row goes **DEAD**, leaves rotation and Hermes logs a WARNING naming `hermes auth add <name>`. Any other exception (network, 429, 5xx) is transient — the row is benched for one cooldown and retried. |
+| Refresh failures | Raise `openchia_cli.auth_constants.AuthError(..., relogin_required=True)` (or with `code` `invalid_grant` / `invalid_token` / `refresh_token_reused`) when the grant is dead: the row goes **DEAD**, leaves rotation and Hermes logs a WARNING naming `hermes auth add <name>`. Any other exception (network, 429, 5xx) is transient — the row is benched for one cooldown and retried. |
 | Concurrency | The hook runs under the shared `auth.json` lock. Before calling it the pool re-reads the row; if another Hermes process (gateway + CLI, two profiles) already rotated the pair, that pair is adopted and your hook is **not** called — safe for single-use refresh tokens. After the hook returns, the rotated row is written through to `auth.json`. |
 | No hooks | `api_key` profiles behave exactly as before. Any other `auth_type` without `auth_handler` fails loud on `hermes auth add`. |
 
@@ -446,7 +446,7 @@ A provider whose IdP speaks standard OAuth 2.0 Authorization Code + PKCE does no
 hooks above by hand: declare the endpoints in `OAuthPKCEConfig` and let the two factories build them.
 
 ```python
-from hermes_cli.auth_oauth_pkce_plugin import OAuthPKCEConfig, pkce_auth_handler, pkce_refresh_credential
+from openchia_cli.auth_oauth_pkce_plugin import OAuthPKCEConfig, pkce_auth_handler, pkce_refresh_credential
 from providers import register_provider
 from providers.base import ProviderProfile
 

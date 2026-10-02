@@ -180,7 +180,7 @@ class TestStdioReconfigureErrorHandling:
 
 
 @pytest.mark.parametrize("path", [
-    "hermes_cli/main.py", "run_agent.py", "acp_adapter/entry.py",
+    "openchia_cli/main.py", "run_agent.py", "acp_adapter/entry.py",
     "gateway/run.py", "batch_runner.py", "cli.py",
 ])
 def test_entrypoint_executes_bootstrap_before_application_imports(tmp_path, path):
@@ -229,7 +229,7 @@ else:
     assert result.stdout.strip() == "bootstrap-before-app"
 
 
-# "any": the OS lanes select only platforms-marked tests, and Windows is where hermes_cli's
+# "any": the OS lanes select only platforms-marked tests, and Windows is where openchia_cli's
 # stdio repair fires on a cp1252 pipe.
 @pytest.mark.platforms("any")
 def test_library_imports_of_dual_use_entry_modules_stay_side_effect_free(tmp_path):
@@ -258,7 +258,7 @@ def test_pre_pm_editable_venv_reaches_pm_through_the_bootstrap(tmp_path):
 
     setuptools' flat-layout editable finder maps only the top-level names it saw at
     install time (no ``pm``) and never puts the checkout on ``sys.path``. The console
-    script imports ``hermes_cli`` first, then ``hermes_cli.main`` imports the bootstrap;
+    script imports ``openchia_cli`` first, then ``openchia_cli.main`` imports the bootstrap;
     both must load, and the bootstrap must reach ``pm``, or PM adoption never runs.
     """
     root = Path(__file__).resolve().parents[1]
@@ -268,8 +268,8 @@ from importlib.abc import MetaPathFinder
 root = sys.argv[1]
 class PrePMEditableFinder(MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
-        if name == 'hermes_cli':
-            pkg = os.path.join(root, 'hermes_cli')
+        if name == 'openchia_cli':
+            pkg = os.path.join(root, 'openchia_cli')
             return importlib.util.spec_from_file_location(
                 name, os.path.join(pkg, '__init__.py'), submodule_search_locations=[pkg])
         if name == 'hermes_bootstrap':
@@ -277,7 +277,7 @@ class PrePMEditableFinder(MetaPathFinder):
         return None
 sys.meta_path.append(PrePMEditableFinder())
 sys.argv = ['hermes', 'pm', 'repair']
-import hermes_cli
+import openchia_cli
 import hermes_bootstrap
 assert hermes_bootstrap._pm_repair is True
 print('reached-pm')
@@ -290,7 +290,7 @@ print('reached-pm')
 
 
 @pytest.mark.parametrize("path", [
-    "hermes_cli/main.py", "run_agent.py", "acp_adapter/entry.py",
+    "openchia_cli/main.py", "run_agent.py", "acp_adapter/entry.py",
     "gateway/run.py", "batch_runner.py", "cli.py",
 ])
 @pytest.mark.parametrize("bootstrap,expected", [

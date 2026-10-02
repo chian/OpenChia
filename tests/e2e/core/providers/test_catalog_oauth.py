@@ -1,6 +1,6 @@
 """Real-process E2E: OAuth / device-code providers against a loopback vendor.
 
-Every cell drives the real ``python -m hermes_cli.main`` in a hermetic HOME (fake HOME, HERMES_HOME
+Every cell drives the real ``python -m openchia_cli.main`` in a hermetic HOME (fake HOME, HERMES_HOME
 under it, no real credentials) against ``tests.fakes.providers.catalog_oauth.OAuthFake`` — the
 vendor's OAuth authorization server and a bearer-checking inference server on 127.0.0.1. All other
 egress goes through the ``CatalogFake`` sentinel proxy, which refuses and records any non-loopback
@@ -100,7 +100,7 @@ class Home:
     def run(self, argv: list[str], extra_env: dict[str, str] | None = None,
             timeout: float = TURN_TIMEOUT) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, "-m", "hermes_cli.main", *argv], cwd=str(self.home), env=self.env(extra_env),
+            [sys.executable, "-m", "openchia_cli.main", *argv], cwd=str(self.home), env=self.env(extra_env),
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
 
 

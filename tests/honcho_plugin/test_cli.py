@@ -60,8 +60,8 @@ class TestCmdSetupLocalJwt:
         monkeypatch.setattr(honcho_cli, "_ensure_sdk_installed", lambda: True)
         # No gateway import, config.yaml write or real SDK connection attempt.
         monkeypatch.setattr(honcho_cli, "_gateway_platforms", lambda: [])
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {"memory": {}}, raising=False)
-        monkeypatch.setattr("hermes_cli.config.save_config", lambda c: None, raising=False)
+        monkeypatch.setattr("openchia_cli.config.load_config", lambda: {"memory": {}}, raising=False)
+        monkeypatch.setattr("openchia_cli.config.save_config", lambda c: None, raising=False)
 
         def _offline(*a, **k):
             raise ConnectionError("offline in tests")
@@ -310,10 +310,10 @@ class TestSetupWizardDeploymentShape:
 
         # Bypass config.yaml + connection test side effects.
         monkeypatch.setattr(
-            "hermes_cli.config.load_config", lambda: {"memory": {}}, raising=False,
+            "openchia_cli.config.load_config", lambda: {"memory": {}}, raising=False,
         )
         monkeypatch.setattr(
-            "hermes_cli.config.save_config", lambda c: None, raising=False,
+            "openchia_cli.config.save_config", lambda c: None, raising=False,
         )
 
         class _FakeClientCfg:
@@ -644,10 +644,10 @@ class TestCmdSetupDeviceFlow:
         monkeypatch.setattr(honcho_cli, "_device_login_available", lambda: device_available)
         monkeypatch.setattr(honcho_cli, "_headless", lambda: headless)
         monkeypatch.setattr(
-            "hermes_cli.config.load_config", lambda: {"memory": {}}, raising=False,
+            "openchia_cli.config.load_config", lambda: {"memory": {}}, raising=False,
         )
         monkeypatch.setattr(
-            "hermes_cli.config.save_config", lambda c: None, raising=False,
+            "openchia_cli.config.save_config", lambda c: None, raising=False,
         )
 
         class _FakeClientCfg:

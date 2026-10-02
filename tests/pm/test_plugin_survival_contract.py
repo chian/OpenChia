@@ -9,7 +9,7 @@ resolves offline local path-source fixtures):
    pyproject belonging to a nested or external sidecar dir must NOT
    join the pm workspace union, because pm scans only plugin roots.
 2. Conflict admission. Through the PUBLIC admission authority
-   (hermes_cli.plugins_admission.admit_plugin_set_change — the one path
+   (openchia_cli.plugins_admission.admit_plugin_set_change — the one path
    `hermes plugins enable/install` use), a candidate union with no
    valid solution is REFUSED before anything is published: the
    candidate stays unenabled (so the loader never imports it), the
@@ -190,7 +190,7 @@ def test_conflicting_candidate_refused_unenabled_and_unimported(admission_env):
     plugin identity + resolver reason; the candidate is NOT published to
     config (so the plugin loader never imports it); plugin trees and
     configs survive; the receipt records the failure."""
-    from hermes_cli import plugins_admission as admission
+    from openchia_cli import plugins_admission as admission
 
     tmp_path, home = admission_env
     plug_a, plug_b, *_ = _local_conflict_members(home)
@@ -434,7 +434,7 @@ def test_plugin_our_version_rejects_sits_out_without_being_disabled(admission_en
     from pm.install import sync_venv, venv_is_current
     from pm.lock import Facts
 
-    import hermes_cli.plugins_manifest as plugins_manifest
+    import openchia_cli.plugins_manifest as plugins_manifest
 
     tmp_path, home = admission_env
     core = tmp_path / "core"

@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 
 def probe(surface, scenario, directory):
-    from cli import HermesCLI
+    from cli import OpenChiaCLIBase
     from tools import process_registry as pr
     from tools.process_registry_notifications import format_process_notification
     from tui_gateway import server
@@ -47,7 +47,7 @@ def probe(surface, scenario, directory):
     thread = threading.Thread(target=wire.serve_forever, daemon=True)
     thread.start()
     session = {'session_key': 'backlog-owner', 'history_lock': threading.RLock()}
-    cli = HermesCLI.__new__(HermesCLI)
+    cli = OpenChiaCLIBase.__new__(OpenChiaCLIBase)
     cli.session_id = session['session_key']
     cli._session_db = None
     cli._pending_input = queue.Queue()

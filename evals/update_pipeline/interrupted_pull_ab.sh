@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Live A/B for the interrupted-pull repair (hermes_cli/_early_recovery.py::restore_interrupted_pull).
+# Live A/B for the interrupted-pull repair (openchia_cli/_early_recovery.py::restore_interrupted_pull).
 #
 #   evals/update_pipeline/interrupted_pull_ab.sh <repo> <installed-sha> <label> [python]
 #
 # Builds a disposable origin + install at <installed-sha>; origin/main gets one commit that changes
-# utils.py, makes hermes_cli/config.py and run_agent.py import a new utils name, and adds a package. Runs the REAL autostash + _pull_updates from the install's own tree and the REAL entry point
-# (`python -m hermes_cli.main config path`) under a disposable HOME/HERMES_HOME:
+# utils.py, makes openchia_cli/config.py and run_agent.py import a new utils name, and adds a package. Runs the REAL autostash + _pull_updates from the install's own tree and the REAL entry point
+# (`python -m openchia_cli.main config path`) under a disposable HOME/HERMES_HOME:
 #   A  updater SIGKILLed before git wrote anything; user edits upstream-changed files, fetches, runs hermes
 #   B  custom branch whose commit conflicts upstream: update exits 1; user merges by hand, runs hermes
 #   C  git wrote config.py + the new package, SIGKILL; user edits an upstream-changed file git never wrote
@@ -27,11 +27,11 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 sys.path.insert(0, str(root))
-import hermes_cli.main as m  # noqa: E402
+import openchia_cli.main as m  # noqa: E402
 
 assert pathlib.Path(m.__file__).resolve().is_relative_to(root.resolve()), m.__file__
 m.PROJECT_ROOT = root
-from hermes_cli import update_cmd  # noqa: E402
+from openchia_cli import update_cmd  # noqa: E402
 
 stash = m._stash_local_changes_if_needed(["git"], root)
 try:
@@ -47,8 +47,8 @@ setup() {  # $1 = install kind: clone | worktree
   git clone -q --shared --no-checkout "$REPO" "$U/origin"
   ( cd "$U/origin" && git checkout -q -B main "$REF" && git config user.email t@x.invalid && git config user.name t
     printf '\n\ndef _torn_probe():\n    return 1\n' >> utils.py
-    sed -i 's/^from utils import atomic_replace, fast_safe_load, file_signature$/from utils import atomic_replace, fast_safe_load, file_signature, _torn_probe  # noqa: F401/' hermes_cli/config.py
-    grep -q _torn_probe hermes_cli/config.py || { echo "SETUP: config.py import line not found"; exit 1; }
+    sed -i 's/^from utils import atomic_replace, fast_safe_load, file_signature$/from utils import atomic_replace, fast_safe_load, file_signature, _torn_probe  # noqa: F401/' openchia_cli/config.py
+    grep -q _torn_probe openchia_cli/config.py || { echo "SETUP: config.py import line not found"; exit 1; }
     echo "from utils import _torn_probe  # noqa: E402,F401" >> run_agent.py
     mkdir -p torn_newpkg && echo "from utils import _torn_probe" > torn_newpkg/__init__.py
     git add -A && git commit -qm "upstream B" )
@@ -64,7 +64,7 @@ setup() {  # $1 = install kind: clone | worktree
   git reset -q --hard HEAD~1
 }
 marker() { cat "$(git rev-parse --git-dir)/hermes-update-pull" 2>/dev/null | tr '\n' ' '; }
-hermes() { PYTHONPATH=$U/install timeout 120 "$PY" -m hermes_cli.main config path 2>&1 | grep -v '^$' | head -6 | sed 's/^/    hermes> /'; }
+hermes() { PYTHONPATH=$U/install timeout 120 "$PY" -m openchia_cli.main config path 2>&1 | grep -v '^$' | head -6 | sed 's/^/    hermes> /'; }
 pull_bg() {  # real _pull_updates in its own process group; fake git on PATH may stall/tear the ff
   setsid bash -c "PATH=$U/fakebin:\$PATH exec $PY $U/pull.py $U/install" > "$U/pull.log" 2>&1 &
   echo $!
@@ -123,7 +123,7 @@ for KIND in clone worktree; do
 # The fast-forward writes two files of the new commit, holds index.lock, and is SIGKILLed.
 for a in "$@"; do
   if [ "$a" = "--ff-only" ]; then
-    /usr/bin/git show origin/main:hermes_cli/config.py > hermes_cli/config.py
+    /usr/bin/git show origin/main:openchia_cli/config.py > openchia_cli/config.py
     mkdir -p torn_newpkg && /usr/bin/git show origin/main:torn_newpkg/__init__.py > torn_newpkg/__init__.py
     touch "$(/usr/bin/git rev-parse --git-dir)/index.lock"
     sleep 30

@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from hermes_cli._subprocess_compat import harden_git_argv, noninteractive_git_env
+from openchia_cli._subprocess_compat import harden_git_argv, noninteractive_git_env
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _run_git(args, cwd: str, timeout: int = _GIT_TIMEOUT):
 def local_backend_active() -> bool:
     """True when the terminal backend is local (worktrees visible to tools)."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
 
         backend = (load_config_readonly().get("terminal") or {}).get("backend") or "local"
         return str(backend).strip().lower() in ("", "local")
@@ -168,7 +168,7 @@ def finalize_subagent_worktree(info: Dict[str, str], *, prune: bool = True) -> D
     if prune and payload["commits"] == 0 and not payload["dirty"]:
         cwd = info.get("repo_root", "") or path
         try:
-            from hermes_cli.worktree_ops import release_lsp_clients
+            from openchia_cli.worktree_ops import release_lsp_clients
             release_lsp_clients(path)  # the child ran in-process: its language servers are ours
             removed = _run_git(["worktree", "remove", "--force", path], cwd=cwd)
             if removed.returncode == 0:

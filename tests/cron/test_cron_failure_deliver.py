@@ -63,7 +63,7 @@ def run_env(monkeypatch, tmp_path):
         return {"success": True, "chat_id": chat_id, "message_id": "1.2"}
 
     import gateway.platform_registry as reg
-    import hermes_cli.plugins as hp
+    import openchia_cli.plugins as hp
 
     entry = reg.platform_registry.get("slack")
     if entry is None:
@@ -451,7 +451,7 @@ class TestPreflightAndDashboardLanes:
         """The dashboard update lane normalizes failure_deliver like
         deliver: text stripped, empty clears (None) instead of
         coalescing to a target."""
-        from hermes_cli.web_routers.cron import _normalize_dashboard_cron_updates
+        from openchia_cli.web_routers.cron import _normalize_dashboard_cron_updates
 
         out = _normalize_dashboard_cron_updates(
             {"failure_deliver": "  slack:D0ALERTS  "}, tmp_path

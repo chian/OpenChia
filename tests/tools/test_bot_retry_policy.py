@@ -69,7 +69,7 @@ def _deliver(params):
     return srv._methods["bot_relay.deliver"](1, params)
 
 
-def _is_hermes_cli(argv) -> bool:
+def _is_openchia_cli(argv) -> bool:
     """Match the delivery CLI by basename — local_delivery_command may
     resolve the venv-relative hermes next to the interpreter (#93590)."""
     name = str(argv[0]).rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
@@ -80,7 +80,7 @@ def _transport_calls(calls):
     """Only the Bot Chat transport spawns — a global subprocess.run patch also
     catches unrelated maintenance calls (git version probes on first server
     import), which must not count as delivery attempts."""
-    return [argv for argv in calls if argv and _is_hermes_cli(argv)]
+    return [argv for argv in calls if argv and _is_openchia_cli(argv)]
 
 
 class _Proc:
@@ -97,13 +97,13 @@ def test_deliver_retries_same_argv_on_transient_failure(home, monkeypatch):
 
     def _fake_run(argv, **kwargs):
         calls.append(list(argv))
-        if not _is_hermes_cli(list(argv)):
+        if not _is_openchia_cli(list(argv)):
             return _Proc(0)
         if len(_transport_calls(calls)) == 1:
             return _Proc(1, stderr="Error code: 429 - rate limit exceeded")
         return _Proc(0, stdout="recovered reply")
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run)
     out = _deliver({"profile": "ops", "message": "ping"})
     assert out["result"]["reply"] == "recovered reply"
     turns = _transport_calls(calls)
@@ -119,13 +119,13 @@ def test_deliver_retries_once_on_context_overflow(home, monkeypatch):
 
     def _fake_run(argv, **kwargs):
         calls.append(list(argv))
-        if not _is_hermes_cli(list(argv)):
+        if not _is_openchia_cli(list(argv)):
             return _Proc(0)
         if len(_transport_calls(calls)) == 1:
             return _Proc(1, stderr="This model's maximum context length is 200000 tokens")
         return _Proc(0, stdout="fits after compaction")
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run)
     out = _deliver({"profile": "ops", "message": "ping"})
     assert out["result"]["reply"] == "fits after compaction"
     turns = _transport_calls(calls)
@@ -139,11 +139,11 @@ def test_deliver_never_retries_auth_failure(home, monkeypatch):
 
     def _fake_run(argv, **kwargs):
         calls.append(list(argv))
-        if not _is_hermes_cli(list(argv)):
+        if not _is_openchia_cli(list(argv)):
             return _Proc(0)
         return _Proc(1, stderr="Error code: 401 - Your API key is invalid")
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run)
     out = _deliver({"profile": "ops", "message": "ping"})
     assert "error" in out
     assert len(_transport_calls(calls)) == 1, "auth failures must not auto-retry"
@@ -220,23 +220,23 @@ def test_deliver_retry_reads_the_stream_the_cli_writes_and_resumes_the_persisted
     envs = []
 
     def _fake_run(argv, **kwargs):
-        if not _is_hermes_cli(list(argv)):
+        if not _is_openchia_cli(list(argv)):
             return _Proc(0)
         envs.append(kwargs.get("env") or {})
         if len(envs) == 1:
             return _Proc(1, stdout=_REAL_FAILED_STDOUT, stderr=_REAL_FAILED_STDERR)
         return _Proc(0, stdout="recovered reply")
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run)
     out = _deliver({"profile": "ops", "message": "ping"})
     assert out["result"]["reply"] == "recovered reply"
     assert [RESUME_UNANSWERED_TURN_ENV in env for env in envs] == [False, True]
     assert envs[1][RESUME_UNANSWERED_TURN_ENV] == "1"
 
     monkeypatch.setattr(
-        "hermes_cli.quiet_single_query.run_reported_turn",
+        "openchia_cli.quiet_single_query.run_reported_turn",
         lambda argv, **k: _Proc(1, stdout=_REAL_FAILED_STDOUT, stderr=_REAL_FAILED_STDERR)
-        if _is_hermes_cli(list(argv)) else _Proc(0),
+        if _is_openchia_cli(list(argv)) else _Proc(0),
     )
     out = _deliver({"profile": "ops", "message": "ping"})
     assert out["error"]["data"]["reason"] == bfr.PROVIDER_SERVER_ERROR

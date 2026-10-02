@@ -38,8 +38,8 @@ pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="PO
 _INVENTORY = r"""
 import json
 from fastapi.routing import APIRoute, APIWebSocketRoute
-from hermes_cli.web_server import app
-from hermes_cli.dashboard_auth.public_paths import PUBLIC_API_PATHS
+from openchia_cli.web_server import app
+from openchia_cli.dashboard_auth.public_paths import PUBLIC_API_PATHS
 http = sorted({(m, r.path) for r in app.routes if isinstance(r, APIRoute) for m in r.methods if m != "HEAD"})
 ws = sorted({r.path for r in app.routes if isinstance(r, APIWebSocketRoute)})
 print(json.dumps({"http": http, "ws": ws, "public": sorted(PUBLIC_API_PATHS)}))

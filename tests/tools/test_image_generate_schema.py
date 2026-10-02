@@ -94,7 +94,7 @@ class TestDynamicParamGating(unittest.TestCase):
                           return_value="codex"), \
              patch("agent.image_gen_registry.get_provider",
                    return_value=_Prov()), \
-             patch("hermes_cli.plugins._ensure_plugins_discovered"):
+             patch("openchia_cli.plugins._ensure_plugins_discovered"):
             schema = _build_dynamic_image_schema()
         props = schema["parameters"]["properties"]
         self.assertEqual(sorted(props), ["aspect_ratio", "prompt"])
