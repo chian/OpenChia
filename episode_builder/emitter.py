@@ -783,8 +783,11 @@ _MODULE_CONTRACT = {
         ),
         "EpisodeBindingDeclaration": (
             "grain_name, interface and topology_role from the admitted node "
-            "plan; goal, unit, result, progress and stopping copied verbatim "
-            "from frozen_episode_contract; admit_request, open_source, "
+            "plan; goal, unit, result, progress and stopping are the "
+            "frozen_episode_contract strings pasted byte for byte as plain "
+            "string literals (never reflowed, shortened, re-punctuated or "
+            "paraphrased: host admission compares every character and "
+            "reports the first difference); admit_request, open_source, "
             "build_result, controller (an EpisodeControllerBinding), components "
             "(a tuple) and child_slots (a tuple of EpisodeChildSlot) hold the "
             "EpisodeFunctionBindings above; the runtime linker rejects any "

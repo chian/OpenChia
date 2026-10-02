@@ -439,6 +439,75 @@ def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
     return tuple(found)
 
 
+_FROZEN_BINDING_FIELDS = ("goal", "unit", "result", "progress", "stopping")
+
+
+def _binding_contract_deficits(
+    tree: ast.Module, expected: Mapping[str, object]
+) -> tuple[str, ...]:
+    """Compare the module's BINDING literals with the frozen node, statically.
+
+    The runtime linker rejects a BINDING whose grain_name, interface,
+    topology_role, goal, unit, result, progress or stopping differ from the
+    frozen node by a single character; this makes the same comparison at
+    admission, where the operator sees it as a deficit with the first
+    differing character instead of a failed Run.
+    """
+    constants: dict[str, object] = {}
+    binding: ast.AST | None = None
+    for statement in tree.body:
+        if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+            continue
+        target = statement.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        if target.id == "BINDING":
+            binding = statement.value
+            continue
+        try:
+            constants[target.id] = ast.literal_eval(statement.value)
+        except (ValueError, TypeError, SyntaxError):
+            pass
+    if not isinstance(binding, ast.Call):
+        return ("BINDING must be assigned one EpisodeBindingDeclaration(...) call at module level",)
+    keywords = {keyword.arg: keyword.value for keyword in binding.keywords if keyword.arg}
+    found: list[str] = []
+    for field, want in expected.items():
+        value = keywords.get(field)
+        if value is None:
+            found.append(f"BINDING omits {field}")
+            continue
+        got: object
+        if field == "topology_role" and isinstance(value, ast.Attribute):
+            got = value.attr.lower()
+        elif isinstance(value, ast.Constant):
+            got = value.value
+        elif isinstance(value, ast.Name) and value.id in constants:
+            got = constants[value.id]
+        else:
+            found.append(
+                f"BINDING.{field} must be a string literal or a module-level "
+                "constant so admission can compare it with the frozen contract"
+            )
+            continue
+        if got == want:
+            continue
+        if field in _FROZEN_BINDING_FIELDS and isinstance(got, str) and isinstance(want, str):
+            index = next(
+                (i for i in range(min(len(got), len(want))) if got[i] != want[i]),
+                min(len(got), len(want)),
+            )
+            found.append(
+                f"BINDING.{field} differs from the frozen contract at character "
+                f"{index}: frozen ...{want[max(0, index - 30):index + 40]!r}, module "
+                f"...{got[max(0, index - 30):index + 40]!r}; copy the frozen text "
+                "byte for byte"
+            )
+        else:
+            found.append(f"BINDING.{field} is {got!r}; the frozen node requires {want!r}")
+    return tuple(found)
+
+
 def _imported_modules(tree: ast.Module) -> tuple[str, ...]:
     modules: list[str] = []
     for node in ast.walk(tree):
@@ -622,6 +691,7 @@ def _inspect_source(
     expected_declaration: Mapping[str, object],
     generated_module_names: frozenset[str],
     repository_root: Path | None = None,
+    frozen_contract: object | None = None,
 ) -> tuple[BuildDeficit, ...]:
     local_id = node.local_id
     deficits: list[BuildDeficit] = []
@@ -863,6 +933,16 @@ def _inspect_source(
     for detail in _constructor_argument_deficits(tree):
         add("constructor_arguments_invalid", "module_source", detail)
 
+    if frozen_contract is not None:
+        expected: dict[str, object] = {
+            "grain_name": node.grain_name,
+            "interface": node.interface,
+            "topology_role": node.topology_role,
+            **{field: getattr(frozen_contract, field) for field in _FROZEN_BINDING_FIELDS},
+        }
+        for detail in _binding_contract_deficits(tree, expected):
+            add("binding_contract_mismatch", "module_source.BINDING", detail)
+
     for item in ast.walk(tree):
         if isinstance(item, ast.Attribute) and item.attr in _FORBIDDEN_ATTRIBUTES:
             add(
@@ -1088,6 +1168,7 @@ class EpisodeBuildAdmission:
                 declaration,
                 generated_module_names,
                 self.repository_root,
+                frozen_by_id[local_id].contract,
             )
             deficits.extend(node_deficits)
             if not node_deficits:
