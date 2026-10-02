@@ -758,6 +758,11 @@ class WorkflowMaterializationPlan:
                         f"node {local_id!r} changes the Architecture-owned "
                         f"{role} function or arguments"
                     )
+            if design.contract.epistemic is not None:
+                for role, selection in design.contract.epistemic.components.items():
+                    selected = bindings.get(f"component.epistemic_{role}")
+                    if selected is None or any(selected.get(key) != value for key, value in selection.items()):
+                        raise ValueError(f"node {local_id!r} changes frozen epistemic {role}")
 
     @classmethod
     def from_record(cls, value: object) -> "WorkflowMaterializationPlan":

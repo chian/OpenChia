@@ -319,7 +319,11 @@ def _admit_plan_payload(value: object) -> dict[str, object]:
 
 
 def _library_functions() -> tuple[LibraryFunction, ...]:
+    from function_library.epistemic import epistemic_function_library
+    from function_library.reasoning import reasoning_function_library
     return (
+        *epistemic_function_library.functions(),
+        *reasoning_function_library.functions(),
         ADMIT_PARENT_REQUEST,
         ADMIT_CHILD_RESULT,
         ADMIT_DUET_LAUNCH_REQUEST,
@@ -424,6 +428,14 @@ def _architecture_numeric_bindings(
                 continuation_function_library.functions(),
             ),
         )
+        if node.contract.epistemic is not None:
+            from function_library.epistemic import resolve_component
+            bindings += tuple(
+                {"role": f"component.epistemic_{role}", "source": "library",
+                 **dict(selection), "basis": f"frozen contract.epistemic.components.{role}"}
+                for role, selection in node.contract.epistemic.components.items()
+                if resolve_component(role, selection)
+            )
     except (TypeError, ValueError) as exc:
         return (), BuildDeficit(
             code="numeric_control_invalid",
@@ -698,6 +710,9 @@ def _planning_deficits(
         "controller.composer": COMPOSE_INCIDENCE_CONTROLLER.definition_id,
         "controller.credit": MARGINAL_DOMINATED_HYPERVOLUME.definition_id,
     }
+    if node.contract.epistemic is not None:
+        from function_library.reasoning import CONTROLLER
+        exact_controller_roles["controller.composer"] = CONTROLLER.definition_id
     for role, definition_id in exact_controller_roles.items():
         binding = bindings.get(role)
         if binding is not None and (

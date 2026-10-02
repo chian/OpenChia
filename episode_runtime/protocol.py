@@ -40,6 +40,7 @@ class HostFrameType(str, Enum):
     INITIALIZE = "initialize"
     START = "start"
     MODEL_RESPONSE = "model_response"
+    LEARNING_RESPONSE = "learning_response"
     TERMINAL_ACK = "terminal_ack"
     CANCEL = "cancel"
 
@@ -47,6 +48,7 @@ class HostFrameType(str, Enum):
 class WorkerFrameType(str, Enum):
     READY = "ready"
     MODEL_REQUEST = "model_request"
+    LEARNING_REQUEST = "learning_request"
     RUN_EVENT = "run_event"
     TERMINAL = "terminal"
 
@@ -208,6 +210,18 @@ def _validate_body(
     body: object,
     binding: ProtocolBinding,
 ) -> Mapping[str, object]:
+    if sender is FrameSender.HOST and frame_type == HostFrameType.LEARNING_RESPONSE.value:
+        record = _record(body, "learning response", {"request_id", "response"})
+        return MappingProxyType({"request_id": OpaqueId(record["request_id"]).value,
+                                 "response": _json_mapping(record["response"], "learning response")})
+    if sender is FrameSender.WORKER and frame_type == WorkerFrameType.LEARNING_REQUEST.value:
+        record = _record(body, "learning request", {"request_id", "episode_id", "operation", "payload"})
+        if record["operation"] not in {"retrieve", "select", "submit"}:
+            raise ProtocolError("unknown learning operation")
+        return MappingProxyType({"request_id": OpaqueId(record["request_id"]).value,
+                                 "episode_id": OpaqueId(record["episode_id"]).value,
+                                 "operation": record["operation"],
+                                 "payload": _json_mapping(record["payload"], "learning payload")})
     if sender is FrameSender.HOST:
         if frame_type == HostFrameType.INITIALIZE.value:
             record = _record(

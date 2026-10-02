@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from function_library.reasoning_transport import reasoning_transport_scope
+
 import argparse
 import asyncio
 import inspect
@@ -80,6 +82,8 @@ class _ProtocolChannel:
         self._model_ordinal = 0
         self._terminal_sent = False
         self._pending_models: dict[str, asyncio.Future[ModelTransportResponse]] = {}
+        self._pending_learning: dict[str, asyncio.Future] = {}
+        self._learning_ordinal = 0
         self.cancelled: asyncio.Future[CancelKind] = (
             asyncio.get_running_loop().create_future()
         )
@@ -194,6 +198,12 @@ class _ProtocolChannel:
     async def receive_loop(self) -> None:
         while True:
             frame = await self.receive()
+            if frame.frame_type == HostFrameType.LEARNING_RESPONSE.value:
+                future = self._pending_learning.get(frame.body["request_id"])
+                if future is None or future.done():
+                    raise ProtocolError("learning response has no outstanding request")
+                future.set_result(frame.body["response"])
+                continue
             if frame.frame_type == HostFrameType.MODEL_RESPONSE.value:
                 request_id = frame.body["model_request_id"]
                 future = self._pending_models.get(str(request_id))
@@ -218,6 +228,22 @@ class _ProtocolChannel:
             raise ProtocolError(
                 f"host frame {frame.frame_type!r} is invalid after start"
             )
+
+    async def request_learning(self, operation, payload):
+        from .linker import current_runtime_episode_id
+        episode_id = current_runtime_episode_id()
+        request_id = content_id("learning_request", {"run_id": self.binding.run_id.value,
+            "episode_id": episode_id.value, "ordinal": self._learning_ordinal})
+        self._learning_ordinal += 1
+        future = asyncio.get_running_loop().create_future()
+        self._pending_learning[request_id.value] = future
+        try:
+            await self.send(WorkerFrameType.LEARNING_REQUEST.value, {
+                "request_id": request_id.value, "episode_id": episode_id.value,
+                "operation": operation, "payload": payload})
+            return await future
+        finally:
+            self._pending_learning.pop(request_id.value, None)
 
 
 class _WorkerModelTransport:
@@ -308,7 +334,7 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
     linked = activated.link(event_sink=channel.event, collaborators={})
     model_transport = _WorkerModelTransport(channel)
     receiver = asyncio.create_task(channel.receive_loop())
-    with model_transport_scope(model_transport):
+    with model_transport_scope(model_transport), reasoning_transport_scope(channel.request_learning):
         run_task = asyncio.create_task(linked.run())
         done, _ = await asyncio.wait(
             {run_task, receiver, channel.cancelled},
@@ -339,7 +365,7 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
         else:
             try:
                 typed_status = await run_task
-                terminal_status = RunTerminalStatus.SUCCEEDED
+                terminal_status = RunTerminalStatus(typed_status["outcome"])
             except asyncio.CancelledError:
                 raise
             except BaseException as exc:

@@ -36,6 +36,7 @@ from episode_builder.declaration import (
     build_module_declaration,
 )
 from episode_library.models import EpisodeLibraryDesign
+from function_library.reasoning import HostReceipt
 from handoff_library import HandoffPayloadContract
 from method_loop import (
     ClosedRecord,
@@ -496,6 +497,13 @@ def _validate_activated_module(
         ("controller.rarefaction", binding.controller.rarefaction),
         ("controller.continuation", binding.controller.continuation),
     )
+    if frozen.contract.epistemic is not None:
+        components = {item.name: item for item in binding.components}
+        for role in frozen.contract.epistemic.components:
+            name = f"epistemic_{role}"
+            if name not in components:
+                raise RuntimeLinkError(f"BINDING omits frozen epistemic component {role}")
+            numeric_bindings += ((f"component.{name}", components[name]),)
     semantic_fields = (
         "library",
         "function_id",
@@ -540,9 +548,9 @@ def _validate_activated_module(
         raise RuntimeLinkError("RESULT_PAYLOAD_CONTRACT has another type")
     if (
         module.REQUEST_PAYLOAD_CONTRACT.as_record()
-        != dict(node.request_payload_contract)
+        != _json_value(node.request_payload_contract)
         or module.RESULT_PAYLOAD_CONTRACT.as_record()
-        != dict(node.result_payload_contract)
+        != _json_value(node.result_payload_contract)
     ):
         raise RuntimeLinkError("payload contracts differ from the admitted plan")
     edges = tuple(edge for edge in plan.edges if edge.parent_local_id == node.local_id)
@@ -768,9 +776,13 @@ class LinkedEpisodeRun:
         if not isinstance(result, ClosedRecord):
             raise RuntimeLinkError("root build_result must return a ClosedRecord")
         completion = EpisodeCompletion.from_record(record)
+        outcome = "succeeded"
+        if isinstance(record.controller_state, HostReceipt):
+            outcome = record.controller_state.record["terminal_state"]
+            outcome = "succeeded" if outcome == "completed" else "blocked"
         return MappingProxyType(
             {
-                "outcome": "succeeded",
+                "outcome": outcome,
                 "root_episode_id": record.episode_id,
                 "completion": completion.as_record(),
                 "workflow_result": _json_value(result),
