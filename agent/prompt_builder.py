@@ -174,7 +174,7 @@ def _bundled_prompt_document(name: str) -> str:
 
     path = Path(__file__).with_name(name)
     try:
-        return path.read_text(encoding="utf-8").strip()
+        return path.read_text(encoding="utf-8-sig").strip()
     except OSError as exc:
         raise RuntimeError(f"required bundled prompt document is unavailable: {name}") from exc
 
