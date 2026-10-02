@@ -36,12 +36,13 @@ def _interrupt_agent_for_signal(agent, signum) -> None:
     """Hard-interrupt ``agent`` for a shutdown signal, then sleep ``HERMES_SIGTERM_GRACE`` (1.5 s).
 
     The grace lets the agent thread kill the tool's setsid subprocess group before the
-    main thread unwinds (else an orphan child). Never raises.
+    main thread unwinds (else an orphan child). The signal is a system control event,
+    so it carries no user-message payload that a chat surface could requeue. Never raises.
     """
     from cli import _float_env
     try:
         if agent is not None:
-            request_hard_interrupt(agent, f"received signal {signum}")
+            request_hard_interrupt(agent, tool_reason="cli shutdown signal")
             _grace = _float_env("HERMES_SIGTERM_GRACE", 1.5)
             if _grace > 0:
                 time.sleep(_grace)
