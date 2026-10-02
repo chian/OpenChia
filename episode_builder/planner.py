@@ -755,6 +755,25 @@ initial runtime. Give the root the closed empty request payload contract; child
 request and result contracts remain task-specific and are owned by their exact
 parent edges.
 
+The supplied direct_children records are finalized child materialization plans.
+They are the authoritative source for every child_local_id, child_interface,
+request_payload_contract, and result_payload_contract written into a parent
+child slot. Copy those four values field-for-field from the matching direct
+child. The parent planner's authored fields are exactly its slot name and its
+prepare_request, receive_result, and build_child implementation specifications
+around those fixed child facts. Every selected binding that carries one of
+these payload contracts in arguments.payload_contract repeats the same complete
+object field-for-field.
+
+For admit_request, select the exact root or child admission function identified
+by structural_binding_contract for this node. Its arguments.payload_contract
+is exactly the node's top-level request_payload_contract, with source set to
+library. Likewise, build_result carries the exact top-level
+result_payload_contract. The required_output_shape is instantiated
+for this node: child-slot identities, interfaces, and payload contracts shown
+there are required values. Empty arrays in a node-level payload-contract shape
+describe an empty vocabulary exactly when the frozen design requires one.
+
 Every proposed choice names its basis in the frozen contract, a supplied child
 interface, a library definition, or the optional reference Episode. Represent
 a material design ambiguity in the unresolved array so the Duet can settle it.
@@ -834,6 +853,39 @@ _PLAN_SHAPE = {
     "derivation_basis": {"plan_field": "supplied source"},
     "unresolved": [{"field_path": "stopping", "detail": "question for Duet"}],
 }
+
+
+def _plan_shape_for_children(
+    child_plans: tuple[NodeMaterializationPlan, ...],
+) -> dict[str, object]:
+    """Instantiate the planner guide with exact finalized child facts."""
+
+    shape = json.loads(_canonical(_PLAN_SHAPE))
+    shape["child_slots"] = [
+        {
+            "child_local_id": child.local_id,
+            "slot_name": f"slot_{index}",
+            "child_interface": child.interface,
+            "request_payload_contract": child.as_record()[
+                "request_payload_contract"
+            ],
+            "result_payload_contract": child.as_record()[
+                "result_payload_contract"
+            ],
+            "prepare_request": (
+                "parent-specific request projection producing exactly the "
+                "displayed child request payload contract"
+            ),
+            "receive_result": (
+                "parent-specific result admission and projection consuming "
+                "exactly the displayed child result payload contract"
+            ),
+            "build_child": "child factory invocation specification",
+            "basis": "matching finalized direct_children record",
+        }
+        for index, child in enumerate(child_plans, start=1)
+    ]
+    return shape
 
 
 def approved_refinement_evidence_for_episode(
@@ -1013,6 +1065,9 @@ class EpisodeMaterializationPlanner:
                     detail=str(exc),
                     episode_local_id=node.local_id,
                 )
+        request_admission = (
+            ADMIT_DUET_LAUNCH_REQUEST if is_root else ADMIT_PARENT_REQUEST
+        )
         prompt_record = {
             "node": node.as_record(),
             "position": "root" if is_root else "child",
@@ -1034,6 +1089,13 @@ class EpisodeMaterializationPlanner:
                 "child_request_admission_definition_id": (
                     ADMIT_PARENT_REQUEST.definition_id
                 ),
+                "required_request_admission_pointer": {
+                    "source": "library",
+                    "library": request_admission.library,
+                    "function_id": request_admission.function_id,
+                    "interface": request_admission.interface,
+                    "definition_id": request_admission.definition_id,
+                },
                 "child_builder_signature": (
                     "child_builders[slot_name](key, request, goal_view, "
                     "collaborators)"
@@ -1042,6 +1104,19 @@ class EpisodeMaterializationPlanner:
                     "admit_request, build_result, and every edge receive_result "
                     "binding carry the exact corresponding payload_contract "
                     "record in arguments.payload_contract"
+                ),
+                "authoritative_child_plan_rule": (
+                    "For every child slot, copy child_local_id, child_interface, "
+                    "request_payload_contract, and result_payload_contract "
+                    "exactly from the matching direct_children record. Only "
+                    "slot_name, prepare_request, receive_result, build_child, "
+                    "and basis are parent-authored."
+                ),
+                "request_admission_rule": (
+                    "admit_request copies required_request_admission_pointer, "
+                    "sets role to admit_request, and carries an arguments "
+                    "object whose payload_contract is field-identical to the "
+                    "node's top-level request_payload_contract"
                 ),
                 "child_result_correlation": (
                     "edge receive_result is a task-specific wrapper that calls "
@@ -1060,7 +1135,7 @@ class EpisodeMaterializationPlanner:
             "predecessor_node_plan": (
                 None if predecessor_node is None else predecessor_node.as_record()
             ),
-            "required_output_shape": _PLAN_SHAPE,
+            "required_output_shape": _plan_shape_for_children(child_plans),
         }
         result = await structured_json_completion(
             StructuredJSONRequest(
@@ -1401,10 +1476,10 @@ class EpisodeMaterializationPlanner:
                 )
                 continue
             if (
-                raw["request_payload_contract"]
-                != child.request_payload_contract
-                or raw["result_payload_contract"]
-                != child.result_payload_contract
+                _canonical(raw["request_payload_contract"])
+                != _canonical(child.request_payload_contract)
+                or _canonical(raw["result_payload_contract"])
+                != _canonical(child.result_payload_contract)
             ):
                 deficits.append(
                     BuildDeficit(
