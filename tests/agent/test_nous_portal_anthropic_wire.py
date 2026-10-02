@@ -299,12 +299,12 @@ class TestPortalBodyFields:
         return build_api_kwargs(agent, [{"role": "user", "content": "hi"}])
 
     def test_portal_tags_reach_the_messages_request(self):
-        from agent.portal_tags import openchia_client_tag
+        from agent.portal_tags import hermes_client_tag
 
         tags = self._build()["extra_body"]["tags"]
 
         assert "product=hermes-agent" in tags
-        assert openchia_client_tag() in tags
+        assert hermes_client_tag() in tags
         assert all(isinstance(tag, str) for tag in tags), (
             "Portal skips non-string tag entries unpredictably"
         )

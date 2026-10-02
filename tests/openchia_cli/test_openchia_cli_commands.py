@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from openchia_cli.openchia_cli import OpenChiaCLI
+from openchia_cli.duet_cli import OpenChiaCLI
 
 
 def _stub():

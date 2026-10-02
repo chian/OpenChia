@@ -27,7 +27,7 @@ Materialized Specification, and /help for the complete control list.
 
 def _openchia_chat_main(**kwargs):
     from cli import main as cli_main
-    from openchia_cli.openchia_cli import OpenChiaCLI
+    from openchia_cli.duet_cli import OpenChiaCLI
 
     return cli_main(cli_class=OpenChiaCLI, **kwargs)
 
