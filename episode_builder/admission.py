@@ -64,7 +64,7 @@ _ROOT_BUILDERS = {
     "build_goal_state": ("request", "collaborators"),
     "scope_goal_state": ("goal_state", "goal"),
 }
-_ALLOWED_IMPORT_ROOTS = frozenset(
+ADMITTED_IMPORT_ROOTS = frozenset(
     {
         "__future__",
         "collections",
@@ -93,7 +93,7 @@ _ALLOWED_IMPORT_ROOTS = frozenset(
         "types",
     }
 )
-_INTERNAL_IMPLEMENTATION_ROOTS = frozenset(
+INTERNAL_IMPLEMENTATION_ROOTS = frozenset(
     {
         "function_library",
         "handoff_library",
@@ -104,6 +104,10 @@ _INTERNAL_IMPLEMENTATION_ROOTS = frozenset(
         "question_table_goal_library",
     }
 )
+# Private aliases retained for existing call sites; the public names above are
+# the single source of truth that the emitter shows the authoring model.
+_ALLOWED_IMPORT_ROOTS = ADMITTED_IMPORT_ROOTS
+_INTERNAL_IMPLEMENTATION_ROOTS = INTERNAL_IMPLEMENTATION_ROOTS
 _FORBIDDEN_CALL_NAMES = frozenset(
     {
         "__import__",
