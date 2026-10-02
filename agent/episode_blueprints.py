@@ -13,11 +13,13 @@ from typing import Any, Mapping, Optional
 from agent.duet_contracts import ContractDeficit, content_id
 from agent.episode_contracts import (
     EpisodeContractError,
+    EGRESS_METHODS,
     EpisodeCreationSpec,
     EpisodeFunctionSelectionSpec,
     EpisodeNumericalControlSpec,
     EpisodeWorkflowSpec,
     MAX_EPISODE_BLUEPRINT_TEXT_CHARS,
+    MAX_EGRESS_RESPONSE_BYTES,
     MAX_EPISODE_GOAL_CHARS,
     OpaqueId,
     Sha256Digest,
@@ -36,6 +38,7 @@ CREATION_BLUEPRINT_FIELDS = (
     "stopping",
     "numeric_control",
     "execution_capability_names",
+    "egress_allowlist",
     "deliverable",
 )
 _CREATION_FIELDS = set(CREATION_BLUEPRINT_FIELDS)
@@ -210,6 +213,7 @@ def creation_blueprint_from_spec(spec: EpisodeCreationSpec) -> dict[str, Any]:
         "stopping": record["stopping"],
         "numeric_control": record["numeric_control"],
         "execution_capability_names": record["execution_capability_names"],
+        "egress_allowlist": record["egress_allowlist"],
         "deliverable": record["deliverable"],
     }
     if "epistemic" in record:
@@ -232,6 +236,7 @@ def creation_spec_from_blueprint(
         "stopping": record["stopping"],
         "numeric_control": record["numeric_control"],
         "execution_capability_names": record["execution_capability_names"],
+        "egress_allowlist": record["egress_allowlist"],
         "deliverable": record["deliverable"],
         "capability_inheritance": "inherit_parent",
     }
@@ -394,6 +399,83 @@ EPISODE_NUMERICAL_CONTROL_BLUEPRINT_SCHEMA = {
 }
 
 
+EPISODE_EGRESS_RULE_BLUEPRINT_SCHEMA = {
+    "type": "object",
+    "description": (
+        "One read-only HTTPS endpoint family this Episode's unit may call "
+        "through the host broker; https:// is implied."
+    ),
+    "properties": {
+        "name": {
+            "type": "string",
+            "maxLength": 64,
+            "description": (
+                "Lowercase token naming this rule, unique within the Episode."
+            ),
+        },
+        "host": {
+            "type": "string",
+            "maxLength": 253,
+            "description": (
+                "Exact lowercase hostname without scheme or port; it must be "
+                "one of the operator's allowed egress hosts."
+            ),
+        },
+        "path_prefix": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": (
+                "Normalized absolute URL path prefix starting with '/' that "
+                "every request path must begin with."
+            ),
+        },
+        "methods": {
+            "type": "array",
+            "items": {"type": "string", "enum": list(EGRESS_METHODS)},
+            "minItems": 1,
+            "uniqueItems": True,
+            "description": "Sorted HTTP methods this rule admits.",
+        },
+        "read_only": {
+            "type": "boolean",
+            "enum": [True],
+            "description": (
+                "Must be true: the human asserts these calls only read data."
+            ),
+        },
+        "max_requests": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Isolation bound on requests through this rule per Run.",
+        },
+        "max_response_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": MAX_EGRESS_RESPONSE_BYTES,
+            "description": "Largest response body the broker returns for one request.",
+        },
+        "credential": {
+            "type": ["string", "null"],
+            "description": (
+                "Name of an operator-held credential the host injects, or "
+                "null; the secret never enters the contract or the Run."
+            ),
+        },
+    },
+    "required": [
+        "name",
+        "host",
+        "path_prefix",
+        "methods",
+        "read_only",
+        "max_requests",
+        "max_response_bytes",
+        "credential",
+    ],
+    "additionalProperties": False,
+}
+
+
 EPISODE_CREATION_BLUEPRINT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -467,6 +549,15 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
             "maxItems": 0,
             "uniqueItems": True,
         },
+        "egress_allowlist": {
+            "type": "array",
+            "description": (
+                "Read-only external HTTPS endpoints this Episode's unit calls "
+                "through the host broker; empty when the unit makes no HTTP "
+                "calls. Hosts and credential names are bounded by the operator."
+            ),
+            "items": EPISODE_EGRESS_RULE_BLUEPRINT_SCHEMA,
+        },
         "deliverable": EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA,
     },
     "required": sorted(_CREATION_FIELDS),
@@ -518,6 +609,7 @@ __all__ = [
     "CREATION_BLUEPRINT_FIELDS",
     "EPISODE_CREATION_BLUEPRINT_SCHEMA",
     "EPISODE_DELIVERABLE_BLUEPRINT_SCHEMA",
+    "EPISODE_EGRESS_RULE_BLUEPRINT_SCHEMA",
     "EPISODE_NUMERICAL_CONTROL_BLUEPRINT_SCHEMA",
     "EPISODE_WORKFLOW_BLUEPRINT_SCHEMA",
     "INITIAL_WORKFLOW_SOURCE_STAGES",

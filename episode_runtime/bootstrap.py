@@ -29,6 +29,7 @@ _EXPECTED_WORKER_ENTRYPOINT = "episode_runtime.worker.main"
 _EXPECTED_ADMITTED_LOCAL_ROOTS = [
     "function_library",
     "handoff_library",
+    "http_call_library",
     "llm_call_library",
     "method_loop",
     "numeric_control_library",
@@ -474,6 +475,48 @@ def _synthetic_packages(package: Path, names: object) -> None:
         sys.modules[name] = module
 
 
+def _inspect_interpreter_record() -> dict[str, object]:
+    """Emit this interpreter's identity exactly as ``_verify_interpreter`` reads it.
+
+    Used by executors whose worker interpreter is not the host's own (a
+    container image): the host runs this bootstrap inside the image once,
+    records the result in the runtime manifest, and this same code verifies it
+    at every launch.  ``executable_path`` is informational, not identity.
+    """
+    executable = _current_executable()
+    stdlib = Path(sysconfig.get_path("stdlib")).resolve(strict=True)
+    files = _walk(
+        stdlib,
+        ignored_directories=_IGNORED_STDLIB_DIRECTORIES,
+        ignored_suffixes=_IGNORED_STDLIB_SUFFIXES,
+        allow_file_symlinks=True,
+    )
+    stdlib_hashes = {
+        relative: _stdlib_entry_payload_and_digest(path, f"stdlib file {relative!r}")[1]
+        for relative, path in sorted(files.items())
+    }
+    shared: dict[str, str] = {}
+    library_dir = sysconfig.get_config_var("LIBDIR")
+    for variable in ("LDLIBRARY", "INSTSONAME"):
+        filename = sysconfig.get_config_var(variable)
+        if not isinstance(library_dir, str) or not isinstance(filename, str) or not filename:
+            continue
+        candidate = (Path(library_dir) / filename).resolve(strict=False)
+        if candidate.is_file():
+            shared[f"{variable.lower()}/{candidate.name}"] = _digest(
+                _read_regular(candidate, f"interpreter shared library {candidate.name!r}")
+            )
+    return {
+        "implementation": sys.implementation.name,
+        "version": [sys.version_info.major, sys.version_info.minor, sys.version_info.micro],
+        "cache_tag": sys.implementation.cache_tag or "none",
+        "executable_hash": _digest(_read_regular(executable, "Python executable")),
+        "executable_path": str(executable),
+        "stdlib_file_hashes": stdlib_hashes,
+        "shared_library_hashes": shared,
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--bootstrap-package", required=True)
@@ -483,6 +526,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--inspect-interpreter"]:
+        sys.stdout.buffer.write(_canonical(_inspect_interpreter_record()))
+        sys.stdout.buffer.flush()
+        return
     arguments, worker_arguments = _parser().parse_known_args()
     package = Path(arguments.bootstrap_package)
     manifest = _load_manifest(

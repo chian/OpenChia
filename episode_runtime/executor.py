@@ -12,7 +12,8 @@ import secrets
 import stat
 import sys
 from types import MappingProxyType
-from typing import Callable, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
+from urllib.parse import urlsplit
 
 from agent.episode_contracts import OpaqueId
 
@@ -24,7 +25,12 @@ from .broker import (
     model_response_record,
 )
 from .audit_contracts import RunEvidence
+from .http_broker import ScopedHttpBroker, http_response_bytes
+from .http_contracts import http_request_hash, http_response_hash
 from .contracts import (
+    ExecutorKind,
+    RuntimeIdentity,
+    expected_executor_unit_name,
     InspectedExecutorAttestation,
     ReadOnlyRuntimeMount,
     RunEventKind,
@@ -114,6 +120,7 @@ class ExecutorResources:
 
 @dataclass(frozen=True)
 class _ExecutorFacts:
+    executor_kind: ExecutorKind
     unit_name: str
     invocation_id: str
     launch_description: str
@@ -136,7 +143,9 @@ class _ExecutorFacts:
     @property
     def executor_instance_id(self) -> OpaqueId:
         return derive_executor_instance_id(
-            systemd_unit_name=self.unit_name,
+            executor_kind=self.executor_kind,
+            unit_name=self.unit_name,
+            invocation_id=self.invocation_id,
             boot_id=self.boot_id,
             leader_pid=self.leader_pid,
             leader_start_time_ticks=self.leader_start_time_ticks,
@@ -318,11 +327,13 @@ def _effective_cpu_allocation(
     return int(per_second), period
 
 
-def _launch_identity(run_id: OpaqueId) -> _LaunchIdentity:
-    suffix = run_id.value.rsplit("_", 1)[-1]
+def _launch_identity(
+    run_id: OpaqueId,
+    executor_kind: ExecutorKind = ExecutorKind.SYSTEMD,
+) -> _LaunchIdentity:
     nonce = secrets.token_hex(16)
     return _LaunchIdentity(
-        unit_name=f"openchia-episode-{suffix[:32]}-{nonce}.service",
+        unit_name=expected_executor_unit_name(executor_kind, run_id, nonce),
         description=f"openchia-episode-launch:{run_id.value}:{nonce}",
     )
 
@@ -634,6 +645,7 @@ async def _inspect_executor(
         read_only_runtime_mounts,
     )
     facts = _ExecutorFacts(
+        executor_kind=ExecutorKind.SYSTEMD,
         unit_name=launch_identity.unit_name,
         invocation_id=values["InvocationID"],
         launch_description=launch_identity.description,
@@ -689,8 +701,485 @@ async def _inspect_executor(
     return facts
 
 
+@runtime_checkable
+class RunExecutor(Protocol):
+    """What the OpenChia host needs from any Run executor."""
+
+    run_store: RunStore
+    repository_root: Path
+    python_executable: Path | PurePosixPath
+
+    def inspect_runtime_identity(
+        self,
+        *,
+        destination_root: str | Path,
+    ) -> RuntimeIdentity: ...
+
+    async def execute(
+        self,
+        *,
+        registration: RunRegistration,
+        source_package_path: str | Path,
+        model_broker: ScopedModelBroker,
+        http_broker: ScopedHttpBroker,
+    ) -> RunEvidence: ...
+
+
+class _RunExecutorBase:
+    """The Run protocol, independent of how the leader process is launched.
+
+    Subclasses provide the launch mechanism and its inspection: a transient
+    systemd service on a Linux host, or an OCI container.  Everything from the
+    identity checks through the event chain, cancellation and finalization is
+    shared, so the two executors cannot drift apart in what they persist.
+    """
+
+    run_store: RunStore
+    repository_root: Path
+
+    def _identity_arguments(self) -> dict[str, Any]:
+        """Keyword arguments naming the worker interpreter for identity checks."""
+        raise NotImplementedError
+
+    def _launch_identity(self, run_id: OpaqueId) -> _LaunchIdentity:
+        raise NotImplementedError
+
+    def _runtime_mounts(
+        self,
+        registration: RunRegistration,
+        runtime_source_package: Path,
+        source_package: Path,
+    ) -> tuple[ReadOnlyRuntimeMount, ...]:
+        raise NotImplementedError
+
+    async def _launch(
+        self,
+        registration: RunRegistration,
+        launch_identity: _LaunchIdentity,
+        mounts: tuple[ReadOnlyRuntimeMount, ...],
+        bootstrap_program: str,
+    ) -> asyncio.subprocess.Process:
+        """Start the leader with its stdin/stdout as the protocol pipes."""
+        raise NotImplementedError
+
+    async def _inspect(
+        self,
+        launch_identity: _LaunchIdentity,
+        launcher: asyncio.subprocess.Process,
+        mounts: tuple[ReadOnlyRuntimeMount, ...],
+    ) -> _ExecutorFacts:
+        raise NotImplementedError
+
+    async def _stop_exact(
+        self,
+        launch_identity: _LaunchIdentity,
+        launcher: asyncio.subprocess.Process,
+        facts: Optional[_ExecutorFacts],
+    ) -> None:
+        raise NotImplementedError
+
+    async def _broker_http_request(
+        self,
+        *,
+        registration: RunRegistration,
+        channel: _HostChannel,
+        frame: ProtocolFrame,
+        http_broker: ScopedHttpBroker,
+    ) -> None:
+        """Broker one admitted HTTP request and record both evidence events.
+
+        The decoder already admitted the request and verified that
+        ``episode_path`` hashes to ``episode_id``; the path's leaf grain names
+        the node whose approved rules apply.  Policy outcomes come back as
+        response records; only a malformed request raises.
+        """
+
+        body = frame.body
+        local_id = body["episode_path"][-1]["grain"]
+        request = body["request"]
+        request_hash = http_request_hash(request)
+        episode_id = OpaqueId(body["episode_id"])
+        matched = http_broker.match_rule(local_id, request)
+        rule_name = None if matched is None else matched.name
+        url = urlsplit(str(request["url"]))
+        self.run_store.append_event(
+            run_id=registration.run_id,
+            origin=RunEventOrigin.WORKER,
+            sender_sequence=frame.sender_sequence,
+            kind=RunEventKind.HTTP_REQUESTED,
+            episode_id=episode_id,
+            payload={
+                "http_request_id": body["http_request_id"],
+                "request_hash": request_hash.value,
+                "rule": rule_name,
+                "method": request["method"],
+                "host": url.hostname,
+                "path": url.path,
+            },
+        )
+        response = await http_broker(local_id=local_id, request=request)
+        response_frame = await channel.send(
+            HostFrameType.HTTP_RESPONSE.value,
+            {
+                "http_request_id": body["http_request_id"],
+                "response": response,
+            },
+        )
+        self.run_store.append_event(
+            run_id=registration.run_id,
+            origin=RunEventOrigin.HOST,
+            sender_sequence=response_frame.sender_sequence,
+            kind=RunEventKind.HTTP_RESPONDED,
+            episode_id=episode_id,
+            payload={
+                "http_request_id": body["http_request_id"],
+                "request_hash": request_hash.value,
+                "response_hash": http_response_hash(response).value,
+                "outcome": response["outcome"],
+                "status": response["status"],
+                "response_bytes": http_response_bytes(response),
+                "rule": response["rule"],
+            },
+        )
+
+    async def execute(
+        self,
+        *,
+        registration: RunRegistration,
+        source_package_path: str | Path,
+        model_broker: ScopedModelBroker,
+        http_broker: ScopedHttpBroker,
+    ) -> RunEvidence:
+        """Execute one fresh registration; cancellation persists cancellation."""
+
+        if not isinstance(registration, RunRegistration):
+            raise TypeError("registration must be a RunRegistration")
+        if not isinstance(model_broker, ScopedModelBroker):
+            raise TypeError("model_broker must be a ScopedModelBroker")
+        if not isinstance(http_broker, ScopedHttpBroker):
+            raise TypeError("http_broker must be a ScopedHttpBroker")
+        runtime_source_package = (
+            self.run_store.runtime_sources_root
+            / registration.runtime_identity.runtime_source_manifest_id.value
+        )
+        verify_runtime_identity(
+            registration.runtime_identity,
+            runtime_source_package=runtime_source_package,
+            **self._identity_arguments(),
+        )
+        bootstrap_program = load_verified_bootstrap_program(
+            registration.runtime_identity,
+            runtime_source_package,
+            **self._identity_arguments(),
+        )
+        supplied_source_package = Path(source_package_path).expanduser()
+        if supplied_source_package.is_symlink():
+            raise ValueError("source_package_path cannot be a symlink")
+        source_package = supplied_source_package.resolve(strict=True)
+        if (
+            source_package.is_symlink()
+            or not source_package.is_dir()
+            or source_package.name != registration.manifest_id.value
+        ):
+            raise ValueError("source_package_path must name the exact manifest package")
+        from .learning_broker import LearningBroker
+        # Package rejection must precede publication: an unclaimed registration
+        # has no event channel through which it could be finalized.
+        learning_broker = await asyncio.to_thread(
+            LearningBroker, self.run_store, registration, source_package
+        )
+        self.run_store.publish_registration(registration)
+
+        launch_identity = self._launch_identity(registration.run_id)
+        mounts = self._runtime_mounts(
+            registration,
+            runtime_source_package,
+            source_package,
+        )
+        launcher: Optional[asyncio.subprocess.Process] = None
+        channel: Optional[_HostChannel] = None
+        facts: Optional[_ExecutorFacts] = None
+        claimed = False
+        evidence: Optional[RunEvidence] = None
+        try:
+            launcher = await self._launch(
+                registration,
+                launch_identity,
+                mounts,
+                bootstrap_program,
+            )
+            if launcher.stdin is None or launcher.stdout is None:
+                raise RunExecutionError(
+                    "the Run launcher did not provide protocol pipes"
+                )
+            channel = _HostChannel(
+                binding=ProtocolBinding.from_registration(registration),
+                reader=launcher.stdout,
+                writer=launcher.stdin,
+            )
+            facts = await self._inspect(launch_identity, launcher, mounts)
+            await channel.send(
+                HostFrameType.INITIALIZE.value,
+                {
+                    "registration": registration.as_record(),
+                    "executor_instance_id": facts.executor_instance_id.value,
+                },
+            )
+            ready = await channel.receive()
+            if ready.frame_type != WorkerFrameType.READY.value:
+                raise ProtocolError("initialize must be followed by ready")
+            if (
+                ready.body["runtime_id"]
+                != registration.runtime_identity.runtime_id.value
+                or ready.body["runtime_hash"]
+                != registration.runtime_identity.content_hash.value
+            ):
+                raise ProtocolError("worker ready frame names another runtime")
+            from .landlock import LandlockPolicyReceipt
+            from .seccomp import SeccompPolicyReceipt
+
+            receipt = LandlockPolicyReceipt.from_record(
+                ready.body["landlock_receipt"]
+            )
+            seccomp_receipt = SeccompPolicyReceipt.from_record(
+                ready.body["seccomp_receipt"]
+            )
+            if (
+                receipt.executor_instance_id != facts.executor_instance_id
+                or seccomp_receipt.executor_instance_id
+                != facts.executor_instance_id
+            ):
+                raise ProtocolError("isolation receipt names another executor")
+            attestation = InspectedExecutorAttestation(
+                run_id=registration.run_id,
+                registration_hash=registration.registration_hash,
+                manifest_id=registration.manifest_id,
+                executor_instance_id=facts.executor_instance_id,
+                runtime_id=registration.runtime_identity.runtime_id,
+                runtime_hash=registration.runtime_identity.content_hash,
+                runtime_policy_id=registration.runtime_policy.policy_id,
+                runtime_policy_hash=registration.runtime_policy.content_hash,
+                landlock_receipt=receipt,
+                seccomp_receipt=seccomp_receipt,
+                executor_kind=facts.executor_kind,
+                executor_unit_name=facts.unit_name,
+                executor_invocation_id=facts.invocation_id,
+                launch_description=facts.launch_description,
+                boot_id=facts.boot_id,
+                leader_pid=facts.leader_pid,
+                leader_start_time_ticks=facts.leader_start_time_ticks,
+                cgroup_path=facts.cgroup_path,
+                read_only_runtime_mounts=facts.read_only_runtime_mounts,
+                memory_max_bytes=facts.memory_max_bytes,
+                pids_max=facts.pids_max,
+                cpu_weight=facts.cpu_weight,
+                cpu_quota_micros=facts.cpu_quota_micros,
+                cpu_period_micros=facts.cpu_period_micros,
+                filesystem_namespace_isolated=facts.filesystem_namespace_isolated,
+                process_namespace_isolated=facts.process_namespace_isolated,
+                network_namespace_isolated=facts.network_namespace_isolated,
+                host_runtime_read_only=facts.host_runtime_read_only,
+                no_new_privs=facts.no_new_privs,
+            )
+            attestation.validate_against(registration)
+            self.run_store.claim_run(attestation)
+            claimed = True
+            self.run_store.append_event(
+                run_id=registration.run_id,
+                origin=RunEventOrigin.WORKER,
+                sender_sequence=ready.sender_sequence,
+                kind=RunEventKind.RUNTIME_READY,
+                episode_id=None,
+                payload={
+                    "runtime_id": registration.runtime_identity.runtime_id.value,
+                    "runtime_hash": registration.runtime_identity.content_hash.value,
+                    "landlock_receipt_id": receipt.receipt_id.value,
+                    "landlock_receipt_hash": receipt.content_hash.value,
+                    "seccomp_receipt_id": seccomp_receipt.receipt_id.value,
+                    "seccomp_receipt_hash": seccomp_receipt.content_hash.value,
+                },
+            )
+            start = await channel.send(
+                HostFrameType.START.value,
+                {"executor_attestation": attestation.as_record()},
+            )
+            self.run_store.append_event(
+                run_id=registration.run_id,
+                origin=RunEventOrigin.HOST,
+                sender_sequence=start.sender_sequence,
+                kind=RunEventKind.RUN_STARTED,
+                episode_id=None,
+                payload={"attestation_id": attestation.attestation_id.value},
+            )
+
+            worker_event_kinds = {
+                RunEventKind.EPISODE_STARTED,
+                RunEventKind.UNIT_COMPLETED,
+                RunEventKind.EPISODE_COMPLETED,
+            }
+            while True:
+                frame = await channel.receive()
+                if frame.frame_type == WorkerFrameType.LEARNING_REQUEST.value:
+                    response = await learning_broker(frame.body["episode_id"], frame.body["operation"], frame.body["payload"])
+                    await channel.send(HostFrameType.LEARNING_RESPONSE.value,
+                                       {"request_id": frame.body["request_id"], "response": response})
+                    continue
+                if frame.frame_type == WorkerFrameType.MODEL_REQUEST.value:
+                    request = admit_model_request(frame.body["request"])
+                    request_hash = model_request_hash(request)
+                    episode_id = OpaqueId(frame.body["episode_id"])
+                    self.run_store.append_event(
+                        run_id=registration.run_id,
+                        origin=RunEventOrigin.WORKER,
+                        sender_sequence=frame.sender_sequence,
+                        kind=RunEventKind.MODEL_REQUESTED,
+                        episode_id=episode_id,
+                        payload={
+                            "model_request_id": frame.body["model_request_id"],
+                            "request_hash": request_hash.value,
+                            "task": request.task,
+                        },
+                    )
+                    response = await model_broker(frame.body["request"])
+                    from function_library.epistemic_schemas import model_call_id
+                    response_frame = await channel.send(
+                        HostFrameType.MODEL_RESPONSE.value,
+                        {
+                            "model_request_id": frame.body["model_request_id"],
+                            "response": model_response_record(response),
+                        },
+                    )
+                    self.run_store.append_event(
+                        run_id=registration.run_id,
+                        origin=RunEventOrigin.HOST,
+                        sender_sequence=response_frame.sender_sequence,
+                        kind=RunEventKind.MODEL_RESPONDED,
+                        episode_id=episode_id,
+                        payload={
+                            "model_request_id": frame.body["model_request_id"],
+                            "request_hash": request_hash.value,
+                            "response_hash": model_response_hash(response).value,
+                            "producer_call_id": model_call_id(response.text, request.task, response.route),
+                            "response_text": response.text,
+                            "route": dict(response.route),
+                        },
+                    )
+                    continue
+                if frame.frame_type == WorkerFrameType.HTTP_REQUEST.value:
+                    await self._broker_http_request(
+                        registration=registration,
+                        channel=channel,
+                        frame=frame,
+                        http_broker=http_broker,
+                    )
+                    continue
+                if frame.frame_type == WorkerFrameType.RUN_EVENT.value:
+                    kind = RunEventKind(frame.body["event_kind"])
+                    if kind not in worker_event_kinds:
+                        raise ProtocolError("worker emitted a host-owned event kind")
+                    self.run_store.append_event(
+                        run_id=registration.run_id,
+                        origin=RunEventOrigin.WORKER,
+                        sender_sequence=frame.sender_sequence,
+                        kind=kind,
+                        episode_id=(
+                            None
+                            if frame.body["episode_id"] is None
+                            else OpaqueId(frame.body["episode_id"])
+                        ),
+                        payload=frame.body["payload"],
+                    )
+                    continue
+                if frame.frame_type != WorkerFrameType.TERMINAL.value:
+                    raise ProtocolError("worker sent an invalid post-start frame")
+                if frame.body["terminal_status"] == RunTerminalStatus.SUCCEEDED.value:
+                    await asyncio.to_thread(
+                        learning_broker.validate_completion, frame.body["typed_status"]
+                    )
+                terminal_status = RunTerminalStatus(frame.body["terminal_status"])
+                evidence = self.run_store.finalize_run(
+                    run_id=registration.run_id,
+                    origin=RunEventOrigin.WORKER,
+                    sender_sequence=frame.sender_sequence,
+                    terminal_status=terminal_status,
+                    typed_status=frame.body["typed_status"],
+                )
+                await channel.send(
+                    HostFrameType.TERMINAL_ACK.value,
+                    {
+                        "evidence_id": evidence.evidence_id.value,
+                        "evidence_hash": evidence.content_hash.value,
+                    },
+                )
+                channel.writer.close()
+                await channel.writer.wait_closed()
+                await launcher.wait()
+                return evidence
+        except asyncio.CancelledError:
+            if claimed and evidence is None:
+                try:
+                    cancel = await channel.send(
+                        HostFrameType.CANCEL.value,
+                        {"cancel_kind": CancelKind.HUMAN_CANCELLED.value},
+                    )
+                    sender_sequence = cancel.sender_sequence
+                except BaseException:
+                    sender_sequence = channel.next_sender_sequence
+                try:
+                    evidence = self.run_store.finalize_run(
+                        run_id=registration.run_id,
+                        origin=RunEventOrigin.HOST,
+                        sender_sequence=sender_sequence,
+                        terminal_status=RunTerminalStatus.CANCELLED,
+                        typed_status={
+                            "outcome": "cancelled",
+                            "cancel_kind": CancelKind.HUMAN_CANCELLED.value,
+                        },
+                    )
+                except RunStoreConflict:
+                    pass
+            raise
+        except BaseException as exc:
+            if claimed and evidence is None:
+                try:
+                    cancel = await channel.send(
+                        HostFrameType.CANCEL.value,
+                        {"cancel_kind": CancelKind.PROTOCOL_VIOLATION.value},
+                    )
+                    sender_sequence = cancel.sender_sequence
+                except BaseException:
+                    sender_sequence = channel.next_sender_sequence
+                failure = " ".join(str(exc).replace("\x00", " ").split())[:2048]
+                status = RunTerminalStatus.FAILED
+                if isinstance(exc.__cause__, asyncio.IncompleteReadError):
+                    status = RunTerminalStatus.INTERRUPTED
+                elif isinstance(exc, (ProtocolError, ValueError)):
+                    status = RunTerminalStatus.INVALID
+                elif isinstance(exc, MemoryError):
+                    status = RunTerminalStatus.RESOURCE_LIMITED
+                try:
+                    evidence = self.run_store.finalize_run(
+                        run_id=registration.run_id,
+                        origin=RunEventOrigin.HOST,
+                        sender_sequence=sender_sequence,
+                        terminal_status=status,
+                        typed_status={
+                            "outcome": status.value,
+                            "failure_type": type(exc).__name__,
+                            "failure": failure or "host executor failure",
+                        },
+                    )
+                except RunStoreConflict:
+                    pass
+            raise
+        finally:
+            if launcher is not None and launcher.returncode is None:
+                await self._stop_exact(launch_identity, launcher, facts)
+
+
+
 @dataclass
-class SystemdRunExecutor:
+class SystemdRunExecutor(_RunExecutorBase):
     """Launch, attest, broker, persist, and tear down one Run exactly once."""
 
     run_store: RunStore
@@ -932,341 +1421,61 @@ class SystemdRunExecutor:
         )
         await launcher.wait()
 
-    async def execute(
+
+    def _identity_arguments(self) -> dict[str, Any]:
+        return {"python_executable": self.python_executable}
+
+    def _launch_identity(self, run_id: OpaqueId) -> _LaunchIdentity:
+        return _launch_identity(run_id, ExecutorKind.SYSTEMD)
+
+    def inspect_runtime_identity(
         self,
         *,
+        destination_root: str | Path,
+    ) -> RuntimeIdentity:
+        from .identity import inspect_runtime_identity
+
+        return inspect_runtime_identity(
+            repository_root=self.repository_root,
+            destination_root=destination_root,
+            python_executable=self.python_executable,
+        )
+
+    async def _launch(
+        self,
         registration: RunRegistration,
-        source_package_path: str | Path,
-        model_broker: ScopedModelBroker,
-    ) -> RunEvidence:
-        """Execute one fresh registration; cancellation persists cancellation."""
-
-        if not isinstance(registration, RunRegistration):
-            raise TypeError("registration must be a RunRegistration")
-        if not isinstance(model_broker, ScopedModelBroker):
-            raise TypeError("model_broker must be a ScopedModelBroker")
-        runtime_source_package = (
-            self.run_store.runtime_sources_root
-            / registration.runtime_identity.runtime_source_manifest_id.value
+        launch_identity: _LaunchIdentity,
+        mounts: tuple[ReadOnlyRuntimeMount, ...],
+        bootstrap_program: str,
+    ) -> asyncio.subprocess.Process:
+        return await asyncio.create_subprocess_exec(
+            *self._launch_arguments(
+                registration,
+                launch_identity,
+                mounts,
+                bootstrap_program,
+            ),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
-        verify_runtime_identity(
-            registration.runtime_identity,
-            runtime_source_package=runtime_source_package,
-            python_executable=self.python_executable,
+
+    async def _inspect(
+        self,
+        launch_identity: _LaunchIdentity,
+        launcher: asyncio.subprocess.Process,
+        mounts: tuple[ReadOnlyRuntimeMount, ...],
+    ) -> _ExecutorFacts:
+        return await _inspect_executor(
+            systemctl=self.systemctl,
+            launch_identity=launch_identity,
+            launcher=launcher,
+            resources=self.resources,
+            read_only_runtime_mounts=mounts,
         )
-        bootstrap_program = load_verified_bootstrap_program(
-            registration.runtime_identity,
-            runtime_source_package,
-            python_executable=self.python_executable,
-        )
-        supplied_source_package = Path(source_package_path).expanduser()
-        if supplied_source_package.is_symlink():
-            raise ValueError("source_package_path cannot be a symlink")
-        source_package = supplied_source_package.resolve(strict=True)
-        if (
-            source_package.is_symlink()
-            or not source_package.is_dir()
-            or source_package.name != registration.manifest_id.value
-        ):
-            raise ValueError("source_package_path must name the exact manifest package")
-        from .learning_broker import LearningBroker
-        # Package rejection must precede publication: an unclaimed registration
-        # has no event channel through which it could be finalized.
-        learning_broker = await asyncio.to_thread(
-            LearningBroker, self.run_store, registration, source_package
-        )
-        self.run_store.publish_registration(registration)
-
-        launch_identity = _launch_identity(registration.run_id)
-        mounts = self._runtime_mounts(
-            registration,
-            runtime_source_package,
-            source_package,
-        )
-        launcher: Optional[asyncio.subprocess.Process] = None
-        channel: Optional[_HostChannel] = None
-        facts: Optional[_ExecutorFacts] = None
-        claimed = False
-        evidence: Optional[RunEvidence] = None
-        try:
-            launcher = await asyncio.create_subprocess_exec(
-                *self._launch_arguments(
-                    registration,
-                    launch_identity,
-                    mounts,
-                    bootstrap_program,
-                ),
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            if launcher.stdin is None or launcher.stdout is None:
-                raise RunExecutionError(
-                    "systemd-run did not provide protocol pipes"
-                )
-            channel = _HostChannel(
-                binding=ProtocolBinding.from_registration(registration),
-                reader=launcher.stdout,
-                writer=launcher.stdin,
-            )
-            facts = await _inspect_executor(
-                systemctl=self.systemctl,
-                launch_identity=launch_identity,
-                launcher=launcher,
-                resources=self.resources,
-                read_only_runtime_mounts=mounts,
-            )
-            await channel.send(
-                HostFrameType.INITIALIZE.value,
-                {
-                    "registration": registration.as_record(),
-                    "executor_instance_id": facts.executor_instance_id.value,
-                },
-            )
-            ready = await channel.receive()
-            if ready.frame_type != WorkerFrameType.READY.value:
-                raise ProtocolError("initialize must be followed by ready")
-            if (
-                ready.body["runtime_id"]
-                != registration.runtime_identity.runtime_id.value
-                or ready.body["runtime_hash"]
-                != registration.runtime_identity.content_hash.value
-            ):
-                raise ProtocolError("worker ready frame names another runtime")
-            from .landlock import LandlockPolicyReceipt
-            from .seccomp import SeccompPolicyReceipt
-
-            receipt = LandlockPolicyReceipt.from_record(
-                ready.body["landlock_receipt"]
-            )
-            seccomp_receipt = SeccompPolicyReceipt.from_record(
-                ready.body["seccomp_receipt"]
-            )
-            if (
-                receipt.executor_instance_id != facts.executor_instance_id
-                or seccomp_receipt.executor_instance_id
-                != facts.executor_instance_id
-            ):
-                raise ProtocolError("isolation receipt names another executor")
-            attestation = InspectedExecutorAttestation(
-                run_id=registration.run_id,
-                registration_hash=registration.registration_hash,
-                manifest_id=registration.manifest_id,
-                executor_instance_id=facts.executor_instance_id,
-                runtime_id=registration.runtime_identity.runtime_id,
-                runtime_hash=registration.runtime_identity.content_hash,
-                runtime_policy_id=registration.runtime_policy.policy_id,
-                runtime_policy_hash=registration.runtime_policy.content_hash,
-                landlock_receipt=receipt,
-                seccomp_receipt=seccomp_receipt,
-                systemd_unit_name=facts.unit_name,
-                systemd_invocation_id=facts.invocation_id,
-                launch_description=facts.launch_description,
-                boot_id=facts.boot_id,
-                leader_pid=facts.leader_pid,
-                leader_start_time_ticks=facts.leader_start_time_ticks,
-                cgroup_path=facts.cgroup_path,
-                read_only_runtime_mounts=facts.read_only_runtime_mounts,
-                memory_max_bytes=facts.memory_max_bytes,
-                pids_max=facts.pids_max,
-                cpu_weight=facts.cpu_weight,
-                cpu_quota_micros=facts.cpu_quota_micros,
-                cpu_period_micros=facts.cpu_period_micros,
-                filesystem_namespace_isolated=facts.filesystem_namespace_isolated,
-                process_namespace_isolated=facts.process_namespace_isolated,
-                network_namespace_isolated=facts.network_namespace_isolated,
-                host_runtime_read_only=facts.host_runtime_read_only,
-                no_new_privs=facts.no_new_privs,
-            )
-            attestation.validate_against(registration)
-            self.run_store.claim_run(attestation)
-            claimed = True
-            self.run_store.append_event(
-                run_id=registration.run_id,
-                origin=RunEventOrigin.WORKER,
-                sender_sequence=ready.sender_sequence,
-                kind=RunEventKind.RUNTIME_READY,
-                episode_id=None,
-                payload={
-                    "runtime_id": registration.runtime_identity.runtime_id.value,
-                    "runtime_hash": registration.runtime_identity.content_hash.value,
-                    "landlock_receipt_id": receipt.receipt_id.value,
-                    "landlock_receipt_hash": receipt.content_hash.value,
-                    "seccomp_receipt_id": seccomp_receipt.receipt_id.value,
-                    "seccomp_receipt_hash": seccomp_receipt.content_hash.value,
-                },
-            )
-            start = await channel.send(
-                HostFrameType.START.value,
-                {"executor_attestation": attestation.as_record()},
-            )
-            self.run_store.append_event(
-                run_id=registration.run_id,
-                origin=RunEventOrigin.HOST,
-                sender_sequence=start.sender_sequence,
-                kind=RunEventKind.RUN_STARTED,
-                episode_id=None,
-                payload={"attestation_id": attestation.attestation_id.value},
-            )
-
-            worker_event_kinds = {
-                RunEventKind.EPISODE_STARTED,
-                RunEventKind.UNIT_COMPLETED,
-                RunEventKind.EPISODE_COMPLETED,
-            }
-            while True:
-                frame = await channel.receive()
-                if frame.frame_type == WorkerFrameType.LEARNING_REQUEST.value:
-                    response = await learning_broker(frame.body["episode_id"], frame.body["operation"], frame.body["payload"])
-                    await channel.send(HostFrameType.LEARNING_RESPONSE.value,
-                                       {"request_id": frame.body["request_id"], "response": response})
-                    continue
-                if frame.frame_type == WorkerFrameType.MODEL_REQUEST.value:
-                    request = admit_model_request(frame.body["request"])
-                    request_hash = model_request_hash(request)
-                    episode_id = OpaqueId(frame.body["episode_id"])
-                    self.run_store.append_event(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.WORKER,
-                        sender_sequence=frame.sender_sequence,
-                        kind=RunEventKind.MODEL_REQUESTED,
-                        episode_id=episode_id,
-                        payload={
-                            "model_request_id": frame.body["model_request_id"],
-                            "request_hash": request_hash.value,
-                            "task": request.task,
-                        },
-                    )
-                    response = await model_broker(frame.body["request"])
-                    from function_library.epistemic_schemas import model_call_id
-                    response_frame = await channel.send(
-                        HostFrameType.MODEL_RESPONSE.value,
-                        {
-                            "model_request_id": frame.body["model_request_id"],
-                            "response": model_response_record(response),
-                        },
-                    )
-                    self.run_store.append_event(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.HOST,
-                        sender_sequence=response_frame.sender_sequence,
-                        kind=RunEventKind.MODEL_RESPONDED,
-                        episode_id=episode_id,
-                        payload={
-                            "model_request_id": frame.body["model_request_id"],
-                            "request_hash": request_hash.value,
-                            "response_hash": model_response_hash(response).value,
-                            "producer_call_id": model_call_id(response.text, request.task, response.route),
-                            "response_text": response.text,
-                            "route": dict(response.route),
-                        },
-                    )
-                    continue
-                if frame.frame_type == WorkerFrameType.RUN_EVENT.value:
-                    kind = RunEventKind(frame.body["event_kind"])
-                    if kind not in worker_event_kinds:
-                        raise ProtocolError("worker emitted a host-owned event kind")
-                    self.run_store.append_event(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.WORKER,
-                        sender_sequence=frame.sender_sequence,
-                        kind=kind,
-                        episode_id=(
-                            None
-                            if frame.body["episode_id"] is None
-                            else OpaqueId(frame.body["episode_id"])
-                        ),
-                        payload=frame.body["payload"],
-                    )
-                    continue
-                if frame.frame_type != WorkerFrameType.TERMINAL.value:
-                    raise ProtocolError("worker sent an invalid post-start frame")
-                if frame.body["terminal_status"] == RunTerminalStatus.SUCCEEDED.value:
-                    await asyncio.to_thread(
-                        learning_broker.validate_completion, frame.body["typed_status"]
-                    )
-                terminal_status = RunTerminalStatus(frame.body["terminal_status"])
-                evidence = self.run_store.finalize_run(
-                    run_id=registration.run_id,
-                    origin=RunEventOrigin.WORKER,
-                    sender_sequence=frame.sender_sequence,
-                    terminal_status=terminal_status,
-                    typed_status=frame.body["typed_status"],
-                )
-                await channel.send(
-                    HostFrameType.TERMINAL_ACK.value,
-                    {
-                        "evidence_id": evidence.evidence_id.value,
-                        "evidence_hash": evidence.content_hash.value,
-                    },
-                )
-                channel.writer.close()
-                await channel.writer.wait_closed()
-                await launcher.wait()
-                return evidence
-        except asyncio.CancelledError:
-            if claimed and evidence is None:
-                try:
-                    cancel = await channel.send(
-                        HostFrameType.CANCEL.value,
-                        {"cancel_kind": CancelKind.HUMAN_CANCELLED.value},
-                    )
-                    sender_sequence = cancel.sender_sequence
-                except BaseException:
-                    sender_sequence = channel.next_sender_sequence
-                try:
-                    evidence = self.run_store.finalize_run(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.HOST,
-                        sender_sequence=sender_sequence,
-                        terminal_status=RunTerminalStatus.CANCELLED,
-                        typed_status={
-                            "outcome": "cancelled",
-                            "cancel_kind": CancelKind.HUMAN_CANCELLED.value,
-                        },
-                    )
-                except RunStoreConflict:
-                    pass
-            raise
-        except BaseException as exc:
-            if claimed and evidence is None:
-                try:
-                    cancel = await channel.send(
-                        HostFrameType.CANCEL.value,
-                        {"cancel_kind": CancelKind.PROTOCOL_VIOLATION.value},
-                    )
-                    sender_sequence = cancel.sender_sequence
-                except BaseException:
-                    sender_sequence = channel.next_sender_sequence
-                failure = " ".join(str(exc).replace("\x00", " ").split())[:2048]
-                status = RunTerminalStatus.FAILED
-                if isinstance(exc.__cause__, asyncio.IncompleteReadError):
-                    status = RunTerminalStatus.INTERRUPTED
-                elif isinstance(exc, (ProtocolError, ValueError)):
-                    status = RunTerminalStatus.INVALID
-                elif isinstance(exc, MemoryError):
-                    status = RunTerminalStatus.RESOURCE_LIMITED
-                try:
-                    evidence = self.run_store.finalize_run(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.HOST,
-                        sender_sequence=sender_sequence,
-                        terminal_status=status,
-                        typed_status={
-                            "outcome": status.value,
-                            "failure_type": type(exc).__name__,
-                            "failure": failure or "host executor failure",
-                        },
-                    )
-                except RunStoreConflict:
-                    pass
-            raise
-        finally:
-            if launcher is not None and launcher.returncode is None:
-                await self._stop_exact(launch_identity, launcher, facts)
 
 
-RunExecutorFactory = Callable[[RunStore], SystemdRunExecutor]
+RunExecutorFactory = Callable[[RunStore], RunExecutor]
 
 
 def make_systemd_run_executor_factory(
@@ -1315,6 +1524,7 @@ def make_systemd_run_executor_factory(
 
 __all__ = [
     "ExecutorResources",
+    "RunExecutor",
     "RunExecutorFactory",
     "RunExecutionError",
     "SystemdRunExecutor",

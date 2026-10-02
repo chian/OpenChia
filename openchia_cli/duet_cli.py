@@ -199,12 +199,12 @@ class OpenChiaCLI(
 
     @staticmethod
     def _strict_run_executor_factory() -> Any:
-        from episode_runtime import make_systemd_run_executor_factory
+        """systemd on a Linux host, otherwise a container (Docker/Rancher/Podman);
+        ``OPENCHIA_RUN_EXECUTOR`` forces one, ``OPENCHIA_CONTAINER_IMAGE`` picks the image."""
+        from episode_runtime import make_run_executor_factory
 
         repository_root = Path(__file__).resolve().parents[1]
-        return make_systemd_run_executor_factory(
-            repository_root=repository_root,
-        )
+        return make_run_executor_factory(repository_root=repository_root)
 
     def _ensure_openchia_host(self) -> OpenChiaHost:
         if self._openchia_host is None:

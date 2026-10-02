@@ -41,6 +41,14 @@ _EPISODE_LOCAL_ID = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _FUNCTION_COMPONENT = re.compile(r"^[a-z][a-z0-9_.-]*$")
 _FUNCTION_DEFINITION_ID = re.compile(r"^function_[0-9a-f]{64}$")
+_EGRESS_NAME = re.compile(r"^[a-z][a-z0-9_.:-]{0,63}$")
+_EGRESS_HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_EGRESS_PATH_FORBIDDEN = frozenset("?#%\\")
+
+EGRESS_METHODS = ("GET", "HEAD", "POST")
+MAX_EGRESS_HOST_CHARS = 253
+MAX_EGRESS_PATH_PREFIX_CHARS = 1024
+MAX_EGRESS_RESPONSE_BYTES = 917_504
 
 
 def _record(value: object, name: str) -> Mapping[str, Any]:
@@ -455,6 +463,191 @@ class EpisodeDeliverableContract:
         )
 
 
+def validate_egress_name(value: object, name: str = "egress name") -> str:
+    """Admit one egress rule or credential name token."""
+
+    if not isinstance(value, str) or _EGRESS_NAME.fullmatch(value) is None:
+        raise ValueError(
+            f"{name} must be a lowercase token of at most 64 characters "
+            "starting with a letter (letters, digits, '_', '.', ':', '-')"
+        )
+    return value
+
+
+def validate_egress_host(value: object, name: str = "egress host") -> str:
+    """Admit one exact lowercase DNS hostname without scheme or port."""
+
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{name} must be a non-empty hostname")
+    if "://" in value or "/" in value:
+        raise ValueError(f"{name} must be a bare hostname without scheme or path")
+    if ":" in value:
+        raise ValueError(f"{name} must not carry a port")
+    if value != value.lower():
+        raise ValueError(f"{name} must be lowercase")
+    labels = value.split(".")
+    if (
+        len(value) > MAX_EGRESS_HOST_CHARS
+        or any(_EGRESS_HOST_LABEL.fullmatch(label) is None for label in labels)
+    ):
+        raise ValueError(
+            f"{name} must be a hostname of dot-separated lowercase letter, "
+            "digit, or hyphen labels"
+        )
+    return value
+
+
+def _egress_path_prefix(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value.startswith("/"):
+        raise ValueError(f"{name} must be an absolute path starting with '/'")
+    if len(value) > MAX_EGRESS_PATH_PREFIX_CHARS:
+        raise ValueError(
+            f"{name} must be at most {MAX_EGRESS_PATH_PREFIX_CHARS} characters"
+        )
+    if any(
+        char in _EGRESS_PATH_FORBIDDEN or char.isspace() or not char.isprintable()
+        for char in value
+    ):
+        raise ValueError(
+            f"{name} must not contain whitespace, control characters, "
+            "'?', '#', '%', or '\\'"
+        )
+    segments = value.split("/")[1:]
+    inner = segments[:-1] if segments and segments[-1] == "" else segments
+    if any(segment in {"", ".", ".."} for segment in inner):
+        raise ValueError(
+            f"{name} must be normalized (no empty, '.', or '..' segments)"
+        )
+    return value
+
+
+@dataclass(frozen=True)
+class EpisodeEgressRule:
+    """One human-approved, read-only HTTPS endpoint an Episode may call.
+
+    The host broker is the only network path out of a Run; this rule is the
+    complete admission for one endpoint family.  ``https://`` is implied.
+    ``credential`` names a host-held secret; the secret itself never appears
+    in the contract.
+    """
+
+    name: str
+    host: str
+    path_prefix: str
+    methods: tuple[str, ...]
+    read_only: bool
+    max_requests: int
+    max_response_bytes: int
+    credential: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        with contract_field("name"):
+            validate_egress_name(self.name, "egress rule name")
+        label = f"egress rule {self.name!r}"
+        with contract_field("host"):
+            validate_egress_host(self.host, f"{label} host")
+        with contract_field("path_prefix"):
+            _egress_path_prefix(self.path_prefix, f"{label} path_prefix")
+        with contract_field("methods"):
+            methods = self.methods
+            if not isinstance(methods, tuple) or not methods:
+                raise ValueError(f"{label} methods must be a non-empty tuple")
+            unknown = [item for item in methods if item not in EGRESS_METHODS]
+            if unknown:
+                raise ValueError(
+                    f"{label} methods {unknown!r} are not admitted; "
+                    f"allowed: {list(EGRESS_METHODS)!r}"
+                )
+            if list(methods) != sorted(set(methods)):
+                raise ValueError(
+                    f"{label} methods must be sorted and unique"
+                )
+        with contract_field("read_only"):
+            if self.read_only is not True:
+                raise ValueError(
+                    f"{label} read_only must be true; only read-only egress "
+                    "is admitted"
+                )
+        with contract_field("max_requests"):
+            if (
+                isinstance(self.max_requests, bool)
+                or not isinstance(self.max_requests, int)
+                or self.max_requests < 1
+            ):
+                raise ValueError(f"{label} max_requests must be an integer >= 1")
+        with contract_field("max_response_bytes"):
+            if (
+                isinstance(self.max_response_bytes, bool)
+                or not isinstance(self.max_response_bytes, int)
+                or not 1 <= self.max_response_bytes <= MAX_EGRESS_RESPONSE_BYTES
+            ):
+                raise ValueError(
+                    f"{label} max_response_bytes must be an integer from 1 "
+                    f"to {MAX_EGRESS_RESPONSE_BYTES}"
+                )
+        with contract_field("credential"):
+            if self.credential is not None:
+                validate_egress_name(self.credential, f"{label} credential")
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "host": self.host,
+            "path_prefix": self.path_prefix,
+            "methods": list(self.methods),
+            "read_only": self.read_only,
+            "max_requests": self.max_requests,
+            "max_response_bytes": self.max_response_bytes,
+            "credential": self.credential,
+        }
+
+    @classmethod
+    def from_record(cls, value: object) -> "EpisodeEgressRule":
+        record = _record(value, "Episode egress rule")
+        _keys(
+            record,
+            {
+                "name",
+                "host",
+                "path_prefix",
+                "methods",
+                "read_only",
+                "max_requests",
+                "max_response_bytes",
+                "credential",
+            },
+            "Episode egress rule",
+        )
+        methods = record["methods"]
+        with contract_field("methods"):
+            if not isinstance(methods, list):
+                raise ValueError("egress rule methods must be an array")
+        return cls(
+            name=record["name"],
+            host=record["host"],
+            path_prefix=record["path_prefix"],
+            methods=tuple(methods),
+            read_only=record["read_only"],
+            max_requests=record["max_requests"],
+            max_response_bytes=record["max_response_bytes"],
+            credential=record["credential"],
+        )
+
+
+def _egress_rules(value: object, name: str) -> tuple[EpisodeEgressRule, ...]:
+    if not isinstance(value, tuple) or any(
+        not isinstance(item, EpisodeEgressRule) for item in value
+    ):
+        raise ValueError(f"{name} must be a tuple of EpisodeEgressRule values")
+    names = [item.name for item in value]
+    duplicates = sorted({item for item in names if names.count(item) > 1})
+    if duplicates:
+        raise ValueError(
+            f"{name} rule names must be unique within an Episode: {duplicates!r}"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class EpisodeCreationSpec:
     """Complete declarative contract for one Episode."""
@@ -470,6 +663,7 @@ class EpisodeCreationSpec:
         default_factory=EpisodeDeliverableContract.typed_status
     )
     capability_inheritance: CapabilityInheritance = CapabilityInheritance.PARENT
+    egress_allowlist: tuple[EpisodeEgressRule, ...] = ()
     epistemic: Optional[EpistemicContract] = None
     def __post_init__(self) -> None:
         with contract_field("goal"):
@@ -512,6 +706,8 @@ class EpisodeCreationSpec:
                     "execution_capability_names",
                 ),
             )
+        with contract_field("egress_allowlist"):
+            _egress_rules(self.egress_allowlist, "egress_allowlist")
         with contract_field("unit"):
             object.__setattr__(
                 self,
@@ -558,6 +754,9 @@ class EpisodeCreationSpec:
             "execution_capability_names": list(
                 self.execution_capability_names
             ),
+            "egress_allowlist": [
+                item.as_record() for item in self.egress_allowlist
+            ],
             "deliverable": self.deliverable.as_record(),
             "capability_inheritance": self.capability_inheritance.value,
         }
@@ -585,6 +784,7 @@ class EpisodeCreationSpec:
                 "stopping",
                 "numeric_control",
                 "execution_capability_names",
+                "egress_allowlist",
                 "deliverable",
                 "capability_inheritance",
             } | ({"epistemic"} if "epistemic" in record else set()),
@@ -599,6 +799,13 @@ class EpisodeCreationSpec:
         with contract_field("execution_capability_names"):
             if not isinstance(capability_names, list):
                 raise ValueError("execution_capability_names must be an array")
+        with contract_field("egress_allowlist"):
+            raw_rules = record["egress_allowlist"]
+            if not isinstance(raw_rules, list):
+                raise ValueError("egress_allowlist must be an array")
+            egress_allowlist = tuple(
+                EpisodeEgressRule.from_record(item) for item in raw_rules
+            )
         with contract_field("deliverable"):
             deliverable = EpisodeDeliverableContract.from_record(
                 record["deliverable"]
@@ -617,6 +824,7 @@ class EpisodeCreationSpec:
             execution_capability_names=tuple(capability_names),
             deliverable=deliverable,
             capability_inheritance=inheritance,
+            egress_allowlist=egress_allowlist,
             epistemic=(EpistemicContract.from_record(record["epistemic"])
                        if "epistemic" in record else None),
         )
@@ -767,20 +975,25 @@ class EpisodeWorkflowSpec:
 
 __all__ = [
     "DEFAULT_EPISODE_RESULT",
+    "EGRESS_METHODS",
     "DEFAULT_EPISODE_UNIT",
     "MAX_EPISODE_BLUEPRINT_TEXT_CHARS",
     "MAX_EPISODE_GOAL_CHARS",
     "MAX_EPISODE_TOOL_NAME_CHARS",
+    "MAX_EGRESS_RESPONSE_BYTES",
     "CapabilityInheritance",
     "EpisodeContractError",
     "EpisodeDeliverableContract",
     "EpisodeDeliverableKind",
     "EpisodeCreationSpec",
     "EpisodeDesignSpec",
+    "EpisodeEgressRule",
     "EpisodeFunctionSelectionSpec",
     "EpisodeNumericalControlSpec",
     "EpisodeWorkflowSpec",
     "OpaqueId",
     "Sha256Digest",
     "contract_field",
+    "validate_egress_host",
+    "validate_egress_name",
 ]

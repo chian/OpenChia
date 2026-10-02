@@ -25,6 +25,7 @@ from handoff_library import (
     ADMIT_PARENT_REQUEST,
     HandoffPayloadContract,
 )
+from http_call_library import HTTP_JSON, HTTP_REQUEST
 from llm_call_library import (
     CallOptions,
     ModelTier,
@@ -334,6 +335,8 @@ def _library_functions() -> tuple[LibraryFunction, ...]:
         STRUCTURED_JSON_COMPLETION,
         PROBABILITY_JUDGMENT,
         PROBABILITY_VECTOR_JUDGMENT,
+        HTTP_REQUEST,
+        HTTP_JSON,
         OPEN_QUESTION_TABLE_GOAL,
         RESTORE_QUESTION_TABLE_GOAL,
         SCOPE_QUESTION_TABLE_GOAL,

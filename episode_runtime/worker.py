@@ -14,6 +14,11 @@ from typing import Mapping, Optional
 
 from agent.duet_contracts import content_id, digest_record
 from agent.episode_contracts import OpaqueId, Sha256Digest
+from http_call_library import (
+    HttpTransportRequest,
+    HttpTransportResponse,
+    http_transport_scope,
+)
 from llm_call_library import (
     ModelTransportRequest,
     ModelTransportResponse,
@@ -29,10 +34,15 @@ from episode_runtime.contracts import (
     RunRegistration,
     RunTerminalStatus,
 )
+from episode_runtime.http_contracts import (
+    http_request_record,
+    http_transport_response,
+)
 from episode_runtime.identity import verify_runtime_identity
 from episode_runtime.landlock import apply_landlock_abi7
 from episode_runtime.linker import (
     current_runtime_episode_id,
+    current_runtime_episode_path,
     prepare_source_package,
 )
 from episode_runtime.protocol import (
@@ -80,8 +90,10 @@ class _ProtocolChannel:
         self._receive_lock = asyncio.Lock()
         self._sent_sequence = 0
         self._model_ordinal = 0
+        self._http_ordinal = 0
         self._terminal_sent = False
         self._pending_models: dict[str, asyncio.Future[ModelTransportResponse]] = {}
+        self._pending_http: dict[str, asyncio.Future[HttpTransportResponse]] = {}
         self._pending_learning: dict[str, asyncio.Future] = {}
         self._learning_ordinal = 0
         self.cancelled: asyncio.Future[CancelKind] = (
@@ -195,6 +207,42 @@ class _ProtocolChannel:
         finally:
             self._pending_models.pop(request_id.value, None)
 
+    async def request_http(
+        self,
+        request_record: Mapping[str, object],
+        *,
+        episode_id: OpaqueId,
+        episode_path: list[dict[str, str]],
+    ) -> HttpTransportResponse:
+        request_id = content_id(
+            "http_request",
+            {
+                "run_id": self.binding.run_id.value,
+                "registration_hash": self.binding.registration_hash.value,
+                "episode_id": episode_id.value,
+                "ordinal": self._http_ordinal,
+                "request_hash": digest_record(request_record).value,
+            },
+        )
+        self._http_ordinal += 1
+        future: asyncio.Future[HttpTransportResponse] = (
+            asyncio.get_running_loop().create_future()
+        )
+        self._pending_http[request_id.value] = future
+        try:
+            await self.send(
+                WorkerFrameType.HTTP_REQUEST.value,
+                {
+                    "http_request_id": request_id.value,
+                    "episode_id": episode_id.value,
+                    "episode_path": episode_path,
+                    "request": request_record,
+                },
+            )
+            return await future
+        finally:
+            self._pending_http.pop(request_id.value, None)
+
     async def receive_loop(self) -> None:
         while True:
             frame = await self.receive()
@@ -210,6 +258,13 @@ class _ProtocolChannel:
                 if future is None or future.done():
                     raise ProtocolError("model response has no outstanding request")
                 future.set_result(admit_model_response(frame.body["response"]))
+                continue
+            if frame.frame_type == HostFrameType.HTTP_RESPONSE.value:
+                request_id = frame.body["http_request_id"]
+                future = self._pending_http.get(str(request_id))
+                if future is None or future.done():
+                    raise ProtocolError("http response has no outstanding request")
+                future.set_result(http_transport_response(frame.body["response"]))
                 continue
             if frame.frame_type == HostFrameType.CANCEL.value:
                 if self.cancelled.done():
@@ -261,6 +316,23 @@ class _WorkerModelTransport:
         return await self.channel.request_model(
             request,
             episode_id=current_runtime_episode_id(),
+        )
+
+
+class _WorkerHttpTransport:
+    def __init__(self, channel: _ProtocolChannel) -> None:
+        self.channel = channel
+
+    async def __call__(
+        self,
+        request: HttpTransportRequest,
+    ) -> HttpTransportResponse:
+        if not isinstance(request, HttpTransportRequest):
+            raise TypeError("request must be an HttpTransportRequest")
+        return await self.channel.request_http(
+            http_request_record(request),
+            episode_id=current_runtime_episode_id(),
+            episode_path=current_runtime_episode_path(),
         )
 
 
@@ -333,8 +405,11 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
 
     linked = activated.link(event_sink=channel.event, collaborators={})
     model_transport = _WorkerModelTransport(channel)
+    http_transport = _WorkerHttpTransport(channel)
     receiver = asyncio.create_task(channel.receive_loop())
-    with model_transport_scope(model_transport), reasoning_transport_scope(channel.request_learning):
+    with model_transport_scope(model_transport), http_transport_scope(
+        http_transport
+    ), reasoning_transport_scope(channel.request_learning):
         run_task = asyncio.create_task(linked.run())
         done, _ = await asyncio.wait(
             {run_task, receiver, channel.cancelled},

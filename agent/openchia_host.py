@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import json
+import logging
 from pathlib import Path
 import secrets
 import threading
@@ -50,14 +51,18 @@ from episode_builder import (
     WorkflowMaterializationPlan,
 )
 from episode_runtime import (
+    CredentialSpec,
+    HttpxHostTransport,
     RunEvidence,
     RunRegistration,
     RunStore,
     RunStoreNotFound,
     RuntimePolicy,
+    ScopedHttpBroker,
     ScopedModelBroker,
-    SystemdRunExecutor,
+    RunExecutor,
     inspect_runtime_identity,
+    load_egress_config,
 )
 from handoff_library import (
     DuetLaunchAddress,
@@ -73,6 +78,32 @@ from llm_call_library import (
     call_model_transport,
     model_transport_scope,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _operator_egress_ceiling() -> tuple[
+    tuple[str, ...], Mapping[str, CredentialSpec]
+]:
+    """The operator's ``openchia.egress`` ceiling; closed when unreadable.
+
+    Only credential names and file paths are loaded here; token files are
+    read by the broker at request time and never at construction.
+    """
+
+    try:
+        from openchia_cli.config import load_config_readonly
+
+        return load_egress_config(load_config_readonly() or {})
+    except Exception as exc:
+        logger.warning(
+            "ignoring openchia.egress config (%s: %s); no egress hosts or "
+            "credentials are allowed",
+            type(exc).__name__,
+            exc,
+        )
+        return (), {}
 
 
 _INITIAL_EDITABLE_STATES = frozenset(
@@ -105,7 +136,7 @@ class OpenChiaHost:
         available_tool_names: Iterable[str],
         agent_kwargs_factory: Callable[[str, str], dict[str, Any]],
         run_executor_factory: Optional[
-            Callable[[RunStore], SystemdRunExecutor]
+            Callable[[RunStore], RunExecutor]
         ] = None,
     ) -> None:
         if not isinstance(session_id, str) or not session_id.strip():
@@ -145,9 +176,12 @@ class OpenChiaHost:
             policy_id=policy_id,
             conversation_id=OpaqueId.mint("conversation", session_id),
         )
+        self.egress_hosts, self.egress_credentials = _operator_egress_ceiling()
         self.service = DuetService(
             self.store,
             allowed_episode_capabilities=(),
+            allowed_egress_hosts=self.egress_hosts,
+            egress_credential_names=tuple(sorted(self.egress_credentials)),
         )
         self.refiner = self.service.refiner
         try:
@@ -1315,16 +1349,17 @@ class OpenChiaHost:
             payload_contract,
         )
 
-    def _runtime_executor(self) -> SystemdRunExecutor:
+    def _runtime_executor(self) -> RunExecutor:
         factory = self._run_executor_factory
         if factory is None:
             raise OpenChiaHostError(
                 "Episode Run execution resources are not configured"
             )
         executor = factory(self.run_store)
-        if not isinstance(executor, SystemdRunExecutor):
+        if not isinstance(executor, RunExecutor):
             raise TypeError(
-                "run_executor_factory must return a SystemdRunExecutor"
+                "run_executor_factory must return a RunExecutor "
+                "(SystemdRunExecutor or ContainerRunExecutor)"
             )
         if executor.run_store is not self.run_store:
             raise OpenChiaHostError(
@@ -1437,10 +1472,8 @@ class OpenChiaHost:
                 ) = self._runnable_build_context()
                 launch_request = self._root_launch_request(request, plan)
                 executor = self._runtime_executor()
-                runtime_identity = inspect_runtime_identity(
-                    repository_root=executor.repository_root,
+                runtime_identity = executor.inspect_runtime_identity(
                     destination_root=self.run_store.runtime_sources_root,
-                    python_executable=executor.python_executable,
                 )
                 registration = RunRegistration.from_admitted_build(
                     build_request=request,
@@ -1452,6 +1485,12 @@ class OpenChiaHost:
                     runtime_policy=RuntimePolicy(),
                 )
                 broker = ScopedModelBroker(call_model_transport)
+                http_broker = ScopedHttpBroker(
+                    policy=registration.egress_policy,
+                    credentials=self.egress_credentials,
+                    transport=HttpxHostTransport(),
+                    max_frame_bytes=registration.runtime_policy.max_frame_bytes,
+                )
                 self._run_registration = registration
                 self._run_evidence = None
                 self._run_baseline = None
@@ -1468,6 +1507,7 @@ class OpenChiaHost:
                             registration=registration,
                             source_package_path=source_package,
                             model_broker=broker,
+                            http_broker=http_broker,
                         )
                     )
                     with self._run_lock:

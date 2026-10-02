@@ -209,6 +209,7 @@ def architecture_target_index(
             "stopping",
             "numeric_control",
             "execution_capability_names",
+            "egress_allowlist",
             "deliverable",
         ):
             add(

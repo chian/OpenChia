@@ -815,6 +815,8 @@ include = [
   "function_library.*",
   "handoff_library",
   "handoff_library.*",
+  "http_call_library",
+  "http_call_library.*",
   "llm_call_library",
   "llm_call_library.*",
   "question_table_goal_library",

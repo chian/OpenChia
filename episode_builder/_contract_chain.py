@@ -205,6 +205,14 @@ class ApprovedBuildRequest:
                     f"Episode {episode.local_id!r} requires deliverable tools "
                     "outside its execution capabilities"
                 )
+            for rule in episode.contract.egress_allowlist:
+                exceeded = authority.egress_rule_violations(rule)
+                if exceeded:
+                    raise ValueError(
+                        f"Episode {episode.local_id!r} egress rule "
+                        f"{rule.name!r} exceeds its admission authority "
+                        f"({', '.join(exceeded)})"
+                    )
         decision = self.refinement_decision
         related = (
             self.refinement_baseline,

@@ -16,9 +16,12 @@ import re
 from typing import Any, Mapping, Optional
 
 from agent.episode_contracts import (
+    EpisodeEgressRule,
     EpisodeWorkflowSpec,
     OpaqueId,
     Sha256Digest,
+    validate_egress_host,
+    validate_egress_name,
 )
 
 
@@ -356,17 +359,30 @@ class DuetApproval:
         )
 
 
+def _sorted_unique(value: object, name: str, admit) -> tuple[str, ...]:
+    if not isinstance(value, tuple):
+        raise ValueError(f"{name} must be a tuple")
+    result = tuple(admit(item, name) for item in value)
+    if len(set(result)) != len(result):
+        raise ValueError(f"{name} must contain unique values")
+    return tuple(sorted(result))
+
+
 @dataclass(frozen=True)
 class WorkflowAdmissionAuthority:
     """Host-owned ceiling for admitting one Duet-designed workflow.
 
     This is not an Episode and never runs a model. Its sole purpose is to
     freeze the host capability boundary used to validate and launch the
-    human-approved workflow.
+    human-approved workflow. ``egress_hosts`` and ``egress_credential_names``
+    bound every Episode egress rule: the exact hosts an approved workflow may
+    name and the operator-held credentials it may refer to by name.
     """
 
     duet_id: OpaqueId
     assignable_capability_names: tuple[str, ...]
+    egress_hosts: tuple[str, ...] = ()
+    egress_credential_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _opaque(self.duet_id, "duet_id")
@@ -378,12 +394,44 @@ class WorkflowAdmissionAuthority:
                 "assignable_capability_names",
             ),
         )
+        object.__setattr__(
+            self,
+            "egress_hosts",
+            _sorted_unique(self.egress_hosts, "egress_hosts", validate_egress_host),
+        )
+        object.__setattr__(
+            self,
+            "egress_credential_names",
+            _sorted_unique(
+                self.egress_credential_names,
+                "egress_credential_names",
+                validate_egress_name,
+            ),
+        )
+
+    def egress_rule_violations(self, rule: EpisodeEgressRule) -> tuple[str, ...]:
+        """Return the ceiling dimensions (``host``, ``credential``) ``rule`` exceeds."""
+
+        if not isinstance(rule, EpisodeEgressRule):
+            raise TypeError("rule must be an EpisodeEgressRule")
+        violations = []
+        if rule.host not in self.egress_hosts:
+            violations.append("host")
+        if (
+            rule.credential is not None
+            and rule.credential not in self.egress_credential_names
+        ):
+            violations.append("credential")
+        return tuple(violations)
+
     def authority_record(self) -> dict[str, Any]:
         return {
             "duet_id": self.duet_id.value,
             "assignable_capability_names": list(
                 self.assignable_capability_names
             ),
+            "egress_hosts": list(self.egress_hosts),
+            "egress_credential_names": list(self.egress_credential_names),
         }
 
     @property
@@ -408,18 +456,23 @@ class WorkflowAdmissionAuthority:
         expected = {
             "duet_id",
             "assignable_capability_names",
+            "egress_hosts",
+            "egress_credential_names",
             "authority_id",
             "content_hash",
         }
         if set(value) != expected:
             raise ValueError("workflow admission authority has an invalid shape")
-        capabilities = value["assignable_capability_names"]
-        if not isinstance(capabilities, list):
-            raise ValueError("assignable_capability_names must be an array")
-        authority = cls(
-            duet_id=OpaqueId(value["duet_id"]),
-            assignable_capability_names=tuple(capabilities),
-        )
+        arrays = {}
+        for name in (
+            "assignable_capability_names",
+            "egress_hosts",
+            "egress_credential_names",
+        ):
+            if not isinstance(value[name], list):
+                raise ValueError(f"{name} must be an array")
+            arrays[name] = tuple(value[name])
+        authority = cls(duet_id=OpaqueId(value["duet_id"]), **arrays)
         if (
             authority.authority_id.value != value["authority_id"]
             or authority.content_hash.value != value["content_hash"]
