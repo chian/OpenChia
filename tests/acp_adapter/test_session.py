@@ -88,7 +88,7 @@ class TestCreateSession:
             raising=False,
         )
         monkeypatch.setattr(
-            "hermes_cli.config.load_config",
+            "openchia_cli.config.load_config",
             lambda: {
                 "model": {
                     "default": "fake-model",
@@ -98,7 +98,7 @@ class TestCreateSession:
             },
         )
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             lambda requested=None: {
                 "provider": requested,
                 "api_mode": "codex_app_server",
@@ -107,7 +107,7 @@ class TestCreateSession:
             },
         )
         monkeypatch.setattr("acp_adapter.session._register_task_cwd", lambda task_id, cwd: None)
-        monkeypatch.setattr("hermes_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
+        monkeypatch.setattr("openchia_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
 
         SessionManager(db=None).create_session(cwd=str(workspace))
 
@@ -124,9 +124,9 @@ class TestCreateSession:
 
         config = {"model": {"default": "m", "provider": "p"}, "mcp_servers": {"cfg-server": {}}}
         monkeypatch.setattr("run_agent.AIAgent", FakeAgent)
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: config)
-        monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", lambda **_kw: {})
-        monkeypatch.setattr("hermes_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
+        monkeypatch.setattr("openchia_cli.config.load_config", lambda: config)
+        monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", lambda **_kw: {})
+        monkeypatch.setattr("openchia_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
         monkeypatch.setattr("acp_adapter.session._register_task_cwd", lambda task_id, cwd: None)
         manager = SessionManager(db=None)
 
@@ -157,9 +157,9 @@ class TestCreateSession:
                 seen.append(kwargs)
 
         monkeypatch.setattr("run_agent.AIAgent", FakeAgent)
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {"model": {"default": "m"}, **config})
-        monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", lambda **_kw: {})
-        monkeypatch.setattr("hermes_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
+        monkeypatch.setattr("openchia_cli.config.load_config", lambda: {"model": {"default": "m"}, **config})
+        monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", lambda **_kw: {})
+        monkeypatch.setattr("openchia_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
         monkeypatch.setattr("acp_adapter.session._register_task_cwd", lambda task_id, cwd: None)
 
         SessionManager(db=None)._make_agent(session_id="fresh", cwd=".")
@@ -192,9 +192,9 @@ class TestCreateSession:
         if acp_toolsets is not None:
             config["platform_toolsets"] = {"acp": acp_toolsets}
         monkeypatch.setattr("run_agent.AIAgent", FakeAgent)
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: config)
-        monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", lambda **_kw: {})
-        monkeypatch.setattr("hermes_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
+        monkeypatch.setattr("openchia_cli.config.load_config", lambda: config)
+        monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", lambda **_kw: {})
+        monkeypatch.setattr("openchia_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
         monkeypatch.setattr("acp_adapter.session._register_task_cwd", lambda task_id, cwd: None)
 
         SessionManager(db=None)._make_agent(session_id="fresh", cwd=".")
@@ -218,9 +218,9 @@ class TestCreateSession:
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
 
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {"model": {"default": "m", "provider": "openai-codex"}})
-        monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", _no_creds)
-        monkeypatch.setattr("hermes_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
+        monkeypatch.setattr("openchia_cli.config.load_config", lambda: {"model": {"default": "m", "provider": "openai-codex"}})
+        monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", _no_creds)
+        monkeypatch.setattr("openchia_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
         monkeypatch.setattr("acp_adapter.session._register_task_cwd", lambda task_id, cwd: None)
         manager = SessionManager(db=None)
 
@@ -244,11 +244,11 @@ class TestCreateSession:
                 seen.append(kwargs)
 
         monkeypatch.setattr("run_agent.AIAgent", FakeAgent)
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {"model": {"default": "m", "provider": "openai-codex"}})
-        monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", lambda **_kw: {
+        monkeypatch.setattr("openchia_cli.config.load_config", lambda: {"model": {"default": "m", "provider": "openai-codex"}})
+        monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", lambda **_kw: {
             "provider": "openai-codex", "api_mode": "codex_app_server", "api_key": "test-key", "credential_pool": sentinel_pool,
         })
-        monkeypatch.setattr("hermes_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
+        monkeypatch.setattr("openchia_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kw: None)
         monkeypatch.setattr("acp_adapter.session._register_task_cwd", lambda task_id, cwd: None)
 
         SessionManager(db=None)._make_agent(session_id="s", cwd=".")
@@ -572,11 +572,11 @@ class TestPersistence:
         def fake_agent(**kwargs):
             return SimpleNamespace(model=kwargs.get("model"), _print_fn=None)
 
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {
+        monkeypatch.setattr("openchia_cli.config.load_config", lambda: {
             "model": {"provider": "openrouter", "default": "test-model"}
         })
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             fake_resolve_runtime_provider,
         )
         db = SessionDB(tmp_path / "state.db")

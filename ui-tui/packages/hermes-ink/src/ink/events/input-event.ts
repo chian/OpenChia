@@ -178,7 +178,7 @@ function parseKey(keypress: ParsedKey): [Key, string] {
  * (kitty CSI u / xterm modifyOtherKeys `ESC [ 108 ; 5 u`) after its keycode,
  * and `parseKey` above hands that name to `input` so bindings can still match
  * ctrl+<letter>. Text inserters must not read the name as input: the dashboard
- * writes the PTY force-redraw byte Ctrl+L (0x0c, `hermes_cli/pty_session.py`
+ * writes the PTY force-redraw byte Ctrl+L (0x0c, `openchia_cli/pty_session.py`
  * TUI_FORCE_REDRAW) into the TUI's stdin on every re-attach, which typed a
  * solitary `l` into the composer after a session resume / tab switch / window
  * restore (#115284). Bracketed pastes are text even when a control byte rides

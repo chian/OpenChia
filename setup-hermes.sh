@@ -217,7 +217,7 @@ bin_dir="$HOME/.local/bin"
 if [ "$os" = win32 ]; then
     bin_dir="$(cygpath -am "${HERMES_HOME:-${LOCALAPPDATA:-$HOME/AppData/Local}/hermes}/bin")"
 fi
-if ! "$boot_py" -I -X utf8 hermes_cli/_launchers.py "$bin_dir"; then
+if ! "$boot_py" -I -X utf8 openchia_cli/_launchers.py "$bin_dir"; then
     echo -e "${RED}✗${NC} launcher publication failed" >&2
     exit 1
 fi

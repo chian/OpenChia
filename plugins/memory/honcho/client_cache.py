@@ -124,7 +124,7 @@ def _config_yaml_timeout() -> float | None:
     from plugins.memory.honcho.client import _resolve_optional_float
 
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
         honcho_cfg = load_config_readonly().get("honcho", {})
         if isinstance(honcho_cfg, dict):
             return _resolve_optional_float(honcho_cfg.get("timeout"), honcho_cfg.get("request_timeout"))

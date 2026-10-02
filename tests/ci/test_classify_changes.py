@@ -145,7 +145,7 @@ CASES = {
     "nix + python → both": (["nix/checks.nix", "agent/x.py"], _lanes(python=True, scan=True)),
     # Nine checks run the built binary, so product Python is a nix input even
     # when the diff touches no file under nix/.
-    "product python → nix": (["hermes_cli/config.py"], _lanes(python=True, scan=True)),
+    "product python → nix": (["openchia_cli/config.py"], _lanes(python=True, scan=True)),
     # tests/ is not packaged, so the built binary cannot change.
     "tests-only → no nix": (
         ["tests/agent/test_foo.py"],
@@ -240,7 +240,7 @@ CASES = {
         _lanes(python=True, mcp_catalog=True),
     ),
     "mcp_catalog.py → mcp_catalog": (
-        ["hermes_cli/mcp_catalog.py"],
+        ["openchia_cli/mcp_catalog.py"],
         _lanes(python=True, scan=True, mcp_catalog=True),
     ),
     # CI-sensitive files require explicit review label.

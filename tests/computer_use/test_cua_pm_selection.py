@@ -49,7 +49,7 @@ def test_pm_selection_ignores_vendor_tree_and_is_passive(cua_home, monkeypatch):
 @pytest.mark.platforms("linux")
 def test_setup_acquires_through_pm_and_validates_real_manifest(cua_home, monkeypatch):
     import pm
-    from hermes_cli.tools_config_cua import install_cua_driver
+    from openchia_cli.tools_config_cua import install_cua_driver
     from tools.computer_use.cua_backend_driver import cua_driver_runtime_contract_status
 
     monkeypatch.setenv("PATH", "")

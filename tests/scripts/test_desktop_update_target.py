@@ -52,7 +52,7 @@ def _run_handoff(tmp_path, target, *, windows=False, inherited_home=True, modern
         )
     package = (
         install / "venv" / "Lib" / "site-packages" if windows and not modern else install
-    ) / "hermes_cli"
+    ) / "openchia_cli"
     package.mkdir(parents=True)
     (package / "__init__.py").touch()
     (package / "main.py").write_text(FAKE_CLI, encoding="utf-8")
@@ -107,7 +107,7 @@ def _run_handoff(tmp_path, target, *, windows=False, inherited_home=True, modern
             (bin_dir / "python3").symlink_to(sys.executable)
             hermes = bin_dir / "hermes"
             hermes.write_text(
-                f'#!/usr/bin/env bash\nexec {shlex.quote(sys.executable)} -m hermes_cli.main "$@"\n',
+                f'#!/usr/bin/env bash\nexec {shlex.quote(sys.executable)} -m openchia_cli.main "$@"\n',
                 encoding="utf-8",
             )
             hermes.chmod(0o755)

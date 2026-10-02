@@ -96,7 +96,7 @@ test('output tail interleaves stdout and stderr attached from spawn time', () =>
 
   tail.attach(child)
   child.stdout.emit('data', Buffer.from('booting\n'))
-  child.stderr.emit('data', Buffer.from("ModuleNotFoundError: No module named 'hermes_cli'\n"))
+  child.stderr.emit('data', Buffer.from("ModuleNotFoundError: No module named 'openchia_cli'\n"))
 
   assert.match(tail.text(), /booting/)
   assert.match(tail.text(), /ModuleNotFoundError/)

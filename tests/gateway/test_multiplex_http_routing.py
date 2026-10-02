@@ -46,7 +46,7 @@ class TestWebhookProfileResolution:
             multiplex=True, served=("default", "worker"),
         )
         monkeypatch.setattr(
-            "hermes_cli.profiles.profiles_to_serve",
+            "openchia_cli.profiles.profiles_to_serve",
             lambda multiplex: [(name, f"/profiles/{name}") for name in served],
         )
 

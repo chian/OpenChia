@@ -55,7 +55,7 @@ def _as_positive_int(raw, default: int) -> int:
 
 def settings_from_config(cfg) -> BotLoopGuardSettings:
     """Read ``gateway.bot_loop_guard`` from a loaded config dict. Unusable values keep the default."""
-    from hermes_cli.config import cfg_get
+    from openchia_cli.config import cfg_get
 
     block = cfg_get(cfg, "gateway", "bot_loop_guard", default=None)
     if not isinstance(block, dict):
@@ -72,7 +72,7 @@ def settings_from_config(cfg) -> BotLoopGuardSettings:
 def load_settings() -> BotLoopGuardSettings:
     """Settings from the live config.yaml. Defaults when the config cannot be read."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
 
         return settings_from_config(load_config_readonly())
     except Exception:

@@ -81,7 +81,7 @@ def _(rid, params: dict) -> dict:
     """Enable/disable an external manager: writes ``vault.<name>.enabled`` and locks it when disabling."""
     from agent.vault_backends.base import external_backend_classes
     from agent.vault_backends.unlock import lock
-    from hermes_cli.config import _ensure_dict, load_config, save_config
+    from openchia_cli.config import _ensure_dict, load_config, save_config
 
     name = str(params.get("name") or "")
     if name not in {cls.name for cls in external_backend_classes()}:

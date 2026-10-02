@@ -69,7 +69,7 @@ from gateway.session_transcript import TranscriptReadError
 logger = logging.getLogger(__name__)
 
 # AUTH_BIND / sign-token header values
-from hermes_cli.version_info import get_version_info
+from openchia_cli.version_info import get_version_info
 
 _APP_VERSION = _BOT_VERSION = get_version_info().base_version
 _YUANBAO_INSTANCE_ID = str(HERMES_INSTANCE_ID)

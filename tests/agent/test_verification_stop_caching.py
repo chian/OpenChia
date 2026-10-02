@@ -22,7 +22,7 @@ import pytest
 def _restore_sys_modules():
     """``_fresh_run_agent`` wipes the agent stack out of ``sys.modules``. Put the original
     module objects back afterwards: sibling test files hold module-level references into
-    ``hermes_cli.*`` / ``tools.*`` and their monkeypatches would otherwise land on modules
+    ``openchia_cli.*`` / ``tools.*`` and their monkeypatches would otherwise land on modules
     the app no longer imports."""
     saved = dict(sys.modules)
     yield

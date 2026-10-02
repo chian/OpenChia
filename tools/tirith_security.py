@@ -35,7 +35,7 @@ def _env_int(key: str, default: int) -> int:
 def _load_security_config() -> dict:
     """Security settings from config.yaml, with env var overrides."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
         cfg = load_config_readonly().get("security", {}) or {}
     except Exception:
         cfg = {}

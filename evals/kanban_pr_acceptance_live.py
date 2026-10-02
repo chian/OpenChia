@@ -12,8 +12,8 @@ root = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(root))
 os.environ.pop('HERMES_DELEGATED_CHILD_CONTEXT', None)
 import pytest
-from hermes_cli import kanban_db as kb
-from hermes_cli.kanban_db_connect import connect
+from openchia_cli import kanban_db as kb
+from openchia_cli.kanban_db_connect import connect
 import inspect
 
 def create(conn, title):
@@ -27,7 +27,7 @@ def create(conn, title):
     return tid
 
 fixture_root = Path(sys.argv[2]) if len(sys.argv) > 2 else root
-spec = importlib.util.spec_from_file_location('http_fixture', fixture_root / 'tests/hermes_cli/test_kanban_pr_acceptance.py')
+spec = importlib.util.spec_from_file_location('http_fixture', fixture_root / 'tests/openchia_cli/test_kanban_pr_acceptance.py')
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)
 patch = pytest.MonkeyPatch()

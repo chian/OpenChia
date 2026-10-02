@@ -1,6 +1,6 @@
 """Suite-wide SessionDB leak-closing contract (OOM incident 20260816).
 
-A raw single-process ``pytest tests/hermes_cli/`` used to accumulate every
+A raw single-process ``pytest tests/openchia_cli/`` used to accumulate every
 SessionDB a test constructed and forgot to close — writer connection,
 pooled read connections, and (once token accounting ran) an ``atexit``
 registration pinning the instance alive — ballooning to 16-25 GB RSS.

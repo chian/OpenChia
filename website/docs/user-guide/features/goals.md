@@ -42,7 +42,7 @@ If you want work on the board, put it there yourself (`hermes kanban create …`
 ## Quick start
 
 ```
-/goal Fix every failing test in tests/hermes_cli/ and make sure scripts/run_tests.sh passes for that directory
+/goal Fix every failing test in tests/openchia_cli/ and make sure scripts/run_tests.sh passes for that directory
 ```
 
 What you'll see:
@@ -138,7 +138,7 @@ A completion contract makes the judge stricter, but the judge is still an LLM re
 
 ```
 /goal Fix the flaky session tests
-/goal gate add scripts/run_tests.sh tests/hermes_cli/test_goals.py
+/goal gate add scripts/run_tests.sh tests/openchia_cli/test_goals.py
 ```
 
 How it works, each turn:

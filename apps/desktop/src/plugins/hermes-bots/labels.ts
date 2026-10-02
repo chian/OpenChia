@@ -71,7 +71,7 @@ export function slugify(value: string, max = 64) {
     .slice(0, max)
 }
 
-/** The profile id the backend accepts (`hermes_cli.profiles._PROFILE_ID_RE`
+/** The profile id the backend accepts (`openchia_cli.profiles._PROFILE_ID_RE`
  *  is ASCII-only), derived from whatever the user typed as the bot's name.
  *  Accented Latin folds to its base letters (`Résumé` → `resume`); every other
  *  letter or digit becomes a deterministic `u<hex>` token per NFC code point —

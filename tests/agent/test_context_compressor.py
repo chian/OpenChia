@@ -228,7 +228,7 @@ class TestSummarizeToolResultClarify:
             # gateway/run.py timeout + delivery-failure paths
             "[user did not respond within 15m]",
             "[clarify prompt could not be delivered]",
-            # hermes_cli/oneshot.py no-user callback
+            # openchia_cli/oneshot.py no-user callback
             "[oneshot mode: no user available. Pick the best option from "
             "['a', 'b'] using your own judgment and continue.]",
         ],
@@ -258,7 +258,7 @@ class TestSummarizeToolResultClarify:
         """Producer→recognizer drift guard: run the REAL oneshot no-user
         callback and assert its output is filtered. If the producer's wording
         drifts away from _CLARIFY_NON_RESPONSE_PREFIXES, this fails."""
-        from hermes_cli.oneshot import _oneshot_clarify_callback
+        from openchia_cli.oneshot import _oneshot_clarify_callback
 
         sentinels = (
             _oneshot_clarify_callback("Deploy when?", choices=["a", "b"]),
@@ -2213,7 +2213,7 @@ class TestThresholdTokensCap:
     def test_default_config_compacts_at_the_ratio_trigger(self, context_length):
         """Shipped defaults carry no token cap: every window compacts at its ratio trigger, so a 1M
         window is not cut to a fixed count that suits some models and not others."""
-        from hermes_cli.config import DEFAULT_CONFIG
+        from openchia_cli.config import DEFAULT_CONFIG
 
         default_pct = DEFAULT_CONFIG["compression"]["threshold"]
         default_cap = DEFAULT_CONFIG["compression"]["threshold_tokens"]

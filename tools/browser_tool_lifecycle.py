@@ -119,7 +119,7 @@ def _session_owner_scope(task_id: str):
         return
 
     from agent.secret_scope import build_profile_secret_scope, reset_secret_scope, set_secret_scope
-    from hermes_cli.env_loader import hydrate_profile_secret_sources
+    from openchia_cli.env_loader import hydrate_profile_secret_sources
 
     home_token = set_hermes_home_override(owner_home)
     try:

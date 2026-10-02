@@ -99,7 +99,7 @@ def warm_agent_browser_npx_cache(timeout: float = 60.0) -> bool:
 
 def _chromium_installed() -> bool:
     """An explicit browser executable or PM's selected full Chromium exists."""
-    from hermes_cli.browser_runtime import chromium_executable
+    from openchia_cli.browser_runtime import chromium_executable
 
     ab_path = chromium_executable()
     return bool(ab_path and (os.path.isfile(ab_path) or shutil.which(ab_path)))

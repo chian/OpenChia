@@ -5370,7 +5370,7 @@ Write only the summary body. Do not include any preamble or prefix."""
             # compressed-away message dicts), which makes this the natural point to hand allocator pages
             # back to the OS. #76905's trim lifecycle covers the gateway/TUI housekeeping loops but not the
             # CLI compression path, so RSS keeps the pre-compaction high-water mark until exit. (#70782)
-            from hermes_cli.mem_trim import trim_memory
+            from openchia_cli.mem_trim import trim_memory
             trim_memory(reason="post-compression")
         except Exception as exc:
             logger.debug("post-compression memory trim failed: %s: %s", type(exc).__name__, exc)

@@ -88,7 +88,7 @@ class TestPrologueRowAddressedBackfill:
         agent = _FakeAgent()
         agent._session_db = MagicMock()
         with patch(
-            "hermes_cli.plugins.invoke_hook",
+            "openchia_cli.plugins.invoke_hook",
             return_value=[{"context": "PLUGIN-CTX"}],
         ):
             ctx = _build(agent)
@@ -139,7 +139,7 @@ class TestRealEarlyFlushAndOverrideLifecycle:
 
             # Now build_turn_context runs
             with patch(
-                "hermes_cli.plugins.invoke_hook",
+                "openchia_cli.plugins.invoke_hook",
                 return_value=[{"context": "PLUGIN-CTX"}],
             ):
                 ctx = _build(agent)
@@ -172,7 +172,7 @@ class TestRealEarlyFlushAndOverrideLifecycle:
             assert staged.get("_row_id") is not None
 
             # Worker resumes with API-facing message and clean persist override
-            with patch("hermes_cli.plugins.invoke_hook", return_value=[]):
+            with patch("openchia_cli.plugins.invoke_hook", return_value=[]):
                 ctx = _build(
                     agent,
                     user_message=api_text,
@@ -226,7 +226,7 @@ class TestRealEarlyFlushAndOverrideLifecycle:
 
             # Prologue backfills Turn 2
             with patch(
-                "hermes_cli.plugins.invoke_hook",
+                "openchia_cli.plugins.invoke_hook",
                 return_value=[{"context": "TURN-2-CTX"}],
             ):
                 _build(agent, user_message="ok")

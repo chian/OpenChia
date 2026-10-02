@@ -66,8 +66,8 @@ def _running_site():
 
 
 def test_terminal_child_observes_declared_policy(child_env, monkeypatch):
-    from hermes_cli.auth import PROVIDER_REGISTRY
-    from hermes_cli.config import OPTIONAL_ENV_VARS
+    from openchia_cli.auth import PROVIDER_REGISTRY
+    from openchia_cli.config import OPTIONAL_ENV_VARS
     blocked = set(STATIC_BLOCKED)
     for config in PROVIDER_REGISTRY.values():
         blocked.update(config.api_key_env_vars)
@@ -260,8 +260,8 @@ def test_pythonpath_descendants_are_not_owned():
 @pytest.mark.parametrize("link_at", ["home", "repo", "unrelated"])
 @pytest.mark.parametrize("profile", [False, True])
 def test_launcher_alias_provenance(child_env, monkeypatch, link_at, profile):
-    from hermes_cli.gateway_windows import _preserve_hermes_home_path
-    from hermes_cli.profiles import resolve_profile_env
+    from openchia_cli.gateway_windows import _preserve_hermes_home_path
+    from openchia_cli.profiles import resolve_profile_env
     physical_home = child_env / "physical-home"
     physical_root = physical_home / "hermes-agent"
     physical_root.mkdir(parents=True)
@@ -707,7 +707,7 @@ class TestNativeEnvironmentContracts:
         """The real producer spelling is derived and consumed end to end."""
         import tools.environments.local as local
         from tools.environments import local_pythonpath
-        from hermes_cli.gateway_windows import _preserve_hermes_home_path
+        from openchia_cli.gateway_windows import _preserve_hermes_home_path
 
         physical_home = tmp_path / "physical-home"
         physical_root = _physical_repo_root(tmp_path)
@@ -756,7 +756,7 @@ class TestNativeEnvironmentContracts:
         """
         import tools.environments.local as local
         from tools.environments import local_pythonpath
-        from hermes_cli.profiles import resolve_profile_env
+        from openchia_cli.profiles import resolve_profile_env
 
         physical_home = tmp_path / "physical-home"
         physical_root = physical_home / "hermes-agent"
@@ -1047,7 +1047,7 @@ class TestBlocklistCoverage:
         CLAUDE_CODE_OAUTH_TOKEN is the one deliberate exemption: it is owned
         by the user's Claude Code install, not Hermes (#55878).
         """
-        from hermes_cli.auth import PROVIDER_REGISTRY
+        from openchia_cli.auth import PROVIDER_REGISTRY
 
         exempt = {"CLAUDE_CODE_OAUTH_TOKEN"}
         for pconfig in PROVIDER_REGISTRY.values():
@@ -1114,7 +1114,7 @@ class TestBlocklistCoverage:
 
     def test_optional_tool_and_messaging_vars_are_in_blocklist(self):
         """Tool/messaging vars from OPTIONAL_ENV_VARS should stay covered."""
-        from hermes_cli.config import OPTIONAL_ENV_VARS
+        from openchia_cli.config import OPTIONAL_ENV_VARS
 
         for name, metadata in OPTIONAL_ENV_VARS.items():
             category = metadata.get("category")

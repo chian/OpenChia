@@ -38,7 +38,7 @@ export function isHermesOwnedVenvDaemon(
 /**
  * True when a process is an external Hermes process holding this install's venv
  * (#62311): its exe lives under `<venv>\Scripts\` AND it is unambiguously a
- * Hermes program — the `hermes.exe` shim, `python -m hermes_cli...`, or
+ * Hermes program — the `hermes.exe` shim, `python -m openchia_cli...`, or
  * `python -m hermes ...`. These are the autostart holders (the gateway Startup
  * item, the dashboard Scheduled Task) that neither the desktop's backend
  * teardown nor the hindsight-daemon sweep reach, and that keep the venv shim
@@ -69,5 +69,5 @@ export function isExternalVenvHolder(
     return true
   }
 
-  return /hermes_cli/i.test(cmdline) || /(^|\s|")-m\s+hermes([.\s"']|$)/i.test(cmdline)
+  return /openchia_cli/i.test(cmdline) || /(^|\s|")-m\s+hermes([.\s"']|$)/i.test(cmdline)
 }

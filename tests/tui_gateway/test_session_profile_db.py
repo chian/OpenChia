@@ -50,8 +50,8 @@ def server(hermes_home):
     with patch.dict(
         "sys.modules",
         {
-            "hermes_cli.env_loader": MagicMock(),
-            "hermes_cli.banner": MagicMock(),
+            "openchia_cli.env_loader": MagicMock(),
+            "openchia_cli.banner": MagicMock(),
         },
     ):
         mod = importlib.import_module("tui_gateway.server")

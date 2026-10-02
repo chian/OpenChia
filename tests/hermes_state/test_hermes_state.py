@@ -204,7 +204,7 @@ class TestConnectionLifecycle:
         self, tmp_path, monkeypatch
     ):
         """A failed schema init must close the connection opened before it."""
-        from hermes_cli.sqlite_safe_read import has_live_connection
+        from openchia_cli.sqlite_safe_read import has_live_connection
 
         db_path = tmp_path / "state.db"
         opened = []
@@ -237,7 +237,7 @@ class TestConnectionLifecycle:
         self, tmp_path, monkeypatch
     ):
         """A post-open read setup failure must close its unregistered conn."""
-        from hermes_cli import sqlite_safe_read
+        from openchia_cli import sqlite_safe_read
 
         db_path = tmp_path / "state.db"
         db = SessionDB(db_path=db_path)
@@ -341,7 +341,7 @@ class TestConnectionLifecycle:
         forensic backup."""
         import sqlite3
 
-        from hermes_cli.sqlite_safe_read import has_live_connection
+        from openchia_cli.sqlite_safe_read import has_live_connection
 
         db_path = tmp_path / "state.db"
         writable = SessionDB(db_path=db_path)
@@ -390,7 +390,7 @@ class TestConnectionLifecycle:
         """
         import sqlite3
 
-        from hermes_cli.sqlite_safe_read import has_live_connection
+        from openchia_cli.sqlite_safe_read import has_live_connection
 
         db_path = tmp_path / "state.db"
         writable = SessionDB(db_path=db_path)
@@ -1613,7 +1613,7 @@ class TestDeleteEmptySessions:
     """``delete_empty_sessions`` sweeps every ended, non-archived session
     whose ``message_count`` is 0. Backs the dashboard's "Delete empty"
     button — see ``SessionsPage.tsx`` + ``DELETE /api/sessions/empty``
-    in ``hermes_cli/web_server.py``.
+    in ``openchia_cli/web_server.py``.
 
     Invariants this class locks in:
 
@@ -6006,7 +6006,7 @@ class TestApplyDatabasePragmas:
     @staticmethod
     def _patch_cfg(monkeypatch, cfg):
         monkeypatch.setattr(
-            "hermes_cli.config.load_config_readonly",
+            "openchia_cli.config.load_config_readonly",
             lambda: cfg,
         )
 

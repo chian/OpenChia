@@ -53,7 +53,7 @@ def _coerce_bool(value: Any, fallback: bool) -> bool:
 
 def load_config() -> ConnectorConfig:
     try:
-        from hermes_cli.config import load_config_readonly as _load
+        from openchia_cli.config import load_config_readonly as _load
 
         cfg = _load() or {}
         tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
@@ -73,7 +73,7 @@ def managed_tools_rolled_out() -> bool:
     says nothing about that, so entitlement is the wrong predicate here: the portal mints its
     answer onto the token as ``managed_tools`` and this reads only that. A token minted before
     the claim existed carries none and reads as not enabled."""
-    from hermes_cli.nous_account import get_nous_portal_account_info
+    from openchia_cli.nous_account import get_nous_portal_account_info
 
     account_info = get_nous_portal_account_info()
     return bool(account_info.logged_in) and account_info.managed_tools_rolled_out
@@ -94,7 +94,7 @@ def connectors_available(
         if not resolved_loader().enabled:
             return False
         if entitlement_check is None:
-            from hermes_cli.anon_auth import is_guest_state
+            from openchia_cli.anon_auth import is_guest_state
             from tools.managed_tool_gateway import _read_nous_provider_state
 
             # Availability must not mint or refresh an identity.

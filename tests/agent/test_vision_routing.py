@@ -63,7 +63,7 @@ def _write_config(home: str, text: str) -> None:
 
 _RELOAD_PREFIXES = ("agent.auxiliary_client", "agent.image_routing",
                     "tools.vision_tools", "tools.browser_tool",
-                    "hermes_cli.config")
+                    "openchia_cli.config")
 
 
 def _drop_reload_targets():

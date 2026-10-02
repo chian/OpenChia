@@ -1,6 +1,6 @@
 // Electron is a GUI-subsystem process, so a direct git.exe spawn allocates its
 // own console even when Node's windowsHide is set. windowsHide is SW_HIDE and,
-// from a console-less parent, does not stop that flash (hermes_cli/_subprocess_compat.py).
+// from a console-less parent, does not stop that flash (openchia_cli/_subprocess_compat.py).
 //
 // The flag that does is CREATE_NO_WINDOW (0x08000000). A console-subsystem
 // python.exe started with that flag owns one hidden console; git is then

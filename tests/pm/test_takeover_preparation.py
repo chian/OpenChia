@@ -20,7 +20,7 @@ def test_fresh_takeover_prepares_generation_and_runs_selected_python(tmp_path):
     source = Path(__file__).resolve().parents[2]
     root = tmp_path / "source with spaces"
     root.mkdir()
-    for name in ("pm", "hermes_cli"):
+    for name in ("pm", "openchia_cli"):
         shutil.copytree(source / name, root / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     for name in ("hermes_constants.py", "hermes_yaml.py", "utils.py", "hermes_bootstrap.py"):
         shutil.copy2(source / name, root / name)
@@ -68,7 +68,7 @@ def test_fresh_takeover_prepares_generation_and_runs_selected_python(tmp_path):
     lock.save()
     # Probe the selected-interpreter boundary; app completion orchestration has
     # its own contract tests. This script cannot import the dep from the parent.
-    (root / "hermes_cli/update_finish.py").write_text(
+    (root / "openchia_cli/update_finish.py").write_text(
         "import json, sys\nfrom pathlib import Path\n"
         "request=json.loads(Path(sys.argv[1]).read_text())\n"
         "sys.path.insert(0,request['root'])\n"
@@ -79,7 +79,7 @@ def test_fresh_takeover_prepares_generation_and_runs_selected_python(tmp_path):
         encoding="utf-8")
     context, result = tmp_path / "context.json", tmp_path / "result.json"
     context.write_text(json.dumps({"root": str(root), "home": str(home)}), encoding="utf-8")
-    completed = subprocess.run([sys.executable, "-I", "-S", "-B", str(root / "hermes_cli/_update_takeover.py"), str(context), str(result)],
+    completed = subprocess.run([sys.executable, "-I", "-S", "-B", str(root / "openchia_cli/_update_takeover.py"), str(context), str(result)],
                                env=env, cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert completed.returncode == 0, completed.stdout + completed.stderr
     output = json.loads(result.read_text())
@@ -105,7 +105,7 @@ def test_fresh_takeover_prepares_generation_and_runs_selected_python(tmp_path):
     (facts.parent / ".repair-incomplete").write_text("{}", encoding="utf-8")
     with (root / "uv.lock").open("a", encoding="utf-8") as changed:
         changed.write("\n# changed source inputs\n")
-    repaired = subprocess.run([sys.executable, "-I", "-S", "-B", str(root / "hermes_cli/_update_takeover.py"), str(context), str(result)],
+    repaired = subprocess.run([sys.executable, "-I", "-S", "-B", str(root / "openchia_cli/_update_takeover.py"), str(context), str(result)],
                               env=env, cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert repaired.returncode == 0, repaired.stdout + repaired.stderr
     assert json.loads(facts.read_text())["packages"]["venv"]["stamp"] != first_stamp
@@ -115,9 +115,9 @@ def test_fresh_takeover_prepares_generation_and_runs_selected_python(tmp_path):
 
     # A child which dies before acknowledging receipt ownership must not
     # leave the parent reporting success from its pre-handoff receipt.
-    (root / "hermes_cli/update_finish.py").write_text("raise SystemExit(7)\n", encoding="utf-8")
+    (root / "openchia_cli/update_finish.py").write_text("raise SystemExit(7)\n", encoding="utf-8")
     result.unlink()
-    crashed = subprocess.run([sys.executable, "-I", "-S", "-B", str(root / "hermes_cli/_update_takeover.py"), str(context), str(result)],
+    crashed = subprocess.run([sys.executable, "-I", "-S", "-B", str(root / "openchia_cli/_update_takeover.py"), str(context), str(result)],
                              env=env, cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert crashed.returncode == 7
     assert json.loads(result.read_text())["receipt_handled"]
@@ -130,7 +130,7 @@ def test_fresh_takeover_prepares_generation_and_runs_selected_python(tmp_path):
     before = facts.read_bytes()
     (root / "uv.lock").write_text("not valid TOML [", encoding="utf-8")
     result.unlink()
-    failed = subprocess.run([sys.executable, "-I", "-S", "-B", str(root / "hermes_cli/_update_takeover.py"), str(context), str(result)],
+    failed = subprocess.run([sys.executable, "-I", "-S", "-B", str(root / "openchia_cli/_update_takeover.py"), str(context), str(result)],
                             env=env, cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert failed.returncode != 0
     assert facts.read_bytes() == before

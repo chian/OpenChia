@@ -34,7 +34,7 @@ select an agent payload.
 ## Build and packaging entrypoints
 
 Source updates and source UI launches use the same dependency provider and
-product builders. `hermes_cli/source_build.py` selects the workspace union,
+product builders. `openchia_cli/source_build.py` selects the workspace union,
 prepares it once, then invokes the shared recipes. An update builds TUI and
 web, plus the local desktop app when one was present before the update.
 Desktop packaging still belongs to the local desktop adapter.
@@ -246,12 +246,12 @@ admission, generation selection, and transaction state. Both paths use
 
 Native payloads contain `hermes-agent`, `tools`, `venv`, `pm-runtime`, `bin`,
 `uv-cache`, and their manifests/facts. Copied frontend assets live at
-`hermes-agent/hermes_cli/tui_dist/` and `hermes-agent/hermes_cli/web_dist/`.
+`hermes-agent/openchia_cli/tui_dist/` and `hermes-agent/openchia_cli/web_dist/`.
 The TUI asset directory contains `entry.js` and module-mode package metadata.
 
 Docker keeps its existing TUI product at `/opt/hermes/ui-tui` and web output
-at `/opt/hermes/hermes_cli/web_dist`. The assembler also plants its shared TUI
-asset layout beneath `hermes_cli/tui_dist`. Venv command symlinks preserve the
+at `/opt/hermes/openchia_cli/web_dist`. The assembler also plants its shared TUI
+asset layout beneath `openchia_cli/tui_dist`. Venv command symlinks preserve the
 paths used by s6 and the privilege-drop shim.
 
 The Docker frontend stage owns npm dependencies and compilation. The runtime

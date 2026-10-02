@@ -31,7 +31,7 @@ class CopilotACPProfile(ProviderProfile):
         ``base_url`` are ignored: the subprocess owns auth. None when the CLI is missing, refuses
         ``--acp``, or the probe fails/times out — callers fall back to their next source.
         """
-        from hermes_cli.auth import resolve_external_process_provider_credentials
+        from openchia_cli.auth import resolve_external_process_provider_credentials
 
         try:
             creds = resolve_external_process_provider_credentials(self.name)
@@ -54,7 +54,7 @@ copilot_acp = CopilotACPProfile(
     base_url="acp://copilot",  # ACP internal scheme
     auth_type="external_process",
     # How to launch the CLI; env var names predate this profile (formerly hardcoded in
-    # hermes_cli/auth.py), so existing setups keep working.
+    # openchia_cli/auth.py), so existing setups keep working.
     process_command="copilot",
     process_args=("--acp", "--stdio"),
     process_command_env_vars=("HERMES_COPILOT_ACP_COMMAND", "COPILOT_CLI_PATH"),

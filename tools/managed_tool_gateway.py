@@ -47,12 +47,12 @@ def _read_nous_provider_state() -> Optional[dict]:
     the root identity. Reading only ``HERMES_HOME/auth.json`` made that profile look signed out to
     the connector gate alone, so ``manage_connections`` vanished from its tool list."""
     try:
-        from hermes_cli.auth import get_provider_auth_state
+        from openchia_cli.auth import get_provider_auth_state
 
         nous_provider = get_provider_auth_state("nous")
         if not isinstance(nous_provider, dict):
             return None
-        from hermes_cli.anon_auth import guest_enabled, is_guest_state
+        from openchia_cli.anon_auth import guest_enabled, is_guest_state
 
         if is_guest_state(nous_provider) and not guest_enabled():
             return None
@@ -101,7 +101,7 @@ def read_nous_access_token() -> Optional[str]:
     """Read a Nous Subscriber OAuth access token from auth store or env override.
 
     A read: with no Nous identity there is no bearer and the answer is None. The free-tier identity
-    is created by the boot bootstrap (``hermes_cli.free_tier_bootstrap``), never on a token-read
+    is created by the boot bootstrap (``openchia_cli.free_tier_bootstrap``), never on a token-read
     path (NS-845 Q1.2). A retired free-tier credential IS replaced here, once: that is the explicit
     dead-credential rule, shared with inference.
     """
@@ -114,14 +114,14 @@ def read_nous_access_token() -> Optional[str]:
     if cached_token and not _access_token_is_expiring(nous_provider.get("expires_at"), _NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS):
         return cached_token
     try:
-        from hermes_cli.auth import resolve_nous_access_token
+        from openchia_cli.auth import resolve_nous_access_token
 
         if refreshed_token := _clean(resolve_nous_access_token(refresh_skew_seconds=_NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS)):
             return refreshed_token
     except Exception as exc:
         # Same dead-credential rule as inference (one place decides it: anon_auth): a retired free-tier
         # identity is replaced once, here, instead of handing back its stale token forever.
-        from hermes_cli.anon_auth import AnonCredentialDead
+        from openchia_cli.anon_auth import AnonCredentialDead
 
         if isinstance(exc, AnonCredentialDead):
             return _replace_dead_guest_token(nous_provider, str(exc.code or "anon_credential_dead"))
@@ -130,8 +130,8 @@ def read_nous_access_token() -> Optional[str]:
 
 
 def _replace_dead_guest_token(dead_state: dict, code: str = "anon_credential_dead") -> Optional[str]:
-    from hermes_cli.anon_auth import ANON_ACCOUNT_LOCKED, clear_dead_guest, ensure_portal_identity
-    from hermes_cli.auth import resolve_nous_access_token
+    from openchia_cli.anon_auth import ANON_ACCOUNT_LOCKED, clear_dead_guest, ensure_portal_identity
+    from openchia_cli.auth import resolve_nous_access_token
 
     clear_dead_guest(code, dead_token=dead_state.get("anon_token"))
     # Same rule as inference: a locked account is retired but never silently replaced.

@@ -153,7 +153,7 @@ def test_auth_failure_remedy_is_an_actionable_command(outcomes):
     out = outcomes["auth_required_not_retried"]
     assert out.run.returncode != 0 and "Authentication required" in out.run.stdout, out.run.describe()
     for command in REMEDY_RE.findall(out.run.stdout):
-        argv = [sys.executable, "-m", "hermes_cli.main", *command.split()[1:]]
+        argv = [sys.executable, "-m", "openchia_cli.main", *command.split()[1:]]
         proc = subprocess.run(argv, cwd=out.nh.project, env=out.nh.env(), capture_output=True, text=True,
                               timeout=60, stdin=subprocess.DEVNULL)
         said = (proc.stdout + proc.stderr).lower()

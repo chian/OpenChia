@@ -15,7 +15,7 @@ from agent.error_classifier import (
     _extract_error_code,
     _classify_402,
 )
-from tests.hermes_cli.anon_portal import make_jwt
+from tests.openchia_cli.anon_portal import make_jwt
 
 
 # ── Helper: mock API errors ────────────────────────────────────────────

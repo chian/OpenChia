@@ -222,7 +222,7 @@ def build_gateway_health_snapshot(
 
 def _safe_profile() -> str:
     try:
-        from hermes_cli.profiles import get_active_profile_name
+        from openchia_cli.profiles import get_active_profile_name
         return str(get_active_profile_name() or "default")
     except Exception:
         return "default"
@@ -230,7 +230,7 @@ def _safe_profile() -> str:
 
 def _safe_version() -> str:
     try:
-        from hermes_cli.version_info import get_version_info
+        from openchia_cli.version_info import get_version_info
         return get_version_info().base_version
     except Exception:
         return "unknown"

@@ -157,7 +157,7 @@ def agent_env():
         srv.shutdown()
         shutil.rmtree(test_home, ignore_errors=True)
         # Put the original module objects back: sibling test files hold module-level
-        # references into hermes_cli.*/tools.* and their monkeypatches would otherwise
+        # references into openchia_cli.*/tools.* and their monkeypatches would otherwise
         # land on modules the app no longer imports.
         sys.modules.clear()
         sys.modules.update(saved_modules)

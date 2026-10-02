@@ -69,7 +69,7 @@ class GatewayKanbanWatchersMixin:
         one tick's failure never stops the next.
         """
         try:
-            from hermes_cli.config import load_config as _load_config
+            from openchia_cli.config import load_config as _load_config
 
             cfg = _load_config()
             kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
@@ -82,7 +82,7 @@ class GatewayKanbanWatchersMixin:
 
         from gateway.config import Platform as _Platform
         try:
-            from hermes_cli import kanban_db as _kb
+            from openchia_cli import kanban_db as _kb
         except Exception:
             logger.warning("kanban notifier: kanban_db not importable; notifier disabled")
             return
@@ -122,8 +122,8 @@ class GatewayKanbanWatchersMixin:
 
     def _kanban_sub_op(self, board: Optional[str], op: str, sub: dict, **extra: Any) -> None:
         """Sync helper (runs in to_thread): call ``kanban_db_notify.<op>`` for one subscription on its board."""
-        from hermes_cli import kanban_db_connect as _kbc
-        from hermes_cli import kanban_db_notify as _kbn
+        from openchia_cli import kanban_db_connect as _kbc
+        from openchia_cli import kanban_db_notify as _kbn
         conn = _kbc.connect(board=board)
         try:
             getattr(_kbn, op)(
@@ -208,7 +208,7 @@ class GatewayKanbanWatchersMixin:
         disable without editing YAML.
         """
         try:
-            from hermes_cli.config import load_config as _load_config
+            from openchia_cli.config import load_config as _load_config
         except Exception:
             logger.warning("kanban dispatcher: config loader unavailable; disabled")
             return None
@@ -226,7 +226,7 @@ class GatewayKanbanWatchersMixin:
             logger.info("kanban dispatcher: disabled via config kanban.dispatch_in_gateway=false")
             return None
         try:
-            from hermes_cli import kanban_db as _kb
+            from openchia_cli import kanban_db as _kb
         except Exception:
             logger.warning("kanban dispatcher: kanban_db not importable; dispatcher disabled")
             return None
@@ -280,7 +280,7 @@ class GatewayKanbanWatchersMixin:
             try:
                 # Reap zombies before per-board work so a board DB failure
                 # cannot block cleanup of unrelated workers.
-                from hermes_cli import kanban_db_dispatch as _kbd
+                from openchia_cli import kanban_db_dispatch as _kbd
                 pids = await _to_thread_process_service(_kbd.reap_worker_zombies)
                 if pids:
                     logger.info("kanban dispatcher: reaped %d zombie worker(s), pids=%s", len(pids), pids)

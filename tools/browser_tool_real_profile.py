@@ -128,7 +128,7 @@ def _real_profile_unsupported_reason(browser) -> Optional[str]:
     A pre-release channel lives in a profile dir we don't resolve; normalizing to the stable
     family would drive a DIFFERENT profile/account (wrong-principal bug), so refuse rather than guess.
     """
-    from hermes_cli.browser_connect import UNSUPPORTED_CHANNEL
+    from openchia_cli.browser_connect import UNSUPPORTED_CHANNEL
     if browser is None:
         return (_RP + "your default browser is not a supported Chromium browser (Chrome, Edge, Brave, "
                 "Brave Origin, Chromium). Real-profile browsing requires a Chromium default; set one or turn the toggle off.")
@@ -142,7 +142,7 @@ def _real_profile_unsupported_reason(browser) -> Optional[str]:
 def _real_profile_snapshot_error(err: str) -> str:
     """User-facing message for a failed profile snapshot; a locked profile adds the approved-close
     command, which the agent must ASK the user about first (it quits their browser)."""
-    from hermes_cli.browser_connect import _PROFILE_LOCKED_PREFIX
+    from openchia_cli.browser_connect import _PROFILE_LOCKED_PREFIX
     if err and err.startswith(_PROFILE_LOCKED_PREFIX):
         return (err[len(_PROFILE_LOCKED_PREFIX):] + " To close it (only after the user approves — it "
                 "quits their browser and loses unsaved tabs), run: `hermes browser close-profile`, then retry.")
@@ -236,7 +236,7 @@ def _real_profile_cdp() -> tuple:
         # Consent is off: delete any snapshot store (copies of cookies/logins) so
         # revoking consent actually removes the credential copies.
         try:
-            from hermes_cli.browser_connect import cleanup_real_profile_snapshots
+            from openchia_cli.browser_connect import cleanup_real_profile_snapshots
             cleanup_real_profile_snapshots()
         except Exception as e:
             _bt.logger.debug("real-profile cleanup-on-consent-off failed: %s", e)
@@ -249,7 +249,7 @@ def _real_profile_cdp() -> tuple:
         return None, (_RP + "browser.engine is set to 'lightpanda', which cannot load a real Chromium profile. "
                       "Set browser.engine to 'auto' or 'chrome' to use real-profile browsing, or turn the toggle off.")
 
-    from hermes_cli.browser_connect import (chromium_executable, detect_default_chromium,
+    from openchia_cli.browser_connect import (chromium_executable, detect_default_chromium,
                                             real_profile_copy_dir, snapshot_real_profile)
 
     with _bt._real_profile_cdp_lock:

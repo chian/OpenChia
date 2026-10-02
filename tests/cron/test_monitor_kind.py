@@ -86,7 +86,7 @@ def _install_agent_stubs(monkeypatch, observed: dict):
     fake_mod.AIAgent = FakeAgent
     monkeypatch.setitem(sys.modules, "run_agent", fake_mod)
 
-    from hermes_cli import runtime_provider as _rtp
+    from openchia_cli import runtime_provider as _rtp
     monkeypatch.setattr(
         _rtp,
         "resolve_runtime_provider",

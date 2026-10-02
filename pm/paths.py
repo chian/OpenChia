@@ -25,7 +25,7 @@ def install_stamp_path(project_root: Path) -> Path:
     bakes the stamp outside the store's package dir and its wrapper carries
     ``HERMES_INSTALL_ROOT`` for the executing tree only — so the executing
     tree resolves through install_root, any other tree is taken literally.
-    PM reads it in sealed stages (the Docker runtime base) before hermes_cli
+    PM reads it in sealed stages (the Docker runtime base) before openchia_cli
     ships, so it lives here rather than beside the stewards.
     """
     root = Path(project_root)

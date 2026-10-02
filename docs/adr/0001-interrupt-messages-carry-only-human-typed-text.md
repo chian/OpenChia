@@ -21,7 +21,7 @@ The legitimate producers are the paths that carry such text directly:
 
 - the CLI keyboard path — `_chat_monitor_agent_thread` reads the interrupt
   queue and calls `agent.interrupt(interrupt_msg)`
-  (`hermes_cli/cli_chat_turn_mixin.py:438`)
+  (`openchia_cli/cli_chat_turn_mixin.py:438`)
 - the gateway inbound paths, where a user messages a running session —
   `gateway/run_inbound.py:716` and `gateway/run_busy.py:679`
 - the gateway pending-event drain and voice barge-in —
@@ -56,7 +56,7 @@ misreported as human stops:
 
 - `agent/tool_executor.py:1336` and `:1747` — `"keyboard interrupt"` on Ctrl+C
 - `agent/tool_executor.py:973` — `"terminal batch tool did not complete"`
-- `hermes_cli/cli_shutdown.py:202` — the shutdown reason slug, de-underscored
+- `openchia_cli/cli_shutdown.py:202` — the shutdown reason slug, de-underscored
 - `agent/terminal_approval_batch.py:306` — `str(exc)`, an exception message
 - `cron/scheduler.py:1920` — `"Cron fire claim ownership was lost"`
 - `gateway/platforms/api_server.py:3759` — `"SSE client disconnected"` /

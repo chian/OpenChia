@@ -7,7 +7,7 @@ import pytest
 from gateway.config import Platform
 from gateway.run import GatewayRunner, _profile_runtime_scope
 from gateway.session import SessionSource
-from hermes_cli.heartbeat import HeartbeatManager, HeartbeatState, save_heartbeat, migrate_heartbeat_to_session
+from openchia_cli.heartbeat import HeartbeatManager, HeartbeatState, save_heartbeat, migrate_heartbeat_to_session
 from hermes_constants import get_hermes_home
 
 

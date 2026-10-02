@@ -6,7 +6,7 @@ from gateway.config import GatewayConfig, Platform
 from gateway.kanban_watchers_notifier import _KanbanNotification, _notifier_collect
 from gateway.profile_routing import parse_profile_routes
 from gateway.run import GatewayRunner
-from hermes_cli import kanban_db as kb, kanban_db_connect as kbc, kanban_db_notify as kbn
+from openchia_cli import kanban_db as kb, kanban_db_connect as kbc, kanban_db_notify as kbn
 
 
 class RecordingAdapter:

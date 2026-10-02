@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import hermes_yaml as yaml
 
-from hermes_cli.config import get_hermes_home
+from openchia_cli.config import get_hermes_home
 from hermes_constants import hermes_home_key
 
 

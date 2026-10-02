@@ -25,7 +25,7 @@ from gateway.config import GatewayConfig, Platform, PlatformConfig
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource
-from hermes_cli import goals
+from openchia_cli import goals
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ def _exhaust_budget(session_id: str, goal_text: str = "ship the benchmark"):
     mgr = goals.GoalManager(session_id)
     mgr.set(goal_text, max_turns=1)
     with patch(
-        "hermes_cli.goals.judge_goal",
+        "openchia_cli.goals.judge_goal",
         return_value=("continue", "needs more steps", False, None, False),
     ):
         decision = mgr.evaluate_after_turn("worked a bit")
@@ -79,9 +79,9 @@ def _exhaust_budget(session_id: str, goal_text: str = "ship the benchmark"):
 
 
 def _make_cli(session_id: str):
-    from cli import HermesCLI
+    from cli import OpenChiaCLIBase
 
-    cli = HermesCLI.__new__(HermesCLI)
+    cli = OpenChiaCLIBase.__new__(OpenChiaCLIBase)
     cli._pending_input = queue.Queue()
     cli.session_id = session_id
     cli.agent = MagicMock()

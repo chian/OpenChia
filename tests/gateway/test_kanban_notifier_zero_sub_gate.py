@@ -22,9 +22,9 @@ from unittest.mock import patch
 
 from gateway.config import Platform
 from gateway.run import GatewayRunner
-from hermes_cli import kanban_db as kb
-from hermes_cli import kanban_db_connect as kbc
-from hermes_cli import kanban_db_notify as kbn
+from openchia_cli import kanban_db as kb
+from openchia_cli import kanban_db_connect as kbc
+from openchia_cli import kanban_db_notify as kbn
 
 
 class RecordingAdapter:

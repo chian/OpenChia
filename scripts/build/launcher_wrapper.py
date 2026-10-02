@@ -15,7 +15,7 @@ The wrapper replaces everything the old rust shim + its sidecar did
     placeholder resolves the interpreter the same way),
   * put the payload repo snapshot FIRST and the venv site-packages second
     on sys.path (same order, same reason as the old shim: the repo's
-    hermes_cli wins over anything stale in site-packages — the sealed
+    openchia_cli wins over anything stale in site-packages — the sealed
     payload's venv has no working editable install, its pointer names the
     BUILD machine). The site entry goes through ``site.addsitedir()`` —
     the only mechanism that runs ``.pth`` files — because pywin32.pth is
@@ -84,7 +84,7 @@ def configure(here, environ=None):
     environ.pop("PYTHONPATH", None)
     environ.pop("PYTHONHOME", None)
     repo_entry, site_entry = payload_sys_paths(here)
-    # Repo snapshot first — its hermes_cli wins over anything stale in
+    # Repo snapshot first — its openchia_cli wins over anything stale in
     # site-packages (the sealed payload has no working editable install).
     sys.path.insert(0, repo_entry)
     # addsitedir(), not a raw append: only it processes the venv's .pth

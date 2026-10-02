@@ -67,7 +67,7 @@ _GATEWAY_LIFECYCLE_PATTERN = re.compile(
 )
 
 # Branch E: process killers whose TARGET is the interpreter image hosting the gateway. A supervised
-# gateway is literally `python.exe` / `python3.12` (`python -m hermes_cli.main gateway run`), so
+# gateway is literally `python.exe` / `python3.12` (`python -m openchia_cli.main gateway run`), so
 # `taskkill /F /IM python.exe`, `pkill -9 python3` or `killall python` carry no hermes/gateway token
 # yet terminate it (#113667). Token-aware rather than a line regex: option VALUES are never read as
 # targets (`pkill -u <user> chrome`), `-f` cmdline patterns are judged as patterns, and other image
@@ -94,10 +94,10 @@ _NAME_KILLERS = frozenset({"pkill", "killall", "taskkill", "stop-process"})
 _NAME_ENUMERATORS = frozenset({"pgrep", "pidof", "get-process"})
 _KILL_VERB_RE = re.compile(r"(?i)\b(?:kill|taskkill|stop-process)\b")
 # A `-f` pattern that does not start with the interpreter reaches the gateway cmdline
-# (`python -m hermes_cli.main gateway run` / `hermes gateway run`) only through its own tokens;
+# (`python -m openchia_cli.main gateway run` / `hermes gateway run`) only through its own tokens;
 # an unrelated script that merely contains "hermes" (`hermes-polis/run.sh`, `my_hermes_bot.py`)
 # cannot match it. Same hermes+gateway pairing as Branch D, plus the module path.
-_GATEWAY_CMDLINE_TOKEN_RE = re.compile(r"(?i)hermes_cli|\bhermes\b[^\n]*\bgateway\b|\bgateway\b[^\n]*\bhermes\b")
+_GATEWAY_CMDLINE_TOKEN_RE = re.compile(r"(?i)openchia_cli|\bhermes\b[^\n]*\bgateway\b|\bgateway\b[^\n]*\bhermes\b")
 # Rejection text for Branch E, shared by every tool surface that runs the guard so the agent is
 # pointed at the ownership-scoped route (proc_* id / explicit PID) rather than the shell.
 HOST_INTERPRETER_KILL_REJECTION = (
@@ -125,7 +125,7 @@ def _is_interpreter_image(value: str, *, substring: bool = False) -> bool:
 
 def _pattern_reaches_host_interpreter(pattern: str, *, full_cmdline: bool, exact: bool) -> bool:
     """pkill/pgrep/killall operand semantics: an ERE against the process NAME (or, with `-f`, the full
-    command line). `python -m hermes_cli.main …` is the gateway's own cmdline, so a `-f` pattern
+    command line). `python -m openchia_cli.main …` is the gateway's own cmdline, so a `-f` pattern
     that names the interpreter and then only wildcards or a `hermes` token reaches it, while
     `python mt_add.py` (a specific script) does not."""
     core = pattern.strip().strip("\"'").lstrip("^")
@@ -366,8 +366,8 @@ _BINARY_MAGICS = (
 # --- profile identity -------------------------------------------------------------------------
 
 def _current_profile_name() -> Optional[str]:
-    """Profile running the guard (``hermes_cli.profiles.current_profile_name``); ``None`` if none."""
-    from hermes_cli.profiles import current_profile_name
+    """Profile running the guard (``openchia_cli.profiles.current_profile_name``); ``None`` if none."""
+    from openchia_cli.profiles import current_profile_name
 
     return current_profile_name()
 
@@ -555,7 +555,7 @@ def _budget_exhausted(budget: _LifecycleScanBudget, what: str, depth: int) -> bo
 def _unreadable_reason(path: Path) -> str:
     """Name why an *executed* script failed closed without being scanned (live SQLite, device,
     oversized). Message-only: the fail-closed verdict itself came from the bounded reader."""
-    from hermes_cli.sqlite_safe_read import has_live_connection
+    from openchia_cli.sqlite_safe_read import has_live_connection
 
     if has_live_connection(path):
         return f"`{path}` is a SQLite database open in this gateway process"
@@ -966,7 +966,7 @@ def _read_referenced_script(
     which another thread opens SQLite after the check but before this function
     closes its descriptor, cancelling that connection's POSIX locks.
     """
-    from hermes_cli.sqlite_safe_read import LiveConnectionError, offline_file_access
+    from openchia_cli.sqlite_safe_read import LiveConnectionError, offline_file_access
 
     try:
         with offline_file_access(path, what="read referenced script"):

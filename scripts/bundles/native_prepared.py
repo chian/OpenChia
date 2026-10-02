@@ -20,7 +20,7 @@ def prepared_path(out: Path) -> Path:
 
 @contextmanager
 def preparation_lock(out: Path):
-    from hermes_cli.runtime_state import _lock
+    from openchia_cli.runtime_state import _lock
     from pm.filesystem import is_junction
 
     if out != out.resolve():
@@ -44,7 +44,7 @@ def _source_digest(code: Path) -> str:
     """Ignore only assembly-owned products, leaving admitted source immutable."""
     project = tomllib.loads((code / "pyproject.toml").read_text(encoding="utf-8-sig"))["project"]
     dist = re.sub(r"[-_.]+", "_", project["name"])
-    generated = {"install-stamp.json", "hermes_cli/tui_dist", "hermes_cli/web_dist",
+    generated = {"install-stamp.json", "openchia_cli/tui_dist", "openchia_cli/web_dist",
                  f"{dist}-{project['version']}.dist-info"}
     files = {}
     for directory, dirs, names in os.walk(code):
@@ -95,7 +95,7 @@ def _input_paths(inputs: AgentInputs, out: Path) -> list[Path]:
 
 
 def publish_prepared(out: Path, source: Path, revision: str, inputs: AgentInputs) -> Path:
-    from hermes_cli.runtime_state import _atomic_bytes
+    from openchia_cli.runtime_state import _atomic_bytes
     from pm.paths import lockfile_path
 
     inputs.validate(out)

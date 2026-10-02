@@ -21,7 +21,7 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult  # noqa: E402
 from gateway.platforms.event import MessageEvent  # noqa: E402
 from gateway.run import GatewayRunner  # noqa: E402
 from gateway.session import SessionSource, SessionStore, build_session_key  # noqa: E402
-from hermes_cli import heartbeat  # noqa: E402
+from openchia_cli import heartbeat  # noqa: E402
 
 
 class WireAdapter(BasePlatformAdapter):

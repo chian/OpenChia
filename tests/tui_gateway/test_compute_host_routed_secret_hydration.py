@@ -19,7 +19,7 @@ def test_routed_session_build_sees_the_profiles_external_secret_source(monkeypat
     """Two routed homes A→B→A, each with a ``secrets.command`` helper that is the ONLY holder of its
     provider key. Inside each build the scope resolves that profile's key and not the other's."""
     from agent.secret_scope import get_secret, set_multiplex_active
-    from hermes_cli import env_loader
+    from openchia_cli import env_loader
 
     launch = tmp_path / ".hermes"
     launch.mkdir()

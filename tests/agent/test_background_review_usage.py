@@ -145,7 +145,7 @@ def test_classify_review_result():
 
 def test_enabled_config_failure_logs_warning(caplog):
     with patch(
-        "hermes_cli.config.load_config_readonly",
+        "openchia_cli.config.load_config_readonly",
         side_effect=RuntimeError("boom"),
     ), caplog.at_level(logging.WARNING, logger="agent.background_review"):
         assert background_review.load_background_review_settings()[0] is True

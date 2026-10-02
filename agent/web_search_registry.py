@@ -35,7 +35,7 @@ _registry.export(globals())
 def _read_config_key(*path: str) -> Optional[str]:
     """Resolve a dotted config key from ``config.yaml``. Returns None on miss."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
 
         cur = load_config_readonly()
         for segment in path:
@@ -141,7 +141,7 @@ def _resolve(configured: Optional[str], *, capability: str) -> Optional[WebSearc
 def _keyless_tier_enabled() -> bool:
     """Read ``web.keyless_fallback`` from config.yaml (default: enabled)."""
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
 
         web_cfg = load_config().get("web") or {}
         return bool(web_cfg.get("keyless_fallback", True))
@@ -176,7 +176,7 @@ def _disabled_web_plugin_for(configured: Optional[str] = None, *, capability: Op
 
     want = _norm(configured)
     try:
-        from hermes_cli.plugins import get_plugin_manager
+        from openchia_cli.plugins import get_plugin_manager
 
         pm = get_plugin_manager()
         for key, loaded in pm._plugins.items():

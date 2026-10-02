@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from hermes_cli.cron import _run_outcome
+from openchia_cli.cron import _run_outcome
 
 ROUTED_TARGET = "telegram:-1004306455751:14"
 
@@ -36,7 +36,7 @@ def keeper_job(tmp_path, monkeypatch):
 
 def _run(job_id, *, gateway_serves_profile):
     from tools.cronjob_tools import cronjob
-    with patch("hermes_cli.cron._builtin_gateway_liveness", return_value=gateway_serves_profile), \
+    with patch("openchia_cli.cron._builtin_gateway_liveness", return_value=gateway_serves_profile), \
          patch("cron.scheduler.run_one_job", return_value=True) as m_run:
         out = json.loads(cronjob(action="run", job_id=job_id))
     return out, m_run

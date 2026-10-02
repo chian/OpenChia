@@ -6,7 +6,7 @@ method = _registry.method
 
 @method("onboarding.ensure_setup_profile")
 def _(rid, params: dict) -> dict:
-    from hermes_cli.setup_profile import ensure_setup_profile
+    from openchia_cli.setup_profile import ensure_setup_profile
     try:
         setup = ensure_setup_profile()
         if setup.created:
@@ -18,7 +18,7 @@ def _(rid, params: dict) -> dict:
 
 @method("onboarding.reset_setup_profile")
 def _(rid, params: dict) -> dict:
-    from hermes_cli.setup_profile import find_setup_profile, reset_setup_profile
+    from openchia_cli.setup_profile import find_setup_profile, reset_setup_profile
     found = find_setup_profile()
     if found is None:
         return _err(rid, 4072, "no setup profile to reset")

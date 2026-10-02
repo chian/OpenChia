@@ -122,7 +122,7 @@ on:
   pull_request:
     # The install/update surface: derived from 60 days of commits whose subject
     # names update/install/pm/bootstrap/relaunch. Keep it to code a real
-    # install or `hermes update` executes; hermes_cli/main.py and friends are
+    # install or `hermes update` executes; openchia_cli/main.py and friends are
     # deliberately absent (they change daily and are covered by e2e-upgrade).
     paths:
       - 'scripts/install*'
@@ -130,16 +130,16 @@ on:
       - 'setup-hermes.*'
       - 'hermes_bootstrap.py'
       - 'pm/**'
-      - 'hermes_cli/update*'
-      - 'hermes_cli/*update*'
-      - 'hermes_cli/pm*'
-      - 'hermes_cli/*install*'
-      - 'hermes_cli/_early_recovery.py'
-      - 'hermes_cli/_launchers.py'
-      - 'hermes_cli/managed_uv.py'
-      - 'hermes_cli/venv_sync.py'
-      - 'hermes_cli/relaunch.py'
-      - 'hermes_cli/gateway.py'
+      - 'openchia_cli/update*'
+      - 'openchia_cli/*update*'
+      - 'openchia_cli/pm*'
+      - 'openchia_cli/*install*'
+      - 'openchia_cli/_early_recovery.py'
+      - 'openchia_cli/_launchers.py'
+      - 'openchia_cli/managed_uv.py'
+      - 'openchia_cli/venv_sync.py'
+      - 'openchia_cli/relaunch.py'
+      - 'openchia_cli/gateway.py'
       - 'gateway/status.py'
       - 'apps/bootstrap-installer/**'
       - 'apps/desktop/electron/*update*'

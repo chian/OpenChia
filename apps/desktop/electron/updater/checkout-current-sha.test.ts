@@ -46,7 +46,7 @@ it.each([
     const root: string = fs.mkdtempSync(path.join(os.tmpdir(), 'checkout-sha-'))
 
     try {
-      // A probe-less checkout (the manual path: no hermes_cli/source_check.py)
+      // A probe-less checkout (the manual path: no openchia_cli/source_check.py)
       // previously reported no currentSha at all — the commit showed nowhere.
       writeStamp(root, STAMPED)
       const strategy: ReturnType<typeof createCheckoutStrategy> = createCheckoutStrategy(deps(root, null, isWindows))

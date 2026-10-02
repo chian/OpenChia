@@ -99,7 +99,7 @@ def test_turn_scoped_dotenv_reload_does_not_pollute_process_env(tmp_path, monkey
 
     from agent.secret_scope import get_secret
     from gateway.run import _profile_runtime_scope
-    from hermes_cli.env_loader import load_hermes_dotenv
+    from openchia_cli.env_loader import load_hermes_dotenv
     from hermes_constants import get_hermes_home
 
     profile_a = tmp_path / "profiles" / "a"
@@ -145,7 +145,7 @@ def test_launch_home_dotenv_still_loads_under_multiplex(tmp_path, monkeypatch):
     """
     import os
 
-    from hermes_cli.env_loader import load_hermes_dotenv
+    from openchia_cli.env_loader import load_hermes_dotenv
     from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 
     launch = tmp_path / "launch"
@@ -179,7 +179,7 @@ def test_launch_home_load_inside_foreign_turn_keeps_routed_cwd_out_of_process_en
     into the shared ``TERMINAL_CWD`` that the launch profile's own turns and cron jobs read."""
     import os
 
-    from hermes_cli.env_loader import load_hermes_dotenv
+    from openchia_cli.env_loader import load_hermes_dotenv
     from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 
     launch = tmp_path / "launch"
@@ -213,7 +213,7 @@ def test_cold_profile_hydrates_external_source_without_global_env(
     from agent.secret_sources.registry import AppliedVar, ApplyReport, SourceReport
     from agent.secret_sources import registry
     from agent.secret_scope import get_secret
-    from hermes_cli import env_loader
+    from openchia_cli import env_loader
     from gateway.run import _profile_runtime_scope
 
     profile = tmp_path / "profiles" / "secondary"

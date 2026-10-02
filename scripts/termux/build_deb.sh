@@ -187,7 +187,7 @@ trap - EXIT
 mv "$ASSEMBLY/venv" "$ASSEMBLY/pm-runtime" "$PAYLOAD_ABS/"
 rm -rf "$ASSEMBLY"
 
-# The install-method stamp (code-scoped, next to hermes_cli/): the deb IS
+# The install-method stamp (code-scoped, next to openchia_cli/): the deb IS
 # the Termux apt distribution, and detect_install_method reads this marker
 # to route hermes update -> pkg upgrade remediation.
 printf 'apt\n' > "$PAYLOAD_ABS/app/.install_method"

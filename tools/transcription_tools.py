@@ -81,7 +81,7 @@ _IDLE_UNLOAD_CHECK_INTERVAL = 30  # seconds between idle checks
 def _load_stt_config() -> dict:
     """Load the ``stt`` section from user config, falling back to defaults."""
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         return load_config().get("stt") or {}
     except Exception:
         return {}

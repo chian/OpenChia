@@ -84,7 +84,7 @@ def _subdict(node: Any, *keys: str) -> Dict[str, Any]:
 def _read_config_section(*path: str, label: str, log: logging.Logger = logger) -> Dict[str, Any]:
     """Read a nested section of ~/.hermes/config.yaml. Tolerates missing file."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
         cfg = load_config_readonly()
     except Exception as e:
         log.debug("Failed to load config for %s: %s", label, e)
@@ -121,7 +121,7 @@ _warned_bad_values: set = set()
 
 def _bounded_count(key: str, default: int) -> int:
     """*key* (a ``curator.<key>`` day/hour count), floored at 1 like ``curator prune --days`` already
-    refuses (hermes_cli/curator.py::_cmd_prune). A value < 1 collapses stale_cutoff/archive_cutoff
+    refuses (openchia_cli/curator.py::_cmd_prune). A value < 1 collapses stale_cutoff/archive_cutoff
     onto or past "now" in apply_automatic_transitions(), mass-transitioning every skill with any
     past activity on the next automatic pass — unlike the manual prune path this runs unconfirmed,
     so it falls back to the default instead of acting on the bad value."""
@@ -1046,8 +1046,8 @@ def _resolve_review_provider() -> tuple:
     rp: Dict[str, Any] = {}
     overrides, provider, model_name, binding = {}, None, "", None
     try:
-        from hermes_cli.config import load_config_readonly
-        from hermes_cli.runtime_provider import resolve_runtime_provider
+        from openchia_cli.config import load_config_readonly
+        from openchia_cli.runtime_provider import resolve_runtime_provider
         binding = _resolve_review_runtime(load_config_readonly())
         model_name = binding.model
         rp = resolve_runtime_provider(
@@ -1081,7 +1081,7 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
         acp_command = rp.get("command")
         if isinstance(acp_command, str) and acp_command:
             agent_kwargs.update(acp_command=acp_command, acp_args=list(rp.get("args") or []))
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
         from hermes_constants import resolve_reasoning_config
 
         review_agent = AIAgent(

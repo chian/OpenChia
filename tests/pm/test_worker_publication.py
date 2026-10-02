@@ -170,7 +170,7 @@ def test_additional_candidates_are_discovered_by_sync_and_passive_probe(client, 
 
 
 def test_memory_setup_sends_candidate_paths_instead_of_discovery_callbacks(tmp_path, monkeypatch):
-    from hermes_cli.memory_setup import memory_provider_dependency_inputs
+    from openchia_cli.memory_setup import memory_provider_dependency_inputs
     candidate = tmp_path / "provider"
     candidate.mkdir()
     (candidate / "plugin.yaml").write_text("name: provider\npython_dependencies: [fixture-dep==1]\n")
@@ -230,7 +230,7 @@ def test_worker_death_recovers_at_each_durable_publication_boundary(
         payload = metadata
     # Exit immediately after the real durable write, not a simulated publication.
     injection = (
-        "import json\nimport pm.publication as publication\nimport hermes_cli.runtime_state as state\n"
+        "import json\nimport pm.publication as publication\nimport openchia_cli.runtime_state as state\n"
         "original = state._atomic_bytes\n"
         "def write(path, data):\n    original(path, data)\n"
         f"    if {phase!r} == 'journal' and path.name == 'publication.json': os._exit(17)\n"
@@ -368,7 +368,7 @@ def test_inactive_portable_publication_does_not_inspect_unrelated_dependency_man
     (home / "config.yaml").write_text("plugins:\n  enabled: [sibling]\n")
     staged = tmp_path / "staged"
     staged.mkdir()
-    from hermes_cli.agent_plugins import PLUGIN_SCHEMA_V1
+    from openchia_cli.agent_plugins import PLUGIN_SCHEMA_V1
     (staged / "plugin.json").write_text(json.dumps({"$schema": PLUGIN_SCHEMA_V1, "name": "inactive", "version": "1.0.0"}))
     client.sync_venv(explicit=True, plugins=StagedUpdate({
         "target": str(target), "staged": str(staged), "target_digest": tree_digest(target),
@@ -412,8 +412,8 @@ def test_explicit_publication_keeps_its_intent_through_tool_acquisition(client, 
 
 
 def test_stale_enablement_cannot_replace_a_newer_selection(client, tmp_path, monkeypatch):
-    from hermes_cli import plugins_cmd as pc
-    from hermes_cli.plugins_admission import AdmissionRefused
+    from openchia_cli import plugins_cmd as pc
+    from openchia_cli.plugins_admission import AdmissionRefused
     from utils import fast_safe_load
     _current_environment(tmp_path, monkeypatch, [])
     config = tmp_path / "home/config.yaml"

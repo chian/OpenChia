@@ -25,7 +25,7 @@ from unittest import mock
 import pytest
 
 import tui_gateway.server as srv
-from hermes_cli.dashboard_auth.ws_tickets import INTERNAL_PROVIDER, INTERNAL_USER_ID
+from openchia_cli.dashboard_auth.ws_tickets import INTERNAL_PROVIDER, INTERNAL_USER_ID
 from tools import bot_relay
 from tui_gateway import methods_bot_relay
 
@@ -124,7 +124,7 @@ def test_deliver_validates_profile_and_runs_transport(home, monkeypatch):
         calls["kwargs"] = kwargs
         return _Proc()
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run)
     out = _result(
         srv._methods["bot_relay.deliver"](1, {"profile": "ops", "message": "ping"})
     )
@@ -176,7 +176,7 @@ def test_deliver_restamps_relayed_sender_with_a_reply_safe_handle(home, monkeypa
     # quiet_single_query.run_reported_turn once the relay books turns from their report
     # (#114980) — patching only the first would spawn a real ``hermes chat -Q`` child there.
     monkeypatch.setattr("subprocess.run", _fake_run)
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run, raising=False)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run, raising=False)
     bot_relay.write_remote_roster(home, [
         {"profile": "default", "handle": "hermes", "connection_id": "vps-1", "title": "CoS Bot"},
     ])
@@ -197,7 +197,7 @@ def test_deliver_relays_empty_reply_for_a_bare_silence_marker(home, monkeypatch)
         returncode, stderr = 0, ""
         stdout = " *NO_REPLY* "
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", lambda *_a, **_k: _Proc())
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", lambda *_a, **_k: _Proc())
     assert _result(srv._methods["bot_relay.deliver"](1, {"profile": "ops", "message": "ping"}))["reply"] == ""
 
     _Proc.stdout = "The NO_REPLY marker means do not answer."
@@ -226,7 +226,7 @@ def test_deliver_lands_in_live_bot_chat_instead_of_subprocess(home, monkeypatch)
             spawned.append(argv)
         return _Proc()
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run)
     monkeypatch.setitem(
         srv._methods, "prompt.submit", lambda rid, p: submitted.append(p) or srv._ok(rid, {"status": "streaming"})
     )
@@ -254,7 +254,7 @@ def test_deliver_lands_in_live_bot_chat_instead_of_subprocess(home, monkeypatch)
 def _lease_open_bot_chat(home, *, live_session_id="live-in-other-process"):
     """A Bot Chat leased by a mailbox-capable live owner in the target's home (real state.db row,
     real lease) — what a Desktop-opened Bot Chat looks like from the relay handler's side."""
-    from hermes_cli.active_sessions import try_acquire_active_session
+    from openchia_cli.active_sessions import try_acquire_active_session
     from hermes_state import SessionDB
 
     ops_home = home / "profiles" / "ops"
@@ -279,7 +279,7 @@ def _no_cli_transport(monkeypatch, spawned):
     # quiet_single_query.run_reported_turn once the relay books turns from their report
     # (#114980) — guarding only the first would let a real ``hermes chat -Q`` child spawn there.
     monkeypatch.setattr("subprocess.run", _fake_run)
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run, raising=False)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run, raising=False)
 
 
 def _owner_settles(ops_home, outcome: dict) -> threading.Thread:
@@ -434,7 +434,7 @@ def fake_runs(monkeypatch):
 
         return _Proc()
 
-    monkeypatch.setattr("hermes_cli.quiet_single_query.run_reported_turn", _fake_run)
+    monkeypatch.setattr("openchia_cli.quiet_single_query.run_reported_turn", _fake_run)
     return calls, outcomes
 
 
@@ -496,7 +496,7 @@ def test_deliver_accepts_a_sender_from_an_admitted_non_login_client(home, fake_r
     """A caller with no identity, or one holding the ``?internal=`` credential, keeps its sender fields.
 
     NOT the Desktop: it mints a ws-ticket carrying the signed-in ``{user_id, provider}`` on every
-    gateway that requires sign-in (``hermes_cli/dashboard_auth/routes.py``), so it is a login
+    gateway that requires sign-in (``openchia_cli/dashboard_auth/routes.py``), so it is a login
     identity and takes the principal-author branch above.
     """
     from agent.turn_author import TURN_AUTHOR_ENV
@@ -572,7 +572,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 
 
 def _child_argv(monkeypatch, body: str) -> dict:
-    """Stand in a Python child for the ``hermes`` transport; it imports ``hermes_cli`` from this checkout."""
+    """Stand in a Python child for the ``hermes`` transport; it imports ``openchia_cli`` from this checkout."""
     argv = [sys.executable, "-c", textwrap.dedent(body)]
     monkeypatch.setattr(bot_relay, "local_delivery_command", lambda prof, tmp: argv)
     return {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in (_REPO_ROOT, os.environ.get("PYTHONPATH")) if p)}
@@ -595,7 +595,7 @@ def test_reported_turn_still_lingering_at_the_cap_is_booked_from_its_latest_repo
     exit code 0, never delivery_timeout — and is NOT killed, so its own handoff survives."""
     env = _child_argv(monkeypatch, """
         import os, time
-        from hermes_cli.quiet_single_query import TURN_REPORT_FILE_ENV, write_turn_report
+        from openchia_cli.quiet_single_query import TURN_REPORT_FILE_ENV, write_turn_report
         path = os.environ.pop(TURN_REPORT_FILE_ENV)
         write_turn_report(path, exit_code=0, reply="asking the teammate")
         time.sleep(0.5)

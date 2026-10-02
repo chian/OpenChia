@@ -18,7 +18,7 @@ const env = {
   HERMES_PARENT_PID: String(process.pid),
 }
 const child = spawn(process.argv[2] || join(repo, '.venv/bin/python'),
-  ['-m', 'hermes_cli.main', 'serve', '--host', '127.0.0.1', '--port', '0', '--isolated'],
+  ['-m', 'openchia_cli.main', 'serve', '--host', '127.0.0.1', '--port', '0', '--isolated'],
   { cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe'] })
 let tail = ''
 for (const stream of [child.stdout, child.stderr]) {

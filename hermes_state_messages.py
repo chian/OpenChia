@@ -16,7 +16,7 @@ from agent.context_compressor import (
 from agent.memory_manager import sanitize_context
 from agent.message_metadata import CANONICAL_ROW, DB_ROW_SNAPSHOT
 from agent.message_sanitization import _sanitize_surrogates
-from hermes_cli.timefmt import coerce_epoch
+from openchia_cli.timefmt import coerce_epoch
 from hermes_state_common import (
     _COMPRESSION_LOCK_ROW_SQL, _ENDED_ROW_SQL, _RESET_END_REASONS, _RESET_END_REASONS_SQL, _ended_by_compression,
     _legacy_reset_child_sql, _placeholders, _sql_json_extract)

@@ -44,13 +44,13 @@ NO_CARD_NOTE = (
 
 
 def _catalog_names() -> List[str]:
-    from hermes_cli.mcp_catalog import list_catalog
+    from openchia_cli.mcp_catalog import list_catalog
 
     return sorted(e.name for e in list_catalog())
 
 
 def _configured_names() -> List[str]:
-    from hermes_cli.mcp_catalog import installed_servers
+    from openchia_cli.mcp_catalog import installed_servers
 
     return sorted(installed_servers())
 
@@ -90,7 +90,7 @@ def validate_mcp_names(action: str, names: List[str]) -> Optional[str]:
 
 
 def _catalog_entry(name: str):
-    from hermes_cli.mcp_catalog import get_entry
+    from openchia_cli.mcp_catalog import get_entry
 
     entry = get_entry(name)
     if entry is None:
@@ -103,7 +103,7 @@ class _CatalogBackend:
 
     def required_env(self, name: str) -> List[Dict[str, Any]]:
         """The credentials the catalog entry declares that have no value yet."""
-        from hermes_cli.config import get_env_value
+        from openchia_cli.config import get_env_value
 
         return [{"name": spec.name, "prompt": spec.prompt, "required": spec.required,
                  "secret": spec.secret, "default": "" if spec.secret else spec.default}
@@ -124,7 +124,7 @@ class _CatalogBackend:
     def start_install_oauth(self, name: str, env: Dict[str, str]) -> Any:
         """Install an OAuth entry through the card's flow. The configuration is built in memory and
         lands, together with the setup values, only when ``initialize`` accepts the token."""
-        from hermes_cli.mcp_catalog import card_install_config
+        from openchia_cli.mcp_catalog import card_install_config
         from tools.connectors import mcp_oauth
 
         entry = _catalog_entry(name)
@@ -138,8 +138,8 @@ class _CatalogBackend:
         previous configuration."""
         from agent.secret_scope import (
             current_secret_scope, current_secret_scope_home, reset_secret_scope, set_secret_scope)
-        from hermes_cli.mcp_catalog import _inline_non_secret_value, card_install_config
-        from hermes_cli.mcp_config import _probe_single_server, _save_mcp_server
+        from openchia_cli.mcp_catalog import _inline_non_secret_value, card_install_config
+        from openchia_cli.mcp_config import _probe_single_server, _save_mcp_server
 
         entry = _catalog_entry(name)
         _check_declared(name, entry, env)
@@ -168,8 +168,8 @@ class _CatalogBackend:
         """Flip ``enabled`` under the scope and lock the dashboard's toggle route uses
         (``PUT /api/mcp/servers/{name}/enabled``): the two read-modify-write paths run in one
         process, so an unserialised write here drops whichever landed first."""
-        from hermes_cli.config import load_config, save_config
-        from hermes_cli.web_routers._common import config_write_scope
+        from openchia_cli.config import load_config, save_config
+        from openchia_cli.web_routers._common import config_write_scope
 
         with config_write_scope(None):
             config = load_config()
@@ -183,7 +183,7 @@ class _CatalogBackend:
 def _check_declared(name: str, entry: Any, env: Dict[str, str]) -> None:
     """Configuring one MCP is not a general env-writing primitive: refuse the whole map before the
     first write if any key is undeclared or unwritable."""
-    from hermes_cli.config import validate_env_var_name_for_write
+    from openchia_cli.config import validate_env_var_name_for_write
 
     declared = {spec.name for spec in (entry.auth.env or [])}
     for key in env:
@@ -193,7 +193,7 @@ def _check_declared(name: str, entry: Any, env: Dict[str, str]) -> None:
 
 
 def _save_env(env: Dict[str, str]) -> None:
-    from hermes_cli.config import save_env_value
+    from openchia_cli.config import save_env_value
 
     for key, value in env.items():
         if value:
@@ -407,7 +407,7 @@ def _detail(exc: Any, runner: _Runner, target: Target) -> str:
 
 def _catalog_instructions(name: str) -> str:
     """The manifest's ``post_install`` text for a catalog name; a custom configured server has none."""
-    from hermes_cli.mcp_catalog import get_entry
+    from openchia_cli.mcp_catalog import get_entry
 
     entry = get_entry(name)
     return str(entry.post_install or "") if entry is not None else ""

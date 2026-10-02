@@ -10,9 +10,9 @@ from gateway.platforms.event import MessageEvent
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource, build_session_key
 from gateway.wake import admit_internal_event, deliver_wake
-from hermes_cli import kanban_db as kb
-from hermes_cli import kanban_db_connect as kbc
-from hermes_cli import kanban_db_notify as kbn
+from openchia_cli import kanban_db as kb
+from openchia_cli import kanban_db_connect as kbc
+from openchia_cli import kanban_db_notify as kbn
 
 
 def setup_route(raft=False):

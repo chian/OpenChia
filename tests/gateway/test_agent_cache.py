@@ -13,7 +13,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hermes_cli.config import DEFAULT_CONFIG, cfg_get
+from openchia_cli.config import DEFAULT_CONFIG, cfg_get
 from tools import browser_tool_lifecycle as bt_lifecycle
 
 def _make_runner():
@@ -81,7 +81,7 @@ class TestAgentConfigSignature:
     def test_default_gateway_runtime_forwards_filtered_capabilities(self, monkeypatch):
         """Configured provider capabilities must reach a newly created gateway agent."""
         from gateway.run import _resolve_runtime_agent_kwargs
-        from hermes_cli import runtime_provider
+        from openchia_cli import runtime_provider
 
         monkeypatch.setattr(
             runtime_provider,

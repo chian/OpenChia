@@ -51,7 +51,7 @@ _real_hermes_home_loaded = False
 
 
 def _config_path_resolved() -> str:
-    from hermes_cli.config import get_config_path
+    from openchia_cli.config import get_config_path
     return str(get_config_path().resolve())
 
 
@@ -194,7 +194,7 @@ def _protected_instruction_config() -> tuple[bool, list[str]]:
     ``security.protected_instruction_extra_patterns`` (fnmatch on basename). Config read
     failures keep the gate ON — fail-safe for a security boundary."""
     try:
-        from hermes_cli.config import load_config, cfg_get
+        from openchia_cli.config import load_config, cfg_get
         cfg = load_config()
         enabled = cfg_get(cfg, "security", "protected_instruction_files", default=True)
         extra = cfg_get(cfg, "security", "protected_instruction_extra_patterns", default=[])

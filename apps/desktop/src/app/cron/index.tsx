@@ -884,7 +884,7 @@ function formatRunTime(seconds?: null | number): string {
 
 // Script-only (no_agent) jobs have no agent sessions; the runs endpoint
 // surfaces their per-fire output docs as rows with source='cron_output'
-// (see _list_cron_output_runs in hermes_cli/web_routers/cron.py).
+// (see _list_cron_output_runs in openchia_cli/web_routers/cron.py).
 function isSyntheticCronOutputRun(run: SessionInfo): boolean {
   return run.source === 'cron_output'
 }

@@ -26,11 +26,11 @@ _IS_WINDOWS = platform.system() == "Windows"
 # See #70716.
 _IS_LINUX = platform.system() == "Linux"
 from tools.environments.local import _find_shell, _resolve_safe_cwd, _sanitize_subprocess_env
-from hermes_cli._subprocess_compat import windows_hide_flags
+from openchia_cli._subprocess_compat import windows_hide_flags
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, NamedTuple, Optional
 
-from hermes_cli.config import get_hermes_home
+from openchia_cli.config import get_hermes_home
 
 from tools.process_registry_notifications import format_process_notification
 from tools.process_registry_checkpoint import ProcessCheckpointMixin
@@ -1016,7 +1016,7 @@ class ProcessRegistry(ProcessCheckpointMixin):
         """``config.yaml`` value for ``section.key``, else the DEFAULT_CONFIG value.
         Raises if config is unreadable; callers wrap with their own hard fallback so
         registry code paths never crash on a broken config file."""
-        from hermes_cli.config import DEFAULT_CONFIG, cfg_get, read_raw_config
+        from openchia_cli.config import DEFAULT_CONFIG, cfg_get, read_raw_config
 
         val = cfg_get(read_raw_config(), section, key)
         return DEFAULT_CONFIG[section][key] if val is None else val
@@ -1767,7 +1767,7 @@ class ProcessRegistry(ProcessCheckpointMixin):
         return session_id in self._completion_consumed
 
     def is_session_waiting(self, session_id: str) -> bool:
-        """Whether a goal loop (``hermes_cli.goals`` wait barrier) should stay parked on
+        """Whether a goal loop (``openchia_cli.goals`` wait barrier) should stay parked on
         this session: still running AND, with ``watch_patterns``, none matched yet (a
         long-lived watcher unblocks on its trigger, not on exit). Unknown/exited/
         already-fired sessions return False so a stale barrier can never wedge the loop."""

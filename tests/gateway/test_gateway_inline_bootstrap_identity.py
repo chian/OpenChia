@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 from gateway.status import looks_like_gateway_command_line
-from hermes_cli import _launchers, venv_sync
-from hermes_cli.update_cmd_windows import _hermes_holder_subcommand
+from openchia_cli import _launchers, venv_sync
+from openchia_cli.update_cmd_windows import _hermes_holder_subcommand
 
 ROOT = Path("/opt/Hermes Agent/hermes-agent")
 PY = "/opt/venv/bin/python3"
@@ -32,8 +32,8 @@ def _forms(argv: list[str]) -> dict[str, list[str]]:
         "launcher-script": [PY, "-I", "-c", _SCRIPT, *argv],
         "cmd-launcher": [PY, "-I", "-c", f"import base64; exec(base64.b64decode('{base64.b64encode(_SCRIPT.encode()).decode()}'))", *argv],
         "venv-reentry": venv_sync.relaunch_command(
-            Path(PY), ROOT, [str(ROOT / "hermes_cli" / "main.py"), *argv], ["/old/python", "-m", "hermes_cli.main", *argv],
-            "hermes_cli.main"),
+            Path(PY), ROOT, [str(ROOT / "openchia_cli" / "main.py"), *argv], ["/old/python", "-m", "openchia_cli.main", *argv],
+            "openchia_cli.main"),
     }
 
 

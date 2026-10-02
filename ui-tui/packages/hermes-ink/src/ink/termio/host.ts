@@ -3,7 +3,7 @@
  *
  * `hermes dashboard` spawns the TUI behind a PTY and mirrors it into xterm.js
  * in the browser; the bridge sets HERMES_PTY_HOST=dashboard on the child
- * (hermes_cli/pty_bridge.py — keep the two constants in sync). Native
+ * (openchia_cli/pty_bridge.py — keep the two constants in sync). Native
  * terminals never set it.
  */
 export const PTY_HOST_ENV = 'HERMES_PTY_HOST'

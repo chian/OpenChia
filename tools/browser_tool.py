@@ -22,7 +22,7 @@ from pathlib import Path
 from agent.redact import redact_cdp_url
 from hermes_constants import get_hermes_home, hermes_home_key
 from utils import env_int
-from hermes_cli.config import DEFAULT_CONFIG, cfg_get
+from openchia_cli.config import DEFAULT_CONFIG, cfg_get
 
 
 # Env keys re-added to the agent-browser subprocess AFTER credential stripping.
@@ -188,7 +188,7 @@ def _browser_cfg(key: str, default, parse, log_label: str):
     """``parse(browser.<key>)`` from the RAW profile config (loader warnings must not
     leak into tool JSON); ``default`` when absent, not a mapping, or on any error."""
     try:
-        from hermes_cli.config import read_raw_config
+        from openchia_cli.config import read_raw_config
         browser_cfg = read_raw_config().get("browser", {})
         if isinstance(browser_cfg, dict) and key in browser_cfg:
             return parse(browser_cfg[key])
@@ -1143,7 +1143,7 @@ def _maybe_start_recording(task_id: str):
         if task_id in _recording_sessions:
             return
     try:
-        from hermes_cli.config import read_raw_config
+        from openchia_cli.config import read_raw_config
         hermes_home = get_hermes_home()
         if not cfg_get(read_raw_config(), "browser", "record_sessions", default=False):
             return

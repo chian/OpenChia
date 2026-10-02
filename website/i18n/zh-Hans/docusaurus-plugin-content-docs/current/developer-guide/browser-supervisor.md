@@ -144,7 +144,7 @@ browser_dialog(action, prompt_text=None, dialog_id=None)
   - `browser_snapshot`（约第 1536 行）：将 supervisor 状态合并到返回载荷
   - `/browser connect` 处理器：以新端点重启 supervisor
   - `_cleanup_browser_session` 中的会话拆除钩子
-- `hermes_cli/config.py` — 向 `DEFAULT_CONFIG` 添加 `browser.dialog_policy` 和 `browser.dialog_timeout_s`
+- `openchia_cli/config.py` — 向 `DEFAULT_CONFIG` 添加 `browser.dialog_policy` 和 `browser.dialog_timeout_s`
 - 文档：`website/docs/user-guide/features/browser.md`、`website/docs/reference/tools-reference.md`、`website/docs/reference/toolsets-reference.md`
 
 ## 非目标

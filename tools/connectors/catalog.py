@@ -69,25 +69,25 @@ class HostInstaller:
     installer."""
 
     def plugin_entry(self, name: str) -> Any:
-        from hermes_cli.plugin_catalog import get_live_catalog_entry
+        from openchia_cli.plugin_catalog import get_live_catalog_entry
 
         return get_live_catalog_entry(name)
 
     def refuse(self, entry: Any) -> None:
         """Raise with the installer's own text when the catalog would refuse this entry here."""
-        from hermes_cli.plugins_cmd_catalog import _refuse_unsupported_catalog_platform, raise_if_removed
+        from openchia_cli.plugins_cmd_catalog import _refuse_unsupported_catalog_platform, raise_if_removed
 
         raise_if_removed(entry.name, entry.repo)
         _refuse_unsupported_catalog_platform(entry)
 
     def install_plugin(self, name: str, *, force: bool, enable: bool, ref: Optional[str]) -> Dict[str, Any]:
-        from hermes_cli.plugins_cmd import dashboard_install_plugin
+        from openchia_cli.plugins_cmd import dashboard_install_plugin
 
         return dashboard_install_plugin("", force=force, enable=enable, catalog_name=name, ref=ref)
 
     def skill_meta(self, identifier: str) -> Optional[Dict[str, Any]]:
         """The first hub source that knows the identifier; metadata only, no bundle download."""
-        from hermes_cli.skills_hub import _sources
+        from openchia_cli.skills_hub import _sources
         from tools.skills_hub import skills_hub_http_session
 
         with skills_hub_http_session():
@@ -107,7 +107,7 @@ class HostInstaller:
         installed (force off) is left as it is and reported so."""
         from rich.console import Console
 
-        from hermes_cli.skills_hub import do_install
+        from openchia_cli.skills_hub import do_install
         from tools.skills_hub import HubLockFile
 
         def entry() -> Optional[Dict[str, Any]]:
@@ -277,7 +277,7 @@ def target_declared_env(fact: Any) -> List[str]:
 def _plugin_row(entry: Any) -> Dict[str, Any]:
     requirements = [f"Hermes {entry.requires_hermes}"] if entry.requires_hermes else []
     requirements += [f"{name} environment variable" for name in entry.capabilities.requires_env]
-    from hermes_cli.plugin_catalog_presence import presence
+    from openchia_cli.plugin_catalog_presence import presence
 
     row: Dict[str, Any] = {
         "display": getattr(entry, "title", "") or _display(entry.name),
@@ -320,7 +320,7 @@ def _installed_row(target: Target, outcome: Dict[str, Any]) -> tuple:
 
 
 def _save_credentials(env: Dict[str, str]) -> None:
-    from hermes_cli.config import save_env_value, validate_env_var_name_for_write
+    from openchia_cli.config import save_env_value, validate_env_var_name_for_write
 
     for key, value in env.items():
         validate_env_var_name_for_write(key)

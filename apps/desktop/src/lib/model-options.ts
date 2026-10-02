@@ -48,7 +48,7 @@ export function currentModelCapabilities(
 
 /** The single, deliberate exception to the sticky-pick rule above: the virtual
  *  `moa` provider. Its catalog row vanishes entirely once no MoA preset is
- *  enabled (`hermes_cli/inventory.py` filters it out of explicit-only
+ *  enabled (`openchia_cli/inventory.py` filters it out of explicit-only
  *  catalogs), so a persisted manual pick pointing at it leaves the composer
  *  pill reading `Model · moa: default` forever (#90244). For this one provider
  *  — and only with a populated catalog in hand — row absence is authoritative:

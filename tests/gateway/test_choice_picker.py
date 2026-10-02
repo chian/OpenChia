@@ -112,7 +112,7 @@ class TestFastChoicePicker:
         monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
         monkeypatch.setattr(gateway_run, "_load_gateway_config", lambda: {})
         monkeypatch.setattr(gateway_run, "_resolve_gateway_model", lambda cfg: "gpt-5.6")
-        import hermes_cli.models as models_mod
+        import openchia_cli.models as models_mod
         monkeypatch.setattr(models_mod, "model_supports_fast_mode", lambda m: True)
 
     @pytest.mark.asyncio

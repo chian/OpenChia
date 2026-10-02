@@ -15,7 +15,7 @@ import zipfile
 import hermes_yaml
 import pytest
 
-from hermes_cli.release_channels import canonical_json
+from openchia_cli.release_channels import canonical_json
 from scripts.releases import channel_publish, handoff, r2
 from scripts.releases.channels import preview_identity
 from tests.ci.desktop_release_roles import (
@@ -463,7 +463,7 @@ def test_receiver_allocation_uses_official_identity_only_inside_scope(tmp_path):
         scope = R2Scope("ci-disposable/12345/17/")
         pub.store.scope = scope
         pub.public_base += "/" + scope.prefix.rstrip("/")
-        from hermes_cli.release_channels import ChannelReader
+        from openchia_cli.release_channels import ChannelReader
         pub.reader = ChannelReader(pub.public_base, pub.repository)
         receivers = allocate_receivers(pub, "a" * 40, "1.2.3", "a" * 40)
         assert set(receivers) == {"S", "T"}

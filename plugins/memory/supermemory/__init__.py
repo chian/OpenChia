@@ -357,8 +357,8 @@ class SupermemoryMemoryProvider(MemoryProvider):
         return {"summary": _format_connection_summary(_probe_supermemory_connection(get_secret("SUPERMEMORY_API_KEY", "") or "", str(get_hermes_home())))}
 
     def post_setup(self, hermes_home: str, config: dict) -> None:
-        from hermes_cli.config import save_config
-        from hermes_cli.memory_setup import _prompt, _write_env_vars
+        from openchia_cli.config import save_config
+        from openchia_cli.memory_setup import _prompt, _write_env_vars
         print(f"\n  Configuring supermemory:\n\n  Get your API key at {_API_KEY_URL}\n")
         existing = os.environ.get("SUPERMEMORY_API_KEY", "")
         masked = f"...{existing[-4:]}" if len(existing) > 4 else "set"

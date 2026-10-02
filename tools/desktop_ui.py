@@ -34,7 +34,7 @@ def user_enabled(setting: str, default: bool) -> bool:
     the schema. Unreadable config -> ``default`` so a shipped-on feature does not vanish
     on a transient read error."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
         display = load_config_readonly().get("display")
     except Exception:
         return default

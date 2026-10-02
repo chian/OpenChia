@@ -38,7 +38,7 @@ for dp, dns, fns in os.walk(TREE):
 results["pyc_files"] = pyc_n; results["pyc_bytes"] = pyc_bytes
 
 # 1. import-time probes: fresh interpreter, measure wall + module count + RSS
-IMPORT_TARGETS = ["run_agent", "cli", "hermes_cli.main", "gateway.run", "tools.registry", "hermes_state", "tui_gateway.server", "hermes_cli.web_server", "model_tools", "agent.prompt_builder"]
+IMPORT_TARGETS = ["run_agent", "cli", "openchia_cli.main", "gateway.run", "tools.registry", "hermes_state", "tui_gateway.server", "openchia_cli.web_server", "model_tools", "agent.prompt_builder"]
 probe = r'''
 import sys, time, os, resource, json
 t0=time.perf_counter()
@@ -69,7 +69,7 @@ for tgt in IMPORT_TARGETS:
 results["import"] = imp
 
 # 2. CLI end-to-end startup: `hermes --version`, `hermes --help`, `hermes doctor --help`, `hermes config get model` (no network)
-CLI = {"version": ["hermes_cli/main.py", "--version"], "help": ["hermes_cli/main.py", "--help"], "config_get": ["hermes_cli/main.py", "config", "get", "model"], "tools_list": ["hermes_cli/main.py", "tools", "--help"], "skills_help": ["hermes_cli/main.py", "skills", "--help"]}
+CLI = {"version": ["openchia_cli/main.py", "--version"], "help": ["openchia_cli/main.py", "--help"], "config_get": ["openchia_cli/main.py", "config", "get", "model"], "tools_list": ["openchia_cli/main.py", "tools", "--help"], "skills_help": ["openchia_cli/main.py", "skills", "--help"]}
 cli = {}
 for name, argv in CLI.items():
     ts = []; rc = None; last = ""
@@ -125,7 +125,7 @@ try:
     T("approval_detect_120cmds_ms", lambda: [detect_dangerous_command(c) for c in cmds], 20)
 except Exception as e: out["approval_err"]=repr(e)[:160]
 try:
-    from hermes_cli.config import load_config
+    from openchia_cli.config import load_config
     T("load_config_ms", lambda: load_config(), 20)
 except Exception as e: out["load_config_err"]=repr(e)[:160]
 try:

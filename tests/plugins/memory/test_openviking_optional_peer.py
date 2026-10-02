@@ -105,7 +105,7 @@ def test_new_setup_does_not_ask_for_or_save_peer(
     credential,
     stale_env,
 ):
-    from hermes_cli import memory_setup
+    from openchia_cli import memory_setup
 
     home = tmp_path / "hermes"
     home.mkdir()

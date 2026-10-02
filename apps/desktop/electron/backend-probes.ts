@@ -116,7 +116,7 @@ async function canImportHermesCli(
     // Bootstrap selects the committed generation before any dependency import.
     await execProbe(
       pythonPath,
-      ['-c', 'import hermes_bootstrap; import hermes_yaml; import dotenv; import hermes_cli.config'],
+      ['-c', 'import hermes_bootstrap; import hermes_yaml; import dotenv; import openchia_cli.config'],
       {
         cwd: opts.cwd,
         env: { ...env, ...buildDesktopBackendEnv({ currentEnv: env }) },
@@ -142,7 +142,7 @@ async function canImportHermesCli(
  *
  * We intentionally avoid invoking the command with the dashboard args
  * here -- `--version` is the cheapest "is this binary alive" smoke
- * test that every hermes_cli entry-point has supported since 0.1.
+ * test that every openchia_cli entry-point has supported since 0.1.
  *
  * @param {string} hermesCommand - Resolved absolute path to a hermes
  *   executable (or an interpreter+script wrapper).

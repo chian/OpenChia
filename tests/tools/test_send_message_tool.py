@@ -118,7 +118,7 @@ class _StreamingAiohttpSession:
 def _discord_entry():
     """Return the live Discord PlatformEntry, importing lazily so plugin
     discovery is forced exactly once and patches survive across tests."""
-    from hermes_cli.plugins import discover_plugins
+    from openchia_cli.plugins import discover_plugins
     from gateway.platform_registry import platform_registry
     discover_plugins()
     return platform_registry.get("discord")
@@ -168,7 +168,7 @@ class _patch_discord_sender:
 def _slack_entry():
     """Return the live Slack PlatformEntry, importing lazily so plugin
     discovery is forced exactly once and patches survive across tests."""
-    from hermes_cli.plugins import discover_plugins
+    from openchia_cli.plugins import discover_plugins
     from gateway.platform_registry import platform_registry
     discover_plugins()
     return platform_registry.get("slack")
@@ -362,7 +362,7 @@ class TestSendMessageTool:
         """#115908: a MEDIA path that does not exist on the host was dropped with only a host-side
         warning while ``hermes send`` printed success:true and exited 0. The surviving attachment is
         still sent; the payload names the drop and the CLI exit code follows it."""
-        from hermes_cli.send_cmd import _emit_result
+        from openchia_cli.send_cmd import _emit_result
 
         monkeypatch.setenv("HERMES_MEDIA_DELIVERY_STRICT", "0")
         config, telegram_cfg = _make_config()

@@ -55,7 +55,7 @@ def test_settings_writes_the_plugin_namespace_and_refuses_secrets_and_bad_types(
     resp = _manage(action="settings", key="demo-plugin", values={"api_url": "https://real.invalid", "retries": 2, "mode": "careful"})
 
     assert resp["result"]["ok"] is True and sorted(resp["result"]["written"]) == ["api_url", "mode", "retries"]
-    from hermes_cli.config import load_config_readonly
+    from openchia_cli.config import load_config_readonly
     assert load_config_readonly()["plugins"]["entries"]["demo-plugin"]["settings"] == {
         "api_url": "https://real.invalid", "retries": 2, "mode": "careful"}
     refreshed = {f["key"]: f["value"] for f in resp["result"]["plugin"]["settings_schema"] if "value" in f}

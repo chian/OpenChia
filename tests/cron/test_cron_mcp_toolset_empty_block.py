@@ -30,11 +30,11 @@ def _run(job, tmp_path):
     with patch("run_agent.AIAgent") as agent_cls, \
          patch("cron.scheduler._hermes_home", tmp_path), \
          patch("cron.scheduler_delivery._resolve_origin", return_value=None), \
-         patch("hermes_cli.env_loader.load_hermes_dotenv"), \
-         patch("hermes_cli.env_loader.reset_secret_source_cache"), \
+         patch("openchia_cli.env_loader.load_hermes_dotenv"), \
+         patch("openchia_cli.env_loader.reset_secret_source_cache"), \
          patch("hermes_state_registry.acquire", return_value=MagicMock()), \
          patch("tools.mcp_tool_discovery.discover_mcp_tools", return_value=[]), \
-         patch("hermes_cli.runtime_provider.resolve_runtime_provider", return_value=dict(_RUNTIME)):
+         patch("openchia_cli.runtime_provider.resolve_runtime_provider", return_value=dict(_RUNTIME)):
         agent_cls.return_value.run_conversation.return_value = {"final_response": "ok"}
         with cron_jobs.use_cron_store(tmp_path):
             cron_jobs.save_jobs([job])

@@ -11,7 +11,7 @@ import logging
 import threading
 from pathlib import Path
 
-from hermes_cli.active_sessions import _FileLock
+from openchia_cli.active_sessions import _FileLock
 from hermes_constants import get_hermes_home
 from utils import atomic_json_write
 
@@ -85,7 +85,7 @@ def defer(key: str, job: dict, content: str, profile: str, home: Path, *,
 
 def drain(root: Path | None = None) -> None:
     """Serialize drains across processes without holding the producer lock."""
-    from hermes_cli.backend_retirement import retirement
+    from openchia_cli.backend_retirement import retirement
 
     root = root if root is not None else _root()
     with retirement.work() as admitted:
@@ -111,7 +111,7 @@ def _drain(root: Path) -> None:
             # suppressed at drain time; the policy is the owner's, read from its own config.
             from cron.scheduler_delivery import BOT_CHAT_POLICY_PLATFORM
             from gateway.warning_notifications import warning_notifications_enabled
-            from hermes_cli.config_effective import load_user_config_effective
+            from openchia_cli.config_effective import load_user_config_effective
             if (record.get("for_failure")
                     and not warning_notifications_enabled(BOT_CHAT_POLICY_PLATFORM, load_user_config_effective(home / "config.yaml"))):
                 record.update(status="suppressed", error=None)
@@ -150,7 +150,7 @@ def drain_in_background() -> None:
     root = home / "cron" / "bot_chat_pending"
     if not root.is_dir():
         return
-    from hermes_cli.backend_retirement import retirement
+    from openchia_cli.backend_retirement import retirement
 
     with _running_lock:
         if home in _running or not retirement.acquire():

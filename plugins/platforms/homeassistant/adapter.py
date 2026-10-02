@@ -326,7 +326,7 @@ class HomeAssistantAdapter(BasePlatformAdapter):
 # #3823) Added when the Email adapter moved from gateway/platforms/email.py into this bundled plugin.
 # register() exposes the platform via the registry, replacing the Platform.EMAIL elif in gateway/run.py, the
 # _PLATFORM_CONNECTED_CHECKERS entry in gateway/config.py, the _PLATFORMS["email"] static dict in
-# hermes_cli/gateway.py, and the _send_email dispatch in tools/send_message_tool.py. EMAIL_*
+# openchia_cli/gateway.py, and the _send_email dispatch in tools/send_message_tool.py. EMAIL_*
 # env→PlatformConfig seeding stays in core.
 # ──────────────────────────────────────────────────────────────────────────
 async def _standalone_send(

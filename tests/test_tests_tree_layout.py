@@ -4,7 +4,7 @@
 coverage run, so a test filed under a directory that does not correspond to
 the code it exercises is a test nobody runs when that code changes. Two
 drifts had accumulated: parallel directories for one source package
-(``tests/cli`` beside ``tests/hermes_cli``, ``tests/run_agent`` beside
+(``tests/cli`` beside ``tests/openchia_cli``, ``tests/run_agent`` beside
 ``tests/agent``, ``tests/state`` beside ``tests/hermes_state``) and ~250
 loose files at ``tests/`` root that belonged to a package.
 
@@ -64,7 +64,7 @@ def test_every_test_directory_mirrors_a_source_directory_or_is_declared():
     assert not offenders, (
         "tests/ directories that mirror no source package: "
         f"{offenders}. Put the tests under tests/<source dir>/ (tests/agent, "
-        "tests/hermes_cli, ...) or, for a genuinely cross-cutting suite, add the "
+        "tests/openchia_cli, ...) or, for a genuinely cross-cutting suite, add the "
         "name to _NON_MIRROR_DIRS in this file with a reason."
     )
 

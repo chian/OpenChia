@@ -68,7 +68,7 @@ def _manifest_file() -> Path:
 
 
 # Written by `hermes profile create --no-skills` / installer `--no-skills`: sync seeds only
-# essential skills. Mirrors hermes_cli.profiles.NO_BUNDLED_SKILLS_MARKER (no CLI import here).
+# essential skills. Mirrors openchia_cli.profiles.NO_BUNDLED_SKILLS_MARKER (no CLI import here).
 NO_BUNDLED_SKILLS_MARKER = ".no-bundled-skills"
 
 

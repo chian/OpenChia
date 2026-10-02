@@ -121,7 +121,7 @@ Para JavaScript, ejecuta `npm ci` en el workspace correspondiente. Consulta
 ```
 hermes-agent/
 ├── run_agent.py              # Clase AIAgent — bucle de conversación central, despacho de herramientas, persistencia de sesión
-├── cli.py                    # Clase HermesCLI — TUI interactiva, integración prompt_toolkit
+├── cli.py                    # Clase OpenChiaCLIBase — TUI interactiva, integración prompt_toolkit
 ├── model_tools.py            # Orquestación de herramientas (capa delgada sobre tools/registry.py)
 ├── toolsets.py               # Agrupaciones y presets de herramientas (hermes-cli, hermes-telegram, etc.)
 ├── hermes_state.py           # Base de datos de sesiones SQLite con búsqueda de texto completo FTS5, títulos de sesión
@@ -135,7 +135,7 @@ hermes-agent/
 │   ├── model_metadata.py         # Longitudes de contexto del modelo, estimación de tokens
 │   └── trajectory.py             # Ayudantes para guardar trayectorias
 │
-├── hermes_cli/               # Implementaciones de comandos CLI
+├── openchia_cli/               # Implementaciones de comandos CLI
 │   ├── main.py                   # Punto de entrada, análisis de argumentos, despacho de comandos
 │   ├── config.py                 # Gestión de configuración, migración, definiciones de variables de entorno
 │   ├── setup.py                  # Asistente de configuración interactivo
@@ -429,7 +429,7 @@ Todos los campos son opcionales — los valores faltantes se heredan de la skin 
 
 **Opción B: Skin integrada**
 
-Añade al dict `_BUILTIN_SKINS` en `hermes_cli/skin_engine.py`. Usa el mismo esquema que arriba pero como dict de Python.
+Añade al dict `_BUILTIN_SKINS` en `openchia_cli/skin_engine.py`. Usa el mismo esquema que arriba pero como dict de Python.
 
 **Activar:**
 - CLI: `/skin mitema` o establece `display.skin: mitema` en config.yaml

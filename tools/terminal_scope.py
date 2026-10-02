@@ -102,8 +102,8 @@ def build_profile_terminal_scope(
     closes. It sits where the process env sits in the standalone bridge — explicit YAML keys
     still win (``apply_terminal_config_to_env``).
     """
-    from hermes_cli.config import TERMINAL_CONFIG_ENV_MAP, _terminal_env_value
-    from hermes_cli.config_defaults import DEFAULT_CONFIG
+    from openchia_cli.config import TERMINAL_CONFIG_ENV_MAP, _terminal_env_value
+    from openchia_cli.config_defaults import DEFAULT_CONFIG
 
     home = Path(hermes_home)
     scope: Dict[str, str] = {}

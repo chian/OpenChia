@@ -365,8 +365,8 @@ def _run_create_profile_setup(*, prompt, select, cancelled, config: dict, provid
 
 def run_setup(hermes_home: str, config: dict) -> None:
     """Entry point for ``OpenVikingMemoryProvider.post_setup``."""
-    from hermes_cli.config import save_config
-    from hermes_cli.memory_setup import _CANCELLED, _curses_select, _print_cancelled_setup, _prompt
+    from openchia_cli.config import save_config
+    from openchia_cli.memory_setup import _CANCELLED, _curses_select, _print_cancelled_setup, _prompt
 
     env_path = Path(hermes_home) / ".env"
     if not isinstance(config.get("memory"), dict):

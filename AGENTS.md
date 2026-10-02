@@ -205,7 +205,7 @@ hermes-agent/
 ├── run_agent.py          # AIAgent facade; the turn loop lives in agent/turn_*.py
 ├── model_tools.py        # Tool orchestration, discover_builtin_tools(), handle_function_call()
 ├── toolsets.py           # TOOLSETS dict, _HERMES_CORE_TOOLS
-├── cli.py                # HermesCLI (REPL, slash dispatch) + hermes_cli/cli_*_mixin.py
+├── cli.py                # OpenChiaCLIBase (REPL, slash dispatch) + openchia_cli/cli_*_mixin.py
 ├── hermes_state.py       # SessionDB facade; hermes_state_*.py siblings
 ├── hermes_constants.py   # get_hermes_home(), display_hermes_home() — profile-aware paths
 ├── hermes_logging.py     # agent.log / errors.log / gateway.log (profile-aware)
@@ -214,7 +214,7 @@ hermes-agent/
 ├── method_loop/          # generic Episode loop, nesting, identities, and routing
 ├── episode_library/      # durable task-specific reference Episode designs
 ├── numeric_control_library/ # credit, rarefaction, continuation, and composition
-├── hermes_cli/           # CLI subcommands, setup, config, plugins loader, skins, updater
+├── openchia_cli/           # CLI subcommands, setup, config, plugins loader, skins, updater
 │   └── web_routers/      # Dashboard FastAPI routers (one per surface); web_server.py mounts them
 ├── tools/                # Tool implementations, auto-discovered via tools/registry.py
 │   └── environments/     # Terminal backends (local, docker, ssh, modal, daytona, singularity)
@@ -246,8 +246,8 @@ profile-aware via `get_hermes_home()`. Browse logs with `hermes logs [--follow] 
 Every former god file is a **facade** (public entry points + the names other packages import)
 plus **siblings** `<stem>_<topic>.py` in the same directory, each owning one topic. Largest
 families: `hermes_state.py` (21), `gateway/run.py` (15), `tools/mcp_tool.py` (15),
-`hermes_cli/kanban.py` (14), `hermes_cli/web_server.py` (13 + 24 routers), `hermes_cli/auth.py`
-(12), `tools/browser_tool.py` (11), `cli.py` (12 `hermes_cli/cli_*_mixin.py`), `run_agent.py`
+`openchia_cli/kanban.py` (14), `openchia_cli/web_server.py` (13 + 24 routers), `openchia_cli/auth.py`
+(12), `tools/browser_tool.py` (11), `cli.py` (12 `openchia_cli/cli_*_mixin.py`), `run_agent.py`
 (`agent/turn_*.py`, `agent_init.py`, `conversation_loop.py`).
 
 - **Find code by topic, not by facade:** `grep -rn "def name" <dir>/<stem>_*.py`. Reading the
@@ -278,9 +278,9 @@ families: `hermes_state.py` (21), `gateway/run.py` (15), `tools/mcp_tool.py` (15
 - **Never infer process identity from argv substrings** (`"serve" in cmdline`) — the bug class
   behind ~10 fleet-update issues (#90778, #87594, #78089, #76129, #91964). Use the canonical
   matchers `gateway.status.looks_like_gateway_command_line` and
-  `hermes_cli.update_cmd._hermes_holder_subcommand`; flag sets are DERIVED from the parser
+  `openchia_cli.update_cmd._hermes_holder_subcommand`; flag sets are DERIVED from the parser
   (`_holder_value_flags()`), never hand-written; match FULL cmdlines and truncate only for
-  display. Details: `hermes_cli/AGENTS.md`.
+  display. Details: `openchia_cli/AGENTS.md`.
 - **Never hardcode `~/.hermes`.** `get_hermes_home()` for code paths, `display_hermes_home()`
   for user-facing text (both from `hermes_constants`). Hardcoding breaks profiles (5 bugs in
   PR #3575). Profile operations themselves are HOME-anchored
@@ -395,7 +395,7 @@ scripts/run_tests.sh -v --tb=long                       # pytest flags pass thro
   retried (relaunching a runaway doubles the damage). Pass-on-retry is green but printed under `⚠ FLAKY`
   with both outputs — a bug to fix, not noise. Timing tests must not assume a quiet runner:
   wall-clock bounds ≥ 2s, event-based sync, no `assert not _wait_until(...)` races.
-- **Placement mirrors the source tree.** A test lives in `tests/<top-level source dir>/` (`tests/hermes_cli/`,
+- **Placement mirrors the source tree.** A test lives in `tests/<top-level source dir>/` (`tests/openchia_cli/`,
   `tests/agent/`, `tests/hermes_state/`, `tests/gateway/relay/`, ...); installer/updater script tests
   under `tests/scripts/{install,desktop_update}/`. Only tests of root-level modules (`batch_runner`,
   `utils`, `hermes_constants`, packaging) sit directly in `tests/`. No issue numbers in filenames —
@@ -407,7 +407,7 @@ scripts/run_tests.sh -v --tb=long                       # pytest flags pass thro
 - **Tests must not write to `~/.hermes/`.** The autouse `_isolate_hermes_home` fixture in
   `tests/conftest.py` redirects `HERMES_HOME`; never hardcode `~/.hermes/` in tests. Profile
   tests also mock `Path.home()` so `_get_profiles_root()` / `_get_default_hermes_home()` stay
-  in the temp dir (pattern: `tests/hermes_cli/test_profiles.py`):
+  in the temp dir (pattern: `tests/openchia_cli/test_profiles.py`):
   ```python
   @pytest.fixture
   def profile_env(tmp_path, monkeypatch):
@@ -453,7 +453,7 @@ fully replaced — `platforms` is the only host-gating marker in the tree.
 real Windows process behavior that mocks cannot reproduce (venv-holder
 scans, process-tree parentage, launcher/worker chains, detach semantics),
 there is an on-demand workflow `windows-venv-e2e.yml` that runs
-`tests/hermes_cli/test_venv_holder_windows_live.py` on a real
+`tests/openchia_cli/test_venv_holder_windows_live.py` on a real
 `windows-latest` runner — spawning actual processes and driving the real
 detection code, no mocked psutil. It fires ONLY on pushes to `wine2e/**`
 branches (inert on PRs and main; costs nothing on normal work). The proven
@@ -518,15 +518,15 @@ extract, not to regex around it.
 | Area | Read | Covers |
 |---|---|---|
 | `run_agent.py`, `agent/` | `agent/AGENTS.md` | AIAgent + mixins, turn phases, caching integrity, message-flow invariants, compression, model/aux resolution |
-| `cli.py`, `hermes_cli/`, `main.py` | `hermes_cli/AGENTS.md` | CLI mixins, `_SLASH_DISPATCH`, slash registry, config system + loaders, skins, `hermes update` pipeline, profiles / multiplex |
+| `cli.py`, `openchia_cli/`, `main.py` | `openchia_cli/AGENTS.md` | CLI mixins, `_SLASH_DISPATCH`, slash registry, config system + loaders, skins, `hermes update` pipeline, profiles / multiplex |
 | `gateway/` | `gateway/AGENTS.md` | Adapters, two message guards, streaming contract, background notifications, gateway vs desktop lifecycle, token locks, scoped secrets |
 | `tools/`, `toolsets.py`, `model_tools.py` | `tools/AGENTS.md` | Adding tools, registry, toolsets, delegation, cross-tool references, backends |
-| `plugins/`, `hermes_cli/plugins*.py` | `plugins/AGENTS.md` | Plugin kinds, native compat contract, in-tree policy |
+| `plugins/`, `openchia_cli/plugins*.py` | `plugins/AGENTS.md` | Plugin kinds, native compat contract, in-tree policy |
 | `tui_gateway/`, `ui-tui/` | `tui_gateway/AGENTS.md` | Process model, JSON-RPC transport, key surfaces, slash flow, dev commands |
-| `web/`, `hermes_cli/web_routers/` | `web/AGENTS.md` | Dashboard embeds the real TUI; what React may and may not rebuild |
+| `web/`, `openchia_cli/web_routers/` | `web/AGENTS.md` | Dashboard embeds the real TUI; what React may and may not rebuild |
 | `apps/desktop/` | `apps/desktop/AGENTS.md`, `apps/desktop/src/AGENTS.md` | Desktop judgment guide; `serve` backend, slash palette curation, Bot Mode canonical chat |
 | `skills/`, `optional-skills/`, `agent/curator*.py` | `skills/AGENTS.md` | Frontmatter, HARDLINE authoring standards, curator |
-| `cron/`, kanban (`hermes_cli/kanban*.py`, `tools/kanban_tools.py`, `plugins/kanban/`) | `cron/AGENTS.md` | Scheduler invariants, job fields, kanban board/dispatcher |
+| `cron/`, kanban (`openchia_cli/kanban*.py`, `tools/kanban_tools.py`, `plugins/kanban/`) | `cron/AGENTS.md` | Scheduler invariants, job fields, kanban board/dispatcher |
 | `docs/adr/` | `docs/adr/README.md` | Architecture decision records, filename/status convention, and durable design rationale |
 | `gateway/platforms/` new adapter | `gateway/platforms/ADDING_A_PLATFORM.md` | Step-by-step adapter guide |
 | profiles / multiplex / secret scope (any area) | `gateway/AGENTS.md` § Profile scope, `website/docs/user-guide/multi-profile-gateways.md` § What is isolated per profile | which execution points bind scope, what is isolated per profile |

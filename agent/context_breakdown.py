@@ -207,7 +207,7 @@ def compute_context_details(agent: Any) -> Dict[str, Any]:
     Reuses the ``hermes prompt-size`` attribution (index-line bytes from the
     live skills block; schema bytes via the registry's tool→toolset map).
     """
-    from hermes_cli.prompt_size import _compute_skills_breakdown, _compute_toolsets_breakdown
+    from openchia_cli.prompt_size import _compute_skills_breakdown, _compute_toolsets_breakdown
     from agent.system_prompt import build_system_prompt_parts
 
     skills_block = _skills_block(build_system_prompt_parts(agent).get("stable", "") or "")

@@ -153,7 +153,7 @@ test('Windows relaunch gate refuses live and uncertain markers before executing 
       (error: any) => error.kind === 'update-in-progress'
     )
     assert.equal(
-      scripts.some(script => script.includes('hermes_cli.windows_ssh_runtime')),
+      scripts.some(script => script.includes('openchia_cli.windows_ssh_runtime')),
       false
     )
   }
@@ -281,7 +281,7 @@ test('helper command uses the fixed remote Python entry point and quotes path da
 
   const encoded = command.split(' ').pop()!
   const script = Buffer.from(encoded, 'base64').toString('utf16le')
-  assert.match(script, /-m' 'hermes_cli\.windows_ssh_runtime' 'inspect'/)
+  assert.match(script, /-m' 'openchia_cli\.windows_ssh_runtime' 'inspect'/)
   assert.match(script, /Hermes''s/)
   assert.match(script, /C:\\x y\\hermes\.exe/)
 })

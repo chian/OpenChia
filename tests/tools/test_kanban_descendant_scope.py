@@ -6,8 +6,8 @@ import shlex
 import subprocess
 import sys
 
-from hermes_cli import kanban_db as kb
-from hermes_cli.kanban_db_connect import connect
+from openchia_cli import kanban_db as kb
+from openchia_cli.kanban_db_connect import connect
 from tools import kanban_tools
 from tools.environments.local import LocalEnvironment
 
@@ -46,7 +46,7 @@ def test_terminal_descendants_cannot_mutate_even_after_task_is_removed(tmp_path,
         "out['show'] = json.loads(kt._handle_show({'task_id':own}))\n"
         "out['tools'] = [json.loads(kt._handle_complete({'task_id': t, 'summary':'must refuse'})) for t in (own,foreign)]\n"
         "os.environ.pop('HERMES_KANBAN_TASK', None)\n"
-        f"p = subprocess.run([sys.executable, '-m', 'hermes_cli.main', 'kanban', 'complete', foreign, '--result', 'must refuse'], cwd={str(ROOT)!r}, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=45)\n"
+        f"p = subprocess.run([sys.executable, '-m', 'openchia_cli.main', 'kanban', 'complete', foreign, '--result', 'must refuse'], cwd={str(ROOT)!r}, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=45)\n"
         "out['later_cli'] = {'rc': p.returncode, 'out':p.stdout, 'err':p.stderr}\n"
         "print('SCOPE_RESULT=' + json.dumps(out))\n"
     )
@@ -90,7 +90,7 @@ def test_worker_cli_cannot_use_foreign_task_to_drop_run_scope(tmp_path, monkeypa
     conn, own, foreign = _worker_board(tmp_path, monkeypatch)
     assert "error" in json.loads(kanban_tools._handle_complete({"task_id": foreign, "summary": "no"}))
     proc = subprocess.run(
-        [sys.executable, "-m", "hermes_cli.main", "kanban", "complete", foreign, "--result", "no"],
+        [sys.executable, "-m", "openchia_cli.main", "kanban", "complete", foreign, "--result", "no"],
         cwd=ROOT, env=dict(os.environ), stdin=subprocess.DEVNULL,
         capture_output=True, text=True, timeout=45,
     )
@@ -100,7 +100,7 @@ def test_worker_cli_cannot_use_foreign_task_to_drop_run_scope(tmp_path, monkeypa
     attachment.write_text("fixture")
     assert kb.block_task(conn, foreign, reason="fixture awaiting orchestrator")
     for arguments in (["attach", foreign, str(attachment)], ["unblock", foreign]):
-        proc = subprocess.run([sys.executable, "-m", "hermes_cli.main", "kanban", *arguments],
+        proc = subprocess.run([sys.executable, "-m", "openchia_cli.main", "kanban", *arguments],
                               cwd=ROOT, env=dict(os.environ), stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, timeout=45)
         assert proc.returncode != 0, (arguments, proc.stdout, proc.stderr)
@@ -130,8 +130,8 @@ def test_child_shell_can_write_a_kanban_board_outside_its_lineage_root(tmp_path,
     script.write_text(
         "import os, sys, json\n"
         f"sys.path.insert(0, {str(ROOT)!r})\n"
-        "from hermes_cli import kanban_db as kb\n"
-        "from hermes_cli.kanban_db_connect import connect\n"
+        "from openchia_cli import kanban_db as kb\n"
+        "from openchia_cli.kanban_db_connect import connect\n"
         "out = {'marker': os.environ.get('HERMES_DELEGATED_CHILD_CONTEXT')}\n"
         "try:\n"
         "    conn = connect(kb.kanban_db_path()); kb.create_task(conn, title='lineage'); out['lineage'] = 'WROTE'\n"

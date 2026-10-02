@@ -25,7 +25,7 @@ _PGVECTOR_CONTAINER, _PGVECTOR_IMAGE, _PGVECTOR_PASSWORD = "hermes-pgvector", "p
 
 
 def _curses_select(title: str, items: list[tuple[str, str]], default: int = 0) -> int:
-    from hermes_cli.curses_ui import curses_radiolist
+    from openchia_cli.curses_ui import curses_radiolist
     return curses_radiolist(title, [f"{label}  {desc}" if desc else label for label, desc in items], selected=default, cancel_returns=default)
 
 
@@ -149,7 +149,7 @@ def _write_env(env_path: Path, env_writes: dict[str, str]) -> None:
 
 def _activate_provider(config: dict) -> None:
     """Point config.yaml's memory.provider at mem0."""
-    from hermes_cli.config import save_config
+    from openchia_cli.config import save_config
     config["memory"]["provider"] = "mem0"
     save_config(config)
 

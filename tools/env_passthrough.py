@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from contextvars import ContextVar
 from typing import Iterable
-from hermes_cli.config import cfg_get, read_raw_config
+from openchia_cli.config import cfg_get, read_raw_config
 
 logger = logging.getLogger(__name__)
 

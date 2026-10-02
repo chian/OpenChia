@@ -28,7 +28,7 @@ export async function resolveSourceInstallationBackend(
   args: string[],
   options: SourceOptions & { hermesHome?: string } = {}
 ): Promise<SourceBackend | null> {
-  if (!existsSync(path.join(root, 'hermes_cli', 'main.py'))) {
+  if (!existsSync(path.join(root, 'openchia_cli', 'main.py'))) {
     return null
   }
 
@@ -95,7 +95,7 @@ export function createSourcePythonBackend(
     kind: 'python',
     label: `Hermes source at ${root}`,
     command,
-    args: ['-m', 'hermes_cli.main', ...args],
+    args: ['-m', 'openchia_cli.main', ...args],
     // The backend runs in the user's workspace cwd, and the selected
     // interpreter need not have this checkout installed: name it explicitly.
     // (The scrubbed inherited value could point at another checkout.)
