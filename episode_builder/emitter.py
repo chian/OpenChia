@@ -160,7 +160,9 @@ def _assigned_names(tree: ast.Module) -> set[str]:
     return names
 
 
-def _builder_parameters(function: ast.FunctionDef) -> tuple[str, ...] | None:
+def _builder_parameters(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[str, ...] | None:
     arguments = function.args
     if (
         arguments.posonlyargs
@@ -314,7 +316,7 @@ def _validate_module_source(
     functions = {
         statement.name: statement
         for statement in tree.body
-        if isinstance(statement, ast.FunctionDef)
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     module_values = _assigned_names(tree)
     required_builders = {
@@ -329,6 +331,13 @@ def _validate_module_source(
                 code="module_exports_incomplete",
                 field_path="module_source",
                 detail=f"generated module omits synchronous {name}()",
+                episode_local_id=local_id,
+            )
+        if isinstance(function, ast.AsyncFunctionDef):
+            raise EpisodeEmissionError(
+                code="builder_async_forbidden",
+                field_path=f"module_source.{name}",
+                detail=f"{name} must be a synchronous def; the runtime calls it directly",
                 episode_local_id=local_id,
             )
         actual_parameters = _builder_parameters(function)
