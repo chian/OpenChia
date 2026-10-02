@@ -44,6 +44,10 @@ from .executor import (
     SystemdRunExecutor,
     make_systemd_run_executor_factory,
 )
+from .interpreter import (
+    InterpreterPathError,
+    current_interpreter_executable,
+)
 from .identity import (
     ADMITTED_LOCAL_ROOTS,
     BOOTSTRAP_SOURCE_PATH,
@@ -112,6 +116,8 @@ from .store import (
 
 
 __all__ = [
+    "InterpreterPathError",
+    "current_interpreter_executable",
     "ADMITTED_MODEL_TASKS",
     "ADMITTED_LOCAL_ROOTS",
     "BOOTSTRAP_SOURCE_PATH",

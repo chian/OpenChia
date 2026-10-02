@@ -311,6 +311,20 @@ def _verify_package(package: Path, manifest: dict[str, object]) -> None:
             raise BootstrapError(f"staged source {relative!r} differs from manifest")
 
 
+def _current_executable() -> Path:
+    """The running interpreter's real file. Mirrors ``episode_runtime.interpreter``
+    (this bootstrap is source-only and must not import siblings): ``/proc/self/exe``
+    on Linux, ``sys.executable`` resolved elsewhere."""
+    if sys.platform.startswith("linux"):
+        try:
+            return Path(os.readlink("/proc/self/exe")).resolve(strict=True)
+        except OSError:
+            pass
+    if not sys.executable:
+        raise BootstrapError("sys.executable is empty; cannot identify the interpreter")
+    return Path(sys.executable).expanduser().resolve(strict=True)
+
+
 def _verify_interpreter(identity: dict[str, object]) -> tuple[Path, dict[Path, str]]:
     if (
         identity["implementation"] != sys.implementation.name
@@ -319,7 +333,7 @@ def _verify_interpreter(identity: dict[str, object]) -> tuple[Path, dict[Path, s
         or identity["cache_tag"] != (sys.implementation.cache_tag or "none")
     ):
         raise BootstrapError("running interpreter metadata differs from manifest")
-    executable = Path(os.readlink("/proc/self/exe")).resolve(strict=True)
+    executable = _current_executable()
     if _digest(_read_regular(executable, "Python executable")) != identity["executable_hash"]:
         raise BootstrapError("running Python executable differs from manifest")
     stdlib = Path(sysconfig.get_path("stdlib")).resolve(strict=True)
