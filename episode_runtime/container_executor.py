@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -68,14 +67,15 @@ _DEFAULT_PIDS_MAX = 4096
 _CPU_PERIOD_MICROS = 100_000
 _MIB = 1 << 20
 
-_DOCKER_SEARCH_PATHS = (
-    "/usr/local/bin/docker",
-    "/opt/homebrew/bin/docker",
-    "/Applications/Docker.app/Contents/Resources/bin/docker",
-    "/Applications/Rancher Desktop.app/Contents/Resources/resources/darwin/bin/docker",
-    "/usr/bin/docker",
-    "/usr/bin/podman",
+#: Desktop container runtimes keep their CLI outside PATH until their shell
+#: integration is installed; the platform resolver probes these after PATH.
+_CONTAINER_DESKTOP_DIRS = (
+    "/Applications/Docker.app/Contents/Resources/bin",
+    "/Applications/Rancher Desktop.app/Contents/Resources/resources/darwin/bin",
 )
+#: How long a launched container may take to reach the running state before the
+#: Run is failed instead of waiting on a wedged or unauthorized daemon forever.
+CONTAINER_START_TIMEOUT_SECONDS = 120.0
 
 # Executed with ``docker exec`` inside the running container (stdlib only, the
 # worker's own interpreter, same uid as the leader).  It reports the facts the
@@ -131,22 +131,23 @@ class ContainerRuntimeError(RuntimeError):
 
 def find_container_cli(explicit: str | Path | None = None) -> Path:
     """Locate a Docker-compatible CLI: explicit path, ``OPENCHIA_CONTAINER_CLI``,
-    ``docker``/``podman`` on PATH, then the usual desktop install locations."""
-    candidates: list[str] = []
+    then ``docker``/``podman`` on PATH and in the desktop runtimes' install dirs,
+    all through the platform resolver."""
+    from hermes_platform.resolver.core import locate_command
+    from hermes_platform.resolver.known_dirs import homebrew_dirs, user_local_bin
+
+    names: list[str] = []
     if explicit is not None:
-        candidates.append(str(explicit))
+        names.append(str(explicit))
     env = os.environ.get("OPENCHIA_CONTAINER_CLI")
     if env:
-        candidates.append(env)
-    for name in ("docker", "podman"):
-        found = shutil.which(name)
-        if found:
-            candidates.append(found)
-    candidates.extend(_DOCKER_SEARCH_PATHS)
-    for candidate in candidates:
-        path = Path(candidate).expanduser()
-        if path.is_file() and os.access(path, os.X_OK):
-            return path.resolve(strict=True)
+        names.append(env)
+    names.extend(("docker", "podman"))
+    known_dirs = (*homebrew_dirs(), *user_local_bin(), *_CONTAINER_DESKTOP_DIRS)
+    for name in names:
+        command = locate_command(name, known_dirs=known_dirs).command
+        if command:
+            return Path(command[0]).resolve(strict=True)
     raise ContainerRuntimeError(
         "no Docker-compatible CLI found (install Docker Desktop, Rancher Desktop or Podman, "
         "or set OPENCHIA_CONTAINER_CLI)"
@@ -568,12 +569,21 @@ class ContainerRunExecutor(_RunExecutorBase):
         mounts: tuple[ReadOnlyRuntimeMount, ...],
     ) -> _ExecutorFacts:
         name = launch_identity.unit_name
+        deadline = asyncio.get_running_loop().time() + CONTAINER_START_TIMEOUT_SECONDS
+        last_error: Optional[BaseException] = None
         while True:
             if launcher.returncode is not None:
                 raise RunExecutionError("container exited before inspection")
+            if asyncio.get_running_loop().time() > deadline:
+                raise RunExecutionError(
+                    "container did not become inspectable within "
+                    f"{CONTAINER_START_TIMEOUT_SECONDS:.0f}s"
+                    + (f" (last inspection error: {last_error})" if last_error else "")
+                ) from last_error
             try:
                 info = await self._inspect_container(name)
-            except RunExecutionError:
+            except RunExecutionError as exc:
+                last_error = exc
                 await asyncio.sleep(0.05)
                 continue
             state = info.get("State") or {}
@@ -581,6 +591,11 @@ class ContainerRunExecutor(_RunExecutorBase):
                 break
             if state.get("Status") in {"exited", "dead", "removing"}:
                 raise RunExecutionError("container did not reach the running state")
+            if asyncio.get_running_loop().time() > deadline:
+                raise RunExecutionError(
+                    "container did not reach the running state within "
+                    f"{CONTAINER_START_TIMEOUT_SECONDS:.0f}s"
+                )
             await asyncio.sleep(0.05)
 
         container_id = info.get("Id")
@@ -731,8 +746,11 @@ def make_container_run_executor_factory(
 ):
     """Build the container host dependency for fresh per-Run executors.
 
-    The image is pinned by digest and its interpreter identity captured once
-    per host process; the VM allocation is re-read for every Run so the
+    Nothing touches the container daemon here: the host constructs this
+    factory when a Duet session starts, and a design-only session must work
+    without Docker running.  The CLI is located, the image pinned by digest and
+    its interpreter identity captured on the first explicit Run, then cached
+    for the host process; the VM allocation is re-read for every Run so the
     ceilings mirror the runtime as it is, not as it was.
     """
     root = Path(repository_root).expanduser()
@@ -741,16 +759,16 @@ def make_container_run_executor_factory(
     root = root.resolve(strict=True)
     if not root.is_dir():
         raise ValueError("runtime repository must exist")
-    cli_path = find_container_cli(cli)
-    key = (str(cli_path), image)
-    runtime = _RUNTIME_CACHE.get(key)
-    if runtime is None:
-        runtime = inspect_container_runtime(repository_root=root, image=image, cli=cli_path)
-        _RUNTIME_CACHE[key] = runtime
 
     def factory(run_store: RunStore) -> ContainerRunExecutor:
         if not isinstance(run_store, RunStore):
             raise TypeError("run_store must be a RunStore")
+        cli_path = find_container_cli(cli)
+        key = (str(cli_path), image)
+        runtime = _RUNTIME_CACHE.get(key)
+        if runtime is None:
+            runtime = inspect_container_runtime(repository_root=root, image=image, cli=cli_path)
+            _RUNTIME_CACHE[key] = runtime
         return ContainerRunExecutor(
             run_store=run_store,
             repository_root=root,
@@ -762,6 +780,7 @@ def make_container_run_executor_factory(
 
 
 __all__ = [
+    "CONTAINER_START_TIMEOUT_SECONDS",
     "CONTAINER_USER",
     "ContainerRunExecutor",
     "ContainerRuntime",
