@@ -69,7 +69,7 @@ RESULT_COLUMN_SCHEMA = LibraryFunction(
         is_async=False,
     ),
     input_type="question_table_goal_library.QuestionTableContractRef",
-    output_type="agent.credit_assignment.ResultColumnSchema",
+    output_type="numeric_control_library.credit_assignment.ResultColumnSchema",
     effect="Pure projection; channel order is preserved and no channel is inferred.",
     failure_contract="Rejects any value that is not the admitted table contract.",
     provenance={

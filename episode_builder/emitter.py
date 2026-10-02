@@ -22,6 +22,7 @@ from llm_call_library import (
     structured_json_completion,
 )
 
+from .admission import ADMITTED_IMPORT_ROOTS, INTERNAL_IMPLEMENTATION_ROOTS
 from ._contract_base import BuildDeficit, EmittedEpisodeModule
 from ._contract_plan import (
     EdgeMaterializationPlan,
@@ -498,7 +499,10 @@ Import EpisodeLibraryDesign from episode_library.models; reference Episode
 modules are evidence to port, never concrete modules to import.
 Bind registered LibraryFunction constants as declarations and import their
 public pure implementations directly when construction needs them; do not
-dynamically load a definition.
+dynamically load a definition. Import only modules whose root package is
+listed in required_module_contract.import_surface.admitted_import_roots;
+write each FunctionImplementation exactly as
+required_module_contract.builder_runtime.generated_implementation states.
 
 Every edge receive_result implementation first calls
 handoff_library.admit_child_result with the matching parent request, declared
@@ -607,8 +611,27 @@ _MODULE_CONTRACT = {
             "already-admitted EpisodeRequest"
         ),
         "generated_implementation": (
-            "each generated FunctionImplementation uses target_module_name as "
-            "a literal module string and a top-level function symbol"
+            "each generated FunctionImplementation is written literally as "
+            'FunctionImplementation(module="<target_module_name>", '
+            'symbol="<top-level function name>", is_async=<bool>); module is '
+            "the exact target_module_name string literal, never a variable, "
+            "constant, or expression, and never a keyword named "
+            "target_module_name"
+        ),
+    },
+    "import_surface": {
+        "admitted_import_roots": sorted(ADMITTED_IMPORT_ROOTS),
+        "library_packages": sorted(INTERNAL_IMPLEMENTATION_ROOTS),
+        "rule": (
+            "every import names a module whose first dotted segment is one of "
+            "admitted_import_roots; library packages are top-level packages "
+            "imported exactly as listed, for example "
+            "'from method_loop import Episode', "
+            "'from handoff_library import admit_child_result', "
+            "'from http_call_library import HTTP_JSON', "
+            "'from numeric_control_library import ...'; there is no 'agent.' "
+            "package prefix and no other package root; host admission rejects "
+            "the whole module on any other import"
         ),
     },
     "method_loop_api": {
