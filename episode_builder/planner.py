@@ -68,6 +68,7 @@ from ._contract_plan import (
     EdgeMaterializationPlan,
     NodeMaterializationPlan,
 )
+from .evidence import ModelCallObserver, observe_model_call
 from .reference import EpisodeReferenceContext, EpisodeReferenceResolver
 
 
@@ -121,6 +122,15 @@ def _result_channel_ids(
     )
 
 
+def _require_exact_fields(value: Mapping, expected: set[str], name: str) -> None:
+    actual = set(value)
+    if actual != expected:
+        raise ValueError(
+            f"{name} fields must be exact; missing={sorted(expected - actual)!r}; "
+            f"unexpected={sorted(actual - expected, key=str)!r}"
+        )
+
+
 def _binding_record(value: object, name: str) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{name} must be an object")
@@ -134,8 +144,7 @@ def _binding_record(value: object, name: str) -> dict[str, object]:
         "arguments",
         "basis",
     }
-    if set(value) != required:
-        raise ValueError(f"{name} fields must be exact")
+    _require_exact_fields(value, required, name)
     for field in required - {"arguments"}:
         if not isinstance(value[field], str) or not value[field].strip():
             raise ValueError(f"{name}.{field} must be non-empty text")
@@ -160,8 +169,7 @@ def _component_record(value: object, name: str) -> dict[str, object]:
         "failure_contract",
         "basis",
     }
-    if set(value) != required:
-        raise ValueError(f"{name} fields must be exact")
+    _require_exact_fields(value, required, name)
     for field in required:
         if not isinstance(value[field], str) or not value[field].strip():
             raise ValueError(f"{name}.{field} must be non-empty text")
@@ -182,8 +190,7 @@ def _prompt_record(value: object, name: str) -> dict[str, object]:
         "response_contract",
         "basis",
     }
-    if set(value) != required:
-        raise ValueError(f"{name} fields must be exact")
+    _require_exact_fields(value, required, name)
     if value["model_tier"] not in {"reasoning", "fast"}:
         raise ValueError(f"{name}.model_tier must be reasoning or fast")
     for field in required:
@@ -215,8 +222,7 @@ def _admit_plan_payload(value: object) -> dict[str, object]:
         "derivation_basis",
         "unresolved",
     }
-    if set(value) != expected:
-        raise ValueError("node materialization plan fields must be exact")
+    _require_exact_fields(value, expected, "node materialization plan")
     if not isinstance(value["interface"], str) or not value["interface"].strip():
         raise ValueError("interface must be non-empty text")
     result_channels = value["result_channel_names"]
@@ -268,8 +274,7 @@ def _admit_plan_payload(value: object) -> dict[str, object]:
             "build_child",
             "basis",
         }
-        if set(raw) != fields:
-            raise ValueError(f"child_slots[{index}] fields must be exact")
+        _require_exact_fields(raw, fields, f"child_slots[{index}]")
         for field in fields - {
             "request_payload_contract",
             "result_payload_contract",
@@ -1080,6 +1085,7 @@ class EpisodeMaterializationPlanner:
         approved_refinement_evidence: Mapping[str, object] | None,
         predecessor_node: NodeMaterializationPlan | None,
         architecture_numeric_bindings: tuple[Mapping[str, object], ...],
+        model_call_observer: ModelCallObserver | None = None,
     ) -> tuple[dict[str, object] | None, EpisodeReferenceContext | None, BuildDeficit | None]:
         reference_context: EpisodeReferenceContext | None = None
         if node.episode_reference is not None:
@@ -1166,6 +1172,15 @@ class EpisodeMaterializationPlanner:
                 options=self.call_options,
             )
         )
+        observe_model_call(
+            model_call_observer,
+            stage="planning",
+            local_id=node.local_id,
+            system_prompt=_PLANNER_SYSTEM_PROMPT,
+            prompt=_canonical(prompt_record),
+            prompt_record=prompt_record,
+            result=result,
+        )
         if not result.succeeded or result.value is None:
             failure = result.failure
             return None, reference_context, BuildDeficit(
@@ -1196,6 +1211,7 @@ class EpisodeMaterializationPlanner:
         build_attempt: BuildAttempt,
         *,
         predecessor_plan: WorkflowMaterializationPlan | None = None,
+        model_call_observer: ModelCallObserver | None = None,
     ) -> WorkflowMaterializationPlan:
         if not isinstance(build_request, ApprovedBuildRequest):
             raise TypeError("planner requires ApprovedBuildRequest")
@@ -1320,6 +1336,7 @@ class EpisodeMaterializationPlanner:
                 ),
                 predecessor_node=predecessor_nodes.get(node.local_id),
                 architecture_numeric_bindings=architecture_numeric_bindings,
+                model_call_observer=model_call_observer,
             )
             if failure is not None:
                 deficits.append(failure)
@@ -1547,7 +1564,7 @@ class EpisodeMaterializationPlanner:
                     code="edge_unplanned",
                     field_path="workflow_parent_local_id",
                     detail=f"no materialized edge joins {parent!r} to {child!r}",
-                    episode_local_id=child,
+                    episode_local_id=parent,
                 )
             )
         plan = WorkflowMaterializationPlan(
