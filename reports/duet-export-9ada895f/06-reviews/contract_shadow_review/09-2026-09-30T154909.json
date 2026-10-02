@@ -1,0 +1,51 @@
+{
+  "contract_hash": "sha256:82c61ae559611bf32cf30a805dc8468e6326a2cc151daf9f4ec4b406817b5245",
+  "findings": [
+    {
+      "code": "progress_credit_condition_weaker_than_ledger",
+      "explanation": "The progress description credits 'bound_hit after the benchmark was frozen' once the closure artifacts are hash-verified. decision_ledger d_credit_result_bearing_only, and the design_scope, require more for a credited bound_hit: a frozen benchmark, a completed noise-floor record with at least 2 repeats, at least one scored one-axis generation trial with non-empty per-question rows, and a leaderboard naming a current best. The ledger created that minimum to close the finding 'credit_attainable_without_verified_results'. The host adapter derives progress from this description. If it follows the looser text, a collection that freezes its benchmark and immediately hits a bound earns full 1/N credit. That is the exact loophole the ledger closed, so the host measure and the Creator scope disagree on what counts.",
+      "fields": [
+        "progress.description",
+        "design_scope",
+        "credit_assignment"
+      ],
+      "question": "Should progress.description state the full ledger minimum for a credited bound_hit? That minimum is a frozen benchmark, a noise-floor record with at least 2 repeats, at least one scored generation trial with outcome rows, and a leaderboard naming a current best.",
+      "severity": "medium"
+    },
+    {
+      "code": "benchmark_shortfall_outcome_ambiguous",
+      "explanation": "The artifacts give different outcomes for a collection whose documents exist but which cannot yield 20 validated synthesis questions. (a) task_specification measurement_validity.minimum_benchmark_size.shortfall says to proceed with the actual count and mark comparisons low-power. (b) execution_policy budget_attribution says to close as bound_hit if the minimum is not reached within budget. (c) decision_ledger allows not_tested only for collections 'below the minimum document count needed to build 20 synthesis questions'. (d) execution_policy answer_key_resolution allows blocked with benchmark_not_freezable. The unit and design_scope say only '25-40 questions'. Only (a) can produce a credited result, and (c) and (d) earn 0, so the choice changes both root progress and what is reported.",
+      "fields": [
+        "unit",
+        "design_scope"
+      ],
+      "question": "When a collection has enough documents but validation yields fewer than 20 multi-paper synthesis questions, should the study proceed as a low-power stratum or close without a result? If it closes, which status and reason apply?",
+      "severity": "medium"
+    },
+    {
+      "code": "phase_budget_likely_precludes_convergence_and_structure_coverage",
+      "explanation": "This is a rough projection, not a measured figure. Setup plus search is capped at 1200 calls per collection. With about 20-30 tuning questions and billable_calls = provider_calls + llm_calls per question, phase A must cover about 7 surviving parameter axes. For retrieval axes that means /v1/retrieve screening across roughly 15 values on the full tuning set, plus a generation trial per axis. It then needs further trials until 3 distinct-axis sub-threshold gains. Phase B must then score up to 6 structures, several of them multi-call (n+1 or decomposed). Under this estimate the pool is typically spent before phase B finishes. Most collections would then close bound_hit with structures marked not-tested. That leaves the goal's second question, which episodic QA structure is best, mostly unanswered. The contract reports this honestly, but the goal and result promise a winning structure per collection.",
+      "fields": [
+        "goal",
+        "unit",
+        "design_scope",
+        "result"
+      ],
+      "question": "Is it acceptable that phase B structure comparison may routinely be not-tested under the 1200-call pool? If not, should reconnaissance record a projected per-collection phase cost and state in advance which structures are expected to fit?",
+      "severity": "medium"
+    },
+    {
+      "code": "deliverable_omits_required_records",
+      "explanation": "Several items required by the artifacts are missing from the result and deliverable enumerations. From the model-matched holdout: holdout #3, and the separate configuration-effect (#2−#1) and model-effect (#3−#2) figures. From task_specification deliverable_shape: leaderboard citation support, and the per-question distinct-document count and truncated flag. From the ledger: the hashed token-leak scan record, the per-collection closure hash lists, and the recorded child-episode, judging and time allocation. Without these, a human auditor cannot check credit, leak safety or the effect attribution from the listed files.",
+      "fields": [
+        "result",
+        "deliverable"
+      ],
+      "question": "Should the result and deliverable list these explicitly: holdout #3 with the separated config and model effects, citation support, distinct-document count, the truncated flag, the token-scan record, closure hash manifests and allocation records?",
+      "severity": "low"
+    }
+  ],
+  "revision": 26,
+  "summary": "The draft mostly matches the five artifacts. It has per-collection strata, a two-phase search, model-matched holdout, budget pools, closure verification, a trigger vocabulary and root orphan handling. Two medium issues remain. First, the host-facing progress description admits credit on a weaker condition than the result-bearing minimum that the design_scope and decision_ledger impose. Second, the outcome for a collection that cannot reach 20 validated synthesis questions is defined three conflicting ways. Two further issues are advisory: phase A coverage plus phase B may not fit the 1200-call setup-plus-search pool, and some required records are missing from the deliverable enumeration.",
+  "verdict": "concern"
+}

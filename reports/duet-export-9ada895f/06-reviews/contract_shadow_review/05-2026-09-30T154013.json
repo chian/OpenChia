@@ -1,0 +1,53 @@
+{
+  "contract_hash": "sha256:b4bdde34f6830790a35bf4d1bea294e3e99d97bc2852abde3a60375cb4735a95",
+  "findings": [
+    {
+      "code": "credit_attainable_without_verified_results",
+      "explanation": "Root progress counts converged, bound_hit, not_tested and blocked equally. Under execution_policy.closure_evidence, a closure whose hashed artifacts are missing or mismatched is recorded as blocked with reason 'closure_evidence_missing'. Blocked is a counted status, so the failure still earns credit. not_tested needs only 'reason recorded', with no enumerated admissible conditions. The design scope says 'a status label alone never counts' and the deliverable says a typed status alone is not usable. Yet root_experiment_progress can reach the 1.0 target with zero frozen benchmarks, leaderboards or winners. Stopping at 1.0 on full coverage is reasonable. Crediting evidence-free closures as progress sits in tension with the stated goal and evidence rules.",
+      "fields": [
+        "progress",
+        "credit_assignment",
+        "stopping.target",
+        "unit",
+        "design_scope"
+      ],
+      "question": "Should credit distinguish result-bearing closures (converged or bound_hit with verified artifacts) from blocked and not_tested closures? Alternatively, should not_tested and closure_evidence_missing be restricted to named admissible conditions, so the root cannot reach full credit by closing every collection without a result?",
+      "severity": "medium"
+    },
+    {
+      "code": "judge_independence_unresolved_if_episode_model_on_tenant_axis",
+      "explanation": "The judge and question generator are fixed as 'the Episode's own model' and must never be a model on the tenant's llm axis. The llm axis is only known after GET /v1/models/available. If that list includes the Episode's own model or family, the two rules conflict. No fallback is defined, such as excluding that model from the sweep and confirmation, or closing the collection blocked.",
+      "fields": [
+        "design_scope",
+        "goal"
+      ],
+      "question": "If the Episode's own model appears among the tenant's llm models, should it be struck from the llm axis (sweep and strong-model confirmation), or should the run escalate or block?",
+      "severity": "low"
+    },
+    {
+      "code": "episode_side_cost_not_measurable_with_granted_capabilities",
+      "explanation": "The result and deliverable require cost totals that record Episode-side judging and generation cost separately. The granted capabilities are write_file, execute_code and todo_list. None of these exposes the Episode model's own token usage, so the figure can only be estimated. Nothing requires it to be labelled as an estimate.",
+      "fields": [
+        "result",
+        "deliverable",
+        "execution_capability_names"
+      ],
+      "question": "Is an estimated Episode-side cost acceptable, provided it is explicitly labelled as estimated along with its method, or does the operator expect a measured figure from a host-provided source?",
+      "severity": "low"
+    },
+    {
+      "code": "token_leak_verification_gate_not_placed",
+      "explanation": "safety_policy.credential_policy.verification requires grepping every written artifact for the token's first and last eight characters before the run is reported complete, and failing the run on a match. execution_policy allows the token file to be opened only inside the run-wide HTTP client module. The draft does not say where this final gate runs: inside the client module, at root closure, or as a condition on root acceptance.",
+      "fields": [
+        "design_scope",
+        "unit",
+        "deliverable"
+      ],
+      "question": "Should the root's final closure require a token-substring scan of all run artifacts, run inside the HTTP client module so the token-read rule holds, with the result recorded as a hashed artifact?",
+      "severity": "low"
+    }
+  ],
+  "revision": 22,
+  "summary": "The draft is largely coherent. Goal, per-collection unit, sub-unit, budget pools, stopping rules, capabilities and deliverable line up, and execution_policy resolves the apparent conflicts: tuning-only model confirmation, the 0.05 per-collection threshold versus the root minimum_delta of 0.01, and the endpoint allowlist intersection. The main material issue is that root credit can be earned without any verified per-collection result, because blocked and not_tested closures count fully. Failed evidence verification is itself converted into a blocked closure. Three lower-severity gaps concern judge independence, measuring Episode-side cost, and the token-leak verification gate.",
+  "verdict": "concern"
+}

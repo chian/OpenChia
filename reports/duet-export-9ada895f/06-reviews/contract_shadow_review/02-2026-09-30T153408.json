@@ -1,0 +1,83 @@
+{
+  "contract_hash": "sha256:11fd07036e11c5e79fc53d32b15802b6bc121425c15c0c23ac10ba9f02c1b972",
+  "findings": [
+    {
+      "code": "unit_progress_stopping_mismatch",
+      "explanation": "Root progress is the fraction of readable collections closed with a typed update. design_scope says each collection's closure is the root's observation. The unit field instead defines the repeated unit as one configuration trial within one collection. Almost every trial moves root progress by 0. So the root stopping rule (stagnation_observations 3, minimum_delta 0.01) would stop the run after three trials unless those observations are counted only at collection closure. As written, the unit belongs to the per-collection child level, not to the root measure and stopping rule it sits beside.",
+      "fields": [
+        "unit",
+        "progress",
+        "stopping",
+        "design_scope"
+      ],
+      "question": "Is the root's repeated unit meant to be one per-collection study closure, with the single-trial unit and its per-collection stopping rule belonging to the descendant collection Episodes?",
+      "severity": "high"
+    },
+    {
+      "code": "capability_makes_prohibited_action_reachable",
+      "explanation": "The safety_policy scope says the Creator 'may not delegate a capability that makes a prohibited action reachable.' The draft grants execute_code and write_file and concedes they are broader than the policy. Its mitigation is a self-built HTTP and write-confinement client that the same code-executing Episode builds and self-tests. Prohibited routes (ingest, collection delete or purge, admin, other tenants and hosts) stay reachable from execute_code whether or not the wrapper is used. No allowed capability is a tenant-scoped HTTP tool, so the policy clause and the capability grant cannot both hold as written.",
+      "fields": [
+        "execution_capability_names",
+        "assignable_capability_names",
+        "design_scope"
+      ],
+      "question": "Does the operator accept a workflow-enforced client wrapper as satisfying the safety_policy's non-reachability clause, or must a narrower tenant-scoped capability be provided before this contract proceeds?",
+      "severity": "high"
+    },
+    {
+      "code": "ceiling_leaves_no_reserve_for_close",
+      "explanation": "The 1500 billable-call ceiling per collection covers all tenant calls, including retrieval probes. Search may run until the ceiling is hit (bound_hit). Yet at close each collection still needs tenant calls for the cheap-versus-strongest model confirmation on tuning and holdout, and for two holdout scorings. If search spends the full ceiling, the close-out steps the result requires would either exceed the operator's ceiling or be skipped.",
+      "fields": [
+        "design_scope",
+        "stopping",
+        "result"
+      ],
+      "question": "Should a fixed portion of each collection's 1500 calls be reserved for model confirmation and holdout scoring, with search bound_hit triggered at the ceiling minus that reserve?",
+      "severity": "medium"
+    },
+    {
+      "code": "per_collection_stop_may_preempt_structure_axis",
+      "explanation": "The goal asks which episodic QA structure produces the best answers. The sequencing puts structure_trials after generation_trials. The per-collection stop fires once tuning synthesis completeness reaches 0.9 or stagnates, which can happen during retrieval or generation trials. The draft does not say whether that stop also ends structure trials. If it does, the structure half of the goal becomes not-tested whenever parameter search stops early.",
+      "fields": [
+        "goal",
+        "design_scope",
+        "unit"
+      ],
+      "question": "Does reaching 0.9 or stagnation end only the parameter phase, with structure trials still run, or does it end the whole collection search with structures recorded as not-tested?",
+      "severity": "medium"
+    },
+    {
+      "code": "parallelism_vs_global_rate_limit",
+      "explanation": "Per-collection parallelism is in scope. The safety_policy sets max_concurrent_requests 2 and a 1.0s minimum interval between query requests for the whole run. It also sets a rolling 20-request error-rate abort. The draft asks for 'a single client' but does not say whether parallel collection children share one limiter and one error window. Separate per-child clients would each allow 2 concurrent requests and exceed the global bound.",
+      "fields": [
+        "design_scope",
+        "safety_bounds"
+      ],
+      "question": "Must all collection children share one run-wide rate limiter and error-rate window, and does the time allocation account for that shared throughput?",
+      "severity": "medium"
+    },
+    {
+      "code": "escalation_path_undefined",
+      "explanation": "The safety_policy requires human escalation before proceeding in several cases: an apparent need to write to the tenant, a token with admin role, or no ASM collection being readable. clarify is not among the granted capabilities. The draft does not say how a descendant halts and surfaces these conditions, for example as a typed blocked status.",
+      "fields": [
+        "execution_capability_names",
+        "design_scope"
+      ],
+      "question": "Should each escalation trigger end the affected Episode with a specific typed status that the root surfaces to the human, rather than proceeding?",
+      "severity": "medium"
+    },
+    {
+      "code": "minimum_delta_ambiguity",
+      "explanation": "The task specification's stagnation rule uses max(minimum_delta, noise floor). The contract's stopping.minimum_delta is 0.01, but design_scope sets the per-collection threshold at max(0.05, noise floor). A descendant reading the spec could apply 0.01.",
+      "fields": [
+        "stopping",
+        "design_scope"
+      ],
+      "question": "Is 0.05 the binding per-collection minimum delta, overriding the root stopping.minimum_delta of 0.01 for the stagnation rule?",
+      "severity": "low"
+    }
+  ],
+  "revision": 18,
+  "summary": "The draft is internally consistent in its measurement controls, strata, reporting rules and deliverable. Two material incoherences remain. First, the declared repeated unit is a single configuration trial, but root progress and root stopping are defined over per-collection closures. Applied literally, the root stagnation rule would end the run after three trials that close no collection. Second, the draft grants execute_code and write_file while admitting they make prohibited actions reachable. The safety_policy forbids delegating such a capability, and a self-built client does not make those actions unreachable. Budget, concurrency, escalation and stopping-order gaps also need resolution.",
+  "verdict": "block"
+}

@@ -1,0 +1,526 @@
+{
+  "artifact_id": "context_1adc6527388556a126dbdf6f46452f08cdd4500e06dee3f0a5f7cd00eb6f1974",
+  "artifact_kind": "interface_contract",
+  "purpose": "ragstack_asm_next_api_surface_and_parameter_space",
+  "schema_version": 1,
+  "required": true,
+  "content_hash": "sha256:bc45b2f605c74db61409e501de405a65e21db8f99506057d6d6449d3f2df41d7",
+  "created_at": "2026-09-30 14:38:52",
+  "content": {
+    "authentication": {
+      "credential_handling": "See the companion safety_policy artifact. The token value must be read directly from the file at request time and must never be echoed, logged, written into any result artifact, embedded in a committed script, or included in a typed status update.",
+      "credential_location": "/Users/me/.patric_token on the operator workstation",
+      "schemes": [
+        {
+          "header": "Authorization",
+          "id": "BearerIdentity",
+          "note": "BV-BRC user identity token. This deployment treats a bearer BV-BRC identity as the caller identity for owner-scoped and workspace-backed operations.",
+          "transport": "HTTP header"
+        },
+        {
+          "header": "X-API-Key",
+          "id": "APIKeyHeader",
+          "note": "Service-account style credential mapped to an API-key tenant.",
+          "transport": "HTTP header"
+        }
+      ]
+    },
+    "deployment": {
+      "api_base": "https://www.bv-brc.org/ragstack/asm-next/api",
+      "gateway": "https://www.bv-brc.org/ragstack/",
+      "health": "https://www.bv-brc.org/ragstack/asm-next/api/health",
+      "note": "Only asm-next is in scope for this work.",
+      "openapi": "https://www.bv-brc.org/ragstack/asm-next/api/openapi.json",
+      "other_tenants_present": [
+        "dev",
+        "lucid-next",
+        "hackathon"
+      ],
+      "path_prefix": "/v1/",
+      "tenant_list": "https://www.bv-brc.org/ragstack/tenants",
+      "ui": "https://www.bv-brc.org/ragstack/asm-next/ui/"
+    },
+    "documented_bounds_and_gotchas": [
+      {
+        "bound": "1 to 5 per request",
+        "item": "collections"
+      },
+      {
+        "bound": "0 to 3",
+        "item": "context_window"
+      },
+      {
+        "bound": "1 to 5",
+        "item": "graph neighbors depth"
+      },
+      {
+        "bound": "1 to 500, default 100; paginate with the opaque cursor echoed in the X-Next-Cursor response header, which is absent on the last page",
+        "item": "/v1/documents limit"
+      },
+      {
+        "bound": "1 to 500, default 100",
+        "item": "/v1/graph/entities limit"
+      },
+      {
+        "bound": "more than max_chunk_ids entries returns 422 rather than truncating; discover the actual limit empirically or from /v1/config",
+        "item": "/v1/chunks ids"
+      },
+      {
+        "gotcha": "GET /v1/documents and DELETE /v1/documents/{doc_id} cannot name a collection and silently target the caller's effective default. Never infer a named collection's document inventory from /v1/documents.",
+        "item": "implicit collection resolution"
+      },
+      {
+        "gotcha": "Graph endpoints degrade to available=false with null counts instead of erroring. An empty graph result is indistinguishable from an unconfigured graph store unless /v1/graph/stats is checked first.",
+        "item": "graph availability"
+      },
+      {
+        "gotcha": "GET /v1/stats/tenants with counts=true probes every (tenant, collection, store) cell and can take seconds on a large deployment. Poll no faster than roughly every 15 seconds.",
+        "item": "stats cost"
+      },
+      {
+        "gotcha": "If no LLM endpoint is configured for the tenant, /v1/query returns a retrieval-only placeholder rather than failing. A scorer that does not detect this will record a configuration as catastrophically bad when it was never actually generating.",
+        "item": "retrieval-only placeholder"
+      },
+      {
+        "gotcha": "Treat a truthy truncated flag as a distinct outcome class in the scorer, not as a wrong answer.",
+        "item": "QueryResponse.truncated"
+      },
+      {
+        "gotcha": "429 with Retry-After is used for in-flight guards; 503 is used for fail-closed store outages. Both are transient and must be retried with backoff and recorded as errors in the cost vector, never scored as answer failures.",
+        "item": "error semantics"
+      }
+    ],
+    "endpoints": {
+      "grading_subsystem_reference": {
+        "read_only_probe": "GET /v1/grading/batches answers 200 with an empty list for a caller with no reads, and 404 on a server that does not implement grading.",
+        "span_judgement_vocabulary": [
+          "located",
+          "wrong",
+          "non-minimal"
+        ],
+        "status": "present on this tenant but OUT OF SCOPE as a mutation surface",
+        "structure": "A batch carries a rubric hash, a seed, and named readers; each task pairs a question with a document and evidence sets of spans; readers submit independent verdicts and an admin adjudicates. Batch creation is admin-only.",
+        "verdict_vocabulary": [
+          "correct",
+          "wrong-location",
+          "non-minimal",
+          "missed-evidence",
+          "correctly-none",
+          "ambiguous"
+        ],
+        "why_recorded": "Its verdict vocabulary is the deployment's own native notion of answer quality and is the recommended basis for the offline scorer's failure taxonomy."
+      },
+      "mutating_out_of_scope": [
+        "POST /v1/ingest",
+        "POST /v1/ingest/upload",
+        "GET /v1/ingest/{job_id}",
+        "DELETE /v1/documents/{doc_id}",
+        "POST /v1/collections",
+        "DELETE /v1/collections/{collection_id}",
+        "POST /v1/collections/{id}/restore",
+        "POST /v1/collections/{id}/graph",
+        "POST /v1/collections/{id}/shares",
+        "DELETE /v1/collections/{id}/shares/{share_id}",
+        "POST /v1/collections/{id}/owner",
+        "POST /v1/groups",
+        "DELETE /v1/groups/{group_id}",
+        "POST /v1/groups/{id}/members",
+        "DELETE /v1/groups/{id}/members/{subject}",
+        "POST /v1/grading/batches",
+        "DELETE /v1/grading/batches/{batch_id}",
+        "PUT /v1/grading/tasks/{task_id}/verdict",
+        "PUT /v1/grading/tasks/{task_id}/adjudication",
+        "POST /v1/grading/batches/{id}/adjudicate",
+        "POST /v1/stats/models/benchmark",
+        "all /v1/admin/* routes"
+      ],
+      "read_only_in_scope": [
+        {
+          "method": "GET",
+          "path": "/v1/collections",
+          "returns": "CollectionsResponse",
+          "use": "Enumerate the ASM paper collections this token can read. Also reports the caller's effective default collection, which is the same resolution /v1/query, /v1/retrieve and /v1/chunks use when `collection` is omitted. This is the authoritative discovery step for 'the different ASM papers collections'."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/prompt-templates",
+          "returns": "PromptTemplatesResponse",
+          "use": "Declarations only: template id, version, hash, label, output shape, columns, slots. The system/user bodies are deliberately never returned. This enumerates the prompt-template axis of the sweep."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/models/available",
+          "returns": "AvailableModelsResponse",
+          "use": "Models assignable per-request to the hot-swappable llm and reranker tasks. Enumerates the model axis. base_urls are not exposed."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/retrieve",
+          "request": "RetrieveRequest",
+          "returns": "RetrieveResponse",
+          "use": "Retrieval without generation. Isolates retrieval quality from generation quality; use it to score recall of gold chunks independently of the answer text."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/query",
+          "request": "QueryRequest",
+          "returns": "QueryResponse",
+          "use": "Full RAG flow: optional query rewrite (HyDE / multi-query), hybrid retrieval per variant, RRF fusion, optional cross-encoder rerank, grounded generation. Per-request llm and reranker overrides swap those clients for that request only, leaving the global assignment and the corpus fixed, which the API documents as a clean A/B."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/chunks",
+          "query_params": [
+            "ids (comma-separated)",
+            "collection"
+          ],
+          "returns": "ChunksResponse",
+          "use": "Fetch chunks by id, typically the prev_chunk_id / next_chunk_id carried in a Source's metadata, to expand neighbouring context. Also the mechanism for resolving a cited chunk_id back to its text when verifying a citation. Exceeding max_chunk_ids is a 422, never a silent truncation."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/documents",
+          "query_params": [
+            "limit (1-500, default 100)",
+            "cursor (opaque, from X-Next-Cursor)"
+          ],
+          "returns": "DocumentInfo[]",
+          "use": "List indexed documents with document-level metadata (title, doc_type, doi, chunk_count). IMPLICIT-collection only: there is no per-collection documents endpoint, so it targets whatever an omitted `collection` resolves to for this caller."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/graph/stats",
+          "returns": "GraphStatsResponse",
+          "use": "Entity and relationship counts. Degrades to available=false with null counts when no graph store is configured; check this before designing any graph-dependent structure."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/graph/entities",
+          "query_params": [
+            "limit (1-500, default 100)"
+          ],
+          "returns": "EntityInfo[]",
+          "use": "Entities most-connected first. Seed set for graph-guided query expansion."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/graph/neighbors/{entity}",
+          "query_params": [
+            "depth (1-5, default 1)"
+          ],
+          "returns": "TripleResponse[]",
+          "use": "Neighbourhood triples for multi-hop expansion."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/stats/stores",
+          "returns": "StoreStatsResponse",
+          "use": "Per-store vector/text/graph counts summed over readable collections."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/stats/tenants",
+          "query_params": [
+            "counts (bool, default true)"
+          ],
+          "returns": "TenantsResponse",
+          "use": "Caller identity, readable tenants, collection allowlist, per-(tenant,collection) counts. Call with counts=false for the cheap identity-only answer; counts=true probes every store and can take seconds."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/config",
+          "returns": "ConfigResponse",
+          "use": "Server configuration as exposed to callers."
+        },
+        {
+          "aliases": [
+            "/health",
+            "/v1/health/deep",
+            "/v1/version"
+          ],
+          "method": "GET",
+          "path": "/v1/health",
+          "use": "Liveness and build identity. /v1/version reports package version, git tag, git sha, start time."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/jobs",
+          "returns": "JobsResponse",
+          "use": "Job listing, read-only."
+        }
+      ]
+    },
+    "episode_structure_axes": {
+      "candidates": [
+        {
+          "cost_shape": "1 generation call, 1 retrieval pass",
+          "description": "One POST /v1/query per benchmark question. The control arm every other structure must beat.",
+          "id": "single_shot"
+        },
+        {
+          "cost_shape": "n+1 generation calls, n+1 retrieval passes",
+          "description": "Answer, then judge the answer against the question for sufficiency and enumerate gaps, then issue gap-targeted follow-up queries and re-answer. Mirrors strategy.assess_answer and strategy.followup_queries in the reference.",
+          "id": "retrieve_assess_followup",
+          "reference_detail": "The reference sends the candidate answer to the assessor whole and unabridged, on the stated grounds that sufficiency is a property of the whole answer and a judgement made from a truncated answer is a judgement of a different object. It returns {sufficient, confidence, gaps[], rationale} and is deliberately strict: a hedged answer is not sufficient."
+        },
+        {
+          "description": "Split the question into sub-questions, retrieve and answer each independently, then synthesize with the sub-answers and their citations as context.",
+          "id": "decompose_synthesize"
+        },
+        {
+          "description": "Seed from GET /v1/graph/entities, expand with GET /v1/graph/neighbors/{entity} at depth 1-2, use the resulting entity and predicate vocabulary as query expansion, then query. Inert unless graph stats report available.",
+          "id": "graph_seeded"
+        },
+        {
+          "description": "Retrieve with context_window=0, then selectively expand only the top-scoring sources through GET /v1/chunks using their prev_chunk_id / next_chunk_id, then generate. A cheaper targeted alternative to raising context_window globally.",
+          "id": "chunk_neighbourhood_expansion"
+        },
+        {
+          "applicability": "Only for benchmark questions that are genuinely enumerative; misapplied to a single-fact question it is pure overhead.",
+          "description": "Treat the answer as a set of required cells rather than prose. Maintain a durable frontier of unfilled cells, search to fill missing rows, and stop when count targets are covered. The reference's table_fill mode.",
+          "id": "table_fill"
+        },
+        {
+          "description": "For a given deficit, generate sibling prompt arms that each mutate exactly one thing -- expected source shape, external terminology, anchoring breadth, or context-qualifier emphasis -- so the contrast between siblings is attributable. The reference enforces one delta per arm and shares seed vocabulary across all arms of a call so seeds cannot differentially bias one sibling against another.",
+          "id": "prompt_arm_mutation"
+        }
+      ],
+      "credit_and_cost_discipline_from_reference": {
+        "bound_vs_convergence": "A run cut by a declared resource bound must be recorded as bound_hit and must never be reported as convergence.",
+        "cost_vector": "Cost is recorded as a vector, not a scalar: provider_calls, llm_calls, prompt_tokens, completion_tokens, returned_hits, fetched_bytes, retries, wall_ms, errors. billable_calls = provider_calls + llm_calls is the one place two units are summed, defensible because both count discrete paid round trips.",
+        "credit_rule": "Credit is assigned once, after accepted evidence has been written into typed state, and only for a logical slot that is new to that state. A repeat assignment onto an already-filled slot is recorded as uncredited volume, not as yield.",
+        "relevance_here": "This is the natural shape for comparing episode structures. An iterative structure that lifts the correctness rate by three points at four times the call cost is a different verdict from one that lifts it for free, and a scalar score hides that.",
+        "yield_rule": "score = credited datapoints per billable call. When no cost record exists the score is null, never the raw datapoint count -- a yield that has not been divided by anything must not be read as a yield."
+      },
+      "note": "These are candidate workflow shapes for the repeated unit, drawn from the reference implementation at github.com/chian/nano-graphrag/tree/main/question_pipeline. They are structures to compare, not a prescribed design."
+    },
+    "parameter_search_space": {
+      "generation": [
+        {
+          "axis": "template",
+          "values": "enumerate from GET /v1/prompt-templates; record id, version and hash with every trial"
+        },
+        {
+          "axis": "llm",
+          "values": "enumerate from GET /v1/models/available where task is llm"
+        },
+        {
+          "axis": "query_rewrite",
+          "status": "exact request field names unverified; resolve from QueryRequest before use",
+          "values": [
+            "off",
+            "HyDE",
+            "multi-query"
+          ]
+        }
+      ],
+      "note": "Axes are independent unless a dependency is stated. Full cross-product is large; the workflow is expected to move one axis at a time from a declared baseline and record the delta, not to enumerate.",
+      "retrieval": [
+        {
+          "axis": "retrieval_mode",
+          "hypothesis": "bm25 should win on exact strain names, gene symbols, accession numbers and table captions; vector should win on paraphrased conceptual questions; hybrid should dominate on a mixed set.",
+          "values": [
+            "hybrid",
+            "vector",
+            "bm25"
+          ]
+        },
+        {
+          "axis": "top_k",
+          "hypothesis": "Larger top_k raises recall and raises distractor load; the interaction with rerank is the interesting effect, not the main effect.",
+          "values": [
+            3,
+            5,
+            10,
+            20
+          ]
+        },
+        {
+          "axis": "rerank",
+          "depends_on": "rerank_candidates, reranker",
+          "values": [
+            false,
+            true
+          ]
+        },
+        {
+          "applies_when": "rerank is true",
+          "axis": "rerank_candidates",
+          "values": [
+            20,
+            50,
+            100
+          ]
+        },
+        {
+          "axis": "reranker",
+          "values": "enumerate from GET /v1/models/available where task is reranker"
+        },
+        {
+          "axis": "context_window",
+          "hypothesis": "Helps questions whose answer straddles a chunk boundary; costs prompt budget on everything else.",
+          "values": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "axis": "use_graph",
+          "precondition": "GET /v1/graph/stats reports available=true with non-zero counts; otherwise this axis is inert and must be recorded as not-tested rather than as no-effect.",
+          "values": [
+            false,
+            true
+          ]
+        },
+        {
+          "axis": "collection_scope",
+          "hypothesis": "Per-collection scoping reduces cross-collection distractors; the union raises recall for questions whose evidence is split. Because Source.collection is stamped only on multi-collection requests, the union arm additionally yields per-collection attribution for free.",
+          "values": [
+            "each ASM collection alone",
+            "the multi-collection union, up to the 5-collection maximum"
+          ]
+        }
+      ]
+    },
+    "provenance": {
+      "gathered_by": "duet_read_only_web_extract",
+      "gathered_on": "2026-09-30",
+      "sources": [
+        "https://www.bv-brc.org/ragstack/",
+        "https://www.bv-brc.org/ragstack/asm-next/api/docs",
+        "https://www.bv-brc.org/ragstack/asm-next/api/openapi.json",
+        "https://github.com/chian/nano-graphrag/tree/main/question_pipeline"
+      ],
+      "trust": "UNTRUSTED external data. Treat every field below as a starting hypothesis. The executing Episode MUST re-fetch /ragstack/asm-next/api/openapi.json and reconcile before relying on any parameter name or bound."
+    },
+    "request_schemas": {
+      "QueryRequest": {
+        "REQUIRED_FIRST_ACTION": "The executing Episode must GET /ragstack/asm-next/api/openapi.json, resolve #/components/schemas/QueryRequest in full, and write the resolved schema into the run's own evidence directory before sweeping any parameter. Do not guess field names from this artifact.",
+        "expected_overlap_with_RetrieveRequest": [
+          "query",
+          "top_k",
+          "filters",
+          "use_graph",
+          "rerank",
+          "rerank_candidates",
+          "collection",
+          "collections",
+          "retrieval_mode",
+          "context_window"
+        ],
+        "known_from_endpoint_description": [
+          "query rewriting is available in HyDE and multi-query forms",
+          "hybrid retrieval runs per rewritten variant and results are fused with RRF",
+          "cross-encoder rerank is optional",
+          "a per-request `llm` override swaps the generation client for that request only",
+          "a per-request `reranker` override swaps the rerank client for that request only",
+          "a prompt `template` is selectable from the declarations returned by GET /v1/prompt-templates",
+          "when no LLM endpoint is configured the answer is a retrieval-only placeholder"
+        ],
+        "status": "NOT CAPTURED. The full field list sits in a region of openapi.json the Duet's read-only fetch truncated.",
+        "verified": false
+      },
+      "RetrieveRequest": {
+        "fields": {
+          "collection": {
+            "default": null,
+            "note": "omitted resolves to the caller's effective default",
+            "type": "string|null"
+          },
+          "collections": {
+            "maxItems": 5,
+            "minItems": 1,
+            "note": "multi-collection request; stamps Source.collection on each result",
+            "type": "array<string>|null"
+          },
+          "context_window": {
+            "default": 0,
+            "maximum": 3,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "filters": {
+            "default": {},
+            "type": "object"
+          },
+          "query": {
+            "required": true,
+            "type": "string"
+          },
+          "rerank": {
+            "default": null,
+            "type": "boolean|null"
+          },
+          "rerank_candidates": {
+            "default": null,
+            "minimum": 1,
+            "type": "integer|null"
+          },
+          "reranker": {
+            "default": null,
+            "note": "model id from /v1/models/available",
+            "type": "string|null"
+          },
+          "retrieval_mode": {
+            "default": "hybrid",
+            "type": "enum",
+            "values": [
+              "hybrid",
+              "vector",
+              "bm25"
+            ]
+          },
+          "top_k": {
+            "default": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "use_graph": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "verified": true
+      }
+    },
+    "response_schemas": {
+      "QueryResponse": {
+        "answer": "string, required",
+        "model": "string, omitted when unset",
+        "rewritten_queries": "string[], required",
+        "serialization_note": "Provenance fields are omitted rather than emitted as null, so absence is normal and must not be read as an error.",
+        "sources": "Source[], required",
+        "template": "string, omitted when unset",
+        "template_hash": "string, omitted when unset",
+        "template_version": "integer, omitted when unset",
+        "truncated": "boolean, omitted when unset"
+      },
+      "RetrieveResponse": {
+        "sources": "Source[], required"
+      },
+      "Source": {
+        "chunk_id": "string, required",
+        "collection": "string; stamped only on a multi-collection request, otherwise omitted",
+        "content": "string, required",
+        "context": "ContextChunk[]; present only when context_window > 0, otherwise omitted",
+        "doc_id": "string, required",
+        "metadata": "object; carries document fields plus prev_chunk_id / next_chunk_id (null at document boundaries)",
+        "score": "number, required"
+      },
+      "TripleResponse": {
+        "chunk_id": "string",
+        "confidence": "integer",
+        "derived_by": "string",
+        "evidence": "string",
+        "object": "string, required",
+        "object_id": "string",
+        "predicate": "string, required",
+        "subject": "string, required",
+        "subject_id": "string"
+      }
+    },
+    "title": "BV-BRC RAGstack asm-next tenant: API surface, parameter space, and episode-structure axes"
+  }
+}

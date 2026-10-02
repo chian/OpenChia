@@ -1,0 +1,76 @@
+{
+  "contract_hash": "sha256:3fccfd0a488b454216bbe8751cfaa9a879590ca8bb20c680784269613ba91974",
+  "findings": [
+    {
+      "code": "phase_b_orchestration_model_unassigned",
+      "explanation": "Phase B must score every structure not struck at reconnaissance, and a collection counts as converged only if Phase B completes. Some structures need an LLM step outside a single /v1/query. retrieve_assess_followup needs sufficiency assessment and gap follow-up queries. decompose_synthesize needs decomposition and synthesis over sub-answers. table_fill needs frontier management. No artifact says which model performs these steps. The Episode's own model may receive chunk text only for question generation, validation and judging, and orchestrating answers is not on that list. The same model is also the judge, so using it inside the answering pipeline would make the judge grade answers it helped produce. The tenant llm override is the only other permitted recipient, but /v1/query offers no documented way to run these steps.",
+      "fields": [
+        "unit",
+        "design_scope",
+        "safety_policy.network_policy.operator_exception_episode_model",
+        "task_specification.measurement_validity.judge_policy"
+      ],
+      "question": "Which model performs the orchestration steps inside multi-call Phase B structures: the tenant's cheap sweep model via /v1/query, or none? If a structure cannot be built within the model and judge rules, may reconnaissance strike it with a recorded reason, without that alone forcing bound_hit?",
+      "severity": "medium"
+    },
+    {
+      "code": "error_rate_abort_status_conflict",
+      "explanation": "The ledger lists error_rate_abort as a trigger for a blocked closure, which always earns 0. The safety policy says a run ended by a request-error abort must be reported as bound_hit, which can earn credit if the result-bearing minimum is met. A collection that already has a frozen benchmark, noise floor and scored trials therefore gets 0 or 1/N depending on which rule applies. The abort also stops requests run-wide, since the 20-request window is shared. Unlike budget exhaustion, no rule says how the in-progress and unstarted collections close or whether a checkpoint is written.",
+      "fields": [
+        "decision_ledger.d_trigger_vocabulary",
+        "safety_policy.reporting_policy.bound_vs_convergence",
+        "safety_policy.rate_and_load_policy.abort_condition"
+      ],
+      "question": "On a >25% rolling-window error abort, is the in-progress collection closed as blocked (error_rate_abort) or as bound_hit? How are unstarted collections closed?",
+      "severity": "medium"
+    },
+    {
+      "code": "deliverable_excludes_addendum_manifest_extension",
+      "explanation": "The deliverable says files are materialized 'exactly as enumerated in decision_ledger d_deliverable_manifest'. Its run-level list also omits the root closure summary. The addendum, which ranks highest in precedence, extends the manifest with three items the root must verify. These are the resumable checkpoint on budget exhaustion, a per-collection budget record against the 1500-call ceiling, and an expected-versus-found collection-count record. Read literally, the 'exactly' wording could cause the root to leave out or reject the checkpoint that the budget-exhaustion path depends on.",
+      "fields": [
+        "deliverable.description",
+        "design_scope",
+        "operator_addendum.d_manifest_extension"
+      ],
+      "question": "Should the deliverable read 'd_deliverable_manifest as extended by addendum d_manifest_extension', including the root closure summary?",
+      "severity": "medium"
+    },
+    {
+      "code": "budget_cut_unstarted_status_ambiguous",
+      "explanation": "The design_scope and the safety policy close unstarted collections as bound_hit tenant_budget_exhausted_until_monday. The addendum says not_tested applies when a collection was 'cut by allocation or budget before setup began', and claims each collection has exactly one possible status. Both statuses earn 0, but root verification of statuses and the completeness invariant need a single rule.",
+      "fields": [
+        "design_scope",
+        "safety_policy.rate_and_load_policy.tenant_budget_exhaustion.response",
+        "operator_addendum.d_small_collection_status",
+        "decision_ledger.d_root_stagnation_and_orphans"
+      ],
+      "question": "When the budget runs out, is a collection whose setup never began closed as bound_hit (tenant_budget_exhausted_until_monday) or as not_tested?",
+      "severity": "low"
+    },
+    {
+      "code": "root_credit_self_verified",
+      "explanation": "Root progress depends on hash-verified, result-bearing closures. The only evidence requirement, however, is one root_episode_terminal_update from run_episode_host, so the host confirms only that the update exists. Verifying the result-bearing minimum and the artifact hashes is left to the root itself. The typed update is therefore the whole credit basis, and a mis-verified closure would still earn credit.",
+      "fields": [
+        "evidence_requirements",
+        "progress.description",
+        "credit_assignment"
+      ],
+      "question": "Is it acceptable that the credited fraction rests on the root's self-reported verification, or should the terminal update carry a checkable manifest reference that the host acceptance step verifies?",
+      "severity": "low"
+    },
+    {
+      "code": "operator_wait_instruction_reinterpreted",
+      "explanation": "The operator's recorded answer (b) was that the run 'must wait until the budget resets on Monday'. The contract does the opposite: it stops immediately, writes a checkpoint and makes resuming a separate run. This is coherent with the 12-hour elapsed bound, but it replaces the operator's stated instruction and does not record the operator explicitly accepting the substitution.",
+      "fields": [
+        "operator_addendum.provenance",
+        "operator_addendum.d_budget_exhaustion_checkpoint",
+        "safety_policy.rate_and_load_policy.tenant_budget_exhaustion"
+      ],
+      "question": "Has the operator confirmed that 'stop, checkpoint, resume in a separate approved run' is the intended meaning of 'wait until Monday'?",
+      "severity": "low"
+    }
+  ],
+  "revision": 30,
+  "summary": "The goal, repeated unit, stopping rule, capabilities and scope mostly fit together. The artifacts' precedence order is internally consistent, and the rules for low-power strata and root stagnation work. Four gaps affect credit or executability and need resolving before approval. First, no permitted model is assigned to run the multi-call Phase B structures. Second, error-rate aborts are classed both as blocked and as bound_hit, which changes credit. Third, the deliverable wording ('exactly as enumerated in d_deliverable_manifest') leaves out the addendum's manifest extension. Fourth, collections left unstarted when the budget runs out have two possible statuses. Two smaller points concern who verifies credit and the reinterpreted 'wait until Monday' instruction.",
+  "verdict": "concern"
+}

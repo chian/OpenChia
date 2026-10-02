@@ -1,0 +1,68 @@
+{
+  "creator_contract_hash": "sha256:bde9529d67540806193dc0c319e3e89211c4d837b3c74097e2b1f5b2401d64a9",
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "lenses": {
+    "contract_alignment": {
+      "findings": [
+        {
+          "code": "goal_and_unit_replaced",
+          "explanation": "The root goal is 'Probe E: terminal_result adapter, integer stopping', and the unit and result are placeholders ('Probe unit.', 'Probe result.'). The contract's goal is a per-collection, synthesis-weighted RAGstack configuration experiment whose repeated unit is one per-collection study. The blueprint's goal, unit and result do not reference it at all.",
+          "fields": [
+            "episodes[root].contract.goal",
+            "episodes[root].contract.unit",
+            "episodes[root].contract.result"
+          ],
+          "question": "Will the root restate the contract goal, use one per-collection study as its unit, and list the per-collection and run-level results the contract requires?",
+          "severity": "high"
+        },
+        {
+          "code": "progress_adapter_mismatch",
+          "explanation": "The contract measures root_episode_progress with creator_method_credit_v1. That score is coverage-weighted: the sum over collections of c = 0.5 + 0.25A + 0.25B for verified result-bearing closures, divided by N (expected 3). The blueprint uses terminal_result_count_v1 with unit 'closures'. That counts closures of any status, including blocked, not_tested and zero-credit bound_hit, which d_credit_result_bearing_only and d_coverage_weighted_credit explicitly give no credit. Its output is also not the measurement named in the return_contract.",
+          "fields": [
+            "episodes[root].contract.progress.adapter_id",
+            "episodes[root].contract.progress.unit",
+            "episodes[root].contract.progress.description"
+          ],
+          "question": "Will the root adopt the contract's progress definition, with metric root_episode_progress and coverage-weighted c using the addendum's fixed A and B denominators, instead of a raw closure count?",
+          "severity": "high"
+        },
+        {
+          "code": "stopping_rule_misaligned",
+          "explanation": "The contract sets target 1.0 on a 0-1 normalized score, minimum_delta 0.01 and stagnation_observations 3. The blueprint counts integer closures with target 1.0, minimum_delta 1.0 and stagnation 2. Under a closure-count metric, target 1.0 is reached after the first closure. The root would therefore stop after one collection, violating the rule that the run ends only when every readable collection is closed or a bound is reached.",
+          "fields": [
+            "episodes[root].contract.stopping.target",
+            "episodes[root].contract.stopping.minimum_delta",
+            "episodes[root].contract.stopping.stagnation_observations"
+          ],
+          "question": "Will stopping be restored to target 1.0 on normalized coverage-weighted progress, with minimum_delta 0.01 and 3 stagnation observations counted only at verified result-bearing closures?",
+          "severity": "high"
+        },
+        {
+          "code": "deliverable_kind_contradicts_contract",
+          "explanation": "The contract's deliverable is shared_state materialized with write_file: a run directory containing the extended manifest and a hashed root manifest. It states that 'a typed status alone would not be usable'. The blueprint declares a typed_status deliverable with no tools and grants only execute_code. It omits write_file and todo_list, which are in the contract's execution capabilities.",
+          "fields": [
+            "episodes[root].contract.deliverable.kind",
+            "episodes[root].contract.deliverable.tool_names",
+            "episodes[root].contract.execution_capability_names"
+          ],
+          "question": "Will the root deliver shared_state through write_file, with the full d_deliverable_manifest plus d_manifest_extension, and be granted the contract's execution capabilities?",
+          "severity": "high"
+        },
+        {
+          "code": "no_episode_tree_or_bounds",
+          "explanation": "The design scope asks for an Episode tree: run-level reconnaissance and consolidation, one serial per-collection study per readable collection, and batched trial children within the allocations. The blueprint has one root with creator_contract null and safety_bounds null. It carries none of the contract's bounds (120 child episodes, depth 3, 43200 s, 80 iterations) or the reserve and allocation rules (d_root_closeout_reserve, the episode allocation). It also encodes none of the binding enforcement: the single allowlisted client, the self-test, the token-leak gate, use_graph pinning, and run-wide stop checkpointing.",
+          "fields": [
+            "episodes",
+            "episodes[root].contract.creator_contract",
+            "episodes[root].contract.safety_bounds"
+          ],
+          "question": "Will the blueprint define the per-collection child structure, set safety bounds no looser than the contract's, and carry the binding enforcement and closure-evidence rules into each Episode contract?",
+          "severity": "high"
+        }
+      ],
+      "summary": "The blueprint is a single-node probe, not a design for this contract. Its goal, unit, result, progress adapter, stopping rule, deliverable and capabilities all diverge from the frozen Creator contract. Its terminal_result_count adapter with target 1.0 would treat one closure as full success, when the contract requires coverage-weighted credit over about 3 serially processed collections. It cannot produce root_episode_progress as defined.",
+      "verdict": "block"
+    }
+  },
+  "workflow_blueprint_hash": "sha256:745dfec02f2e64ec80412a3689e61475f39bf558a439e1971e0f8bb2b788b50d"
+}

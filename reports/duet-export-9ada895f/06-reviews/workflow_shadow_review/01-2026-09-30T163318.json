@@ -1,0 +1,74 @@
+{
+  "creator_contract_hash": "sha256:bde9529d67540806193dc0c319e3e89211c4d837b3c74097e2b1f5b2401d64a9",
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "lenses": {
+    "contract_alignment": {
+      "findings": [
+        {
+          "code": "goal_result_unit_not_contract",
+          "explanation": "The contract fixes the goal, result and repeated unit. The goal is a measured read-only experiment per ASM collection. The result is a run directory with per-collection winners, leaderboards, outcome rows, benchmarks, holdout and findings. The unit is one per-collection study from reconnaissance to closure. The blueprint replaces all three with the placeholders 'Probe goal.', 'Probe result.' and 'Probe unit.', so the root Episode would not be pursuing the human goal.",
+          "fields": [
+            "workflow.episodes[root].contract.goal",
+            "workflow.episodes[root].contract.result",
+            "workflow.episodes[root].contract.unit"
+          ],
+          "question": "Will the root contract carry the Creator contract's goal, result and per-collection-study unit verbatim, or with only faithful refinement?",
+          "severity": "high"
+        },
+        {
+          "code": "deliverable_kind_mismatch",
+          "explanation": "The contract requires deliverable kind shared_state, materialized with write_file, as the run directory meeting the extended manifest and referenced by a hashed root manifest. It states explicitly that a typed status alone is not usable. The blueprint declares kind typed_status with no tools and the description 'Run directory.'.",
+          "fields": [
+            "workflow.episodes[root].contract.deliverable.kind",
+            "workflow.episodes[root].contract.deliverable.tool_names",
+            "workflow.episodes[root].contract.deliverable.description"
+          ],
+          "question": "Will the root deliverable be shared_state via write_file, covering the extended manifest and the hashed root manifest referenced in the terminal update?",
+          "severity": "high"
+        },
+        {
+          "code": "progress_metric_mismatch",
+          "explanation": "Credit assignment is keyed to the measurement root_episode_progress through adapter creator_method_credit_v1. This is the coverage-weighted sum of c = 0.5 + 0.25A + 0.25B over the N readable collections. The blueprint uses durable_evidence_count_v1 counting 'records', which cannot produce the required measurement. The return contract's credit_complete and measurements_complete fields would therefore be unsatisfiable.",
+          "fields": [
+            "workflow.episodes[root].contract.progress.adapter_id",
+            "workflow.episodes[root].contract.progress.unit",
+            "workflow.episodes[root].contract.progress.description"
+          ],
+          "question": "Will the root progress use creator_method_credit_v1 with unit root_episode_progress, computed as the addendum's coverage-weighted formula?",
+          "severity": "high"
+        },
+        {
+          "code": "stopping_rule_mismatch",
+          "explanation": "The contract fixes target 1.0, minimum_delta 0.01 and stagnation_observations 3, with only verified result-bearing closures counting as observations. The blueprint sets target 3.0, minimum_delta 1.0 and stagnation_observations 2. These values are incompatible with a 0-1 normalized metric, and stagnation could fire after 2 observations. That breaks the invariant that the root cannot stop while collections remain open.",
+          "fields": [
+            "workflow.episodes[root].contract.stopping"
+          ],
+          "question": "Will root stopping be set to target 1.0, minimum_delta 0.01 and 3 stagnation observations, counted only on verified result-bearing closures?",
+          "severity": "high"
+        },
+        {
+          "code": "capabilities_and_bounds_missing",
+          "explanation": "The contract assigns write_file, execute_code and todo_list, and sets safety bounds of 120 child episodes, depth 3, 43200 s and 80 iterations. The blueprint grants only execute_code, so the required write_file deliverable cannot be produced. It also leaves safety_bounds null, which removes the backstop the contract relies on. The d_root_closeout_reserve arithmetic (10% of time, 5 iterations, 2 child episodes) and the reservation of 5 child episodes for reconnaissance and consolidation also depend on these bounds.",
+          "fields": [
+            "workflow.episodes[root].contract.execution_capability_names",
+            "workflow.episodes[root].contract.safety_bounds"
+          ],
+          "question": "Will the root inherit the assigned capabilities and the contract's safety bounds explicitly?",
+          "severity": "high"
+        },
+        {
+          "code": "no_per_collection_structure",
+          "explanation": "The contract requires the following:\n- Serial, largest-first per-collection studies, each closed fully before the next starts.\n- Batched trial children within per-collection allocations.\n- Run-level reconnaissance and consolidation children.\n\nThe blueprint has a single childless root with no creator_contract. There is also nowhere expressing the per-collection 1500-call pools, the phase A/B split, or the closure-evidence verification the root must perform.",
+          "fields": [
+            "workflow.episodes"
+          ],
+          "question": "Does the design intend per-collection child Episodes under the root, and if so, where are their contracts, allocations and closure-evidence return requirements specified?",
+          "severity": "medium"
+        }
+      ],
+      "summary": "The blueprint is a placeholder and does not align with the frozen Creator contract. Its one root Episode has goal 'Probe goal.', result 'Probe result.' and unit 'Probe unit.'. Its deliverable, progress adapter, metric unit, stopping rule, capabilities and safety bounds all differ from what the contract fixes. The contract requires a root Episode whose repeated unit is one per-collection study, whose deliverable is the hashed run directory written with write_file, and whose progress is the coverage-weighted root_episode_progress from creator_method_credit_v1. None of that is expressed. Host admission reported no deficits, but that does not establish alignment.",
+      "verdict": "block"
+    }
+  },
+  "workflow_blueprint_hash": "sha256:82d0f607c50be64f6051e4c20a0a5a77937695cd07f8b344e40f6ec53eccd954"
+}

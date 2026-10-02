@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenChia — Architecture Review, 2026-10-02</title>
+<style>
+  .viz-root{
+    color-scheme: light;
+    --surface-1:#fcfcfb; --plane:#f9f9f7;
+    --ink-1:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
+    --grid:#e1e0d9; --rule:#c3c2b7;
+    --border:rgba(11,11,11,0.10);
+    --st-critical:#d03b3b; --st-serious:#ec835a; --st-good:#0ca30c;
+    --node:#ffffff; --node-ring:rgba(11,11,11,0.14);
+    --edge:#c3c2b7; --edge-strong:#898781;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])) .viz-root{
+      color-scheme: dark;
+      --surface-1:#1a1a19; --plane:#0d0d0d;
+      --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-3:#898781;
+      --grid:#2c2c2a; --rule:#383835;
+      --border:rgba(255,255,255,0.10);
+      --node:#242423; --node-ring:rgba(255,255,255,0.16);
+      --edge:#383835; --edge-strong:#898781;
+    }
+  }
+  :root[data-theme="dark"] .viz-root{
+    color-scheme: dark;
+    --surface-1:#1a1a19; --plane:#0d0d0d;
+    --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-3:#898781;
+    --grid:#2c2c2a; --rule:#383835;
+    --border:rgba(255,255,255,0.10);
+    --node:#242423; --node-ring:rgba(255,255,255,0.16);
+    --edge:#383835; --edge-strong:#898781;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--plane,#f9f9f7)}
+  .viz-root{
+    background:var(--plane); color:var(--ink-1);
+    font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh; padding:40px 24px 72px;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+
+  header.head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;flex-wrap:wrap;margin-bottom:8px}
+  h1{font-size:25px;line-height:1.2;margin:0 0 6px;letter-spacing:-0.015em;font-weight:620}
+  .sub{color:var(--ink-2);font-size:14px;margin:0}
+  .sub code{font-size:12.5px}
+  button.toggle{
+    font:inherit;font-size:13px;color:var(--ink-2);background:var(--surface-1);
+    border:1px solid var(--border);border-radius:8px;padding:7px 13px;cursor:pointer;
+  }
+  button.toggle:hover{color:var(--ink-1)}
+
+  section{margin-top:36px}
+  h2{font-size:12px;letter-spacing:0.09em;text-transform:uppercase;color:var(--ink-3);
+     margin:0 0 14px;font-weight:650}
+  .note{color:var(--ink-2);font-size:13.5px;max-width:74ch;margin:12px 0 0}
+
+  .card{background:var(--surface-1);border:1px solid var(--border);border-radius:14px}
+
+  /* stat tiles */
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px}
+  .tile{padding:16px 18px}
+  .tile .v{font-size:27px;font-weight:640;letter-spacing:-0.02em;line-height:1.1}
+  .tile .k{font-size:12.5px;color:var(--ink-2);margin-top:5px}
+  .tile .m{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+
+  /* legend */
+  .legend{display:flex;gap:20px;flex-wrap:wrap;align-items:center;
+          padding:12px 16px;margin-bottom:14px}
+  .lg{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-2)}
+  .glyph{width:17px;height:17px;border-radius:50%;display:inline-grid;place-items:center;
+         font-size:11px;font-weight:700;color:#fff;flex:none}
+  .g-crit{background:var(--st-critical)}
+  .g-ser{background:var(--st-serious)}
+  .g-good{background:var(--st-good)}
+  .g-untested{background:transparent;border:2px dashed var(--ink-3);color:var(--ink-3)}
+
+  figure{margin:0;padding:18px 18px 10px;overflow-x:auto}
+  figcaption{font-size:12.5px;color:var(--ink-3);padding:0 2px 8px}
+  svg{display:block;max-width:100%;height:auto}
+
+  /* table view (accessibility relief) */
+  table{border-collapse:collapse;width:100%;font-size:13.5px}
+  caption{text-align:left;font-size:12.5px;color:var(--ink-3);padding:0 0 10px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--grid);vertical-align:top}
+  th{font-size:11.5px;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3);font-weight:650}
+  tbody tr:last-child td{border-bottom:none}
+  td.sev{white-space:nowrap}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+  td code{color:var(--ink-2)}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:900px){.cols{grid-template-columns:1fr}}
+  ul.tight{margin:0;padding-left:18px;color:var(--ink-2);font-size:13.5px}
+  ul.tight li{margin:5px 0}
+  .pad{padding:16px 18px}
+  h3{font-size:14px;margin:0 0 10px;font-weight:620}
+  footer{margin-top:40px;color:var(--ink-3);font-size:12.5px;border-top:1px solid var(--grid);padding-top:16px}
+</style>
+</head>
+<body>
+<div class="viz-root">
+<div class="wrap">
+
+<header class="head">
+  <div>
+    <h1>OpenChia — architecture review</h1>
+    <p class="sub">Measured from the AST import graph at <code>main @ 6636fd5a6c</code> · 2026-10-02 ·
+       84 OpenChia-layer files · 24 package nodes · 71 cross-package edges</p>
+  </div>
+  <button class="toggle" id="t">Theme</button>
+</header>
+
+<section>
+  <h2>Scale</h2>
+  <div class="tiles">
+    <div class="card tile"><div class="v">~44k</div><div class="k">OpenChia layer LOC</div><div class="m">of ~1.1M in the checkout</div></div>
+    <div class="card tile"><div class="v">6%</div><div class="k">test coverage</div><div class="m">13 files · 97 test functions</div></div>
+    <div class="card tile"><div class="v">2</div><div class="k">dependency cycles</div><div class="m">1 SCC of 3 packages</div></div>
+    <div class="card tile"><div class="v">6</div><div class="k">edges to Hermes</div><div class="m">from 84 files — narrow</div></div>
+    <div class="card tile"><div class="v">219</div><div class="k">layer tests passing</div><div class="m">0 failing</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Legend</h2>
+  <div class="card legend">
+    <span class="lg"><span class="glyph g-crit">✕</span> Blocker — verified failing</span>
+    <span class="lg"><span class="glyph g-ser">▲</span> High — authority or hardening gap</span>
+    <span class="lg"><span class="glyph g-good">✓</span> Verified sound</span>
+    <span class="lg"><span class="glyph g-untested">◌</span> No tests (secondary channel: dashed outline)</span>
+  </div>
+  <p class="note">Status colour never carries meaning alone — every mark pairs a glyph with a text label.
+     Red and green sit at ΔE 4.1 under deuteranopia, so the glyph, not the hue, is the channel that must survive.</p>
+</section>
+
+<section>
+  <h2>Authority pipeline — where the defects sit</h2>
+  <div class="card">
+  <figure>
+  <svg viewBox="0 0 1060 560" role="img" aria-label="OpenChia authority pipeline from human and LLM through Duet, approval, EpisodeBuilder, Run, and refiner, annotated with five defects and four verified-sound mechanisms.">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+      </marker>
+      <pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+        <line x1="0" y1="0" x2="0" y2="7" stroke="currentColor" stroke-width="2.5" opacity="0.30"/>
+      </pattern>
+    </defs>
+    <g font-family="system-ui,-apple-system,sans-serif">
+
+    <!-- spine -->
+    <g stroke="var(--edge-strong)" stroke-width="2" fill="none" color="var(--edge-strong)" marker-end="url(#ar)">
+      <path d="M150 62 V92"/><path d="M150 150 V182"/><path d="M150 240 V272"/>
+      <path d="M150 330 V362"/><path d="M150 420 V452"/>
+    </g>
+
+    <!-- 1 human+LLM -->
+    <rect x="40" y="26" width="220" height="36" rx="9" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="150" y="49" text-anchor="middle" font-size="13.5" fill="var(--ink-1)">human ⟷ conversational LLM</text>
+
+    <!-- 2 Duet -->
+    <rect x="40" y="92" width="220" height="58" rx="9" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="150" y="115" text-anchor="middle" font-size="14" font-weight="620" fill="var(--ink-1)">Duet</text>
+    <text x="150" y="134" text-anchor="middle" font-size="11.5" font-family="ui-monospace,Menlo,monospace" fill="var(--ink-3)">duet_service · duet_store</text>
+
+    <!-- 3 approval -->
+    <rect x="40" y="182" width="220" height="58" rx="9" fill="var(--node)" stroke="var(--st-good)" stroke-width="2"/>
+    <text x="150" y="205" text-anchor="middle" font-size="14" font-weight="620" fill="var(--ink-1)">human /approve</text>
+    <text x="150" y="224" text-anchor="middle" font-size="11.5" fill="var(--ink-2)">CAS: BEGIN IMMEDIATE + rowcount guard</text>
+    <circle cx="58" cy="196" r="8.5" fill="var(--st-good)"/>
+    <text x="58" y="200" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">✓</text>
+
+    <!-- 4 builder -->
+    <rect x="40" y="272" width="220" height="58" rx="9" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="150" y="295" text-anchor="middle" font-size="14" font-weight="620" fill="var(--ink-1)">EpisodeBuilder</text>
+    <text x="150" y="314" text-anchor="middle" font-size="11.5" fill="var(--ink-2)">never receives a DuetStore</text>
+    <circle cx="58" cy="286" r="8.5" fill="var(--st-good)"/>
+    <text x="58" y="290" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">✓</text>
+
+    <!-- 5 run -->
+    <rect x="40" y="362" width="220" height="58" rx="9" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="150" y="385" text-anchor="middle" font-size="14" font-weight="620" fill="var(--ink-1)">human /run</text>
+    <text x="150" y="404" text-anchor="middle" font-size="11.5" fill="var(--ink-2)">separate command · re-validated</text>
+    <circle cx="58" cy="376" r="8.5" fill="var(--st-good)"/>
+    <text x="58" y="380" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">✓</text>
+
+    <!-- 6 isolated run -->
+    <rect x="40" y="452" width="220" height="74" rx="9" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="150" y="475" text-anchor="middle" font-size="14" font-weight="620" fill="var(--ink-1)">isolated Run</text>
+    <text x="150" y="493" text-anchor="middle" font-size="11.5" fill="var(--ink-2)">policy before activation</text>
+    <text x="150" y="510" text-anchor="middle" font-size="11.5" fill="var(--ink-2)">closure verified 3× · imports closed</text>
+    <circle cx="58" cy="466" r="8.5" fill="var(--st-good)"/>
+    <text x="58" y="470" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">✓</text>
+
+    <!-- ===== annotations ===== -->
+    <g stroke-dasharray="3 3" stroke="var(--rule)" stroke-width="1.5" fill="none">
+      <path d="M260 120 H330"/><path d="M260 210 H330"/>
+      <path d="M260 300 H330"/><path d="M260 489 H330"/>
+    </g>
+
+    <!-- C2 -->
+    <rect x="330" y="94" width="330" height="52" rx="9" fill="var(--node)" stroke="var(--st-serious)" stroke-width="2"/>
+    <circle cx="350" cy="110" r="8.5" fill="var(--st-serious)"/>
+    <text x="350" y="114" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">▲</text>
+    <text x="366" y="114" font-size="12.5" font-weight="620" fill="var(--ink-1)">C2 · High — approval race</text>
+    <text x="366" y="133" font-size="11.5" fill="var(--ink-2)">LLM may replace the draft while /approve takes 0 args</text>
+
+    <!-- C3/C4 -->
+    <rect x="330" y="184" width="330" height="52" rx="9" fill="var(--node)" stroke="var(--st-serious)" stroke-width="2"/>
+    <circle cx="350" cy="200" r="8.5" fill="var(--st-serious)"/>
+    <text x="350" y="204" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">▲</text>
+    <text x="366" y="204" font-size="12.5" font-weight="620" fill="var(--ink-1)">C3 · C4 — the hash has no version</text>
+    <text x="366" y="223" font-size="11.5" fill="var(--ink-2)">no schema_version · the 4 JSON Schemas were deleted</text>
+
+    <!-- T15a : critical + untested -->
+    <rect x="330" y="274" width="330" height="52" rx="9" fill="url(#hatch)" color="var(--st-critical)"/>
+    <rect x="330" y="274" width="330" height="52" rx="9" fill="none" stroke="var(--st-critical)" stroke-width="2" stroke-dasharray="6 4"/>
+    <circle cx="350" cy="290" r="8.5" fill="var(--st-critical)"/>
+    <text x="350" y="294" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">✕</text>
+    <text x="366" y="294" font-size="12.5" font-weight="620" fill="var(--ink-1)">T15a · Blocker + no tests — AST gate</text>
+    <text x="366" y="313" font-size="11.5" fill="var(--ink-2)">admission.py: ~29 codes, 0 tests. `return ()` stays green</text>
+
+    <!-- C5 -->
+    <rect x="330" y="432" width="330" height="46" rx="9" fill="var(--node)" stroke="var(--st-serious)" stroke-width="2"/>
+    <circle cx="350" cy="448" r="8.5" fill="var(--st-serious)"/>
+    <text x="350" y="452" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">▲</text>
+    <text x="366" y="452" font-size="12.5" font-weight="620" fill="var(--ink-1)">C5 · High — seccomp default-ALLOW</text>
+    <text x="366" y="470" font-size="11.5" fill="var(--ink-2)">aarch64 (macOS path) omits 6 syscalls x86_64 denies</text>
+
+    <!-- two legs -->
+    <text x="340" y="502" font-size="11.5" font-weight="620" fill="var(--ink-3)">Run legs</text>
+    <rect x="330" y="508" width="160" height="40" rx="8" fill="var(--node)" stroke="var(--st-good)" stroke-width="2"/>
+    <circle cx="347" cy="528" r="8" fill="var(--st-good)"/>
+    <text x="347" y="532" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">✓</text>
+    <text x="361" y="525" font-size="11.5" font-weight="620" fill="var(--ink-1)">HTTP leg</text>
+    <text x="361" y="540" font-size="11" fill="var(--ink-2)">~160 adversarial tests</text>
+
+    <rect x="500" y="508" width="160" height="40" rx="8" fill="var(--node)" stroke="var(--st-critical)" stroke-width="2"/>
+    <circle cx="517" cy="528" r="8" fill="var(--st-critical)"/>
+    <text x="517" y="532" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">✕</text>
+    <text x="531" y="525" font-size="11.5" font-weight="620" fill="var(--ink-1)">MODEL leg</text>
+    <text x="531" y="540" font-size="11" fill="var(--ink-2)">C1 — every Run fails</text>
+
+    <!-- C1 callout -->
+    <rect x="700" y="400" width="330" height="148" rx="11" fill="var(--node)" stroke="var(--st-critical)" stroke-width="2.5"/>
+    <circle cx="722" cy="424" r="9.5" fill="var(--st-critical)"/>
+    <text x="722" y="428" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">✕</text>
+    <text x="740" y="428" font-size="13" font-weight="650" fill="var(--ink-1)">C1 — release blocker (reproduced)</text>
+    <text x="718" y="452" font-size="11.5" fill="var(--ink-2)">_freeze_json turns JSON arrays into tuples;</text>
+    <text x="718" y="469" font-size="11.5" fill="var(--ink-2)">broker.py:77 requires isinstance(…, list).</text>
+    <text x="718" y="486" font-size="11.5" fill="var(--ink-2)">_thaw_json is applied at only 2 of 3 legs.</text>
+    <text x="718" y="508" font-size="11" font-family="ui-monospace,Menlo,monospace" fill="var(--st-critical)">FROZEN → ModelBrokerError</text>
+    <text x="718" y="524" font-size="11" font-family="ui-monospace,Menlo,monospace" fill="var(--st-good)">THAWED → admitted ok</text>
+    <text x="718" y="540" font-size="11" fill="var(--ink-3)">Same defect already patched for INITIALIZE/START.</text>
+
+    <!-- refiner -->
+    <path d="M150 526 V548 H690" stroke="var(--edge-strong)" stroke-width="2" fill="none" color="var(--edge-strong)"/>
+    <rect x="700" y="300" width="330" height="76" rx="9" fill="url(#hatch)" color="var(--ink-3)"/>
+    <rect x="700" y="300" width="330" height="76" rx="9" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="6 4"/>
+    <circle cx="722" cy="324" r="9" fill="none" stroke="var(--ink-3)" stroke-width="2"/>
+    <text x="722" y="328" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--ink-3)">◌</text>
+    <text x="740" y="328" font-size="13" font-weight="650" fill="var(--ink-1)">IterativeEpisodeRefiner — no tests</text>
+    <text x="718" y="350" font-size="11.5" fill="var(--ink-2)">3,850 LOC. Carries the strongest trust claim:</text>
+    <text x="718" y="367" font-size="11.5" fill="var(--ink-2)">“audit content is untrusted; cannot alter authority.”</text>
+
+    <text x="700" y="268" font-size="11.5" fill="var(--ink-3)">validated audit ──▶ refiner ──▶ successor ──▶ human approval</text>
+    </g>
+  </svg>
+  <figcaption>Four of the five pipeline stages are verified sound. The defects cluster where human intent is captured and where the newest code landed.</figcaption>
+  </figure>
+  </div>
+</section>
+
+<section>
+  <h2>Static dependency graph</h2>
+  <div class="card">
+  <figure>
+  <svg viewBox="0 0 1060 620" role="img" aria-label="Layered module dependency graph of the OpenChia layer, six layers from CLI entry down to foundation contracts, showing a three-package cycle and six edges to the inherited Hermes base.">
+    <defs>
+      <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+      </marker>
+    </defs>
+    <g font-family="system-ui,-apple-system,sans-serif">
+
+    <!-- layer rails -->
+    <g font-size="10.5" fill="var(--ink-3)" letter-spacing="0.08em">
+      <text x="14" y="52">ENTRY</text><text x="14" y="132">COORD</text><text x="14" y="212">SERVICE</text>
+      <text x="14" y="322">SUBSYS</text><text x="14" y="452">LIBS</text><text x="14" y="556">FOUND</text>
+    </g>
+    <g stroke="var(--grid)" stroke-width="1">
+      <line x1="76" y1="72" x2="1040" y2="72"/><line x1="76" y1="160" x2="1040" y2="160"/>
+      <line x1="76" y1="252" x2="1040" y2="252"/><line x1="76" y1="396" x2="1040" y2="396"/>
+      <line x1="76" y1="496" x2="1040" y2="496"/>
+    </g>
+
+    <!-- edges -->
+    <g stroke="var(--edge)" stroke-width="1.6" fill="none" color="var(--edge)" marker-end="url(#ar2)">
+      <path d="M300 60 V96"/>
+      <path d="M300 148 V186"/>
+      <path d="M268 148 C180 180 150 190 150 186"/>
+      <path d="M352 148 C470 180 505 182 505 186"/>
+      <path d="M150 230 V286"/>
+      <path d="M300 230 V286"/>
+      <path d="M300 364 V430"/>
+      <path d="M560 364 V430"/>
+      <path d="M150 474 V530"/>
+      <path d="M430 474 V530"/>
+      <path d="M700 474 V530"/>
+      <path d="M860 364 C940 420 940 470 880 528"/>
+    </g>
+
+    <!-- ENTRY -->
+    <rect x="190" y="26" width="220" height="34" rx="8" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="300" y="42" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--ink-1)">openchia_cli/</text>
+    <text x="300" y="55" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">6 OpenChia files of 611 · 1.8%</text>
+
+    <!-- COORD : god object -->
+    <rect x="190" y="96" width="220" height="52" rx="9" fill="var(--node)" stroke="var(--st-serious)" stroke-width="2.5"/>
+    <circle cx="208" cy="112" r="8" fill="var(--st-serious)"/>
+    <text x="208" y="116" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">▲</text>
+    <text x="300" y="116" text-anchor="middle" font-size="12.5" font-weight="650" fill="var(--ink-1)">agent/openchia_host.py</text>
+    <text x="300" y="132" text-anchor="middle" font-size="10.5" fill="var(--ink-2)">out=12 · in=0 · 1,748 lines · 52 methods</text>
+    <text x="300" y="144" text-anchor="middle" font-size="10" fill="var(--ink-3)">god object — no seam to test through</text>
+
+    <!-- SERVICE -->
+    <rect x="80" y="186" width="140" height="44" rx="8" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="150" y="205" text-anchor="middle" font-size="12" fill="var(--ink-1)">duet_service</text>
+    <text x="150" y="219" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">out=6</text>
+    <rect x="235" y="186" width="130" height="44" rx="8" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="300" y="205" text-anchor="middle" font-size="12" fill="var(--ink-1)">duet_store</text>
+    <text x="300" y="219" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">SQLite · CAS ✓</text>
+    <rect x="380" y="186" width="150" height="44" rx="8" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="455" y="205" text-anchor="middle" font-size="12" fill="var(--ink-1)">openchia_agents</text>
+    <text x="455" y="219" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">→ Hermes</text>
+
+    <!-- SUBSYS : the SCC -->
+    <rect x="80" y="272" width="620" height="100" rx="12" fill="none" stroke="var(--st-serious)" stroke-width="2" stroke-dasharray="7 5"/>
+    <text x="92" y="290" font-size="10.5" font-weight="650" fill="var(--st-serious)">1 SCC · 2 elementary cycles</text>
+
+    <rect x="110" y="300" width="170" height="52" rx="9" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="195" y="322" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--ink-1)">episode_builder</text>
+    <text x="195" y="338" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">8,696 LOC · 2 test files</text>
+
+    <rect x="330" y="300" width="200" height="52" rx="9" fill="url(#hatch)" color="var(--ink-3)"/>
+    <rect x="330" y="300" width="200" height="52" rx="9" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="430" y="322" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--ink-1)">iterative_episode_refiner</text>
+    <text x="430" y="338" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">3,850 LOC · ◌ 0 tests</text>
+
+    <rect x="570" y="300" width="110" height="52" rx="9" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="625" y="322" text-anchor="middle" font-size="12.5" font-weight="600" fill="var(--ink-1)">episode_runtime</text>
+    <text x="625" y="338" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">11,093 LOC</text>
+
+    <!-- cycle arcs -->
+    <g fill="none" stroke="var(--st-serious)" stroke-width="2.2" color="var(--st-serious)" marker-end="url(#ar2)">
+      <path d="M280 316 H326"/>
+      <path d="M326 340 H284"/>
+      <path d="M530 318 H566"/>
+      <path d="M570 352 C520 384 260 384 200 356"/>
+    </g>
+    <text x="300" y="310" font-size="9.5" fill="var(--st-serious)">3</text>
+    <text x="300" y="354" font-size="9.5" fill="var(--st-serious)">1 ← inverted</text>
+    <text x="380" y="382" font-size="9.5" fill="var(--st-serious)">7</text>
+
+    <!-- LIBS -->
+    <rect x="80" y="430" width="800" height="44" rx="9" fill="var(--node)" stroke="var(--node-ring)"/>
+    <text x="96" y="449" font-size="11.5" fill="var(--ink-1)">episode_library · method_loop · llm_call_library · handoff_library · numeric_control_library · http_call_library · question_table_goal_library</text>
+    <text x="96" y="464" font-size="10.5" fill="var(--ink-3)">7 packages, near-identical shape — no shared registry; the catalog is a hand-edited 21-entry tuple in planner.py:322</text>
+
+    <!-- FOUND -->
+    <rect x="80" y="530" width="800" height="52" rx="9" fill="var(--node)" stroke="var(--st-serious)" stroke-width="2"/>
+    <circle cx="98" cy="548" r="8" fill="var(--st-serious)"/>
+    <text x="98" y="552" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">▲</text>
+    <text x="116" y="552" font-size="12" fill="var(--ink-1)">agent/duet_contracts (in=8) · agent/episode_contracts (in=7) · agent/episode_contract_models · function_library (in=8)</text>
+    <text x="116" y="568" font-size="10.5" fill="var(--ink-3)">misplaced — the foundation layer lives inside agent/, which is what keeps OpenChia and Hermes entangled</text>
+
+    <!-- HERMES boundary -->
+    <rect x="900" y="186" width="145" height="300" rx="11" fill="none" stroke="var(--rule)" stroke-width="1.6" stroke-dasharray="4 4"/>
+    <text x="972" y="208" text-anchor="middle" font-size="11.5" font-weight="650" fill="var(--ink-2)">HERMES</text>
+    <text x="972" y="224" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">~870k LOC</text>
+    <text x="972" y="252" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">only 6 edges</text>
+    <text x="972" y="266" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">from 84 files</text>
+    <g font-size="10" fill="var(--ink-3)">
+      <text x="915" y="296">run_agent</text><text x="915" y="312">model_tools</text>
+      <text x="915" y="328">tools</text>
+      <text x="915" y="352" fill="var(--st-serious)">openchia_cli.config ✗</text>
+      <text x="915" y="368" fill="var(--st-good)">transport ✓ inverted</text>
+    </g>
+    <path d="M530 208 H896" stroke="var(--edge)" stroke-width="1.6" fill="none" color="var(--edge)" marker-end="url(#ar2)"/>
+    </g>
+  </svg>
+  <figcaption>High fan-in at the base, high fan-out at the apex — a correct dependency pyramid. Three defects are visible as geometry rather than opinion.</figcaption>
+  </figure>
+  </div>
+  <p class="note"><strong>The two cycles, exactly:</strong>
+     <code>episode_builder → iterative_episode_refiner → episode_builder</code> and
+     <code>episode_builder → iterative_episode_refiner → episode_runtime → episode_builder</code>.
+     Both run through the single inverted edge <code>episode_builder → iterative_episode_refiner</code> (3 imports).
+     Break that one and both disappear.</p>
+</section>
+
+<section>
+  <h2>Findings — table view</h2>
+  <div class="card pad">
+  <table>
+    <caption>The same information as the diagrams above, as text. Severity is given by glyph and word, never by colour alone.</caption>
+    <thead><tr><th>Severity</th><th>ID</th><th>Finding</th><th>Evidence</th></tr></thead>
+    <tbody>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-crit">✕</span> Blocker</span></td>
+          <td class="mono">C1</td>
+          <td>No Episode that makes a model call can succeed. Frozen tuple fails the broker's <code>isinstance(…, list)</code>; Run finalizes FAILED. <em>Reproduced by lead.</em></td>
+          <td><code>protocol.py:395</code> · <code>broker.py:77</code> · <code>executor.py:1017</code></td></tr>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-crit">✕</span> Blocker</span> <span class="pill"><span class="glyph g-untested">◌</span></span></td>
+          <td class="mono">T15a</td>
+          <td>The AST gate blocking <code>eval</code>/<code>exec</code>/<code>__import__</code>/<code>os.system</code> in LLM-generated code has ~29 rejection codes and zero tests. Replacing its body with <code>return ()</code> keeps the suite green.</td>
+          <td><code>episode_builder/admission.py</code></td></tr>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-ser">▲</span> High</span></td>
+          <td class="mono">C2</td>
+          <td><code>/approve</code> approves "whatever is current", not what the human read. The LLM may still replace the draft; the store CAS compares current-against-current and structurally cannot catch it.</td>
+          <td><code>openchia_host.py:521</code> · <code>duet_service.py:781</code></td></tr>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-ser">▲</span> High</span></td>
+          <td class="mono">C3</td>
+          <td>The content-hash authority chain has no schema version. Adding one field silently rehashes every design and invalidates all prior approvals.</td>
+          <td>no <code>schema_version</code>; no <code>PRAGMA user_version</code></td></tr>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-ser">▲</span> High</span></td>
+          <td class="mono">C4</td>
+          <td>The four JSON Schemas were deleted and never replaced. Zero of six needed specs are machine-checkable.</td>
+          <td>commit <code>5baa5a3b7d</code></td></tr>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-ser">▲</span> High</span></td>
+          <td class="mono">C5</td>
+          <td>seccomp is default-ALLOW; the aarch64 table (the macOS container path) omits six syscalls that x86_64 denies, plus <code>io_uring_setup</code> on both.</td>
+          <td><code>seccomp.py:170</code> · <code>:87-114</code></td></tr>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-ser">▲</span> High</span></td>
+          <td class="mono">C6</td>
+          <td>Authority-critical validation implemented twice — function-selection admission and the <code>content_id</code> field lists both exist in two packages.</td>
+          <td><code>episode_blueprints.py:137</code> · <code>planner.py:357</code></td></tr>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-untested">◌</span> No tests</span></td>
+          <td class="mono">—</td>
+          <td>Zero tests import <code>openchia_host.py</code>, <code>episode_contract_models.py</code>, <code>iterative_episode_refiner/</code>, <code>episode_library/</code>, <code>numeric_control_library/</code>, or the editor. <code>episode_builder/</code> is touched by exactly two test files.</td>
+          <td>verified by import grep</td></tr>
+      <tr><td class="sev"><span class="pill"><span class="glyph g-good">✓</span> Sound</span></td>
+          <td class="mono">—</td>
+          <td>Approval CAS, builder/approver separation, build→run separation, closure verification, closed import finder, policy-before-activation, terminal-ack phasing.</td>
+          <td><code>duet_store.py:960-1054</code> · <code>worker.py:348-356</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>What the graph shows that prose didn't</h2>
+  <div class="cols">
+    <div class="card pad">
+      <h3>The shape is good</h3>
+      <ul class="tight">
+        <li>High fan-in at the base (<code>duet_contracts</code> 8, <code>function_library</code> 8, <code>episode_contracts</code> 7), high fan-out at the apex — a correct dependency pyramid.</li>
+        <li>Only <strong>6 edges</strong> cross to Hermes from 84 files. The entanglement is where files <em>live</em>, not what they import.</li>
+        <li>The model transport is properly inverted — a Protocol + ContextVar. The best seam in the layer.</li>
+      </ul>
+    </div>
+    <div class="card pad">
+      <h3>Three defects are geometry, not opinion</h3>
+      <ul class="tight">
+        <li><code>openchia_host</code> out=12 / in=0 — depends on everything, nothing depends on it. That is <em>why</em> no test imports it: there is no seam.</li>
+        <li>The foundation layer sits in <code>agent/</code>. Moving it to <code>openchia_contracts/</code> is the one cheap cut.</li>
+        <li>The cycle is confined to three packages and one inverted edge.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Episode vs. CWL workflow</h2>
+  <div class="card pad">
+    <p class="note" style="margin-top:0"><strong>A CWL workflow describes a graph of deterministic process
+       invocations whose shape is known before execution. An Episode describes a goal pursued by repeated
+       attempts, where a registered numerical function decides at runtime how long to keep trying.</strong>
+       CWL answers <em>what runs, in what order, with which files</em>. Episodes answer
+       <em>how do we know this is working, and when do we stop</em>.</p>
+  </div>
+
+  <div class="card pad" style="margin-top:14px">
+  <table>
+    <caption>Structural comparison. The Episode column is verified against <code>agent/episode_contract_models.py</code> and <code>handoff_library/contracts.py</code>.</caption>
+    <thead><tr><th></th><th>CWL Workflow</th><th>Episode</th></tr></thead>
+    <tbody>
+      <tr><td><b>Topology</b></td><td>DAG, explicitly acyclic</td><td>Nested tree via <code>workflow_parent_local_id</code></td></tr>
+      <tr><td><b>Known when?</b></td><td>Statically, before execution</td><td>Tree static; <b>iteration count decided at runtime</b></td></tr>
+      <tr><td><b>Atom of work</b></td><td><code>CommandLineTool</code> invocation</td><td><code>unit</code> — one repeated attempt at a <code>goal</code></td></tr>
+      <tr><td><b>Iteration</b></td><td><code>scatter</code> over a known array</td><td><code>continuation</code> verdict per unit</td></tr>
+      <tr><td><b>Stopping</b></td><td>Step exits; graph completes</td><td><code>rarefaction</code> → projected marginal credit → <code>continuation</code></td></tr>
+      <tr><td><b>Progress</b></td><td>None — exit code only</td><td>First-class: credit, marginal dominated hypervolume</td></tr>
+      <tr><td><b>Data flow</b></td><td>Typed ports (<code>File</code>, <code>Directory</code>, records)</td><td><code>ParentRequest</code> / <code>ChildResult</code> closed records</td></tr>
+      <tr><td><b>Goal</b></td><td><b>Reproduce</b> the same result</td><td><b>Attest</b> what happened (a model is in the loop)</td></tr>
+      <tr><td><b>Human authority</b></td><td>Not modelled</td><td>Content-hash approval is the central mechanism</td></tr>
+      <tr><td><b>Execution</b></td><td>Engine interprets the document</td><td><b>Compiles</b> to Python, admits, hashes, runs frozen source</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="cols" style="margin-top:14px">
+    <div class="card pad">
+      <h3>Four things CWL cannot express</h3>
+      <ul class="tight">
+        <li><b>A stopping rule under uncertainty.</b> <code>scatter</code> is bounded iteration; <code>when</code> is a conditional. Neither is a value-of-information estimator. Loop constructs exist as engine extensions, but they are <code>while</code>-style control flow with no notion of diminishing returns.</li>
+        <li><b>Non-compositional credit.</b> A parent recomputes progress on its own scale and <em>does not sum child hypervolumes</em>. CWL steps have no partial success to compose.</li>
+        <li><b>Attestation over reproduction.</b> A model in the loop means re-execution will not match; OpenChia promises a hash-linked evidence chain instead. The second property cannot be retrofitted onto a standard built for the first.</li>
+        <li><b>Untrusted content as a type.</b> <code>ParentRequest</code>/<code>ChildResult</code> are closed records so log text never becomes an upward instruction. In CWL, inter-step data is inert — the category does not exist.</li>
+      </ul>
+    </div>
+    <div class="card pad">
+      <h3>Where CWL is clearly better</h3>
+      <ul class="tight">
+        <li>A standard with multiple independent engines (cwltool, Toil, Arvados, StreamFlow). OpenChia has one implementation.</li>
+        <li>A mature type system for scientific data — <code>File</code> with <code>secondaryFiles</code>, <code>Directory</code>, records. The Episode deliverable contract is thin by comparison.</li>
+        <li>A large corpus of existing tool descriptors; container and resource requirements as standard vocabulary.</li>
+        <li>CWLProv, and portability across established HPC and cloud schedulers.</li>
+        <li>It is declarative data, not emitted code — no planner, no emitter, no AST gate, no closure staging.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card pad" style="margin-top:14px">
+    <h3>They compose — Episode as the adaptive outer loop, CWL as the deterministic inner tool</h3>
+    <p class="note" style="margin-top:0">An Episode's <code>unit</code> invokes a CWL <code>CommandLineTool</code> or
+       sub-workflow as a declared capability. CWL does reproducible, portable, containerized tool execution; the
+       Episode observes the result, assigns credit, and decides whether another iteration is warranted.
+       This also addresses a measured weakness: the registered-function catalog is presently a hand-edited
+       21-entry tuple in <code>planner.py:322</code>, and the seven <code>*_library</code> packages have no shared
+       registry. CWL tool descriptors are a far better-specified substrate for
+       “registered, validated, reusable component with typed arguments” than what exists today.</p>
+    <p class="note"><b>If a workflow is a static DAG of deterministic tools, CWL is the correct choice and the
+       Episode model is overkill.</b> The Episode machinery earns its complexity only where there is a genuine
+       stopping decision to make under uncertainty. Recorded as
+       <code>docs/adr/0003-episode-workflows-are-not-cwl-workflows.md</code>.</p>
+  </div>
+</section>
+
+<footer>
+  Measured with Tarjan SCC and <code>networkx.simple_cycles</code> over an AST-derived import graph.
+  Supersedes the "four package cycles" figure in the written report — the true structure is one SCC of three packages containing two elementary cycles.
+  Full evidence: <code>reports/work-261002.openchia.md</code> and <code>reports/review-parts/01–06</code>.
+</footer>
+
+</div>
+</div>
+<script>
+  const r=document.documentElement, b=document.getElementById('t');
+  b.addEventListener('click',()=>{
+    const cur=r.getAttribute('data-theme');
+    const sysDark=matchMedia('(prefers-color-scheme: dark)').matches;
+    const eff = cur==='auto' ? (sysDark?'dark':'light') : cur;
+    r.setAttribute('data-theme', eff==='dark'?'light':'dark');
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+{
+  "contract_hash": "sha256:837177a8056e0c2abfa26e9fb42ba19f90e1d75da0a50df3971c7d14da3d27c0",
+  "findings": [
+    {
+      "code": "structure_axis_coverage_vs_sequencing",
+      "explanation": "d_axis_coverage lists 'the episode-structure axis' among the surviving axes. Each surviving axis must have a scored trial before stagnation may fire and before 'converged' is allowed. However, the unit and design_scope say structure trials run after parameter search has stopped, on the parameter winner, using whatever search budget remains. Read literally, parameter search cannot reach its stagnation stop until structure has been tried, and structure cannot be tried until parameter search has stopped. Descendants could resolve this differently, and some would never label a collection converged.",
+      "fields": [
+        "unit",
+        "design_scope",
+        "decision_ledger.d_axis_coverage",
+        "execution_policy.per_collection_budget_and_stopping.structure_trials"
+      ],
+      "question": "Is the converged/stagnation test applied only after structure trials finish? Or is the episode-structure axis excluded from the coverage precondition that gates the parameter-search stop?",
+      "severity": "medium"
+    },
+    {
+      "code": "closeout_reserve_unsized",
+      "explanation": "The close-out reserve is fixed at 300 billable calls. It must cover:\n- tuning-set confirmation on the strongest model;\n- up to three holdout scorings.\n\nWhat these cost depends on the tuning and holdout sizes, which have a minimum but no maximum, and on the winner's call multiple. Multi-call structures such as retrieve_assess_followup and decompose_synthesize cost n+1 calls, and each /v1/query counts provider_calls plus llm_calls. A larger benchmark or a multi-call winner can plausibly exceed 300. No rule covers an overrun. Converged requires the holdout to be scored, and only bound_hit has a 'not-scored' path.",
+      "fields": [
+        "design_scope",
+        "execution_policy.budget_attribution.close_out_reserve",
+        "decision_ledger.d_holdout_model_matched",
+        "execution_policy.closure_statuses.requirements_by_status.converged"
+      ],
+      "question": "If close-out would exceed 300 calls, does the collection become bound_hit with the holdout marked not-scored? Or must benchmark size, or the choice of winning structure, be limited so that close-out always fits in the reserve?",
+      "severity": "medium"
+    },
+    {
+      "code": "result_bearing_credit_threshold_low",
+      "explanation": "A bound_hit closure counts as result-bearing once the benchmark is frozen and the listed artifacts pass hash checks. Nothing requires a scored trial, a leaderboard row, or a winning configuration. A collection closed right after freezing, for example by the root's orphan closure when the global allocation runs out, could earn 1/N credit. Its outcome rows and leaderboard files could be empty. The root would also be verifying artifacts it closed itself. Root progress could then report results for collections that produced none of what the goal describes.",
+      "fields": [
+        "progress.description",
+        "decision_ledger.d_credit_result_bearing_only.result_bearing_closure",
+        "decision_ledger.d_root_stagnation_and_orphans.orphan_closure",
+        "goal"
+      ],
+      "question": "Should a result-bearing closure require a minimum of real results, such as a completed noise-floor record and at least one scored trial row? Or is crediting a frozen-benchmark-only bound_hit intended?",
+      "severity": "medium"
+    },
+    {
+      "code": "blocked_trigger_vocabulary_inconsistent",
+      "explanation": "The execution_policy requires every blocked closure to name a trigger verbatim from the safety_policy list, and design_scope says escalation uses that list verbatim. The decision_ledger adds blocked triggers that are not on the safety_policy list: 'no_independent_sweep_model' and 'credential_leak_detected'. It also routes 'any other reason' to blocked. The ledger takes precedence, but descendants validating closures against the verbatim-list rule could reject these closures.",
+      "fields": [
+        "design_scope",
+        "execution_policy.closure_statuses.requirements_by_status.blocked",
+        "decision_ledger.d_judge_collision",
+        "decision_ledger.d_token_leak_gate",
+        "decision_ledger.d_credit_result_bearing_only.unlisted_reasons"
+      ],
+      "question": "Is a blocked closure allowed to name a ledger-defined trigger, or must it name one from the safety_policy list?",
+      "severity": "low"
+    },
+    {
+      "code": "retrieval_screening_pass_criterion_undefined",
+      "explanation": "No configuration may reach a paid generation trial without passing document-coverage screening, but no pass threshold is stated. The coverage rule also requires a scored trial on every surviving axis, and does not say whether a /v1/retrieve screening result counts as that trial for retrieval axes. If a retrieval axis value is screened out and never generates, it is unclear whether the axis is covered or blocks convergence.",
+      "fields": [
+        "design_scope",
+        "task_specification.sequencing.retrieval_screening",
+        "decision_ledger.d_axis_coverage.coverage_before_stagnation"
+      ],
+      "question": "What coverage threshold does a configuration need to pass screening? Does a screening-only result satisfy the one-scored-trial coverage requirement for a retrieval axis?",
+      "severity": "low"
+    }
+  ],
+  "revision": 25,
+  "summary": "The draft is largely coherent. The goal, per-collection unit, trial sub-unit, capability set, deliverable and scope agree, and the precedence rules settle most conflicts between the artifacts. Four questions remain. The convergence precondition requires the episode-structure axis to have a trial, but structure trials are scheduled after parameter search stops. The 300-call close-out reserve is not sized against the benchmark or the winner's call cost, and nothing says what happens if it runs short. Root progress can credit a collection that froze a benchmark but never scored a trial. The blocked-trigger vocabulary is inconsistent across the artifacts.",
+  "verdict": "concern"
+}

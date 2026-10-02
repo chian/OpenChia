@@ -1,0 +1,83 @@
+{
+  "creator_contract_hash": "sha256:bde9529d67540806193dc0c319e3e89211c4d837b3c74097e2b1f5b2401d64a9",
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "lenses": {
+    "contract_alignment": {
+      "findings": [
+        {
+          "code": "goal_and_unit_replaced",
+          "explanation": "The contract's goal is to determine, per ASM collection, the best retrieval and generation configuration and episode structure, with one per-collection study as the repeated unit. The root instead declares the goal 'Probe D: todo_list capability', the unit 'Probe unit.' and the result 'Probe result.' This silently redefines the human goal.",
+          "fields": [
+            "workflow.episodes[root].contract.goal",
+            "workflow.episodes[root].contract.unit",
+            "workflow.episodes[root].contract.result"
+          ],
+          "question": "Is this blueprint a capability probe submitted by mistake, and will a root Episode be emitted whose goal, unit and result restate the contract's per-collection RAGstack experiment?",
+          "severity": "high"
+        },
+        {
+          "code": "progress_metric_mismatch",
+          "explanation": "The contract requires adapter creator_method_credit_v1, measuring root_episode_progress as sum(c)/N with c = 0.5 + 0.25A + 0.25B for verified result-bearing closures, baseline 0, target 1.0, minimum_delta 0.01 and 3 stagnation observations. The root instead uses durable_evidence_count_v1 counting 'records', with target 3.0, minimum_delta 1.0 and stagnation 2. Root progress, stagnation and credit cannot be computed as the contract defines them.",
+          "fields": [
+            "workflow.episodes[root].contract.progress.adapter_id",
+            "workflow.episodes[root].contract.progress.unit",
+            "workflow.episodes[root].contract.stopping"
+          ],
+          "question": "Will the root progress use root_episode_progress with the addendum's coverage-weighted formula, and the contract's stopping values (target 1.0, minimum_delta 0.01, stagnation 3, observations only at verified result-bearing closures)?",
+          "severity": "high"
+        },
+        {
+          "code": "deliverable_kind_and_tooling_mismatch",
+          "explanation": "The contract requires a shared_state deliverable materialized with write_file: a run directory holding the extended manifest and a hashed root manifest. The contract also states that a typed status alone is unusable. The root declares a typed_status deliverable, no tool names, and omits write_file from its capabilities, so the manifest deliverables cannot be produced as specified.",
+          "fields": [
+            "workflow.episodes[root].contract.deliverable.kind",
+            "workflow.episodes[root].contract.deliverable.tool_names",
+            "workflow.episodes[root].contract.execution_capability_names"
+          ],
+          "question": "Will the root deliverable be shared_state via write_file, covering the d_deliverable_manifest items as extended by d_manifest_extension, with the terminal update referencing the hashed root manifest?",
+          "severity": "high"
+        },
+        {
+          "code": "missing_per_collection_tree",
+          "explanation": "The contract expects a tree with a root that coordinates serial per-collection studies and batched trial children, within 120 child episodes and depth 3. It also needs run-level reconnaissance and consolidation plus the reserved close-out episodes. The blueprint has only the root, with creator_contract null and no children. Setup, phase A and B, close-out, holdout and closure-evidence verification therefore have no Episode that carries them.",
+          "fields": [
+            "workflow.episodes"
+          ],
+          "question": "Which child Episodes carry each per-collection study, and how are the 1500-call pools, child-episode allocation and root close-out reserve assigned to them?",
+          "severity": "high"
+        },
+        {
+          "code": "safety_bounds_absent",
+          "explanation": "The contract sets safety bounds of 120 child episodes, depth 3, 43200 s elapsed and 80 iterations. It also derives the root close-out reserve from these bounds (10% time, 5 iterations, 2 child episodes). The root's safety_bounds is null, so the backstop bounds and the reserve arithmetic are undefined.",
+          "fields": [
+            "workflow.episodes[root].contract.safety_bounds"
+          ],
+          "question": "Will the root declare the contract's safety bounds explicitly, so that the d_root_closeout_reserve withholding can be computed?",
+          "severity": "high"
+        },
+        {
+          "code": "binding_rules_not_carried",
+          "explanation": "No field references the six hash-pinned context artifacts. No field carries the precedence order (addendum, then ledger, then execution_policy), the safety policy, the single allowlisted HTTP client with its self-test, the token-leak gate, or the use_graph pinning. The run-wide stop, checkpoint and closure-status vocabulary are also missing. Because the contract binds these rules on every descendant, their absence means descendants would not inherit them.",
+          "fields": [
+            "workflow.episodes[root].contract"
+          ],
+          "question": "How will the root and its descendants receive the six artifacts by hash and be bound to their rules, especially the safety_policy and the addendum's blocked-trigger vocabulary?",
+          "severity": "high"
+        },
+        {
+          "code": "return_contract_unreachable",
+          "explanation": "The return contract requires measurement root_episode_progress, credit component root_experiment_progress, and evidence root_episode_terminal_update accepted by run_episode_host. A root that counts probe records and emits a typed probe status produces none of these, so credit_complete and evidence_requirements_met cannot be satisfied.",
+          "fields": [
+            "workflow.episodes[root].contract.progress",
+            "workflow.episodes[root].contract.deliverable"
+          ],
+          "question": "Will the root's terminal update report c, A, B and struck counts per collection, so that the run_episode_host can accept it as root_episode_terminal_update evidence?",
+          "severity": "medium"
+        }
+      ],
+      "summary": "The blueprint is a single root Episode titled 'Probe D: todo_list capability', not a design for the contracted experiment. Its goal, unit, progress metric, stopping rule, deliverable kind, capabilities and safety bounds all differ from the frozen Creator contract. It has no per-collection studies, no link to the six required context artifacts, and cannot produce the root_episode_progress measurement or the root_episode_terminal_update evidence that the return contract requires. Host admission reported no deficits, but that does not establish alignment with the contract.",
+      "verdict": "block"
+    }
+  },
+  "workflow_blueprint_hash": "sha256:50b39c7bee4ea33b91106ea0f1306aa53bd3954ed219b8d4c011b8aed3301b0b"
+}

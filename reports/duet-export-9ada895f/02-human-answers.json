@@ -1,0 +1,11 @@
+[
+  {
+    "answer_id": "answer_b2f29140f79c4b611cbeca77e5de025051749a638f263b2fb97e5e9044cf1e4f",
+    "duet_id": "duet_9ada895f2270413a56581fc75097f1fe965fe0f57434c5bdfea9d293c75d44dd",
+    "field_path": "goal",
+    "human_authority_id": "human_b5fa2bb6433d3594b1a28cce35042a1b8863446531e825d9017601c43ca98c9a",
+    "request_id": "request_f1286252046e15165794babbb0ca34a655145942ba02c170fba95ff7c4bf8583",
+    "revision": 6,
+    "value": "Determine, by measured read-only experiment against the BV-BRC RAGstack asm-next tenant, which retrieval and generation parameter combination and which episodic question-answering structure produce the best answers within each ASM paper collection measured separately, with the benchmark weighted toward multi-paper synthesis, leaving behind a per-collection winning configuration and the per-question evidence justifying it."
+  }
+]

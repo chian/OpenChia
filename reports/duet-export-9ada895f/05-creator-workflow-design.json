@@ -1,0 +1,929 @@
+{
+  "artifact_id": "design_3abaf36304e0ce5d75b1e33ff074bd4632fae6692527a04475a9d8f9ebe71bb9",
+  "context_receipts": [
+    {
+      "artifact_id": "context_274dd006f14f08b9e6779632984583e6feab489523d0d9bf910ba31912e1c9cd",
+      "artifact_kind": "task_specification",
+      "content_hash": "sha256:7436c7feca4c9016c59962cb2417a34f7262eb5ad49f1666d2a182e1437c3159",
+      "purpose": "ragstack_configuration_experiment_task_specification",
+      "required": true,
+      "schema_version": 3
+    },
+    {
+      "artifact_id": "context_a9ccf835b8578913e97a74d09518de645f60bcce3a60194e64b324c5bdc5de3e",
+      "artifact_kind": "decision_ledger",
+      "content_hash": "sha256:51bed69b80620f032c5f335e6ecb2772ebfe532fea5502d2f061e483ad907c62",
+      "purpose": "ragstack_experiment_operator_addendum",
+      "required": true,
+      "schema_version": 4
+    },
+    {
+      "artifact_id": "context_19bb19376c10bd1e4408b1b2accebfb7169f107f5f23a9fe2e349590a9ad8e06",
+      "artifact_kind": "decision_ledger",
+      "content_hash": "sha256:9d23afbabbf055d68f4e386fb7f6d6cb41de83f57bd819d37a8ff7d56d160ec0",
+      "purpose": "ragstack_experiment_review_resolutions",
+      "required": true,
+      "schema_version": 5
+    },
+    {
+      "artifact_id": "context_6ae921a0f0f56e42c665ae499e416972de5ea963f89675c9f89930e34a8dd407",
+      "artifact_kind": "execution_policy",
+      "content_hash": "sha256:9a0f26d88d4a61851fd51af969e793bb6171c46e200f544ce033ca2c9a015239",
+      "purpose": "ragstack_experiment_execution_and_enforcement_rules",
+      "required": true,
+      "schema_version": 2
+    },
+    {
+      "artifact_id": "context_b0a5e2fabfb19736152821b9f06bafe1521f42abf691b06f43946fd3aaac382a",
+      "artifact_kind": "interface_contract",
+      "content_hash": "sha256:60a56dffa2bb4ea4b05930609de6191cc69e9967e8afafbf184efaf8a5fc3a33",
+      "purpose": "ragstack_asm_next_api_surface_and_parameter_space",
+      "required": true,
+      "schema_version": 2
+    },
+    {
+      "artifact_id": "context_78ce70247496939953ab433dcb6461a0c4197ff07256d756e9415bd637bc0542",
+      "artifact_kind": "safety_policy",
+      "content_hash": "sha256:2d6ef41a428ab44418464d4ecf699f0448b5fb1f2970b9d434d7a0f43eb60f39",
+      "purpose": "ragstack_experiment_credential_and_blast_radius_bounds",
+      "required": true,
+      "schema_version": 2
+    }
+  ],
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "duet_id": "duet_9ada895f2270413a56581fc75097f1fe965fe0f57434c5bdfea9d293c75d44dd",
+  "revision": 1,
+  "workflow": {
+    "episodes": [
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Run-scoped directory RUN under /Users/me/Development/OpenChia holding every item of decision_ledger rev 5 d_deliverable_manifest as extended by addendum d_manifest_extension (per-collection studies, run-level records, any checkpoint, root closure summary) and RUN/ROOT_MANIFEST.json listing every file with SHA-256; the terminal update references the manifest path and hash.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file",
+            "todo_list"
+          ],
+          "goal": "Run the read-only BV-BRC RAGstack asm-next experiment (task_specification rev 3; precedence addendum rev 4 > decision_ledger rev 5 > execution_policy rev 2; nothing loosens safety_policy rev 2); end with one typed terminal update. RUN = new run dir named in RUN/RUN_ID.json and /Users/me/.hermes/cache/scratch/ragstack_asm_next_active_run.json; CLIENT = RUN/harness/ragclient.py, the only HTTP path and only code opening /Users/me/.patric_token. Order: recon_harness, recon_inventory, study_r1, study_r2, study_r3 STRICTLY SERIALLY by descending document count, then root_consolidate and root_verify on the root close-out reserve (10% of 43200 s, 5 root iterations, 2 child episodes). Put the ragclient.py and score.py SHA-256 returned by recon_harness into RUN/serial_gate.json and re-check at every gate; mismatch => halt tenant work, open collections bound_hit 'harness_integrity'. Recon failure (no passing self-test or no ranking) => no tenant calls, reason 'reconnaissance_failed', N recorded unknown, never 'no collection'. A recorded run-level escalation (admin role, need to write, sole readable collection non-ASM) => no study tenant work; affected collections, or the root if no ASM collection is readable, close blocked with the verbatim safety_policy item. Serial gate: after each study returns, re-hash every artifact in its closure manifest; accept, or reject (record it; bound_hit 'study allocation exhausted: closure_evidence_missing', credited only if the result-bearing minimum verifies); append the final disposition to RUN/serial_gate.json, releasing rank k+1. Ranks >=4 close not_tested 'cut by the recorded global allocation before its setup phase began' (time bound fits three studies), mismatch flagged. Result-bearing = converged or bound_hit with frozen benchmark, noise floor with >=2 repeats, >=1 scored one-axis generation trial with non-empty outcome rows, and a leaderboard naming a current best, all hash-verified. c = 0.5+0.25A+0.25B if result-bearing else 0, A and B exactly per addendum d_coverage_denominators; root_episode_progress = sum(c)/N (authoritative, in the terminal update). Only verified result-bearing closures are root stagnation observations; the host milestone count is a backstop. Run-wide stop (RUN_STOP: budget exhaustion or error_rate_abort): no further tenant calls, no retry, no waiting; checkpoint must exist; every unclosed collection closes bound_hit naming the bound; go to close-out. Unreserved time or iterations exhausted: open collections bound_hit 'global allocation' (not_tested if setup never began); close-out. If a close-out child fails, finish its steps yourself without tenant calls. Blocked may name only a safety_policy human_escalation item verbatim, no_independent_sweep_model, credential_leak_detected or benchmark_not_freezable. Terminal update: every readable ASM collection once with status, reason, c, A, B, struck counts; expected-vs-found and mismatch flag; root_episode_progress; ROOT_MANIFEST path and SHA-256; scan record paths and hashes. Never average quality across collections; bound_hit is never convergence; untested = not-tested; sub-noise = within-noise. Prohibited: tenant mutation, ingest, collection lifecycle, graph extraction, /v1/admin/*, /v1/stats/models/benchmark, grading mutations, other tenants or hosts; the token is never written, logged, echoed or returned. write_file only inside RUN; scratch only via execute_code.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Host backstop milestone count: passing self-test, recon ranking, one final disposition per rank 1-3, consolidation records, root manifest, token-leak scan record. The target is reachable only after close-out. The authoritative coverage-weighted root_episode_progress = sum(c)/N is computed by root_verify from trial evidence and carried in the terminal update.",
+            "direction": "increase",
+            "metric_id": "metric_755b787be40b81bfdb377c39724f897b015ae56a31ffd0cb39323988d70f981b",
+            "unit": "root_milestones"
+          },
+          "result": "RUN with every d_deliverable_manifest item as extended by d_manifest_extension, RUN/ROOT_MANIFEST.json and its SHA-256, and one typed terminal update listing every readable ASM collection with status, reason, c, A, B and struck counts, root_episode_progress, the expected-vs-found count, the token-leak scan records, and the root manifest path and SHA-256.",
+          "safety_bounds": {
+            "max_child_episodes": 20,
+            "max_depth": 3,
+            "max_elapsed_seconds": 43200.0,
+            "max_iterations": 80
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 8.0
+          },
+          "unit": "One per-collection study: release the next-ranked readable ASM collection's study (largest first), receive its typed closure, re-verify every listed artifact and the harness hashes, accept or reject, record the root observation (only verified result-bearing closures count), append the final disposition to RUN/serial_gate.json, then release the next rank."
+        },
+        "local_id": "root",
+        "workflow_parent_local_id": null
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Run directory, hash-pinned HTTP client, scorer and self-test record inside RUN.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Build and self-test the run harness; no scoring; no tenant call before the self-test passes. (1) Create new RUN=/Users/me/Development/OpenChia/ragstack_asm_next_run_<UTC yyyymmddThhmmssZ> with RUN_ID.json (never modify pre-existing files); via execute_code write {run_dir} to /Users/me/.hermes/cache/scratch/ragstack_asm_next_active_run.json. (2) CLIENT=RUN/harness/ragclient.py: sole HTTP path and sole code opening /Users/me/.patric_token, read per request, bound only to Authorization, never printed, logged, returned or sent elsewhere; failure records show 'Authorization: [REDACTED]'; every raised exception is a sanitized error type without headers. HTTPS to www.bv-brc.org only; redirects never followed (3xx refused). Allowlist = execution_policy list intersected with safety_policy list, exact match on the normalized path without query string: GET /ragstack/tenants and /ragstack/asm-next/api{/health,/openapi.json,/v1/health,/v1/health/deep,/v1/version,/v1/config,/v1/collections,/v1/prompt-templates,/v1/models/available,/v1/chunks,/v1/documents,/v1/graph/stats,/v1/graph/entities,/v1/graph/neighbors/{entity},/v1/stats/stores,/v1/stats/tenants,/v1/jobs}; POST only /v1/retrieve, /v1/query. {entity} percent-encoded as one segment; refuse '/', '..', '?', '#' or encoded separators. Refuse and log all else, and any retrieve/query body without explicit use_graph or exactly one explicit collection. File-locked shared state: <=2 concurrent; >=1.0 s between queries; stats/tenants counts=true once per run; stats/stores and collections >=15 s apart; >25% failures in a rolling 20 => error_rate_abort; 429 Retry-After honoured only if <=900 s; 503 backoff from 5 s, <=5 attempts. Exhaustion = 402; 429 Retry-After >900; 403/429 body naming quota, budget, limit exceeded or credits; two consecutive placeholders after real answers. On exhaustion or abort set RUN_STOP, record status, Retry-After, body excerpt, UTC time (no headers), refuse all later tenant calls; write_checkpoint() writes the addendum checkpoint without token material. Calls declare collection, pool (setup|search|closeout), trial_id; per-collection billable counters (provider_calls+llm_calls, conservative rule recorded) refuse beyond 1500; pools and transfers logged; per-call cost vector (provider_calls, llm_calls, prompt_tokens, completion_tokens, returned_hits, fetched_bytes, retries, wall_ms, errors). Code writes resolve inside RUN or scratch. token_leak_scan(paths): first and last 8 chars; hashed record without token substrings. RUN/harness/score.py: outcome-row schema, failure taxonomy, document_coverage_at_k, distinct-doc count, /v1/chunks citation resolution naming the collection; applies the hash-checked RUN/prompts/attribution_rule.json; frozen aggregation: synthesis_completeness = mean over synthesis questions only (control reported separately), truncated rows scored on returned text, excluded rows (placeholder, abandoned transient) counted, comparisons on the common question subset. (3) Self-test: the seven execution_policy cases plus traversal entity, redirect, missing use_graph, stats rate rules, and forced failures (unreachable host, timeout, 5xx, malformed body) asserting no token substring in exceptions, str/repr, stdout, stderr or logs; fix until all pass. Record results and the SHA-256 of ragclient.py and score.py in RUN/harness/selftest.json and return both hashes; only this Episode may pin them.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Hashed harness records: RUN_ID and pointer, client, scorer, passing self-test record.",
+            "direction": "increase",
+            "metric_id": "metric_58685c6d2a8d995e22db593bf2dd53c6f777c44f7b9bbf3f19bbc2c15ff09b8f",
+            "unit": "harness_records"
+          },
+          "result": "RUN with RUN_ID.json, scratch pointer, hash-pinned CLIENT with shared limiter, stop state and checkpoint writer, score.py, token_leak_scan(), and a passing self-test record with refusal log; returns the ragclient.py and score.py hashes.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 900.0,
+            "max_iterations": 6
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 4.0
+          },
+          "unit": "One harness cycle: build or repair a harness component, run the self-test, record the outcome."
+        },
+        "local_id": "recon_harness",
+        "workflow_parent_local_id": "root"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Run-level reconnaissance records inside RUN.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Run-level inventories, model selection, frozen prompts and allocation; no scoring. Guard: RUN from the scratch pointer, checked against RUN/RUN_ID.json; use only CLIENT after checking that ragclient.py matches a passing RUN/harness/selftest.json (mismatch => no tenant calls; never re-pin); never touch the token; write_file only in RUN; RUN_STOP => stop and record. (1) Record with UTC timestamps: openapi.json and the fully resolved QueryRequest and QueryResponse schemas; /v1/version; /v1/config; the /v1/collections, /v1/prompt-templates (with output shapes) and /v1/models/available inventories; /v1/stats/tenants counts=true once (cached for all later Episodes); /v1/graph/stats. (2) Size and graph table per collection; list readable ASM paper collections with identifiers, N, and expected 3 vs found; rank by document count into RUN/recon/ranking.json. Admin role, an apparent need to write, or a sole readable non-ASM collection => write RUN/recon/escalation.json quoting the verbatim safety_policy human_escalation item and stop tenant work. (3) Strike tenant llm models of the Episode's own provider or family (judge-collision strike recorded). Cheap sweep model = cheapest remaining llm returning non-placeholder grounded answers on a 3-question smoke set on the rank-1 collection (its setup pool, use_graph=false); strong = strongest remaining; record reasoning from identity and measured tokens and wall_ms; none => no_independent_sweep_model. (4) Write once and SHA-256 freeze RUN/prompts: question generation; single-document validation; judging (per required item: stated and supported by its cited chunk; per citation: supports its claim), blinded (inputs only question, gold set, answer and resolved chunks; no trial, configuration, structure or model identifiers; a batch never mixes trials; one verdict per question); and attribution_rule.json, derived from the response schema and smoke outputs: how a claim maps to chunk_ids per template output shape (inline markers, else that call's sources), how multi-call structures carry sub-answer chunk_ids into the final answer through harness glue, and 'not attributable' (item scores 0, flagged) when no citation can be mapped. (5) From measured smoke latencies write a throughput projection (queries, judgements and wall time per phase vs caps). (6) Allocation record: per collection 1500 calls (setup 300, setup+search 1200, close-out 300); per-rank caps from this blueprint (setup 2300 s/9 it, phase A 4700 s/16 it, phase B 2100 s/7 it, close-out 1700 s/7 it, study slack 600 s); judging caps per phase from the projection; zero allocation for ranks >=4 because the 43200 s bound fits three studies; root close-out reserve 4320 s, 5 root iterations, 2 child episodes.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Hashed run-level records: schemas, inventories, size/graph table and ranking, expected-vs-found, model selection, frozen prompts and attribution rule, throughput projection, allocation.",
+            "direction": "increase",
+            "metric_id": "metric_2fef9b03421ff59daf17d6ccd408c0d3a3e70b026973bc5afd408805f6c06a20",
+            "unit": "run_level_records"
+          },
+          "result": "RUN: resolved QueryRequest/QueryResponse schemas, version/config, inventories, size/graph table, ranking, expected-vs-found record, any escalation record, cheap/strong model selection with judge-collision strikes, frozen hashed prompts and attribution rule, throughput projection, allocation record.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 1200.0,
+            "max_iterations": 6
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 8.0
+          },
+          "unit": "One reconnaissance cycle: fetch and record one group of inventories or one selection or freezing step, verified by hash."
+        },
+        "local_id": "recon_inventory",
+        "workflow_parent_local_id": "root"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "RUN/r1 study records and closure manifest.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file",
+            "todo_list"
+          ],
+          "goal": "Carry the rank-1 readable ASM collection (RUN/recon/ranking.json) to exactly one verified closure via setup_r1, phase_a_r1, phase_b_r1, closeout_r1 in order, gated on RUN/r1/state.json. Start only if the gate hashes in RUN/serial_gate.json match ragclient.py and score.py, RUN_STOP is unset and no RUN/recon/escalation.json exists. Ranking missing => return 'reconnaissance_failed' with no tenant calls; ranking valid but no rank-1 collection => write a no-collection record, flag the count mismatch, return. state.json separates phase bounds (the next phase proceeds on the current best with its own budget) from collection-terminal statuses (blocked, not_tested, benchmark_shortfall, RUN_STOP, 1500 ceiling, harness_integrity), which alone suppress tenant calls; on a collection-terminal status skip directly to closeout_r1. Status: not_tested only if unreadable, zero documents, or cut by the recorded allocation before setup; blocked only with a safety_policy human_escalation item verbatim, no_independent_sweep_model, credential_leak_detected or benchmark_not_freezable, then no tenant calls; bound_hit for every bound (benchmark_shortfall, call ceiling or pool, phase caps, host iteration/time/stagnation stops, judging allocation, tenant_budget_exhausted_until_monday, error_rate_abort, harness_integrity), naming bound and phase; converged only if phase A stopped on target or stagnation with full coverage, phase B completed, and holdout #1 and #2 were scored. On RUN_STOP stop tenant work and ensure write_checkpoint() ran. If closeout_r1 ends without a final RUN/r1/closure_manifest.json, write it yourself from existing records as bound_hit with no tenant calls, using the reserved study slack. Re-hash every manifest artifact; return status, reason, c, A, B, struck counts, and manifest path and SHA-256. Max 1500 tenant billable calls; one collection per request; use_graph explicit; write_file only in RUN; never touch the token.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Completed phase hand-offs for rank 1 (setup, phase A, phase B, close-out) plus the hash-verified closure.",
+            "direction": "increase",
+            "metric_id": "metric_027c745bf05776f3c99f3a5f8d2a8742ded64368e3735d65bae3bb0428bdf7d2",
+            "unit": "completed_study_phases"
+          },
+          "result": "One verified typed closure for the rank-1 collection: status, reason, c, A, B, struck counts, and closure manifest path and SHA-256.",
+          "safety_bounds": {
+            "max_child_episodes": 4,
+            "max_depth": 2,
+            "max_elapsed_seconds": 11400.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 5.0
+          },
+          "unit": "One phase hand-off: release the next phase child, check its records and the state file, decide continue, skip to close-out, or close."
+        },
+        "local_id": "study_r1",
+        "workflow_parent_local_id": "root"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Frozen benchmark, noise floor and setup records in RUN/r1.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Setup for the rank-1 readable ASM collection (RUN/recon/ranking.json). Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP => no tenant call, record, return. Each request: pool=setup, this one collection, use_graph explicit. S1 recon: use cached recon records (no second stats counts=true); retrieval-derived doc inventory from >=20 diverse separate bm25 and vector /v1/retrieve probes at top_k 50 (labelled possibly incomplete, size recorded); unreadable or zero documents => not_tested reason record. Graph: if graph stats show it unavailable or empty, or fewer than 50 top triples exist, strike use_graph (not-tested (graph not attributable)) and graph_seeded with evidence; else resolve >=50 top triples' chunk_ids via GET /v1/chunks naming the collection, doc_id in the inventory; <50% => same strike; record rate and inventory size. Strike template if only one exists and query_rewrite if QueryRequest has no rewrite field, with evidence. Feasibility: 3-question smoke of retrieve_assess_followup, decompose_synthesize and (if attributable) graph_seeded orchestration via tenant /v1/query on the cheap sweep model; strike with evidence if not deterministically parseable or needing an LLM step outside tenant /v1/query; record billable calls and wall time per question. S2 pivots: attributable graph triples spanning >=2 doc_ids, else the union of separate bm25 and vector probes at top_k 50 (outside the trial grid) grouped by doc_id; never hybrid, rerank or a trial config; use_graph=false. S3 generation: the Episode's own model, frozen generation prompt, only needed chunks: <=40 questions (<=32 synthesis, 5-8 control); synthesis gold = >=2 chunk_ids from >=2 distinct doc_ids of this collection resolved via /v1/chunks plus one required item per contributing doc; pivot provenance per question. S4 validation under the frozen prompt: any question one doc answers becomes control. S5 freeze: >=20 synthesis full power; 10-19 low-power once the setup pool is spent or pivots exhausted; <10 => collection-terminal bound_hit benchmark_shortfall with the count; gold unvalidatable => blocked benchmark_not_freezable; never keyless self-assessment. Seeded stratified ~25% holdout; SHA-256 freeze questions, classes, gold sets, items, provenance, split, seed, power label, judge-prompt and attribution-rule hashes before any scored trial; never edit. S6 noise floor: baseline_v0 (tenant defaults, hybrid, use_graph=false, cheap model, default template, no rewrite) 3 times (min 2) on tuning via /v1/query; score with score.py and the frozen blinded judge; independently re-judge one repeat; record repeat spreads (synthesis_completeness, document coverage), judge spread, byte-identical flags; effective floor = max(repeat spread, judge spread, 1/number of tuning synthesis questions), raw values kept. Setup beyond 300 calls is charged to search, recorded. Write stage records and RUN/r1/state.json.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Hashed setup stage records: S1 recon/graph/feasibility, S2 pivots, S3 generation, S4 validation, S5 freeze, S6 noise floor.",
+            "direction": "increase",
+            "metric_id": "metric_5ad057829d4521c1d459f52dc41a73f1af09848b5cb67043e0dc80a5536c1e8f",
+            "unit": "setup_stage_records"
+          },
+          "result": "RUN/r1: collection recon, graph-attributability and structure feasibility records, pivot record, frozen hashed benchmark with gold sets, split, seed and power label, noise-floor record with outcome rows, setup budget record, state file.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 2300.0,
+            "max_iterations": 9
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 6.0
+          },
+          "unit": "One setup stage (S1-S6), written and hashed; failed stages are retried within the cap."
+        },
+        "local_id": "setup_r1",
+        "workflow_parent_local_id": "study_r1"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Phase-A screening table, leaderboard and outcome rows in RUN/r1.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file",
+            "todo_list"
+          ],
+          "goal": "Phase A for the rank-1 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP or a collection-terminal status in RUN/r1/state.json => no tenant call, record, return. Needs a frozen benchmark and noise floor. Tuning set only, cheap sweep model, pool=search, one collection, use_graph explicit. First record the phase-A call cap = 1200 - setup used - phase-B reservation (non-struck multi-call structures x tuning n x smoke billable per question, plus one single_shot rerun, at most half the remaining search budget). Prior = baseline_v0; the current best moves only on an effect-sized gain. Screening via POST /v1/retrieve on mean document_coverage_at_k (independent axes may share an iteration): retrieval_mode hybrid/vector/bm25; top_k 5/10/20/30; rerank false/true; rerank_candidates 20/50/100 and reranker models only if rerank is kept. Pass = coverage >= current best minus the doc-coverage floor (0.05 if unset); others screened-out with coverage. Screening is never coverage. Generation trial = full tuning run via /v1/query changing exactly one axis from a named prior (multi-axis = exploratory). Every applicable axis needs >=1 scored trial: retrieval_mode, top_k, rerank, context_window (1-3 vs 0), use_graph (true only in its own trial on attributable collections; kept only if it beat the floor), template (id, version, hash), query_rewrite (HyDE, multi-query; record rewritten_queries), plus rerank_candidates and reranker only if rerank kept. Retrieval-axis trial value: the best passing non-prior value; for top_k the smallest passing value within the doc-coverage floor of the maximum (a second top_k value may follow after coverage). If no non-prior value passes, the axis is covered by the prior's existing trial id, recorded as 'alternatives screened-out', with no paid trial. Earlier-rank findings may reorder axes or pick first values, never skip. Verdict: |delta| > effective floor (2x if low-power) = effect, else within-noise. Normal stop: coverage complete AND (tuning synthesis_completeness >= 0.9 OR 3 consecutive distinct-axis trials each gaining < max(0.05, floor)). Any other end (call cap, time, iteration, judging cap, host target or stagnation) is a phase bound: record it, mark unscored axes not-tested, hand the current best to phase B. Score with score.py's frozen aggregation and attribution rules and /v1/chunks resolution; the Episode's own model judges only under the frozen blinded judging prompt. Classes: correct_grounded, incomplete_synthesis (never correct), retrieval_coverage_miss, unsupported_citation, wrong, truncated (separate), retrieval_only_placeholder and transient_error (excluded, counted). Never touch the holdout. Write outcome rows (answer, cited doc_ids and chunk_ids, distinct-doc count, verdict, failure class, truncated flag), the screening table, and leaderboard rows (phase, axis, prior id, full parameter vector, tuning completeness, doc coverage, citation support, verdict, excluded count, cost vector); record Wa, stop reason and per-axis coverage in state.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Scored generation trials with non-empty outcome rows plus completed retrieval-screening tables.",
+            "direction": "increase",
+            "metric_id": "metric_f24a8a938b2ec37e1a783dc86bc236195272a592fe2fb087039878308de5f7a0",
+            "unit": "scored_trials_or_screen_tables"
+          },
+          "result": "RUN/r1: retrieval screening table, leaderboard rows, outcome rows per trial, phase-A winner Wa, stop reason and per-axis coverage status.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 4700.0,
+            "max_iterations": 16
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 20.0
+          },
+          "unit": "One search cycle: a retrieval-screening batch or one one-axis generation trial on the tuning set, scored, judged, verdicted against the noise floor and written to the leaderboard."
+        },
+        "local_id": "phase_a_r1",
+        "workflow_parent_local_id": "study_r1"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Structure comparison and winner W in RUN/r1.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Phase B structure trials for the rank-1 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP or a collection-terminal status in RUN/r1/state.json => no tenant call, record, return. Runs after phase A ended (normally or on a phase bound) on its current best Wa, tuning set only, cheap sweep model, pool=search, from the phase-B reservation plus unspent phase-A budget (setup+search <= 1200). Structures: single_shot (one fresh rerun on Wa as the contemporaneous comparator), retrieve_assess_followup, decompose_synthesize, graph_seeded; skip only setup strikes with evidence. Every LLM orchestration step (whole-answer sufficiency assessment returning strict {sufficient, confidence, gaps[], rationale}, gap follow-up queries, decomposition, sub-answer synthesis) is a tenant POST /v1/query on the cheap sweep model with the collection, use_graph and all Wa parameters explicit; glue is deterministic harness code carrying chunk_ids per the attribution rule; the Episode's own model never produces any part of a scored answer. graph_seeded: /v1/graph/entities and /v1/graph/neighbors/{entity} at depth 1-2, only triples resolving to this collection, vocabulary as query expansion. Per structure: outcome rows with phase-A fields and failure classes, /v1/chunks resolution, blinded frozen-prompt judging, cost vector, call multiple vs single_shot, quality per billable call, and a noise verdict vs the fresh single_shot (margin under 2x the floor = provisional). W = single_shot unless a structure beats it by more than the effective floor (2x if low-power); among such, the best. Before fixing W, project close-out calls and wall time = (tuning n + 3 x holdout n) x W's measured billable calls and seconds per question; if over the 300-call reserve or close-out time, take the best structure that fits (recorded) or make a recorded transfer of unspent search budget. Unscored structures = not-tested with reason; an early end is a phase-B bound, recorded. Optional, outside B and the main ranking, only if budget remains: chunk_neighbourhood_expansion once on W; table_fill only on the enumerative subset if it has >=5 questions, reported with subset size. Never touch the holdout. Write RUN/r1/structure_comparison.json, leaderboard rows, hashed W, projection and phase-B status in state.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Standalone structures scored (single_shot rerun included) with outcome rows.",
+            "direction": "increase",
+            "metric_id": "metric_55d8ca35a77605bcca64cc007078bc5bf09b28e4f2b704b97dc1aa5e1bf35ec3",
+            "unit": "structures_scored"
+          },
+          "result": "RUN/r1: structure comparison with call multiples, noise verdicts and quality per billable call, outcome rows, close-out projection, winner W, phase-B status.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 2100.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 4.0
+          },
+          "unit": "One structure trial: run one standalone structure on the tuning set with tenant orchestration, then score, judge and record it with its call multiple."
+        },
+        "local_id": "phase_b_r1",
+        "workflow_parent_local_id": "study_r1"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Close-out records and closure manifest in RUN/r1.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Close-out for the rank-1 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN. Stage 1 first: write a provisional RUN/r1/closure_manifest.json (status bound_hit, reason, and path plus SHA-256 of every existing record) so a closure exists even if later stages fail. A collection-terminal status or RUN_STOP => no tenant call; go to stage 5. Pool: 300 close-out calls plus recorded transfers, never beyond 1500. W from state, hashed before any holdout call; the holdout never informs any choice. Order when both call and wall-time projections fit: stage 2 tuning-set model confirmation (W with every tenant LLM step, generation and orchestration, on the strongest model vs W's cheap-model tuning record, a selected score whose upward bias is noted; select strongest only if its gain exceeds the effective floor, 2x if low-power); stage 3 holdout #1 baseline_v0 on cheap and #2 W on cheap; stage 4 holdout #3 W on strongest only if confirmation selected it, else not-needed. If either projection does not fit: #1, #2, confirmation, #3; unaffordable steps not-scored with reason, status bound_hit. Configuration effect = #2-#1; model effect = #3-#2; never attribute #3-#1 to configuration; overfitting estimate = W tuning minus W holdout. Scoring by score.py and the frozen blinded judge. Stage 5 write: confirmation record; holdout record; RUN/r1/winner_profile.json (runnable: collection, retrieval_mode, top_k, rerank, rerank_candidates, reranker, context_window, use_graph, template id/version/hash, query_rewrite, llm, structure, confirming model; 'valid for cheap model only' if unconfirmed); findings note (axes beyond noise, within-noise, not-tested and why, low-power label, bound and phase if bound_hit, ordering hints); coverage record derived from the leaderboard, outcome rows, noise floor and strike evidence (each axis and structure: in denominator, covering trial id, exclusion reason; A, B, struck counts, c); budget record per pool vs 1500; final closure_manifest.json with status, reason, and path plus SHA-256 of benchmark, split, noise floor, screening table, outcome rows, leaderboard, structure comparison, feasibility record, confirmation, holdout record, profile, findings, coverage and budget records. converged only if phase A stopped on target or stagnation with full coverage, phase B completed, and holdout #1 and #2 were scored; else bound_hit naming bound and phase, or the blocked or not_tested status already recorded.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Completed close-out stages: provisional manifest, confirmation, holdout #1/#2, holdout #3 or not-needed, final records and manifest.",
+            "direction": "increase",
+            "metric_id": "metric_e0e4b7cb4730e7b99027c91d4c667f4aacf68bccc92ee4d0c135b75d2c3f7198",
+            "unit": "closeout_stages"
+          },
+          "result": "RUN/r1: model confirmation, holdout record with effects and overfitting estimate, winner_profile.json, findings note, coverage record, budget record, final closure_manifest.json.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 1700.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 5.0
+          },
+          "unit": "One close-out stage, written and hashed; failed stages are retried within the cap."
+        },
+        "local_id": "closeout_r1",
+        "workflow_parent_local_id": "study_r1"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "RUN/r2 study records and closure manifest.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file",
+            "todo_list"
+          ],
+          "goal": "Carry the rank-2 readable ASM collection (RUN/recon/ranking.json) to exactly one verified closure via setup_r2, phase_a_r2, phase_b_r2, closeout_r2 in order, gated on RUN/r2/state.json. Start only if RUN/serial_gate.json holds a final disposition for rank 1, the gate hashes match ragclient.py and score.py, RUN_STOP is unset and no RUN/recon/escalation.json exists. Ranking missing => return 'reconnaissance_failed' with no tenant calls; ranking valid but no rank-2 collection => write a no-collection record, flag the count mismatch, return. state.json separates phase bounds (the next phase proceeds on the current best with its own budget) from collection-terminal statuses (blocked, not_tested, benchmark_shortfall, RUN_STOP, 1500 ceiling, harness_integrity), which alone suppress tenant calls; on a collection-terminal status skip directly to closeout_r2. Status: not_tested only if unreadable, zero documents, or cut by the recorded allocation before setup; blocked only with a safety_policy human_escalation item verbatim, no_independent_sweep_model, credential_leak_detected or benchmark_not_freezable, then no tenant calls; bound_hit for every bound (benchmark_shortfall, call ceiling or pool, phase caps, host iteration/time/stagnation stops, judging allocation, tenant_budget_exhausted_until_monday, error_rate_abort, harness_integrity), naming bound and phase; converged only if phase A stopped on target or stagnation with full coverage, phase B completed, and holdout #1 and #2 were scored. On RUN_STOP stop tenant work and ensure write_checkpoint() ran. If closeout_r2 ends without a final RUN/r2/closure_manifest.json, write it yourself from existing records as bound_hit with no tenant calls, using the reserved study slack. Re-hash every manifest artifact; return status, reason, c, A, B, struck counts, and manifest path and SHA-256. Max 1500 tenant billable calls; one collection per request; use_graph explicit; write_file only in RUN; never touch the token.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Completed phase hand-offs for rank 2 (setup, phase A, phase B, close-out) plus the hash-verified closure.",
+            "direction": "increase",
+            "metric_id": "metric_98bbb409df7ea03d62057ec293997c0b38b5ef204cfedf71b562c040404b55b0",
+            "unit": "completed_study_phases"
+          },
+          "result": "One verified typed closure for the rank-2 collection: status, reason, c, A, B, struck counts, and closure manifest path and SHA-256.",
+          "safety_bounds": {
+            "max_child_episodes": 4,
+            "max_depth": 2,
+            "max_elapsed_seconds": 11400.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 5.0
+          },
+          "unit": "One phase hand-off: release the next phase child, check its records and the state file, decide continue, skip to close-out, or close."
+        },
+        "local_id": "study_r2",
+        "workflow_parent_local_id": "root"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Frozen benchmark, noise floor and setup records in RUN/r2.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Setup for the rank-2 readable ASM collection (RUN/recon/ranking.json). Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP => no tenant call, record, return. Each request: pool=setup, this one collection, use_graph explicit. S1 recon: use cached recon records (no second stats counts=true); retrieval-derived doc inventory from >=20 diverse separate bm25 and vector /v1/retrieve probes at top_k 50 (labelled possibly incomplete, size recorded); unreadable or zero documents => not_tested reason record. Graph: if graph stats show it unavailable or empty, or fewer than 50 top triples exist, strike use_graph (not-tested (graph not attributable)) and graph_seeded with evidence; else resolve >=50 top triples' chunk_ids via GET /v1/chunks naming the collection, doc_id in the inventory; <50% => same strike; record rate and inventory size. Strike template if only one exists and query_rewrite if QueryRequest has no rewrite field, with evidence. Feasibility: 3-question smoke of retrieve_assess_followup, decompose_synthesize and (if attributable) graph_seeded orchestration via tenant /v1/query on the cheap sweep model; strike with evidence if not deterministically parseable or needing an LLM step outside tenant /v1/query; record billable calls and wall time per question. S2 pivots: attributable graph triples spanning >=2 doc_ids, else the union of separate bm25 and vector probes at top_k 50 (outside the trial grid) grouped by doc_id; never hybrid, rerank or a trial config; use_graph=false. S3 generation: the Episode's own model, frozen generation prompt, only needed chunks: <=40 questions (<=32 synthesis, 5-8 control); synthesis gold = >=2 chunk_ids from >=2 distinct doc_ids of this collection resolved via /v1/chunks plus one required item per contributing doc; pivot provenance per question. S4 validation under the frozen prompt: any question one doc answers becomes control. S5 freeze: >=20 synthesis full power; 10-19 low-power once the setup pool is spent or pivots exhausted; <10 => collection-terminal bound_hit benchmark_shortfall with the count; gold unvalidatable => blocked benchmark_not_freezable; never keyless self-assessment. Seeded stratified ~25% holdout; SHA-256 freeze questions, classes, gold sets, items, provenance, split, seed, power label, judge-prompt and attribution-rule hashes before any scored trial; never edit. S6 noise floor: baseline_v0 (tenant defaults, hybrid, use_graph=false, cheap model, default template, no rewrite) 3 times (min 2) on tuning via /v1/query; score with score.py and the frozen blinded judge; independently re-judge one repeat; record repeat spreads (synthesis_completeness, document coverage), judge spread, byte-identical flags; effective floor = max(repeat spread, judge spread, 1/number of tuning synthesis questions), raw values kept. Setup beyond 300 calls is charged to search, recorded. Write stage records and RUN/r2/state.json.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Hashed setup stage records: S1 recon/graph/feasibility, S2 pivots, S3 generation, S4 validation, S5 freeze, S6 noise floor.",
+            "direction": "increase",
+            "metric_id": "metric_731c6d4d7e08b2c5901ad2a787cef26babdc7f44ea94ec17b300551f52625717",
+            "unit": "setup_stage_records"
+          },
+          "result": "RUN/r2: collection recon, graph-attributability and structure feasibility records, pivot record, frozen hashed benchmark with gold sets, split, seed and power label, noise-floor record with outcome rows, setup budget record, state file.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 2300.0,
+            "max_iterations": 9
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 6.0
+          },
+          "unit": "One setup stage (S1-S6), written and hashed; failed stages are retried within the cap."
+        },
+        "local_id": "setup_r2",
+        "workflow_parent_local_id": "study_r2"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Phase-A screening table, leaderboard and outcome rows in RUN/r2.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file",
+            "todo_list"
+          ],
+          "goal": "Phase A for the rank-2 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP or a collection-terminal status in RUN/r2/state.json => no tenant call, record, return. Needs a frozen benchmark and noise floor. Tuning set only, cheap sweep model, pool=search, one collection, use_graph explicit. First record the phase-A call cap = 1200 - setup used - phase-B reservation (non-struck multi-call structures x tuning n x smoke billable per question, plus one single_shot rerun, at most half the remaining search budget). Prior = baseline_v0; the current best moves only on an effect-sized gain. Screening via POST /v1/retrieve on mean document_coverage_at_k (independent axes may share an iteration): retrieval_mode hybrid/vector/bm25; top_k 5/10/20/30; rerank false/true; rerank_candidates 20/50/100 and reranker models only if rerank is kept. Pass = coverage >= current best minus the doc-coverage floor (0.05 if unset); others screened-out with coverage. Screening is never coverage. Generation trial = full tuning run via /v1/query changing exactly one axis from a named prior (multi-axis = exploratory). Every applicable axis needs >=1 scored trial: retrieval_mode, top_k, rerank, context_window (1-3 vs 0), use_graph (true only in its own trial on attributable collections; kept only if it beat the floor), template (id, version, hash), query_rewrite (HyDE, multi-query; record rewritten_queries), plus rerank_candidates and reranker only if rerank kept. Retrieval-axis trial value: the best passing non-prior value; for top_k the smallest passing value within the doc-coverage floor of the maximum (a second top_k value may follow after coverage). If no non-prior value passes, the axis is covered by the prior's existing trial id, recorded as 'alternatives screened-out', with no paid trial. Earlier-rank findings may reorder axes or pick first values, never skip. Verdict: |delta| > effective floor (2x if low-power) = effect, else within-noise. Normal stop: coverage complete AND (tuning synthesis_completeness >= 0.9 OR 3 consecutive distinct-axis trials each gaining < max(0.05, floor)). Any other end (call cap, time, iteration, judging cap, host target or stagnation) is a phase bound: record it, mark unscored axes not-tested, hand the current best to phase B. Score with score.py's frozen aggregation and attribution rules and /v1/chunks resolution; the Episode's own model judges only under the frozen blinded judging prompt. Classes: correct_grounded, incomplete_synthesis (never correct), retrieval_coverage_miss, unsupported_citation, wrong, truncated (separate), retrieval_only_placeholder and transient_error (excluded, counted). Never touch the holdout. Write outcome rows (answer, cited doc_ids and chunk_ids, distinct-doc count, verdict, failure class, truncated flag), the screening table, and leaderboard rows (phase, axis, prior id, full parameter vector, tuning completeness, doc coverage, citation support, verdict, excluded count, cost vector); record Wa, stop reason and per-axis coverage in state.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Scored generation trials with non-empty outcome rows plus completed retrieval-screening tables.",
+            "direction": "increase",
+            "metric_id": "metric_46f5d3a5ba10957b12688de3e043a36cff4ada1dc2b2c8d360a1e1a3a86b7291",
+            "unit": "scored_trials_or_screen_tables"
+          },
+          "result": "RUN/r2: retrieval screening table, leaderboard rows, outcome rows per trial, phase-A winner Wa, stop reason and per-axis coverage status.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 4700.0,
+            "max_iterations": 16
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 20.0
+          },
+          "unit": "One search cycle: a retrieval-screening batch or one one-axis generation trial on the tuning set, scored, judged, verdicted against the noise floor and written to the leaderboard."
+        },
+        "local_id": "phase_a_r2",
+        "workflow_parent_local_id": "study_r2"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Structure comparison and winner W in RUN/r2.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Phase B structure trials for the rank-2 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP or a collection-terminal status in RUN/r2/state.json => no tenant call, record, return. Runs after phase A ended (normally or on a phase bound) on its current best Wa, tuning set only, cheap sweep model, pool=search, from the phase-B reservation plus unspent phase-A budget (setup+search <= 1200). Structures: single_shot (one fresh rerun on Wa as the contemporaneous comparator), retrieve_assess_followup, decompose_synthesize, graph_seeded; skip only setup strikes with evidence. Every LLM orchestration step (whole-answer sufficiency assessment returning strict {sufficient, confidence, gaps[], rationale}, gap follow-up queries, decomposition, sub-answer synthesis) is a tenant POST /v1/query on the cheap sweep model with the collection, use_graph and all Wa parameters explicit; glue is deterministic harness code carrying chunk_ids per the attribution rule; the Episode's own model never produces any part of a scored answer. graph_seeded: /v1/graph/entities and /v1/graph/neighbors/{entity} at depth 1-2, only triples resolving to this collection, vocabulary as query expansion. Per structure: outcome rows with phase-A fields and failure classes, /v1/chunks resolution, blinded frozen-prompt judging, cost vector, call multiple vs single_shot, quality per billable call, and a noise verdict vs the fresh single_shot (margin under 2x the floor = provisional). W = single_shot unless a structure beats it by more than the effective floor (2x if low-power); among such, the best. Before fixing W, project close-out calls and wall time = (tuning n + 3 x holdout n) x W's measured billable calls and seconds per question; if over the 300-call reserve or close-out time, take the best structure that fits (recorded) or make a recorded transfer of unspent search budget. Unscored structures = not-tested with reason; an early end is a phase-B bound, recorded. Optional, outside B and the main ranking, only if budget remains: chunk_neighbourhood_expansion once on W; table_fill only on the enumerative subset if it has >=5 questions, reported with subset size. Never touch the holdout. Write RUN/r2/structure_comparison.json, leaderboard rows, hashed W, projection and phase-B status in state.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Standalone structures scored (single_shot rerun included) with outcome rows.",
+            "direction": "increase",
+            "metric_id": "metric_df3dac61a9ec3d2385815220c89c4338b87ba476eb6b1b8580fadb1a23d1d180",
+            "unit": "structures_scored"
+          },
+          "result": "RUN/r2: structure comparison with call multiples, noise verdicts and quality per billable call, outcome rows, close-out projection, winner W, phase-B status.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 2100.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 4.0
+          },
+          "unit": "One structure trial: run one standalone structure on the tuning set with tenant orchestration, then score, judge and record it with its call multiple."
+        },
+        "local_id": "phase_b_r2",
+        "workflow_parent_local_id": "study_r2"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Close-out records and closure manifest in RUN/r2.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Close-out for the rank-2 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN. Stage 1 first: write a provisional RUN/r2/closure_manifest.json (status bound_hit, reason, and path plus SHA-256 of every existing record) so a closure exists even if later stages fail. A collection-terminal status or RUN_STOP => no tenant call; go to stage 5. Pool: 300 close-out calls plus recorded transfers, never beyond 1500. W from state, hashed before any holdout call; the holdout never informs any choice. Order when both call and wall-time projections fit: stage 2 tuning-set model confirmation (W with every tenant LLM step, generation and orchestration, on the strongest model vs W's cheap-model tuning record, a selected score whose upward bias is noted; select strongest only if its gain exceeds the effective floor, 2x if low-power); stage 3 holdout #1 baseline_v0 on cheap and #2 W on cheap; stage 4 holdout #3 W on strongest only if confirmation selected it, else not-needed. If either projection does not fit: #1, #2, confirmation, #3; unaffordable steps not-scored with reason, status bound_hit. Configuration effect = #2-#1; model effect = #3-#2; never attribute #3-#1 to configuration; overfitting estimate = W tuning minus W holdout. Scoring by score.py and the frozen blinded judge. Stage 5 write: confirmation record; holdout record; RUN/r2/winner_profile.json (runnable: collection, retrieval_mode, top_k, rerank, rerank_candidates, reranker, context_window, use_graph, template id/version/hash, query_rewrite, llm, structure, confirming model; 'valid for cheap model only' if unconfirmed); findings note (axes beyond noise, within-noise, not-tested and why, low-power label, bound and phase if bound_hit, ordering hints); coverage record derived from the leaderboard, outcome rows, noise floor and strike evidence (each axis and structure: in denominator, covering trial id, exclusion reason; A, B, struck counts, c); budget record per pool vs 1500; final closure_manifest.json with status, reason, and path plus SHA-256 of benchmark, split, noise floor, screening table, outcome rows, leaderboard, structure comparison, feasibility record, confirmation, holdout record, profile, findings, coverage and budget records. converged only if phase A stopped on target or stagnation with full coverage, phase B completed, and holdout #1 and #2 were scored; else bound_hit naming bound and phase, or the blocked or not_tested status already recorded.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Completed close-out stages: provisional manifest, confirmation, holdout #1/#2, holdout #3 or not-needed, final records and manifest.",
+            "direction": "increase",
+            "metric_id": "metric_fa1818355fb8eee0af7626c0a476d4a7a4c3d827b413744ed2f105db30a22e11",
+            "unit": "closeout_stages"
+          },
+          "result": "RUN/r2: model confirmation, holdout record with effects and overfitting estimate, winner_profile.json, findings note, coverage record, budget record, final closure_manifest.json.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 1700.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 5.0
+          },
+          "unit": "One close-out stage, written and hashed; failed stages are retried within the cap."
+        },
+        "local_id": "closeout_r2",
+        "workflow_parent_local_id": "study_r2"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "RUN/r3 study records and closure manifest.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file",
+            "todo_list"
+          ],
+          "goal": "Carry the rank-3 readable ASM collection (RUN/recon/ranking.json) to exactly one verified closure via setup_r3, phase_a_r3, phase_b_r3, closeout_r3 in order, gated on RUN/r3/state.json. Start only if RUN/serial_gate.json holds a final disposition for rank 2, the gate hashes match ragclient.py and score.py, RUN_STOP is unset and no RUN/recon/escalation.json exists. Ranking missing => return 'reconnaissance_failed' with no tenant calls; ranking valid but no rank-3 collection => write a no-collection record, flag the count mismatch, return. state.json separates phase bounds (the next phase proceeds on the current best with its own budget) from collection-terminal statuses (blocked, not_tested, benchmark_shortfall, RUN_STOP, 1500 ceiling, harness_integrity), which alone suppress tenant calls; on a collection-terminal status skip directly to closeout_r3. Status: not_tested only if unreadable, zero documents, or cut by the recorded allocation before setup; blocked only with a safety_policy human_escalation item verbatim, no_independent_sweep_model, credential_leak_detected or benchmark_not_freezable, then no tenant calls; bound_hit for every bound (benchmark_shortfall, call ceiling or pool, phase caps, host iteration/time/stagnation stops, judging allocation, tenant_budget_exhausted_until_monday, error_rate_abort, harness_integrity), naming bound and phase; converged only if phase A stopped on target or stagnation with full coverage, phase B completed, and holdout #1 and #2 were scored. On RUN_STOP stop tenant work and ensure write_checkpoint() ran. If closeout_r3 ends without a final RUN/r3/closure_manifest.json, write it yourself from existing records as bound_hit with no tenant calls, using the reserved study slack. Re-hash every manifest artifact; return status, reason, c, A, B, struck counts, and manifest path and SHA-256. Max 1500 tenant billable calls; one collection per request; use_graph explicit; write_file only in RUN; never touch the token.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Completed phase hand-offs for rank 3 (setup, phase A, phase B, close-out) plus the hash-verified closure.",
+            "direction": "increase",
+            "metric_id": "metric_d9652fd4e44f62de1e9e68f7cc3f4e35be17e313253effa58fe03b2646661d92",
+            "unit": "completed_study_phases"
+          },
+          "result": "One verified typed closure for the rank-3 collection: status, reason, c, A, B, struck counts, and closure manifest path and SHA-256.",
+          "safety_bounds": {
+            "max_child_episodes": 4,
+            "max_depth": 2,
+            "max_elapsed_seconds": 11400.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 5.0
+          },
+          "unit": "One phase hand-off: release the next phase child, check its records and the state file, decide continue, skip to close-out, or close."
+        },
+        "local_id": "study_r3",
+        "workflow_parent_local_id": "root"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Frozen benchmark, noise floor and setup records in RUN/r3.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Setup for the rank-3 readable ASM collection (RUN/recon/ranking.json). Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP => no tenant call, record, return. Each request: pool=setup, this one collection, use_graph explicit. S1 recon: use cached recon records (no second stats counts=true); retrieval-derived doc inventory from >=20 diverse separate bm25 and vector /v1/retrieve probes at top_k 50 (labelled possibly incomplete, size recorded); unreadable or zero documents => not_tested reason record. Graph: if graph stats show it unavailable or empty, or fewer than 50 top triples exist, strike use_graph (not-tested (graph not attributable)) and graph_seeded with evidence; else resolve >=50 top triples' chunk_ids via GET /v1/chunks naming the collection, doc_id in the inventory; <50% => same strike; record rate and inventory size. Strike template if only one exists and query_rewrite if QueryRequest has no rewrite field, with evidence. Feasibility: 3-question smoke of retrieve_assess_followup, decompose_synthesize and (if attributable) graph_seeded orchestration via tenant /v1/query on the cheap sweep model; strike with evidence if not deterministically parseable or needing an LLM step outside tenant /v1/query; record billable calls and wall time per question. S2 pivots: attributable graph triples spanning >=2 doc_ids, else the union of separate bm25 and vector probes at top_k 50 (outside the trial grid) grouped by doc_id; never hybrid, rerank or a trial config; use_graph=false. S3 generation: the Episode's own model, frozen generation prompt, only needed chunks: <=40 questions (<=32 synthesis, 5-8 control); synthesis gold = >=2 chunk_ids from >=2 distinct doc_ids of this collection resolved via /v1/chunks plus one required item per contributing doc; pivot provenance per question. S4 validation under the frozen prompt: any question one doc answers becomes control. S5 freeze: >=20 synthesis full power; 10-19 low-power once the setup pool is spent or pivots exhausted; <10 => collection-terminal bound_hit benchmark_shortfall with the count; gold unvalidatable => blocked benchmark_not_freezable; never keyless self-assessment. Seeded stratified ~25% holdout; SHA-256 freeze questions, classes, gold sets, items, provenance, split, seed, power label, judge-prompt and attribution-rule hashes before any scored trial; never edit. S6 noise floor: baseline_v0 (tenant defaults, hybrid, use_graph=false, cheap model, default template, no rewrite) 3 times (min 2) on tuning via /v1/query; score with score.py and the frozen blinded judge; independently re-judge one repeat; record repeat spreads (synthesis_completeness, document coverage), judge spread, byte-identical flags; effective floor = max(repeat spread, judge spread, 1/number of tuning synthesis questions), raw values kept. Setup beyond 300 calls is charged to search, recorded. Write stage records and RUN/r3/state.json.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Hashed setup stage records: S1 recon/graph/feasibility, S2 pivots, S3 generation, S4 validation, S5 freeze, S6 noise floor.",
+            "direction": "increase",
+            "metric_id": "metric_6835bb6eb6fc872d4b7787768eae76d8369c730bc7fc4064932710c810f5e931",
+            "unit": "setup_stage_records"
+          },
+          "result": "RUN/r3: collection recon, graph-attributability and structure feasibility records, pivot record, frozen hashed benchmark with gold sets, split, seed and power label, noise-floor record with outcome rows, setup budget record, state file.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 2300.0,
+            "max_iterations": 9
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 6.0
+          },
+          "unit": "One setup stage (S1-S6), written and hashed; failed stages are retried within the cap."
+        },
+        "local_id": "setup_r3",
+        "workflow_parent_local_id": "study_r3"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Phase-A screening table, leaderboard and outcome rows in RUN/r3.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file",
+            "todo_list"
+          ],
+          "goal": "Phase A for the rank-3 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP or a collection-terminal status in RUN/r3/state.json => no tenant call, record, return. Needs a frozen benchmark and noise floor. Tuning set only, cheap sweep model, pool=search, one collection, use_graph explicit. First record the phase-A call cap = 1200 - setup used - phase-B reservation (non-struck multi-call structures x tuning n x smoke billable per question, plus one single_shot rerun, at most half the remaining search budget). Prior = baseline_v0; the current best moves only on an effect-sized gain. Screening via POST /v1/retrieve on mean document_coverage_at_k (independent axes may share an iteration): retrieval_mode hybrid/vector/bm25; top_k 5/10/20/30; rerank false/true; rerank_candidates 20/50/100 and reranker models only if rerank is kept. Pass = coverage >= current best minus the doc-coverage floor (0.05 if unset); others screened-out with coverage. Screening is never coverage. Generation trial = full tuning run via /v1/query changing exactly one axis from a named prior (multi-axis = exploratory). Every applicable axis needs >=1 scored trial: retrieval_mode, top_k, rerank, context_window (1-3 vs 0), use_graph (true only in its own trial on attributable collections; kept only if it beat the floor), template (id, version, hash), query_rewrite (HyDE, multi-query; record rewritten_queries), plus rerank_candidates and reranker only if rerank kept. Retrieval-axis trial value: the best passing non-prior value; for top_k the smallest passing value within the doc-coverage floor of the maximum (a second top_k value may follow after coverage). If no non-prior value passes, the axis is covered by the prior's existing trial id, recorded as 'alternatives screened-out', with no paid trial. Earlier-rank findings may reorder axes or pick first values, never skip. Verdict: |delta| > effective floor (2x if low-power) = effect, else within-noise. Normal stop: coverage complete AND (tuning synthesis_completeness >= 0.9 OR 3 consecutive distinct-axis trials each gaining < max(0.05, floor)). Any other end (call cap, time, iteration, judging cap, host target or stagnation) is a phase bound: record it, mark unscored axes not-tested, hand the current best to phase B. Score with score.py's frozen aggregation and attribution rules and /v1/chunks resolution; the Episode's own model judges only under the frozen blinded judging prompt. Classes: correct_grounded, incomplete_synthesis (never correct), retrieval_coverage_miss, unsupported_citation, wrong, truncated (separate), retrieval_only_placeholder and transient_error (excluded, counted). Never touch the holdout. Write outcome rows (answer, cited doc_ids and chunk_ids, distinct-doc count, verdict, failure class, truncated flag), the screening table, and leaderboard rows (phase, axis, prior id, full parameter vector, tuning completeness, doc coverage, citation support, verdict, excluded count, cost vector); record Wa, stop reason and per-axis coverage in state.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Scored generation trials with non-empty outcome rows plus completed retrieval-screening tables.",
+            "direction": "increase",
+            "metric_id": "metric_b3ec1ee74afef8b4f937f746b251a7a23e4ebafcc0dcecf3b068076858b8e5d7",
+            "unit": "scored_trials_or_screen_tables"
+          },
+          "result": "RUN/r3: retrieval screening table, leaderboard rows, outcome rows per trial, phase-A winner Wa, stop reason and per-axis coverage status.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 4700.0,
+            "max_iterations": 16
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 20.0
+          },
+          "unit": "One search cycle: a retrieval-screening batch or one one-axis generation trial on the tuning set, scored, judged, verdicted against the noise floor and written to the leaderboard."
+        },
+        "local_id": "phase_a_r3",
+        "workflow_parent_local_id": "study_r3"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Structure comparison and winner W in RUN/r3.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Phase B structure trials for the rank-3 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, collection-terminal bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN; RUN_STOP or a collection-terminal status in RUN/r3/state.json => no tenant call, record, return. Runs after phase A ended (normally or on a phase bound) on its current best Wa, tuning set only, cheap sweep model, pool=search, from the phase-B reservation plus unspent phase-A budget (setup+search <= 1200). Structures: single_shot (one fresh rerun on Wa as the contemporaneous comparator), retrieve_assess_followup, decompose_synthesize, graph_seeded; skip only setup strikes with evidence. Every LLM orchestration step (whole-answer sufficiency assessment returning strict {sufficient, confidence, gaps[], rationale}, gap follow-up queries, decomposition, sub-answer synthesis) is a tenant POST /v1/query on the cheap sweep model with the collection, use_graph and all Wa parameters explicit; glue is deterministic harness code carrying chunk_ids per the attribution rule; the Episode's own model never produces any part of a scored answer. graph_seeded: /v1/graph/entities and /v1/graph/neighbors/{entity} at depth 1-2, only triples resolving to this collection, vocabulary as query expansion. Per structure: outcome rows with phase-A fields and failure classes, /v1/chunks resolution, blinded frozen-prompt judging, cost vector, call multiple vs single_shot, quality per billable call, and a noise verdict vs the fresh single_shot (margin under 2x the floor = provisional). W = single_shot unless a structure beats it by more than the effective floor (2x if low-power); among such, the best. Before fixing W, project close-out calls and wall time = (tuning n + 3 x holdout n) x W's measured billable calls and seconds per question; if over the 300-call reserve or close-out time, take the best structure that fits (recorded) or make a recorded transfer of unspent search budget. Unscored structures = not-tested with reason; an early end is a phase-B bound, recorded. Optional, outside B and the main ranking, only if budget remains: chunk_neighbourhood_expansion once on W; table_fill only on the enumerative subset if it has >=5 questions, reported with subset size. Never touch the holdout. Write RUN/r3/structure_comparison.json, leaderboard rows, hashed W, projection and phase-B status in state.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Standalone structures scored (single_shot rerun included) with outcome rows.",
+            "direction": "increase",
+            "metric_id": "metric_eb460063548cd116f2e80050faf3c1039aa0333043a566ae19571d0ca79f9fa6",
+            "unit": "structures_scored"
+          },
+          "result": "RUN/r3: structure comparison with call multiples, noise verdicts and quality per billable call, outcome rows, close-out projection, winner W, phase-B status.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 2100.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 4.0
+          },
+          "unit": "One structure trial: run one standalone structure on the tuning set with tenant orchestration, then score, judge and record it with its call multiple."
+        },
+        "local_id": "phase_b_r3",
+        "workflow_parent_local_id": "study_r3"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Close-out records and closure manifest in RUN/r3.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Close-out for the rank-3 collection. Guard: ragclient.py and score.py must match RUN/serial_gate.json (mismatch => no tenant calls, bound_hit 'harness_integrity', never re-pin); never touch the token; write_file only in RUN. Stage 1 first: write a provisional RUN/r3/closure_manifest.json (status bound_hit, reason, and path plus SHA-256 of every existing record) so a closure exists even if later stages fail. A collection-terminal status or RUN_STOP => no tenant call; go to stage 5. Pool: 300 close-out calls plus recorded transfers, never beyond 1500. W from state, hashed before any holdout call; the holdout never informs any choice. Order when both call and wall-time projections fit: stage 2 tuning-set model confirmation (W with every tenant LLM step, generation and orchestration, on the strongest model vs W's cheap-model tuning record, a selected score whose upward bias is noted; select strongest only if its gain exceeds the effective floor, 2x if low-power); stage 3 holdout #1 baseline_v0 on cheap and #2 W on cheap; stage 4 holdout #3 W on strongest only if confirmation selected it, else not-needed. If either projection does not fit: #1, #2, confirmation, #3; unaffordable steps not-scored with reason, status bound_hit. Configuration effect = #2-#1; model effect = #3-#2; never attribute #3-#1 to configuration; overfitting estimate = W tuning minus W holdout. Scoring by score.py and the frozen blinded judge. Stage 5 write: confirmation record; holdout record; RUN/r3/winner_profile.json (runnable: collection, retrieval_mode, top_k, rerank, rerank_candidates, reranker, context_window, use_graph, template id/version/hash, query_rewrite, llm, structure, confirming model; 'valid for cheap model only' if unconfirmed); findings note (axes beyond noise, within-noise, not-tested and why, low-power label, bound and phase if bound_hit, ordering hints); coverage record derived from the leaderboard, outcome rows, noise floor and strike evidence (each axis and structure: in denominator, covering trial id, exclusion reason; A, B, struck counts, c); budget record per pool vs 1500; final closure_manifest.json with status, reason, and path plus SHA-256 of benchmark, split, noise floor, screening table, outcome rows, leaderboard, structure comparison, feasibility record, confirmation, holdout record, profile, findings, coverage and budget records. converged only if phase A stopped on target or stagnation with full coverage, phase B completed, and holdout #1 and #2 were scored; else bound_hit naming bound and phase, or the blocked or not_tested status already recorded.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Completed close-out stages: provisional manifest, confirmation, holdout #1/#2, holdout #3 or not-needed, final records and manifest.",
+            "direction": "increase",
+            "metric_id": "metric_fdb1ae59ecef7b3674bae5466a8c9aca140bec76aa0f54dccbd0be0e9474dcc9",
+            "unit": "closeout_stages"
+          },
+          "result": "RUN/r3: model confirmation, holdout record with effects and overfitting estimate, winner_profile.json, findings note, coverage record, budget record, final closure_manifest.json.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 1700.0,
+            "max_iterations": 7
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 5.0
+          },
+          "unit": "One close-out stage, written and hashed; failed stages are retried within the cap."
+        },
+        "local_id": "closeout_r3",
+        "workflow_parent_local_id": "study_r3"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Run-level consolidation records in RUN.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Root close-out part 1; no tenant calls; never touch the token; write_file only in RUN. Read RUN/serial_gate.json, any RUN/recon/escalation.json, and every RUN/r*/closure_manifest.json. For each readable ASM collection without a final disposition, write an orphan closure with a reason record: blocked with the verbatim item if a run-level escalation was recorded; bound_hit naming the bound (or 'global allocation'); or not_tested 'cut by the recorded global allocation before its setup phase began' if setup never began (this covers ranks >=4). Under a run-wide stop every unclosed collection is bound_hit naming tenant_budget_exhausted_until_monday or error_rate_abort, and the checkpoint must exist (else write it via CLIENT write_checkpoint(), no tenant call). If recon failed, record 'reconnaissance_failed' with N unknown. Write: cost totals (tenant billable calls per collection and pool, measured from CLIENT state; Episode-side generation and judging cost estimated from judgement counts and characters at a stated chars-per-token ratio, labelled estimated with its method); final per-collection size and graph-attributability table; expected-vs-found collection-count record; cross-collection note reporting per-axis direction and structure-ranking agreement or disagreement between strata with low-power labels, never averaging; draft root closure summary listing every readable ASM collection with status, reason, c, A, B and struck counts (root_verify finalizes it).",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Hashed consolidation records: orphan reconciliation, cost totals, size/graph table, expected-vs-found, cross-collection note, draft closure summary.",
+            "direction": "increase",
+            "metric_id": "metric_d39a4609cc827055653710ec594f7744f0543bac6b53ae3360c4ca0849ad15f9",
+            "unit": "consolidation_records"
+          },
+          "result": "RUN: orphan closure records, cost totals, size/graph table, expected-vs-found record, cross-collection note, draft root closure summary.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 1900.0,
+            "max_iterations": 4
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 6.0
+          },
+          "unit": "One consolidation step: write and hash one or more run-level close-out records."
+        },
+        "local_id": "root_consolidate",
+        "workflow_parent_local_id": "root"
+      },
+      {
+        "contract": {
+          "can_create_episodes": false,
+          "capability_inheritance": "inherit_parent",
+          "creator_contract": null,
+          "deliverable": {
+            "description": "Verification records, final closure summary, root manifest and token-leak scan records in RUN.",
+            "kind": "shared_state",
+            "tool_names": [
+              "write_file"
+            ]
+          },
+          "execution_capability_names": [
+            "execute_code",
+            "write_file"
+          ],
+          "goal": "Root close-out part 2; no tenant calls; never touch the token except through CLIENT token_leak_scan(); write_file only in RUN. Confirm ragclient.py and score.py match the hashes in RUN/serial_gate.json before using them; on mismatch record it and do not trust the scan. (1) Re-hash every artifact in each collection closure manifest; record accepted or rejected (rejected => bound_hit, credited only if the result-bearing minimum verifies). (2) Independently derive each collection's result-bearing minimum, A and B from the hashed leaderboard, outcome rows, noise-floor record and strike evidence per addendum d_coverage_denominators; flag any disagreement with the child coverage record and use the derived values; compute c and root_episode_progress = sum(c)/N. (3) Finalize the root closure summary and correct the cross-collection note's status lines to match. (4) Check every d_deliverable_manifest item (per collection and run level) as extended by d_manifest_extension, including the checkpoint after a run-wide stop, the self-test record and the refusal log; write a verification record listing any missing item. (5) Run token_leak_scan() over RUN and /Users/me/.hermes/cache/scratch and write the hashed scan record. (6) Write RUN/ROOT_MANIFEST.json listing every RUN file (including the scan record) with SHA-256, and its SHA-256 in RUN/ROOT_MANIFEST.sha256. (7) Last, run token_leak_scan() on the two manifest files and write RUN/ROOT_MANIFEST.scan.json (hash reported separately). On any match, record the root as blocked with credential_leak_detected, delete nothing, and surface only the matching paths. Return the manifest path and hash, both scan record paths and hashes, and per-collection status, reason, c, A, B and struck counts for the root terminal update.",
+          "progress": {
+            "adapter_id": "durable_evidence_count_v1",
+            "baseline": 0.0,
+            "description": "Hashed verification records: closure verification, derived coverage, final summary, manifest verification, token-leak scan, root manifest, manifest scan.",
+            "direction": "increase",
+            "metric_id": "metric_322a6a074c7629bb726f2602d2dcc0e8be01130b5cef45e79745194c2018f3fd",
+            "unit": "verification_records"
+          },
+          "result": "RUN: closure verification record, derived coverage record, final root closure summary, deliverable-manifest verification record, token-leak scan record, ROOT_MANIFEST.json and its SHA-256, manifest scan record.",
+          "safety_bounds": {
+            "max_child_episodes": 1,
+            "max_depth": 1,
+            "max_elapsed_seconds": 2000.0,
+            "max_iterations": 5
+          },
+          "schema_version": 4,
+          "stopping": {
+            "minimum_delta": 1.0,
+            "stagnation_observations": 3,
+            "target": 7.0
+          },
+          "unit": "One verification step: a re-hash and derivation pass, a summary, manifest or verification write, or a leak scan."
+        },
+        "local_id": "root_verify",
+        "workflow_parent_local_id": "root"
+      }
+    ],
+    "schema_version": 1
+  },
+  "workflow_hash": "sha256:23077e75effdcf72d496ae116e734e009eab6cbe11272fbb0d264f2067980032"
+}

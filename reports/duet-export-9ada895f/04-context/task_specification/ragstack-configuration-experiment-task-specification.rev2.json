@@ -1,0 +1,176 @@
+{
+  "artifact_id": "context_d393ea885029b6da4556ca59c664b75a37df344d0a3090e13a887de2779d131b",
+  "artifact_kind": "task_specification",
+  "purpose": "ragstack_configuration_experiment_task_specification",
+  "schema_version": 2,
+  "required": true,
+  "content_hash": "sha256:c0bf1550c8b195333990cf7f7431963693d84d7b8cf8855e0aa617521fa76b88",
+  "created_at": "2026-09-30 14:55:07",
+  "content": {
+    "benchmark_requirement": {
+      "acceptable_forms_in_preference_order": [
+        {
+          "form": "operator_supplied_answer_key",
+          "note": "Strongest. A question set over the ASM collections with reference answers and, ideally, the doc_id or chunk_id values that jointly contain each answer. Verdicts become mechanical and the leaderboard is trustworthy. For synthesis questions the key must name the SET of required source documents, not a single one.",
+          "rank": 1,
+          "status": "unresolved -- see q_answer_key"
+        },
+        {
+          "form": "synthesis_anchored_generated_questions",
+          "gold_object": "For each question: a gold EVIDENCE SET -- two or more chunk_ids drawn from two or more DISTINCT doc_ids within one collection -- plus an enumerated list of the required evidence items the answer must contain, one per contributing document.",
+          "note": "The declared fallback and the expected path. Revised from the single-chunk form to match the operator's synthesis weighting. Instead of sampling one chunk and asking a question it answers, identify a pivot shared by several documents in a collection and generate a question that cannot be answered correctly from any one of them alone.",
+          "rank": 2,
+          "why_acceptable": "Grounded in the corpus rather than in a model's opinion, and it makes the two measures that matter mechanically computable: document coverage (how many of the required distinct documents were retrieved) and synthesis completeness (how many of the required evidence items the answer actually states)."
+        },
+        {
+          "form": "llm_judge_without_key",
+          "note": "Weakest and must be declared as such if used. A model judging its own pipeline's output measures self-consistency, not correctness, and a configuration that is confidently wrong scores well. Additionally unreliable for synthesis specifically: a fluent answer built from two of three required papers reads as complete to a judge that has not been told what the third paper contributes.",
+          "permitted_only_if": "the run declares itself a self-assessment study and never presents its output as a correctness ranking",
+          "rank": 3
+        }
+      ],
+      "construction_method_for_rank_2": {
+        "per_collection": "Constructed independently within each collection. A question must never require evidence from a document in a different collection, because no trial ever retrieves across collections.",
+        "pivot_discovery": [
+          "Preferred where the graph is available for the collection: GET /v1/graph/entities returns entities most-connected first; GET /v1/graph/neighbors/{entity} returns triples each carrying a chunk_id, so a pivot entity whose triples resolve to two or more distinct doc_ids is a ready-made cross-paper link.",
+          "Fallback where the graph is unavailable or empty for that collection: issue a broad POST /v1/retrieve at high top_k on a topical probe, group returned chunks by doc_id, and keep pivots whose top-scoring chunks span two or more documents."
+        ],
+        "validation": "Every generated question must be checked against its own gold evidence set before the set is frozen: the question must be unanswerable from any single contributing document alone. A question that one document answers on its own is a lookup question, not a synthesis question, and belongs in the control class."
+      },
+      "freeze_rule": "The question set, its gold evidence sets, and the required-evidence-item lists are frozen before the first scored trial and are not edited afterward. A benchmark edited mid-run invalidates every comparison made across the edit.",
+      "mix": {
+        "control_class_share": "minority",
+        "control_class_why": "Single-document lookup questions are retained as a control arm, not as the main event. They are what makes a claim about bm25 versus vector interpretable, and they are the reference against which the synthesis penalty of any configuration is measured.",
+        "primary_class": "multi_paper_synthesis",
+        "primary_class_share": "majority",
+        "ruling": "Operator directive: 'preferable multi-paper synthesis'. The benchmark is weighted toward questions that require integrating evidence from two or more distinct documents WITHIN one collection."
+      }
+    },
+    "collection_strata": {
+      "aggregation_across_collections": "Reporting only, never scoring. A cross-collection summary may note that an axis moved the same direction everywhere, or that it did not. It must never average scores across collections into a single headline number, because collections differ in size, chunk strategy and graph availability, and an average would hide exactly the variation this study exists to surface.",
+      "definition": "Each readable ASM collection enumerated by GET /v1/collections is an independent experimental stratum with its own benchmark question set, its own trial leaderboard, its own winning configuration profile, and its own findings.",
+      "no_union_arm": "The multi-collection union is explicitly OUT OF SCOPE. No trial may pass a `collections` array with more than one element. Every request names exactly one collection explicitly.",
+      "ruling": "Operator directive: collections are used and measured SEPARATELY, not merged.",
+      "why_it_matters": "A per-collection design costs more calls than a union design and buys the ability to say that an axis helped one collection and hurt another. A union design cannot say that, and the operator has ruled that distinction in."
+    },
+    "deliverable_shape": {
+      "per_collection_outputs": [
+        "winning configuration profile, as a runnable JSON object naming every parameter and the episode structure",
+        "trial leaderboard, one row per trial, carrying the full parameter vector, the score, the document-coverage measure, the synthesis-completeness measure, and the cost vector",
+        "per-question outcome rows for every trial: returned answer, cited doc_ids and chunk_ids, distinct-document count, verdict, failure class where wrong, truncated flag",
+        "the frozen benchmark question set with its gold evidence sets",
+        "findings note: which axes mattered in THIS collection, which did not, which could not be tested and why"
+      ],
+      "root_directory": "one run-scoped directory under /Users/me/Development/OpenChia",
+      "run_level_outputs": [
+        "the resolved QueryRequest schema as fetched, with fetch timestamp",
+        "the collection, prompt-template and model inventories as fetched",
+        "per-collection size and graph-availability table",
+        "a cross-collection comparison note that reports agreement and disagreement between strata without averaging them"
+      ]
+    },
+    "failure_taxonomy": {
+      "borrowed_from": "the deployment's own grading vocabulary, extended for synthesis",
+      "classes": [
+        {
+          "id": "correct_grounded",
+          "meaning": "All required evidence items present, all citations resolve and support."
+        },
+        {
+          "id": "incomplete_synthesis",
+          "meaning": "Answer is accurate as far as it goes but omits one or more required evidence items. THE CENTRAL FAILURE CLASS OF THIS STUDY. Must never be scored as correct."
+        },
+        {
+          "id": "retrieval_coverage_miss",
+          "meaning": "One or more required documents never appeared in the retrieved sources. Distinguishes a retrieval failure from a generation failure -- the answer could not have been complete."
+        },
+        {
+          "id": "unsupported_citation",
+          "meaning": "Answer content is correct but one or more cited chunk_ids do not support the claim on resolution. A distinct failure, never a pass."
+        },
+        {
+          "id": "wrong",
+          "meaning": "Answer contradicts the gold evidence."
+        },
+        {
+          "id": "truncated",
+          "meaning": "QueryResponse.truncated is set. Recorded separately; expected to rise with top_k and context_window."
+        },
+        {
+          "id": "retrieval_only_placeholder",
+          "meaning": "No LLM configured; the response is not an answer. Excluded from scoring, recorded as an infrastructure condition."
+        },
+        {
+          "id": "transient_error",
+          "meaning": "429 or 503. Retried with backoff, counted in the cost vector, never scored as an answer failure."
+        }
+      ]
+    },
+    "measures": {
+      "citation_support": "Fraction of cited chunk_ids that, on resolution through GET /v1/chunks, actually support the claim they are attached to.",
+      "document_coverage_at_k": "Of the distinct doc_ids in a question's gold evidence set, the fraction that appear in the retrieved sources at k. This replaces naive chunk recall as the primary retrieval measure, and is computable from POST /v1/retrieve alone at zero generation cost.",
+      "primary_score": "synthesis_completeness, reported per collection",
+      "synthesis_completeness": "Of the enumerated required evidence items for a question, the fraction the returned answer actually states, with each stated item's citation resolving to a supporting chunk in the correct source document.",
+      "yield": "credited datapoints per billable call, where billable_calls = provider_calls + llm_calls. Null when no cost record exists -- never the raw count."
+    },
+    "open_questions": [
+      {
+        "default_if_unanswered": "proceed with synthesis_anchored_generated_questions (rank 2)",
+        "id": "q_answer_key",
+        "impact": "Determines whether the leaderboard measures correctness or self-consistency.",
+        "question": "Is there an existing ASM question set with reference answers, or should the run generate a synthesis-anchored set from the corpus?",
+        "status": "unresolved"
+      },
+      {
+        "default_if_unanswered": "treat all readable ASM collections as equally important; if the call budget binds, order by descending document count",
+        "id": "q_collection_priority",
+        "impact": "Determines call-budget allocation across strata.",
+        "question": "Are all readable ASM collections equally important, or is one primary?",
+        "status": "unresolved"
+      },
+      {
+        "id": "q_question_mix",
+        "resolved_value": "Majority multi-paper synthesis within a single collection; minority single-document lookup retained as a control class.",
+        "status": "RESOLVED by operator directive 'preferable multi-paper synthesis'"
+      },
+      {
+        "default_if_unanswered": "the Creator declares an explicit per-collection billable-call ceiling in its workflow and reports bound_hit if reached",
+        "id": "q_cost_ceiling",
+        "impact": "A per-collection design multiplies call volume by the number of strata, and the synthesis-favouring structures are themselves multi-call. The two multiply.",
+        "question": "Is there a call or spend ceiling for this study?",
+        "status": "unresolved"
+      }
+    ],
+    "revision_note": "Revision 2. Supersedes context_e3d42147e03b0923f9a600d797f1045d5a2661ec8abd3043d585d46e9ef09696. Incorporates two operator rulings: collections are measured separately with no union arm, and the benchmark is weighted toward multi-paper synthesis. The rank-2 benchmark form was rewritten from single-chunk anchoring to multi-document evidence sets; the primary retrieval measure was changed from chunk recall to document coverage; incomplete_synthesis was added as the central failure class.",
+    "sequencing": {
+      "phases": [
+        {
+          "id": "reconnaissance",
+          "must_precede_all_scoring": true,
+          "note": "Findings must be allowed to strike axes from the plan. Per collection, resolve size, graph availability, and readable status. A sweep designed before the tenant has been inspected is not acceptable."
+        },
+        {
+          "id": "benchmark_construction",
+          "note": "Per collection. Frozen before any scored trial."
+        },
+        {
+          "id": "retrieval_screening",
+          "note": "Per collection, through POST /v1/retrieve on document_coverage_at_k. No configuration reaches a paid generation trial without passing here."
+        },
+        {
+          "id": "generation_trials",
+          "note": "Per collection. One axis changed per trial from a named prior configuration; a multi-axis change is recorded as exploratory and is not evidence for any single axis."
+        },
+        {
+          "id": "structure_trials",
+          "note": "Per collection. Compare single_shot against the synthesis-oriented structures on the winning parameter configuration."
+        },
+        {
+          "id": "consolidation",
+          "note": "Per-collection findings, then the cross-collection comparison that reports agreement without averaging."
+        }
+      ]
+    },
+    "title": "BV-BRC RAGstack asm-next configuration experiment: task specification (rev 2: per-collection strata, synthesis-weighted benchmark)"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "artifact_id": "context_83ffe1d27037f04515f131a8fbb3d59047c096dcf32bbd1ee0d62db6b74dd8d5",
+  "artifact_kind": "decision_ledger",
+  "purpose": "ragstack_experiment_review_resolutions",
+  "schema_version": 1,
+  "required": true,
+  "content_hash": "sha256:53b4c4d64278ca82778496dc075f14571577905cfd394bc1af9d37a25c6db1c7",
+  "created_at": "2026-09-30 15:40:39",
+  "content": {
+    "decisions": [
+      {
+        "finding": "credit_attainable_without_verified_results",
+        "id": "d_credit_result_bearing_only",
+        "overrides": [
+          "execution_policy.closure_statuses.counted_for_root_progress",
+          "execution_policy.closure_evidence.unverifiable",
+          "execution_policy.levels.root.progress"
+        ],
+        "rule": {
+          "admissible_not_tested_reasons": [
+            "collection unreadable to this token",
+            "collection empty or below the minimum document count needed to build 20 synthesis questions",
+            "cut by the recorded global allocation before its setup phase began"
+          ],
+          "blocked_and_not_tested": "Still required as closures with a reason record, and still surfaced by the root, but each contributes 0 to root progress.",
+          "evidence_failure": "A closure whose listed artifacts are missing or fail hash verification is NOT a closure. The root rejects it, records the rejection, and the collection remains open: it may be re-attempted within its remaining allocations, or closed as bound_hit when they are exhausted. Only a bound_hit that lists verified artifacts earns credit.",
+          "result_bearing_closure": "converged, or bound_hit reached AFTER the collection's benchmark was frozen, with every closure artifact listed by path and SHA-256 and verified by the root",
+          "root_progress": "number of readable ASM collections with a verified result-bearing closure, divided by the number of readable ASM collections",
+          "run_end": "The root ends when every readable collection has a closure of any status, or on the root stopping rule, whichever comes first. A run that ends with progress below 1.0 reports which collections were blocked or not_tested and why. It must never describe that shortfall as convergence.",
+          "unlisted_reasons": "Any other reason to stop a collection is recorded as blocked (with the trigger) or as bound_hit (with the bound), never as not_tested."
+        }
+      },
+      {
+        "finding": "judge_independence_unresolved_if_episode_model_on_tenant_axis",
+        "id": "d_judge_collision",
+        "rule": "If GET /v1/models/available lists the Episode's own model, or another model from the same provider and family, strike that model from the llm axis for the sweep AND the strong-model confirmation, and record the strike and its reason. The judge and question generator stay the Episode's own model. If striking leaves no model that returns grounded answers on the smoke set, close the collection as blocked with trigger 'no_independent_sweep_model'."
+      },
+      {
+        "finding": "episode_side_cost_not_measurable_with_granted_capabilities",
+        "id": "d_episode_cost_estimated",
+        "rule": "Tenant billable calls are measured. Episode-side judging and generation cost is not observable with the granted capabilities, so it is reported as an ESTIMATE: count judgement calls, estimate tokens from prompt and response character length at a stated characters-per-token ratio, and label the figure 'estimated' along with its method. It must never be presented as measured."
+      },
+      {
+        "finding": "token_leak_verification_gate_not_placed",
+        "id": "d_token_leak_gate",
+        "rule": "Before the root writes its terminal update, a final gate runs INSIDE the run-wide HTTP client module, the only code allowed to open the token file. It scans every file in the run directory and scratch for the token's first 8 and last 8 characters and writes a hashed scan record with the file count, the byte count and pass/fail. The scan record must never contain the token or any substring of it. On any match the root closes as blocked with trigger 'credential_leak_detected', deletes nothing, and surfaces the matching file paths only. The root's terminal update must list the scan record's path and hash."
+      }
+    ],
+    "precedence": "Binding on every descendant Episode. For the items listed here it overrides execution_policy rev 2 and the task_specification. It never loosens the safety_policy.",
+    "provenance": "Resolutions of the advisory contract review review_5ea877d14397dc6bc1070666483738d953854e981aebcf12e132771d578884c4 at revision 22, proposed by the Duet as conservative defaults for human review before approval.",
+    "title": "Decision ledger: closure credit, judge collision, cost labelling, token-leak gate (rev 1)"
+  }
+}

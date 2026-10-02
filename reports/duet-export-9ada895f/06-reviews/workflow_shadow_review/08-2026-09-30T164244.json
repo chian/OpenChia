@@ -1,0 +1,357 @@
+{
+  "creator_contract_hash": "sha256:bde9529d67540806193dc0c319e3e89211c4d837b3c74097e2b1f5b2401d64a9",
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "lenses": {
+    "capability_safety": {
+      "findings": [
+        {
+          "code": "client_integrity_not_pinned",
+          "explanation": "The residual execute_code risk is accepted only because one self-tested client is the sole HTTP path. The self-test runs once, in recon. Every later Episode holds execute_code and write_file and can edit RUN/harness/ragclient.py or score.py. For example, a later Episode could 'repair' the client, loosen the allowlist, drop the use_graph refusal or weaken token_leak_scan(). Nothing hashes CLIENT at recon, and no Episode checks that hash before importing it. A modified client would then send tenant traffic and run the close-out leak scan without having passed the mandatory self-test.",
+          "fields": [
+            "recon.goal",
+            "setup_r1.goal",
+            "phase_a_r1.goal",
+            "phase_b_r1.goal",
+            "closeout_r1.goal",
+            "root_verify.goal"
+          ],
+          "question": "Should recon record CLIENT's SHA-256 (and score.py's) in the self-test record? Every Episode would then refuse to make tenant calls unless the on-disk hash matches, any change would require the full seven-case self-test to be re-run and re-recorded, and root_verify would confirm the hash before trusting token_leak_scan().",
+          "severity": "high"
+        },
+        {
+          "code": "templated_entity_segment_traversal",
+          "explanation": "Entity names for /v1/graph/neighbors/{entity} come from untrusted graph data returned by the tenant. The match runs on the path after stripping the query string, and the blueprint does not require the entity to be percent-encoded. It also does not require rejecting values that contain '/', '..', '%2F' or '?'. An entity such as '../../admin/x' could pass a naive template match and then resolve to an in-prefix admin route once the path is normalized. That would make a prohibited route reachable. The seven self-test cases do not exercise this.",
+          "fields": [
+            "recon.goal (allowlist, {entity})",
+            "setup_r1.goal (graph attributability)",
+            "phase_b_r1.goal (graph_seeded)"
+          ],
+          "question": "Should CLIENT percent-encode the entity as a single path segment and refuse any entity containing path separators or dot-segments? Should it also match against the final normalized URL, with a self-test case for a traversal entity?",
+          "severity": "medium"
+        },
+        {
+          "code": "redirect_and_host_binding_unspecified",
+          "explanation": "The safety_policy forbids sending the token to any host other than www.bv-brc.org, or outside the allowed prefix. The blueprint checks host and path only on the outgoing request. It does not say that redirects are disabled, or that each redirect target must be re-checked against the allowlist before the Authorization header is re-sent. Depending on the HTTP library, a gateway 30x could carry the bearer token to an unlisted path or host without being refused or logged.",
+          "fields": [
+            "recon.goal (CLIENT)"
+          ],
+          "question": "Should CLIENT disable automatic redirects, record any 3xx as a refused or infrastructure outcome, and add a self-test case confirming that a redirect is not followed with credentials?",
+          "severity": "medium"
+        },
+        {
+          "code": "load_limits_not_client_enforced",
+          "explanation": "The safety_policy limits GET /v1/stats/tenants with counts=true to at most once per run. It limits /v1/stats/stores and /v1/collections to at most once every 15 seconds. The shared limiter enforces only concurrency, the query interval and the error window. Recon says 'once, cached', but each setup_rk also gathers 'readable status, size'. A setup Episode could re-issue counts=true or poll collections. Only the Episode's discretion prevents this breach of shared-service load policy.",
+          "fields": [
+            "recon.goal (CLIENT limiter)",
+            "setup_r1.goal (1) Recon: readable status, size"
+          ],
+          "question": "Should the file-locked CLIENT state refuse a second counts=true stats call, enforce the 15-second spacing on /v1/stats/stores and /v1/collections, and require setup Episodes to read the cached recon records instead?",
+          "severity": "medium"
+        },
+        {
+          "code": "leak_scan_precedes_final_writes",
+          "explanation": "The token-leak scan runs in step 3. Later steps then write the c/A/B recomputation, ROOT_MANIFEST.json and ROOT_MANIFEST.sha256, and root_consolidate or orphan records could be rewritten after it. The safety_policy requires every written artifact to be checked before the run is reported complete. Files written after the scan are never checked.",
+          "fields": [
+            "root_verify.goal steps (3)-(5)"
+          ],
+          "question": "Should the scan run last, after the manifest is written, or be re-run over files created after the first scan, with the scan record excluded from the manifest's circular hash as needed?",
+          "severity": "low"
+        },
+        {
+          "code": "write_file_confinement_not_restated_in_children",
+          "explanation": "The write-confinement check is described as a CLIENT behaviour for code-issued writes. Capability hygiene also requires every path written by the write_file tool to be inside the run directory. Only the root goal states 'write only inside RUN and scratch'. Child goals name RUN-relative paths, but they do not say that write_file must stay inside RUN. The run directory is resolved at runtime through a scratch pointer file, which any Episode can overwrite.",
+          "fields": [
+            "setup_r1..closeout_r3.goal",
+            "root_consolidate.goal",
+            "root_verify.goal"
+          ],
+          "question": "Should each child contract state that write_file targets must resolve inside the RUN path recorded in RUN_ID.json? Should children also check that the scratch pointer matches RUN_ID.json before writing?",
+          "severity": "low"
+        }
+      ],
+      "summary": "Capability assignment stays within the ceiling. Every Episode gets only execute_code, write_file and todo_list, and none receives Creator capability. The design routes all HTTP and all token access through one allowlisted CLIENT, with a mandatory self-test, a shared file-locked limiter, a run-wide stop, write confinement and a leak scan. These controls match the procedural enforcement the operator accepted. The weak point is that this enforcement rests entirely on CLIENT behaving as self-tested. Every later Episode can rewrite CLIENT, and no Episode checks its integrity. The allowlist also has gaps a self-test would not catch: the templated {entity} segment and redirect handling. Some safety_policy load limits are left to Episode discretion rather than enforced by the client.",
+      "verdict": "concern"
+    },
+    "contract_alignment": {
+      "findings": [
+        {
+          "code": "fixed_three_slot_tree_cuts_extra_readable_collections",
+          "explanation": "The root gives any readable ASM collection ranked 4 or lower zero allocation and closes it not_tested. The tree has no study episode that could process it. The contract says something different on a count mismatch. Addendum d_expected_three_collections says to 'proceed with the collections actually readable'. Operator decision q_collection_priority says all readable collections count equally, and only when the budget binds are later ones reported as not completed. Under this design, a fourth collection earns c=0 even when time, iterations and child episodes remain. That can happen, for example, when an earlier rank closes early on benchmark_shortfall. This caps root_episode_progress at 3/N by construction, not because a bound was actually hit.",
+          "fields": [
+            "root.contract.goal",
+            "recon.contract.goal (7) allocation record",
+            "root_consolidate.contract.goal"
+          ],
+          "question": "Should the tree include a conditional study slot, or a reusable per-rank study template, so that a fourth readable collection gets work when the recorded allocation still permits it? It would be closed not_tested for 'cut by global allocation' only when the allocation truly cannot cover it.",
+          "severity": "medium"
+        },
+        {
+          "code": "serial_gate_predicate_ambiguous_for_non_accepted_closures",
+          "explanation": "study_r2 and study_r3 may begin only after RUN/serial_gate.json shows the previous rank 'accepted by the root'. The root, however, may reject a closure whose artifacts fail hash verification and keep that collection open. Some legitimate closures are also not result-bearing: blocked, not_tested, or bound_hit benchmark_shortfall. The blueprint does not say whether the gate treats these as accepted. It also gives no child that could re-attempt a rejected collection within its remaining allocation, as ledger d_credit_result_bearing_only.evidence_failure allows. A strict reading of the gate could stall later ranks until the global allocation cuts them. That would turn them into c=0 orphans even though budget remained.",
+          "fields": [
+            "study_r2.contract.goal",
+            "study_r3.contract.goal",
+            "root.contract.unit",
+            "root_verify.contract.goal (1)"
+          ],
+          "question": "Should the gate condition be 'rank k has a final recorded closure of any status, including a rejected closure converted to bound_hit', and should the blueprint state whether a rejected closure gets a repair or re-attempt child or is closed bound_hit immediately?",
+          "severity": "medium"
+        },
+        {
+          "code": "phase_a_host_count_stop_unlabeled",
+          "explanation": "Phase A carries a host stopping target of 16 on a count of 'scored_trials_or_screen_tables' and a cap of 8 iterations, each handling a screening batch or one or two trials. The contract's phase-A stop is purely quality-based. Coverage must be complete AND either the tuning score reaches 0.9, or 3 consecutive distinct-axis gains fall below the threshold, or the call cap is hit. With up to 9 applicable axes, several screening tables and a 3-trial stagnation tail, the host count target or iteration cap can end phase A before the contract rule fires. The goal text maps cap, time and judging bounds to bound_hit. It does not say that ending because the host count target was reached is a bound, not the stagnation or target stop. The study's 'converged' test depends on phase A having stopped on target or stagnation, so this is a mislabel risk.",
+          "fields": [
+            "phase_a_r1.contract.stopping",
+            "phase_a_r1.contract.safety_bounds.max_iterations",
+            "phase_a_r2/r3 (same)"
+          ],
+          "question": "Should phase A state that any host-level stop (count target reached or iteration cap) that precedes the contract stop rule is recorded as bound_hit for phase A, naming the bound, with the remaining axes and stagnation checks marked not-tested? Or should the count target be removed or raised so that only the contract rule can end phase A normally?",
+          "severity": "medium"
+        },
+        {
+          "code": "root_progress_unit_hardcodes_n3",
+          "explanation": "The contract's credited measurement is root_episode_progress = sum(c)/N, normalized to target 1.0. The root instead tracks a count of verified result-bearing closures with target 3.0. It carries the coverage-weighted value only in the terminal update. This is harmless when N=3. The contract, however, anticipates N differing from 3 (d_expected_three_collections). A fixed target of 3.0 then no longer means that every collection was closed, and the root's own stagnation arithmetic drifts from the contract's 1/N framing.",
+          "fields": [
+            "root.contract.progress",
+            "root.contract.stopping.target"
+          ],
+          "question": "Should the root's progress target be set from N as recorded at reconnaissance, or should the blueprint state explicitly that the root's internal count is advisory and only the terminal-update root_episode_progress is authoritative?",
+          "severity": "low"
+        },
+        {
+          "code": "pivot_probe_config_may_coincide_with_trial_candidate",
+          "explanation": "The task specification forbids pivot discovery with 'any configuration that is itself a trial candidate'. The setup episodes use separate bm25 and vector /v1/retrieve probes at an unspecified 'high top_k'. Phase A screens retrieval_mode in {bm25, vector} and top_k in {5, 10, 20, 30}. If the probe top_k falls inside the swept grid, the benchmark could be built by a configuration that is later screened. That could bias document coverage toward it.",
+          "fields": [
+            "setup_r1.contract.goal (2)",
+            "setup_r2.contract.goal",
+            "setup_r3.contract.goal"
+          ],
+          "question": "Should the setup goal pin the pivot-probe top_k to a value outside the swept grid (for example, above 30) and record it, so the probes are provably not trial candidates?",
+          "severity": "low"
+        }
+      ],
+      "summary": "The blueprint follows the contract closely: serial largest-first processing, the budget pools, the model-matched holdout with the correct close-out priority, the coverage-weighted A/B/c rules, the trigger vocabulary, the allowlist intersection, the token-leak gate and the extended manifest. Five alignment gaps could still change outcomes or credit. Collections beyond rank 3 are cut by design. The serial-gate predicate is ambiguous for non-accepted closures. Host-level count stopping in phase A has no stated status label. The root progress unit hard-codes N=3. The top_k for pivot-discovery probes is not fixed.",
+      "verdict": "concern"
+    },
+    "iteration_recovery": {
+      "findings": [
+        {
+          "code": "serial_gate_deadlock_on_rejected_closure",
+          "explanation": "study_r2 starts only after RUN/serial_gate.json shows rank 1 accepted, and study_r3 only after rank 2 is accepted. The root says a closure whose artifacts fail re-hashing is 'kept open' and closed bound_hit only 'when its allocation is spent'. study_rk has already returned by then, so no event spends that allocation and nothing writes a gate entry. One hash mismatch at rank 1 stalls ranks 2 and 3 until global time runs out. They then close as orphans with c=0 even though they never had a chance to run.",
+          "fields": [
+            "root.goal",
+            "study_r2.goal",
+            "study_r3.goal",
+            "root.unit"
+          ],
+          "question": "When the root rejects a rank-k closure, which step converts it to a terminal status and writes a gate entry that unblocks rank k+1? Should the gate advance on any terminal root decision, including a rejection converted to bound_hit, rather than on acceptance only?",
+          "severity": "high"
+        },
+        {
+          "code": "phase_iteration_caps_below_mandatory_steps",
+          "explanation": "setup_rk defines an iteration as one recon, pivot-discovery, generation/validation or baseline-repeat step. Its required steps are recon, the graph test, the feasibility smoke, pivot discovery, generation, validation/freeze, and 2-3 baseline repeats, which is at least 8, but max_iterations is 4. closeout_rk defines an iteration as one confirmation, holdout scoring or closure record. It must do confirmation, holdout #1, #2 and possibly #3, and then write about 7 records including the closure manifest, but max_iterations is 2. If the host enforces these units, setup cannot freeze a benchmark with a noise floor, and close-out cannot write the closure manifest. Either outcome drops the collection to c=0 regardless of how good the search was.",
+          "fields": [
+            "setup_r1.safety_bounds.max_iterations",
+            "setup_r1.unit",
+            "closeout_r1.safety_bounds.max_iterations",
+            "closeout_r1.unit",
+            "setup_r2",
+            "setup_r3",
+            "closeout_r2",
+            "closeout_r3"
+          ],
+          "question": "Should setup and close-out iteration caps be sized to their step count plus retry slack, or should their units be redefined as multi-step cycles that each still end with a hashed record?",
+          "severity": "high"
+        },
+        {
+          "code": "no_child_episode_slack_for_rerelease",
+          "explanation": "Each study_rk has max_child_episodes=4 and exactly 4 phase children, so a crashed or cap-exhausted phase child cannot be re-released. That conflicts with the ledger's evidence_failure rule, which allows re-attempts within remaining allocations. The root close-out reserve is 2 child episodes and 5 iterations, all consumed by root_consolidate (2 iterations) and root_verify (2 iterations). root_verify's unit is one step and it has 4 required steps (re-hash, manifest check, leak scan, manifest write) in 2 iterations. If root_verify fails before writing ROOT_MANIFEST, no episode remains to produce the terminal-update evidence.",
+          "fields": [
+            "study_r1.safety_bounds.max_child_episodes",
+            "study_r2.safety_bounds.max_child_episodes",
+            "study_r3.safety_bounds.max_child_episodes",
+            "root.safety_bounds.max_child_episodes",
+            "root_consolidate",
+            "root_verify"
+          ],
+          "question": "Which child episode can re-release a failed phase or verification step? Should each study and the root close-out reserve carry at least one spare child episode, with a matching iteration margin?",
+          "severity": "high"
+        },
+        {
+          "code": "phase_a_iteration_budget_tight_for_coverage",
+          "explanation": "Phase A allows 8 iterations, each running a screening batch or one or two trials. Coverage needs 1-3 screening cycles plus up to 9 one-axis generation trials (7 base axes plus the rerank sub-axes if rerank is kept). The stagnation stop may only fire after coverage. Any iteration lost to 503 abandonment, judge failure or a re-scoring leaves axes unscored, which lowers A. Host stagnation (3 iterations with no new trial or table) can also end phase A. The blueprint does not say how a host-imposed stop is mapped to a bound_hit reason and phase in RUN/rk/state.json.",
+          "fields": [
+            "phase_a_r1.safety_bounds.max_iterations",
+            "phase_a_r1.unit",
+            "phase_a_r1.stopping"
+          ],
+          "question": "Is 8 iterations enough for full axis coverage when an iteration is lost to transient errors? How is a host iteration or stagnation stop recorded as a named bound so close-out can close the collection correctly?",
+          "severity": "medium"
+        },
+        {
+          "code": "descendant_iteration_accounting_unclear",
+          "explanation": "Descendant iteration caps sum to 78: recon 5, studies 3x5, phase children 3x18, and close-out 2+2. If these count against the root's 80, the root has about 2 iterations of its own. It needs to release and gate 6 children and keep a 5-iteration close-out reserve. In that case the global-allocation fallback fires before rank 3 or close-out, even though the reserve is stated.",
+          "fields": [
+            "root.safety_bounds.max_iterations",
+            "recon.safety_bounds.max_iterations",
+            "study_r1.safety_bounds.max_iterations"
+          ],
+          "question": "Do child iterations draw from the root's max_iterations? If so, how is the 5-iteration root close-out reserve guaranteed?",
+          "severity": "medium"
+        }
+      ],
+      "summary": "Under the iteration_recovery lens, the blueprint leaves no room to recover from a failed step. First, a rejected closure can deadlock the serial gate. Second, several phase children declare a one-step-per-iteration unit, but their iteration caps are smaller than the number of mandatory steps. Third, study and root-close-out episode budgets are fully consumed, so no failed child can be re-released. A single transient failure can therefore end a collection or the root with no verifiable closure or manifest.",
+      "verdict": "block"
+    },
+    "measurement_evidence": {
+      "findings": [
+        {
+          "code": "root_progress_measure_mismatch",
+          "explanation": "The contracted credit measurement is root_episode_progress = sum(c)/N, with c = 0.5 + 0.25A + 0.25B, derived by the host from the root terminal update. The root declares durable_evidence_count_v1 over verified result-bearing closures instead, with baseline 0 and target 3.0. If the host normalizes this declared measure, three result-bearing closures with partial coverage score 1.0 rather than their true coverage-weighted value, such as 0.75. The hard-coded target 3 is also wrong whenever the confirmed N differs from 3. The coverage-weighted value appears only as a carried field computed by root_verify, so the measured quantity and the credited quantity can diverge.",
+          "fields": [
+            "episodes[root].contract.progress",
+            "episodes[root].contract.stopping.target",
+            "creator_contract.progress",
+            "creator_contract.credit_assignment"
+          ],
+          "question": "Should the root's declared progress measure be root_episode_progress itself (sum(c)/N, baseline 0, target 1.0, read from the root_verify output), keeping the result-bearing count only as the stagnation-observation counter?",
+          "severity": "high"
+        },
+        {
+          "code": "coverage_fractions_self_reported",
+          "explanation": "root_verify recomputes c, A and B 'from the coverage records and verified closures'. But each coverage record is written by the same close-out child whose credit it determines. A hash check proves only that a file is unchanged, not that its coverage claims are true. The addendum requires that c be recomputable from evidence. As designed, an axis could be marked covered without a qualifying trial. Qualifying means one-axis, from a named prior, cheap model, tuning set, with non-empty outcome rows. The same gap applies to a structure counted in B without scored outcome rows, and to the result-bearing minimum of at least 2 baseline repeats.",
+          "fields": [
+            "episodes[root_verify].contract.goal",
+            "episodes[closeout_r1].contract.goal",
+            "episodes[closeout_r2].contract.goal",
+            "episodes[closeout_r3].contract.goal"
+          ],
+          "question": "Should root_verify derive A, B and the result-bearing minimum directly from the hashed leaderboard, outcome-row files, noise-floor record and strike evidence, and flag any disagreement with the coverage record?",
+          "severity": "medium"
+        },
+        {
+          "code": "phase_b_and_confirmation_winner_not_noise_gated",
+          "explanation": "Phase A changes the current best only on an effect-sized gain. Phase B has no equivalent rule: it scores each structure once on the tuning set and picks winner W without requiring the gain over single_shot to exceed the noise floor, or twice the floor when low-power. A multi-call structure could therefore win on a within-noise difference while multiplying close-out cost. The noise-floor verdict per leaderboard row, which the deliverable manifest requires, is also not stated for phase-B rows. Model confirmation has the same gap: 'only if confirmation selected it' has no selection criterion, so holdout #3 and the model effect could rest on a single sub-noise tuning difference.",
+          "fields": [
+            "episodes[phase_b_r1].contract.goal",
+            "episodes[closeout_r1].contract.goal"
+          ],
+          "question": "Should phase B and model confirmation keep single_shot and the cheap model respectively unless the alternative's tuning gain exceeds the collection's noise floor (twice the floor if low-power), with each phase-B leaderboard row carrying an effect or within-noise verdict?",
+          "severity": "medium"
+        },
+        {
+          "code": "retrieval_axis_coverage_when_best_equals_prior",
+          "explanation": "A retrieval axis counts as covered only when its best-screening value reaches a generation trial that changes one axis from a named prior. Take retrieval_mode as an example. If hybrid (the baseline_v0 value) screens best, a trial 'changing' to hybrid changes nothing. Executors could then either count the baseline repeats as coverage, inflating A with no contrast on that axis, or fail to cover the axis, deflating A. Either outcome also affects the findings note's effect and within-noise claims for that axis.",
+          "fields": [
+            "episodes[phase_a_r1].contract.goal",
+            "episodes[phase_a_r2].contract.goal",
+            "episodes[phase_a_r3].contract.goal"
+          ],
+          "question": "When the best-screening value of a retrieval axis equals the prior's value, should coverage require a generation trial of the best non-prior value that passed screening, or of the best screened-out value if none passed?",
+          "severity": "medium"
+        },
+        {
+          "code": "confirmation_orchestration_model_unspecified",
+          "explanation": "If W is a multi-call structure, phase B runs every orchestration step on the cheap sweep model. Model confirmation runs 'W on the strongest model' without saying whether the orchestration steps also move to the strongest model. The difference then reported as the model effect (#3 minus #2) could mix generation-model and orchestration-model changes.",
+          "fields": [
+            "episodes[closeout_r1].contract.goal",
+            "episodes[phase_b_r1].contract.goal"
+          ],
+          "question": "In model confirmation and holdout #3, should all tenant LLM steps, including orchestration, use the strongest model, with that choice recorded in the confirmation record?",
+          "severity": "low"
+        }
+      ],
+      "summary": "Scoring, noise floor, holdout attribution and hash-verified closures are mostly specified faithfully. Five gaps remain, and each could change the design. First, the root's declared progress measure is a count of result-bearing closures, which can overstate the contracted coverage-weighted root_episode_progress. Second, A and B are recomputed from a coverage record that the child writes about itself, not from trial evidence. Third, phase B and model confirmation can select a winner on a gain inside the noise floor. Fourth, retrieval-axis coverage is ambiguous when the best-screening value equals the prior's value.",
+      "verdict": "concern"
+    },
+    "task_specific_skeptic": {
+      "findings": [
+        {
+          "code": "setup_iteration_cap_below_required_steps",
+          "explanation": "Setup's unit is 'one recon, pivot-discovery, generation/validation or baseline-repeat step' per cycle, and its target is 6 records. max_iterations is only 4. The minimum sequence is recon/graph/feasibility, then pivot discovery, then generation plus validation plus freeze, then at least 2 baseline repeats, which is 5 or more cycles. So setup can exhaust its cap after one baseline repeat. The noise floor then has fewer than 2 repeats, and the collection fails the result-bearing minimum (c=0). Every rank has the same cap, so this failure would recur across all three strata. study_r* has only 4 child slots, one per phase, so a truncated setup cannot be re-released.",
+          "fields": [
+            "workflow.episodes[setup_r1|setup_r2|setup_r3].contract.safety_bounds.max_iterations",
+            "workflow.episodes[setup_r*].contract.unit",
+            "workflow.episodes[setup_r*].contract.stopping.target"
+          ],
+          "question": "Should setup's max_iterations be raised to at least 6-7, or its unit be redefined so that one cycle can complete all baseline repeats, so that a ≥2-repeat noise floor is reachable within the cap?",
+          "severity": "high"
+        },
+        {
+          "code": "closeout_iteration_cap_cannot_write_closure",
+          "explanation": "Close-out's unit is one confirmation or holdout scoring, or one closure record, per step. Its target is 7 records, but max_iterations is 2. Confirmation plus holdout #1 and #2 already needs 3 or more scoring steps before any records are written. If close-out stops before closure_manifest.json exists, the root has nothing to verify and the collection earns 0. The study has no spare child slot to re-run close-out, and no fallback says the study itself writes the manifest from existing phase records.",
+          "fields": [
+            "workflow.episodes[closeout_r*].contract.safety_bounds.max_iterations",
+            "workflow.episodes[closeout_r*].contract.unit",
+            "workflow.episodes[study_r*].contract.safety_bounds.max_child_episodes"
+          ],
+          "question": "Should close-out get enough iterations for confirmation, 2-3 holdout scorings and the record set? Or should the manifest be written first and only then extended, with study_r* explicitly authorized to write a minimal closure manifest if close-out is cut?",
+          "severity": "high"
+        },
+        {
+          "code": "serial_gate_deadlocks_on_rejected_closure",
+          "explanation": "study_r2 and study_r3 start only when serial_gate.json 'shows rank k accepted by the root'. The root's rule for a hash-failed closure is to reject it, keep it open, and later close it bound_hit when its allocation is spent. No step appends that outcome to the gate. The design also has no re-attempt path, because study_r1 is a single fixed node. One corrupted artifact in rank 1 could therefore keep ranks 2 and 3 from ever starting. They would become orphans closed not_tested or bound_hit with c=0, although time and budget remained.",
+          "fields": [
+            "workflow.episodes[root].contract.goal",
+            "workflow.episodes[study_r2].contract.goal",
+            "workflow.episodes[study_r3].contract.goal"
+          ],
+          "question": "Should the gate record any final root disposition of rank k (accepted, rejected-then-closed bound_hit, blocked, not_tested, or no-collection) as the release condition for rank k+1, rather than 'accepted' only?",
+          "severity": "medium"
+        },
+        {
+          "code": "phase_time_and_judging_throughput_starve_coverage",
+          "explanation": "Phase A must cover up to 9 axes. Each trial is about 30 tuning questions via /v1/query at ≥1 s spacing and ≤2 concurrency, plus about 30 Episode-side judgements with /v1/chunks citation resolution. That is roughly 270+ queries and 270+ judgements in 5000 s and 8 iterations, before any stagnation trials. Phase B runs three multi-call structures at about 3-6 tenant queries per question, plus judging, in 2200 s and 4 iterations. The likely binding bound is time or iterations, not the 1200-call pool. That would systematically depress A and B, and would make 'converged' unreachable for reasons unrelated to the experiment. No declared judging cap per phase is visible to size this.",
+          "fields": [
+            "workflow.episodes[phase_a_r*].contract.safety_bounds",
+            "workflow.episodes[phase_b_r*].contract.safety_bounds"
+          ],
+          "question": "Should recon compute and record a per-phase time and judging projection from measured query latency and judge time, and rebalance setup, A, B and close-out time and iteration caps (or batch judging) before rank 1 starts?",
+          "severity": "medium"
+        },
+        {
+          "code": "noise_floor_may_be_near_zero",
+          "explanation": "The noise floor is the spread of synthesis_completeness across 2-3 baseline repeats. If the tenant generates near-deterministically, or answers are cached, the spread can be about 0 even though the Episode-side judge is itself stochastic. The judge runs once per answer, so its variance never enters the floor. With a floor near 0, any nonzero delta is labelled an 'effect', and the current best then moves on judge noise. The 0.05 floor in the stagnation rule does not protect the effect verdict or the winner choice.",
+          "fields": [
+            "workflow.episodes[setup_r*].contract.goal",
+            "workflow.episodes[phase_a_r*].contract.goal"
+          ],
+          "question": "Should the noise-floor procedure capture judge variance, for example by re-judging one baseline repeat independently, and record when tenant answers are byte-identical across repeats? This would stop a degenerate floor from certifying effects.",
+          "severity": "medium"
+        },
+        {
+          "code": "graph_strike_depends_on_incomplete_inventory",
+          "explanation": "Graph attributability requires that each resolved doc_id appear in a retrieval-derived inventory. The design never specifies how broadly that inventory is probed. A thin inventory makes resolvable in-collection triples fail the check. That falsely strikes use_graph and graph_seeded, and a strike also shrinks the A and B denominators, so the untested items quietly raise c.",
+          "fields": [
+            "workflow.episodes[setup_r*].contract.goal"
+          ],
+          "question": "Should setup specify a minimum inventory-building probe budget, or require the graph-attributability record to report inventory size next to the resolution rate, before a graph strike is accepted?",
+          "severity": "low"
+        },
+        {
+          "code": "consolidation_summary_precedes_verification",
+          "explanation": "root_consolidate writes the root closure summary with c, A and B before root_verify re-hashes the closures and recomputes the values. If verify rejects a closure, the already-written summary and cross-collection note disagree with the terminal update.",
+          "fields": [
+            "workflow.episodes[root_consolidate].contract.goal",
+            "workflow.episodes[root_verify].contract.goal"
+          ],
+          "question": "Should root_verify rewrite or amend the root closure summary after recomputation, or should the summary be written after the final re-hash?",
+          "severity": "low"
+        },
+        {
+          "code": "fixed_three_study_nodes_zero_allocate_extra_collections",
+          "explanation": "Readable ASM collections beyond rank 3 receive zero allocation at design time, regardless of how much budget remains after ranks 1-3. The operator ruled that all readable collections count equally, so a fourth collection would cost a guaranteed 1/N with no chance of running.",
+          "fields": [
+            "workflow.episodes[root].contract.goal",
+            "workflow.episodes[recon].contract.goal"
+          ],
+          "question": "If recon finds more than 3 collections, should the allocation be recomputed across all of them, or should the fixed cap be explicitly recorded as the operator-accepted allocation?",
+          "severity": "low"
+        }
+      ],
+      "summary": "The blueprint follows the contract's rules closely. Its phase-level iteration caps do not match the work each phase is defined to do. As literally scoped, every collection risks ending without a ≥2-repeat noise floor or without a written closure manifest, which gives c=0 across the board. Several secondary issues would also bias results or starve coverage: the serial gate can deadlock after a rejected closure, phase-A and phase-B time and judging throughput are tight, a near-zero noise floor would inflate effect verdicts, and graph strikes can be triggered by an incomplete inventory.",
+      "verdict": "block"
+    }
+  },
+  "workflow_blueprint_hash": "sha256:4b1ecf595ed06d99abe27862955f5d196b219ea864356857c8f3c50ace802b07"
+}
