@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -20,6 +21,16 @@ from llm_call_library.transport import call_model_transport
 
 
 async def serve(path, request_timeout):
+    parent = path.parent.stat()
+    if (
+        path.parent.is_symlink()
+        or not stat.S_ISDIR(parent.st_mode)
+        or parent.st_uid != os.getuid()
+        or stat.S_IMODE(parent.st_mode) != 0o700
+    ):
+        raise ValueError(
+            "socket parent must be an owned private directory with mode 0700"
+        )
     broker = ScopedModelBroker(call_model_transport)
     count = 0
 

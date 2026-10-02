@@ -411,7 +411,7 @@ class LearningLedger:
                 repair["repair_id"] = identity("repair", repair)
                 publish(RunEventKind.LEARNING_REPAIR_REQUESTED, episode_id, repair)
                 return repair
-            terminal = "continuing"
+            terminal = "blocked" if validated["status"] == "blocked" else "continuing"
             result_artifact = None
             try:
                 result_artifact = ArtifactEnvelope(
@@ -470,8 +470,6 @@ class LearningLedger:
                     scope=scope,
                     audit_ref=audit.event_id.value,
                 )
-                if validated["status"] == "blocked":
-                    terminal = "blocked"
             except (ValueError, TypeError, KeyError) as exc:
                 delta = {
                     "state": prior,

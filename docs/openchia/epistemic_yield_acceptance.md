@@ -2,10 +2,16 @@
 
 Run on 2026-10-02 against the generic reasoning Episode. **Passed.**
 
-Latest run, after the same-unit repair fix: provider `openai-codex`, model
+Latest recorded run, at `949ef227e6` after the same-unit repair fix: provider `openai-codex`, model
 `gpt-5.6-sol-900k`. Four real model calls produced two Episode units in
 approximately 128 seconds. Both submissions met the frozen schema immediately;
 this live run did not need a repair.
+
+Both live runs explicitly used the approved benchmark continuation threshold
+`max_predicted_marginal_hypervolume: 0.9`, overriding the library reference's
+`0.01`. The duration and call counts describe that benchmark configuration,
+**not the shipped default**. Neither recorded stopping bound would stop at
+`0.01`; a default-threshold live run has not been performed.
 
 ## Problem and returned answer
 
@@ -85,7 +91,9 @@ would require additional cases with independently observed failure evidence.
 
 The Builder is a deterministic materialization fixture in this acceptance
 test. The normal linker, Episode loop, host ledger and numerical controller
-are exercised, but process confinement and live Builder generation are not.
+are exercised in-process. The tests call the learning broker directly and
+record model-response events themselves; they do not exercise the executor's
+host–worker transport, process confinement, or live Builder generation.
 The separate confined-worker test is unavailable on this host because the
 CPU cgroup allocation cannot be attested. See the
 [implementation and test instructions](epistemic_yield.md).

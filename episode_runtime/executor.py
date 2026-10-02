@@ -968,9 +968,13 @@ class SystemdRunExecutor:
             or source_package.name != registration.manifest_id.value
         ):
             raise ValueError("source_package_path must name the exact manifest package")
-        self.run_store.publish_registration(registration)
         from .learning_broker import LearningBroker
-        learning_broker = LearningBroker(self.run_store, registration, source_package)
+        # Package rejection must precede publication: an unclaimed registration
+        # has no event channel through which it could be finalized.
+        learning_broker = await asyncio.to_thread(
+            LearningBroker, self.run_store, registration, source_package
+        )
+        self.run_store.publish_registration(registration)
 
         launch_identity = _launch_identity(registration.run_id)
         mounts = self._runtime_mounts(
@@ -1177,7 +1181,9 @@ class SystemdRunExecutor:
                 if frame.frame_type != WorkerFrameType.TERMINAL.value:
                     raise ProtocolError("worker sent an invalid post-start frame")
                 if frame.body["terminal_status"] == RunTerminalStatus.SUCCEEDED.value:
-                    learning_broker.validate_completion(frame.body["typed_status"])
+                    await asyncio.to_thread(
+                        learning_broker.validate_completion, frame.body["typed_status"]
+                    )
                 terminal_status = RunTerminalStatus(frame.body["terminal_status"])
                 evidence = self.run_store.finalize_run(
                     run_id=registration.run_id,

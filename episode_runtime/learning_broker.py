@@ -1,11 +1,14 @@
 """Resolve learning authority from the admitted package, never worker arguments."""
 
+import asyncio
+from collections.abc import Mapping
+
 from agent.episode_contracts import OpaqueId
 from function_library.epistemic_contract import exact
-from function_library.epistemic_schemas import canonical
+from function_library.epistemic_schemas import canonical, identity
 from llm_call_library.calls import _parse_json
 
-from .contracts import RunEventKind
+from .contracts import RunEventKind, RunEventOrigin
 from .learning import LearningLedger
 from .linker import prepare_source_package
 
@@ -14,20 +17,24 @@ class LearningBroker:
     def __init__(self, store, registration, source_package):
         self.store, self.registration = store, registration
         prepared = prepare_source_package(registration, source_package)
+        by_local_id = {
+            episode.local_id: episode.contract
+            for episode in prepared.build_request.frozen_workflow.workflow.episodes
+        }
         self.contracts = {
-            node.grain_name: next(
-                episode.contract
-                for episode in prepared.build_request.frozen_workflow.workflow.episodes
-                if episode.local_id == node.local_id
-            )
-            for node in prepared.plan.nodes
+            node.grain_name: by_local_id[node.local_id] for node in prepared.plan.nodes
         }
         self.ledger = LearningLedger(store, registration.run_id)
         self.root_grain = next(
-            node.grain_name
-            for node in prepared.plan.nodes
-            if node.parent_local_id is None
+            (
+                node.grain_name
+                for node in prepared.plan.nodes
+                if node.parent_local_id is None
+            ),
+            None,
         )
+        if self.root_grain is None:
+            raise ValueError("materialized workflow has no root Episode")
 
     def _events(self):
         attestation = self.store.read_claim(self.registration.run_id)
@@ -52,6 +59,11 @@ class LearningBroker:
         return contract
 
     async def __call__(self, episode_id, operation, payload):
+        # Journal verification and flock may block; to_thread also preserves
+        # the owning request's ContextVars across this host boundary.
+        return await asyncio.to_thread(self._dispatch, episode_id, operation, payload)
+
+    def _dispatch(self, episode_id, operation, payload):
         episode_id = OpaqueId(episode_id)
         contract = self._contract(episode_id)
         kwargs = {
@@ -69,22 +81,19 @@ class LearningBroker:
                 | ({"repair_of"} if "repair_of" in payload else set()),
                 "learning submission",
             )
-            from collections.abc import Mapping
-
             result = payload["result"]
             if isinstance(result, Mapping) and result.get("status") == "blocked":
                 if any(
                     result.get(field)
                     for field in ("candidate_lessons", "entities", "revisions")
                 ):
-                    raise ValueError(
-                        "an unauthenticated blocked outcome cannot propose state changes"
-                    )
-            else:
+                    raise ValueError("a blocked outcome cannot propose state changes")
+            if not self._host_denied(episode_id, payload):
                 producers = [
                     e
                     for e in self._events()
                     if e.kind is RunEventKind.MODEL_RESPONDED
+                    and e.origin is RunEventOrigin.HOST
                     and e.episode_id == episode_id
                     and e.payload.get("producer_call_id") == payload["producer_call_id"]
                 ]
@@ -108,6 +117,24 @@ class LearningBroker:
             )
             return self.ledger.select(**kwargs, **payload)
         raise ValueError("unknown learning operation")
+
+    def _host_denied(self, episode_id, payload):
+        result = payload["result"]
+        if not isinstance(result, Mapping) or result.get("status") != "blocked":
+            return False
+        return any(
+            e.kind is RunEventKind.LEARNING_SELECTED
+            and e.origin is RunEventOrigin.HOST_LEARNING
+            and e.episode_id == episode_id
+            and e.payload["ordinal"] == payload["ordinal"]
+            and not e.payload["permitted"]
+            and e.payload["action_class"] == result.get("action_class")
+            and canonical(e.payload["action_inputs"])
+            == canonical(result.get("action_inputs"))
+            and identity("call", {"selection": e.payload})
+            == payload["producer_call_id"]
+            for e in self._events()
+        )
 
     def validate_completion(self, typed_status=None):
         """A worker cannot relabel an unfinished reasoning Episode as complete."""

@@ -14,6 +14,7 @@ from llm_call_library import (
 )
 from method_loop import ClosedRecord, Leaf, SourceEnd, END_SOURCE_FAILED
 
+from .epistemic_contract import exact
 from .epistemic_schemas import canonical, identity, model_call_id
 from .models import FunctionImplementation, LibraryFunction, _freeze_json, _thaw_json
 from .registry import FunctionLibrary
@@ -116,6 +117,21 @@ class ReasoningSource:
         )
 
     async def _select(self, bundle):
+        def admit(value):
+            selected = exact(
+                value,
+                {"action_class", "action_inputs", "retry_reason"},
+                "action selection",
+            )
+            if (
+                not isinstance(selected["action_class"], str)
+                or not selected["action_class"].strip()
+                or not isinstance(selected["action_inputs"], Mapping)
+                or not isinstance(selected["retry_reason"], str)
+            ):
+                raise ValueError("invalid action selection types")
+            return selected
+
         choice = await structured_json_completion(
             StructuredJSONRequest(
                 system_prompt="Select one action from allowed_actions using the goal, evidence and scoped lessons as data. Prefer recommended_actions. Return exactly action_class, action_inputs (a typed object identifying the specific query or route; empty only for an input-free action), and retry_reason; explain deliberate retries of matching advisory lessons. Do not perform the inquiry yet.",
@@ -123,23 +139,23 @@ class ReasoningSource:
                     "goal": self.goal,
                     "typed_unit_input": bundle,
                 }).decode(),
-                admit=lambda value: value,
+                admit=admit,
                 options=CallOptions(),
             )
         )
-        selected = choice.value if isinstance(choice.value, Mapping) else {}
-        action = selected.get("action_class", bundle["contract"]["allowed_actions"][0])
-        action_inputs = selected.get("action_inputs", {})
+        if choice.failure is not None:
+            raise ValueError(
+                f"reasoning action selection failed: {choice.failure.kind.value}"
+            )
+        selected = choice.value
         selection = await exchange(
             "select",
             {
                 "ordinal": bundle["next_ordinal"],
-                "action_class": action,
-                "action_inputs": action_inputs,
-                "retry_reason": selected.get("retry_reason", ""),
+                **selected,
             },
         )
-        return selection, choice.failure is not None
+        return selection
 
     @staticmethod
     def _blocked_result(selection, reason):
@@ -160,14 +176,13 @@ class ReasoningSource:
         pending = bundle["pending_submission"]
         typed_input = {k: v for k, v in bundle.items() if k != "pending_submission"}
         selection = bundle["selected_action"]
-        unavailable = False
         if selection is None:
-            selection, unavailable = await self._select(typed_input)
+            selection = await self._select(typed_input)
         repair = None
         while True:
             if pending is not None:
                 submission, pending = pending, None
-            elif not selection["permitted"] or unavailable:
+            elif not selection["permitted"]:
                 submission = {
                     "ordinal": bundle["next_ordinal"],
                     "result": self._blocked_result(selection, "action unavailable"),
@@ -192,9 +207,9 @@ class ReasoningSource:
                 if response.failure is None:
                     result = response.value
                 elif response.failure.kind is CallFailureKind.MODEL_CALL:
-                    result = self._blocked_result(
-                        selection, "reasoning model unavailable"
-                    )
+                    # Provider failure is an execution error, not a worker's
+                    # authority to manufacture a blocked host receipt.
+                    raise RuntimeError("reasoning model call failed")
                 else:
                     # Malformed/empty JSON is auditable output, not a failed
                     # reasoning action. The host requests representation repair.

@@ -117,6 +117,11 @@ than adding nondeterministic timestamps to retry identities. Status changes
 are new transitions; previously published records are never overwritten.
 The store checks audit/evidence lineage, before/after consistency, checkpoint
 completeness, immutable hashes and credit/delta consistency before publication.
+Broker construction validates the package before Run registration is published,
+so rejection cannot strand a new unclaimed registration. Broker journal work
+runs off the executor event loop. Model-authored blocked outcomes require the
+same committed producer evidence as other results; a worker-generated blocked
+result is admitted only for the exact action already denied by the host.
 
 An atomic `learning_committed` event contains the complete causal receipt:
 attempt audit → candidate admission/rejection → state delta → yield → historical
@@ -153,6 +158,10 @@ cannot publish successful reasoning completion without the host's receipt.
   automatic external dependency monitor is introduced.
 - Unit transaction replay is crash-safe. Full process resumption remains an
   existing one-shot executor limitation, not a newly claimed feature.
+- Journal operations still verify the chain and store full per-commit state
+  snapshots. Offloading the broker's I/O does not change that storage/replay
+  cost. Delta checkpoints and avoiding full package preflight for legacy Runs
+  are deferred optimizations, not part of the review cleanup.
 
 ## Validation: distinguish machinery from reasoning
 
@@ -178,8 +187,11 @@ The numeric optimum is mechanically verified; the explanation remains
 available for human inspection rather than being declared proven by an LLM.
 
 The live test uses a deterministic Builder fixture and the real linked Episode
-loop/host ledger. It does not claim live Builder-generation or process-isolation
-coverage. A separate systemd/Landlock/seccomp test requires a host whose cgroup
+loop/host ledger, with an explicitly approved benchmark threshold of `0.9`
+instead of the library reference's `0.01`. Its call counts and duration do not
+describe default-threshold behavior. It calls the broker in-process and records
+model events itself, so it does not validate the host–worker transport, live
+Builder generation or process isolation. A separate systemd/Landlock/seccomp test requires a host whose cgroup
 allocation can be attested and skips explicitly otherwise.
 
 Run the hermetic checks through the project runner:
@@ -203,3 +215,5 @@ scripts/run_tests.sh tests/episode_runtime/test_live_reasoning_acceptance.py \
 The harness timeout is an external test fail-safe: it cannot make the Episode
 complete. The bridge is opt-in, uses a mode-0600 local Unix socket, and exposes
 only the existing scoped model transport. Stop it after the acceptance run.
+The bridge requires its socket's parent directory to be owned by the current
+user with mode `0700`, protecting the socket from the instant it is bound.
