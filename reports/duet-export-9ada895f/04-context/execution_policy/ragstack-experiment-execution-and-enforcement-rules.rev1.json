@@ -1,0 +1,115 @@
+{
+  "artifact_id": "context_84f04aed8c8df7c25cf3266c45add379a0f304dbb2b950840ebb33811a65e6aa",
+  "artifact_kind": "execution_policy",
+  "purpose": "ragstack_experiment_execution_and_enforcement_rules",
+  "schema_version": 1,
+  "required": true,
+  "content_hash": "sha256:48dd4c0786535ccdff917f6462200bfa7f0417e132c1460abebc182d46ccbb9d",
+  "created_at": "2026-09-30 15:36:40",
+  "content": {
+    "closure_statuses": {
+      "counted_for_root_progress": [
+        "converged",
+        "bound_hit",
+        "not_tested",
+        "blocked"
+      ],
+      "note": "Every readable collection must end in exactly one of these four statuses. Omission is not a status.",
+      "requirements_by_status": {
+        "blocked": "escalation trigger named verbatim from safety_policy; no further tenant calls for that collection",
+        "bound_hit": "findings note written stating which bound and at which phase; holdout scored only if close-out reserve was still available when the bound hit, otherwise recorded as not-scored with reason",
+        "converged": "holdout scored twice, findings note written",
+        "not_tested": "reason recorded (for example unreadable, empty, or cut by global allocation before start)"
+      }
+    },
+    "episode_and_judging_allocation": {
+      "child_episodes": "max_child_episodes (120) is divided across readable collections at reconnaissance, after reserving 5 for run-level reconnaissance and consolidation. Record the per-collection allocation. Recommended: batch several trials per child Episode rather than one child per trial, so a collection's search fits its allocation.",
+      "exhaustion": "Exhausting a collection's child-episode allocation, judging cap, iteration share, or time share ends that collection's current phase with bound_hit, reported exactly like the call ceiling.",
+      "judging_volume": "Each collection receives a declared cap on Episode-side judgements (synthesis completeness and citation support calls), set at reconnaissance from the time allocation. Mechanical checks (document coverage, chunk resolution, correct-source-document) do not count against it.",
+      "processing_order": "collections in descending document count"
+    },
+    "escalation": {
+      "answer_key_trigger_interpretation": "The operator decided that no external answer key exists and that corpus-generated synthesis-anchored gold evidence sets are the ground truth. These frozen, validated gold sets, which name the required doc_ids and chunk_ids and are checked mechanically for retrieval and citation, SATISFY the answer-key condition. The trigger still fires, and the collection closes as blocked, if a collection's benchmark cannot be frozen with validated gold evidence sets and scoring would otherwise fall back to model self-assessment without a gold set.",
+      "collection_trigger_wording": "Fire on the safety_policy's own condition: the only readable collection is not an ASM paper collection. Additionally, a run with zero readable ASM collections closes the root as blocked.",
+      "rule": "Use the safety_policy's human_escalation list verbatim, not a paraphrase. On any trigger the affected Episode stops tenant calls at once and closes with status blocked, naming the trigger. The root surfaces every blocked closure in its terminal update and does not work around it."
+    },
+    "http_enforcement": {
+      "cross_episode_sharing": "Child Episodes run as separate executions, so the rate limiter and rolling error window are persisted as file-locked state in the run directory (a lock file plus a JSON state file holding in-flight count, last-query timestamp, and the rolling 20-request outcome window). Every request acquires the lock, checks and updates the state, and releases it.",
+      "exact_allowlist": {
+        "GET": [
+          "/ragstack/",
+          "/ragstack/tenants",
+          "/ragstack/asm-next/api/health",
+          "/ragstack/asm-next/api/openapi.json",
+          "/ragstack/asm-next/api/v1/health",
+          "/ragstack/asm-next/api/v1/health/deep",
+          "/ragstack/asm-next/api/v1/version",
+          "/ragstack/asm-next/api/v1/config",
+          "/ragstack/asm-next/api/v1/collections",
+          "/ragstack/asm-next/api/v1/prompt-templates",
+          "/ragstack/asm-next/api/v1/models/available",
+          "/ragstack/asm-next/api/v1/chunks",
+          "/ragstack/asm-next/api/v1/documents",
+          "/ragstack/asm-next/api/v1/graph/stats",
+          "/ragstack/asm-next/api/v1/graph/entities",
+          "/ragstack/asm-next/api/v1/graph/neighbors/{entity}",
+          "/ragstack/asm-next/api/v1/stats/stores",
+          "/ragstack/asm-next/api/v1/stats/tenants",
+          "/ragstack/asm-next/api/v1/jobs"
+        ],
+        "POST": [
+          "/ragstack/asm-next/api/v1/retrieve",
+          "/ragstack/asm-next/api/v1/query"
+        ],
+        "host": "www.bv-brc.org",
+        "matching": "Exact path match after stripping the query string; the only templated segment is {entity} on graph/neighbors. Anything not listed is refused and logged, including every /v1/admin/* and /v1/ingest* path regardless of method. Where this list and the safety_policy's permitted list differ, the intersection applies."
+      },
+      "mandatory_self_test_before_first_tenant_call": [
+        "refuse DELETE on an allowed path",
+        "refuse a path outside /ragstack/asm-next/",
+        "refuse an in-prefix admin GET, e.g. /ragstack/asm-next/api/v1/admin/anything",
+        "refuse GET /ragstack/asm-next/api/v1/ingest/x",
+        "refuse POST to an allowed GET-only path",
+        "refuse a different host",
+        "confirm the refusal log never contains the Authorization header or any token substring"
+      ],
+      "rate_limits": {
+        "max_concurrent_requests_run_wide": 2,
+        "min_seconds_between_query_requests_run_wide": 1.0
+      },
+      "single_client": "One run-wide HTTP client module inside the run directory. All code in every descendant Episode must import and use it; issuing HTTP any other way is prohibited.",
+      "write_confinement": "Every file write goes through a check that resolves the real path and confines it to the run directory or the scratch directory; anything else is refused and logged."
+    },
+    "levels": {
+      "per_collection_child": {
+        "repeated_sub_unit": "one configuration trial on the collection's tuning set",
+        "stopping": "see per_collection_budget_and_stopping"
+      },
+      "root": {
+        "progress": "fraction of readable ASM collections closed with ANY typed terminal status and a recorded reason",
+        "repeated_unit": "one per-collection study",
+        "root_minimum_delta_note": "stopping.minimum_delta = 0.01 governs the root closure count only. It is never the per-collection stagnation threshold.",
+        "stopping_fields_apply_here_only": true
+      }
+    },
+    "per_collection_budget_and_stopping": {
+      "close_out_order": [
+        "model confirmation on the TUNING set only: parameter winner on cheap sweep model vs on strongest available model",
+        "holdout scoring #1: baseline configuration on the cheap sweep model",
+        "holdout scoring #2: final winner on its confirming model (the strongest model if confirmation shows it still wins or improves; otherwise the cheap model, with the reason recorded)"
+      ],
+      "close_out_reserve": 300,
+      "holdout_rule": "The holdout is scored exactly twice per collection as above and never informs any choice, ordering, or stopping decision. Model confirmation never touches the holdout.",
+      "parameter_search_stops_when_any": [
+        "tuning synthesis_completeness >= 0.9",
+        "3 consecutive trials each gain < max(0.05, collection noise floor)",
+        "search calls reach 1200 (bound_hit for the parameter phase)"
+      ],
+      "search_budget": 1200,
+      "structure_trials": "Always run on the parameter winner from any remaining search budget after parameter search stops. Recorded as not_tested or bound_hit only if the search budget is exhausted.",
+      "tenant_billable_call_ceiling": 1500
+    },
+    "precedence": "Binding on every descendant Episode. Where this artifact is more specific than the task_specification or the contract's design_scope, this artifact governs. It may never loosen the safety_policy; where the two differ, the stricter rule applies.",
+    "title": "Execution policy for the per-collection RAGstack asm-next experiment (rev 1)"
+  }
+}

@@ -434,19 +434,20 @@ def get_random_tip(exclude_recent: int = 0) -> str:
     return random.choice(TIPS)
 
 
-# Task-oriented example prompts for the empty composer. Kept generic — Hermes is
-# not a coding-only agent, so they must fit any project or none.
+# Example prompts for the empty composer. OpenChia's composer talks to the
+# Duet, so every example is something a Duet can act on: describing an
+# outcome, inspecting the Architecture, or moving it toward a build and run.
 COMPOSER_PLACEHOLDERS = [
     "Ask anything, or type / for commands…",
-    "Summarize what's in this folder",
-    "Draft a reply to the last email in my inbox",
-    "Plan a feature, then build it step by step",
-    "Find and fix a failing test",
-    "Research this topic and write me a brief",
-    "What changed in this repo recently?",
-    "Turn these notes into a to-do list",
-    "Explain this error and how to fix it",
-    "Set a reminder or schedule a recurring task",
+    "Describe the outcome you want this Episode to produce",
+    "What unit of work should each Episode step perform?",
+    "How should the Run report its result and when should it stop?",
+    "Which external hosts does this workflow need to reach?",
+    "/duet to inspect the current design",
+    "/episode to move between Architecture and materialization",
+    "/review, then /approve to seal the workflow",
+    "/build to materialize the sealed workflow",
+    "/run to execute the materialized specification",
     "Type / to browse commands, or Ctrl+P for the palette"]
 
 

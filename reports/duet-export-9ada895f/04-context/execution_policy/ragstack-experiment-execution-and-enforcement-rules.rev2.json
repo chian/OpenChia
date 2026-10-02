@@ -1,0 +1,135 @@
+{
+  "artifact_id": "context_6ae921a0f0f56e42c665ae499e416972de5ea963f89675c9f89930e34a8dd407",
+  "artifact_kind": "execution_policy",
+  "purpose": "ragstack_experiment_execution_and_enforcement_rules",
+  "schema_version": 2,
+  "required": true,
+  "content_hash": "sha256:9a0f26d88d4a61851fd51af969e793bb6171c46e200f544ce033ca2c9a015239",
+  "created_at": "2026-09-30 15:38:48",
+  "content": {
+    "answer_key_resolution": {
+      "rule": "The safety_policy's answer-key escalation trigger has ALREADY been resolved by a human. The operator recorded decision q_answer_key: no external key exists, and corpus-generated synthesis-anchored gold evidence sets are the ground truth. That decision is the completed human escalation for the trigger. The 'stricter rule wins' precedence must not be re-applied to block collections on this ground.",
+      "still_blocks_when": "A collection's benchmark cannot be frozen with validated gold evidence sets, meaning each gold set names its required doc_ids and chunk_ids and is checked mechanically. That collection closes as blocked rather than falling back to keyless self-assessment."
+    },
+    "budget_attribution": {
+      "close_out_reserve": "300 calls: tuning-set model confirmation plus the two holdout scorings. Nothing else may draw on it.",
+      "exhaustion": "If setup exceeds 300 calls, the excess comes out of the search pool and is recorded as such. If benchmark construction cannot reach the minimum size within setup plus search, the collection closes as bound_hit and records the shortfall.",
+      "search_pool": "Up to 1200 calls minus whatever setup actually used: retrieval screening, parameter trials and structure trials. The 'search calls reach 1200' stop condition counts setup plus search calls together, so the denominator is always defined.",
+      "setup_pool": "Up to 300 calls: reconnaissance smoke sets, pivot-discovery probes, benchmark validation, and the 2-3 noise-floor baseline repeats. Setup calls are counted against the collection's 1500 before any search call.",
+      "total_per_collection": 1500
+    },
+    "capability_hygiene": {
+      "credential_reads": "The token file may be opened only inside the run-wide HTTP client module, in the process that sends the request. No capability, script or prompt may read it in any other way. No code may print, return or log its contents.",
+      "note": "read_file and search_files are not granted, so the token cannot be pulled into model context through a file-reading tool. All file I/O goes through execute_code, using the write-confinement check and the run-wide client. write_file is kept only for materializing deliverables inside the run directory, and every path it writes must be inside the run directory.",
+      "residual_risk_acknowledged": "execute_code can in principle issue any HTTP request. There is no tenant-scoped HTTP capability within the host ceiling. The operator accepts procedural enforcement (the single allowlisted client, file-locked shared limits, and the mandatory self-test) as the control, and every refusal is logged for audit."
+    },
+    "closure_evidence": {
+      "converged_or_bound_hit_after_setup": "A study closing as converged or bound_hit, after its benchmark was frozen, must list in its typed terminal update the relative paths and SHA-256 hashes of: the frozen benchmark, the per-question outcome rows, the leaderboard, the noise-floor record, the findings note, and the holdout scores if close-out was reached. The root must check that each listed file exists and matches its hash before it accepts the closure.",
+      "not_tested_or_blocked": "Must list the path and hash of a reason record, plus any partial artifacts that were produced.",
+      "rule": "A status label alone never counts as a closure.",
+      "unverifiable": "A closure whose listed artifacts are missing or do not match their hashes is recorded as blocked with reason 'closure_evidence_missing'. It is never accepted as converged."
+    },
+    "closure_statuses": {
+      "counted_for_root_progress": [
+        "converged",
+        "bound_hit",
+        "not_tested",
+        "blocked"
+      ],
+      "note": "Every readable collection ends in exactly one of these four statuses. Omission is not a status.",
+      "requirements_by_status": {
+        "blocked": "escalation trigger named verbatim from the safety_policy; no further tenant calls for that collection",
+        "bound_hit": "findings note stating which bound was hit and in which phase; holdout scored only if the close-out reserve was still available, otherwise recorded as not-scored with a reason",
+        "converged": "holdout scored twice, findings note written",
+        "not_tested": "reason recorded"
+      }
+    },
+    "episode_and_judging_allocation": {
+      "child_episodes": "Reserve 5 of max_child_episodes for run-level reconnaissance and consolidation, then divide the rest across readable collections at reconnaissance. Record the allocation. Batch several trials per child Episode.",
+      "exhaustion": "Exhausting a collection's child-episode, judging, iteration or time allocation ends its current phase with bound_hit, reported exactly like the call ceiling.",
+      "judging_volume": "Each collection gets a declared cap on Episode-side judgements, set at reconnaissance from the time allocation. Mechanical checks do not count against it.",
+      "processing_order": "collections in descending document count"
+    },
+    "escalation": {
+      "collection_trigger_wording": "Fire on the safety_policy's own condition: the only readable collection is not an ASM paper collection. A run with zero readable ASM collections closes the root as blocked.",
+      "rule": "Use the safety_policy's human_escalation list verbatim, subject to answer_key_resolution above. On any trigger, the affected Episode stops tenant calls at once and closes as blocked, naming the trigger. The root surfaces every blocked closure and does not work around it."
+    },
+    "http_enforcement": {
+      "cross_episode_sharing": "Child Episodes are separate executions, so the rate limiter and the rolling 20-request error window are persisted as file-locked state in the run directory: a lock file plus a JSON state file. Every request acquires the lock, checks and updates the state, then releases it.",
+      "exact_allowlist": {
+        "GET": [
+          "/ragstack/",
+          "/ragstack/tenants",
+          "/ragstack/asm-next/api/health",
+          "/ragstack/asm-next/api/openapi.json",
+          "/ragstack/asm-next/api/v1/health",
+          "/ragstack/asm-next/api/v1/health/deep",
+          "/ragstack/asm-next/api/v1/version",
+          "/ragstack/asm-next/api/v1/config",
+          "/ragstack/asm-next/api/v1/collections",
+          "/ragstack/asm-next/api/v1/prompt-templates",
+          "/ragstack/asm-next/api/v1/models/available",
+          "/ragstack/asm-next/api/v1/chunks",
+          "/ragstack/asm-next/api/v1/documents",
+          "/ragstack/asm-next/api/v1/graph/stats",
+          "/ragstack/asm-next/api/v1/graph/entities",
+          "/ragstack/asm-next/api/v1/graph/neighbors/{entity}",
+          "/ragstack/asm-next/api/v1/stats/stores",
+          "/ragstack/asm-next/api/v1/stats/tenants",
+          "/ragstack/asm-next/api/v1/jobs"
+        ],
+        "POST": [
+          "/ragstack/asm-next/api/v1/retrieve",
+          "/ragstack/asm-next/api/v1/query"
+        ],
+        "host": "www.bv-brc.org",
+        "matching": "Exact path match after stripping the query string. The only templated segment is {entity}. Everything else is refused and logged, including every /v1/admin/* and /v1/ingest* path under any method. Where this list and the safety_policy's permitted list differ, only their intersection is allowed."
+      },
+      "mandatory_self_test_before_first_tenant_call": [
+        "refuse DELETE on an allowed path",
+        "refuse a path outside /ragstack/asm-next/",
+        "refuse an in-prefix admin GET such as /ragstack/asm-next/api/v1/admin/anything",
+        "refuse GET /ragstack/asm-next/api/v1/ingest/x",
+        "refuse POST to a GET-only path",
+        "refuse a different host",
+        "confirm refusal logs never contain the Authorization header or any token substring"
+      ],
+      "rate_limits": {
+        "max_concurrent_requests_run_wide": 2,
+        "min_seconds_between_query_requests_run_wide": 1.0
+      },
+      "single_client": "One run-wide HTTP client module in the run directory. Every descendant Episode must use it, and no HTTP may be issued any other way.",
+      "write_confinement": "Every write resolves its real path and must land inside the run directory or scratch; anything else is refused and logged."
+    },
+    "levels": {
+      "per_collection_child": {
+        "repeated_sub_unit": "one configuration trial on the collection's tuning set",
+        "stopping": "see per_collection_budget_and_stopping"
+      },
+      "root": {
+        "observation_definition": "A root observation is recorded ONLY when a per-collection study closes with a status accepted under closure_evidence. Child returns that do not close a collection (run-level reconnaissance, intermediate batched trial children, consolidation) are NOT root observations. They cannot count toward root stagnation or root minimum_delta.",
+        "progress": "fraction of readable ASM collections closed with an accepted typed status and a recorded reason",
+        "repeated_unit": "one per-collection study",
+        "root_minimum_delta_note": "stopping.minimum_delta = 0.01 governs root closure observations only. It is never the per-collection stagnation threshold.",
+        "stagnation_note": "Every accepted closure raises progress by 1/N. The root stagnation rule therefore cannot fire while collections remain unclosed, unless there are more than 100 collections. In that case, collections beyond the global allocation are closed as not_tested at reconnaissance, which keeps N at 100 or fewer."
+      }
+    },
+    "per_collection_budget_and_stopping": {
+      "close_out_order": [
+        "model confirmation on the TUNING set only: parameter winner on the cheap sweep model vs the strongest available model",
+        "holdout scoring #1: baseline configuration on the cheap sweep model",
+        "holdout scoring #2: final winner on its confirming model, with the model choice and reason recorded"
+      ],
+      "holdout_rule": "The holdout is scored exactly twice per collection and never informs any choice, ordering or stopping decision. Model confirmation never touches the holdout.",
+      "parameter_search_stops_when_any": [
+        "tuning synthesis_completeness >= 0.9",
+        "3 consecutive trials each gaining < max(0.05, the collection's noise floor)",
+        "setup plus search calls reach 1200 (bound_hit for the search phase)"
+      ],
+      "structure_trials": "Always run on the parameter winner from the remaining search budget. Recorded as not_tested or bound_hit only if that budget is gone."
+    },
+    "precedence": "Binding on every descendant Episode. Governs where it is more specific than the task_specification or the design_scope. It never loosens the safety_policy, except that the answer-key trigger is treated as already resolved by the recorded human decision.",
+    "revision_note": "Revision 2. Supersedes context_84f04aed8c8df7c25cf3266c45add379a0f304dbb2b950840ebb33811a65e6aa. Adds: closure evidence with hashed artifacts so status labels cannot earn credit; a root observation defined as an accepted collection closure only; setup/search/close-out budget pools; explicit resolution of the answer-key trigger by the operator's decision; capability hygiene, with read_file and search_files removed and the residual execute_code risk acknowledged.",
+    "title": "Execution policy for the per-collection RAGstack asm-next experiment (rev 2)"
+  }
+}

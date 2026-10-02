@@ -30,6 +30,28 @@ class _HostPreparedDuetTurn(str):
     """An ordinary turn whose human instruction is already host-persisted."""
 
 
+
+def code_identity_text() -> str:
+    """Version plus the exact commit the running code came from.
+
+    ``<display version> · <branch>@<10-char sha>[+dirty]`` from the shared
+    provenance resolver (install stamp, then live git); ``version unknown``
+    when neither is available, never an exception at banner time.
+    """
+    try:
+        from openchia_cli.version_info import get_version_info
+
+        info = get_version_info()
+    except Exception:
+        return "version unknown"
+    # A tagless checkout's display version is "git.<sha>[.dirty]", which the
+    # commit part below already says more precisely.
+    parts = [] if info.base_version == "unknown" else [info.display_version]
+    if info.commit:
+        branch = f"{info.branch}@" if info.branch else ""
+        parts.append(f"{branch}{info.commit[:10]}{'+dirty' if info.dirty else ''}")
+    return " · ".join(parts) or info.display_version
+
 class OpenChiaCLI(
     OpenChiaCommandMixin,
     OpenChiaBackgroundDuetsMixin,
@@ -229,7 +251,9 @@ class OpenChiaCLI(
         """Show the OpenChia work path without inherited agent-workflow framing."""
 
         self.console.clear()
-        self._console_print("[bold #8fb9a8]OPENCHIA[/]  human + LLM = Duet")
+        self._console_print(
+            f"[bold #8fb9a8]OPENCHIA[/]  human + LLM = Duet   [dim]{code_identity_text()}[/]"
+        )
         self._console_print()
         self._console_print("  [DUET] <----> [WORKFLOW ARCHITECTURE]")
         self._console_print("                       | approve + build")
@@ -245,7 +269,8 @@ class OpenChiaCLI(
         if welcome_skin is not None:
             color = welcome_skin.get_color("banner_text", color)
         return (
-            "OpenChia Duet ready. Describe the outcome, then use /duet to inspect or /help for controls.",
+            f"OpenChia Duet ready ({code_identity_text()}). Describe the outcome, "
+            "then use /duet to inspect or /help for controls.",
             color,
         )
 

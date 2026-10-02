@@ -1,0 +1,63 @@
+{
+  "artifact_id": "context_23bdd3532b4aaf195986d8f41dba9316de4d4a8b9b9edd961ee4ba2da5ec2c71",
+  "artifact_kind": "decision_ledger",
+  "purpose": "ragstack_experiment_operator_addendum",
+  "schema_version": 1,
+  "required": true,
+  "content_hash": "sha256:6dc2b47bb0b14cb8e7361644e9d2f93593a484e5f3121868d01968a07cfb32ea",
+  "created_at": "2026-09-30 16:05:04",
+  "content": {
+    "decisions": [
+      {
+        "id": "d_expected_three_collections",
+        "operator_statement": "There are three ASM collections.",
+        "rule": {
+          "denominator": "Root progress N is the number of readable ASM collections confirmed at reconnaissance, expected to be 3. Each verified result-bearing closure therefore adds about 0.33. This makes the root stagnation rule (3 observations below 0.01) unable to fire while collections remain open, and it resolves the more-than-100-collections case, which cannot arise here.",
+          "mismatch": "If reconnaissance finds a number of readable ASM collections other than 3, record the discrepancy and the identifiers found in the inventory. Proceed with the collections actually readable, and flag the mismatch in the root terminal update and the cross-collection note. If none of the readable collections is an ASM paper collection, close as blocked under the safety_policy trigger."
+        }
+      },
+      {
+        "id": "d_serial_processing",
+        "rule": {
+          "order": "Process the three collections one at a time, largest document count first. A collection is taken to closure, including close-out and holdout scoring, before the next collection's setup begins. Within a collection, the shared rate limits still apply.",
+          "why": "The tenant budget is weekly and stops the whole run when it is exhausted. Serial processing means an exhaustion leaves fully closed, credited results for the collections already done, rather than three partial studies with no winner. Reconnaissance for all three collections (inventory, sizes, graph attributability, model list) may still run up front, because it is cheap."
+        }
+      },
+      {
+        "id": "d_budget_exhaustion_checkpoint",
+        "rule": {
+          "checkpoint_contents": [
+            "run id, UTC timestamp and the detection record of the exhausting response",
+            "for each collection: status, phase reached (setup / phase A / phase B / confirmation / holdout), tenant calls spent per pool, and remaining allocation",
+            "hashes of each frozen benchmark, tuning/holdout split and seed, and judging prompt, so a resumed run can verify it is scoring against the same frozen objects",
+            "the noise-floor record, the leaderboard so far, the named current-best configuration, and the queue of untested axes and structures",
+            "the resolved model identities in use (cheap sweep model, strong model, judge), and the tenant /v1/version at the time"
+          ],
+          "checkpoint_rules": "The checkpoint is a file in the run directory, listed in the closure manifest with its hash. It contains no token material and no Authorization header.",
+          "resume_is_out_of_scope": "Resuming after Monday is NOT part of this Episode. It would be a separate, human-approved run that reads this checkpoint. This contract requires only that the checkpoint be complete and self-describing.",
+          "resume_validity_requirement_for_any_future_run": "A future run resuming from the checkpoint must first rerun one baseline repeat on each partially complete collection and check /v1/version and the model identities. If the baseline falls outside the recorded noise floor, or the server or model versions changed, earlier trials are not comparable. The resumed run must say so, and must either re-establish the noise floor and re-run the current best, or restart that collection's search. This requirement is recorded here so the checkpoint captures everything the check needs."
+        },
+        "trigger": "tenant_budget_exhaustion as defined in safety_policy rev 2."
+      },
+      {
+        "id": "d_small_collection_status",
+        "overrides": [
+          "decision_ledger rev 5 d_benchmark_shortfall.not_tested_by_documents",
+          "decision_ledger rev 5 d_credit_result_bearing_only.admissible_not_tested_reasons (second item)"
+        ],
+        "rule": "not_tested applies ONLY when benchmark construction was never attempted: the collection is unreadable, contains zero documents, or was cut by allocation or budget before setup began. Once construction has been attempted, a shortfall below 10 validated synthesis questions always closes as bound_hit with bound benchmark_shortfall and the achieved count. That closure earns no credit. Each collection therefore gets exactly one possible status."
+      },
+      {
+        "id": "d_manifest_extension",
+        "rule": "The deliverable manifest in decision_ledger rev 5 d_deliverable_manifest is extended with: the resumable checkpoint, when budget exhaustion occurred; a budget record for each collection giving tenant calls spent against the 1500 ceiling; and an expected-versus-found collection-count record. The root verifies these at close-out along with the rest of the manifest."
+      },
+      {
+        "id": "d_budget_expectation",
+        "note": "Worst-case tenant usage is 3 x 1500 = 4500 billable calls. The operator did not state the weekly budget. If it is smaller than that, the run is expected to stop on tenant_budget_exhaustion part-way through. Serial processing and the checkpoint make that stop safe and informative."
+      }
+    ],
+    "precedence": "Operator decisions from the Duet. For the items they cover, they take precedence over decision_ledger rev 5, execution_policy rev 2 and task_specification rev 3. They never loosen safety_policy rev 2.",
+    "provenance": "Operator answers recorded in the Duet: (a) ASM paper text may go to the Episode's own model; (b) if the budget runs out, the run must wait until the budget resets on Monday; (c) there are three ASM collections. Answer (a) is implemented in safety_policy rev 2. This addendum implements (b) and (c) and closes the two remaining low-severity review findings.",
+    "title": "Operator addendum: three collections, serial processing, budget exhaustion and checkpoint (rev 1)"
+  }
+}

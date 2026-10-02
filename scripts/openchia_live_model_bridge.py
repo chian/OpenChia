@@ -25,7 +25,7 @@ async def serve(path, request_timeout):
     if (
         path.parent.is_symlink()
         or not stat.S_ISDIR(parent.st_mode)
-        or parent.st_uid != os.getuid()
+        or (hasattr(os, "getuid") and parent.st_uid != os.getuid())
         or stat.S_IMODE(parent.st_mode) != 0o700
     ):
         raise ValueError(

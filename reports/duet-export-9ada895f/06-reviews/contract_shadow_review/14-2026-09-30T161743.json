@@ -1,0 +1,7 @@
+{
+  "contract_hash": "sha256:6b3f3c447241bab2b476149e144511e4e62c7fd6deea82918f1a5d28eeae152a",
+  "findings": [],
+  "revision": 34,
+  "summary": "The draft is internally coherent. The goal is to find the best per-collection configuration and structure, and the result is a set of per-collection winning profiles with per-question evidence. The repeated unit is one per-collection study, with one tuning-set trial as its sub-unit. Progress is coverage-weighted c = 0.5 + 0.25A + 0.25B, with A and B denominators fixed by addendum rev 4 and credit gated on verified result-bearing closures. The stopping rule makes the root terminal update the operative end. Root stagnation cannot fire early, because each counted closure adds at least 0.5/N, and the draft says target 1.0 may be unreachable. Capabilities are write_file, execute_code and todo_list, and all HTTP goes through the single allowlisted client. The deliverable is the extended manifest with a hashed root manifest referenced by the terminal update. Creator scope stays design-only, and the design_scope's addendum > ledger > execution_policy order settles the overlapping rules. Those rules cover holdout #3, close-out sizing, the blocked vocabulary, not_tested versus bound_hit on cuts, and the use_graph default. The draft never loosens safety_policy rev 2. The evidence requirement and acceptance source match the host facts. No material incoherence was found.",
+  "verdict": "pass"
+}

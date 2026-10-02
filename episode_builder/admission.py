@@ -64,7 +64,7 @@ _ROOT_BUILDERS = {
     "build_goal_state": ("request", "collaborators"),
     "scope_goal_state": ("goal_state", "goal"),
 }
-_ALLOWED_IMPORT_ROOTS = frozenset(
+ADMITTED_IMPORT_ROOTS = frozenset(
     {
         "__future__",
         "collections",
@@ -93,7 +93,7 @@ _ALLOWED_IMPORT_ROOTS = frozenset(
         "types",
     }
 )
-_INTERNAL_IMPLEMENTATION_ROOTS = frozenset(
+INTERNAL_IMPLEMENTATION_ROOTS = frozenset(
     {
         "function_library",
         "handoff_library",
@@ -104,6 +104,10 @@ _INTERNAL_IMPLEMENTATION_ROOTS = frozenset(
         "question_table_goal_library",
     }
 )
+# Private aliases retained for existing call sites; the public names above are
+# the single source of truth that the emitter shows the authoring model.
+_ALLOWED_IMPORT_ROOTS = ADMITTED_IMPORT_ROOTS
+_INTERNAL_IMPLEMENTATION_ROOTS = INTERNAL_IMPLEMENTATION_ROOTS
 _FORBIDDEN_CALL_NAMES = frozenset(
     {
         "__import__",
@@ -204,7 +208,26 @@ def _assigned_values(tree: ast.Module) -> dict[str, list[ast.expr]]:
     return result
 
 
-def _function_parameters(function: ast.FunctionDef) -> tuple[str, ...] | None:
+def _top_level_functions(
+    tree: ast.Module,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    """Index every top-level def, synchronous or async.
+
+    Generated components that call the brokered libraries (``http_json``,
+    ``http_request``, the model calls) are necessarily ``async def``; only the
+    four builders the runtime calls directly must stay synchronous, and the
+    caller checks that separately.
+    """
+    return {
+        statement.name: statement
+        for statement in tree.body
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _function_parameters(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[str, ...] | None:
     arguments = function.args
     if (
         arguments.posonlyargs
@@ -298,6 +321,193 @@ def _scope_goal_state_error(function: ast.FunctionDef) -> str | None:
     return None
 
 
+def constructor_signatures() -> dict[str, dict[str, list[str]]]:
+    """Constructor fields of every library class a generated module builds.
+
+    Read from the dataclasses themselves so the emitter's contract and the
+    admission check below can never disagree with the runtime.
+    """
+    import dataclasses
+
+    import episode_library.models
+    import function_library.models
+    import handoff_library
+    import method_loop
+    import numeric_control_library
+
+    classes = {
+        "episode_library.models.EpisodeLibraryDesign": episode_library.models.EpisodeLibraryDesign,
+        "method_loop.EpisodeBindingDeclaration": method_loop.EpisodeBindingDeclaration,
+        "method_loop.EpisodeControllerBinding": method_loop.EpisodeControllerBinding,
+        "method_loop.EpisodeFunctionBinding": method_loop.EpisodeFunctionBinding,
+        "method_loop.EpisodeChildSlot": method_loop.EpisodeChildSlot,
+        "function_library.models.LibraryFunction": function_library.models.LibraryFunction,
+        "function_library.models.FunctionImplementation": function_library.models.FunctionImplementation,
+        "handoff_library.HandoffPayloadContract": handoff_library.HandoffPayloadContract,
+        "numeric_control_library.ResultColumnSchema": numeric_control_library.ResultColumnSchema,
+    }
+    signatures: dict[str, dict[str, list[str]]] = {}
+    for qualified, cls in classes.items():
+        init_fields = [field for field in dataclasses.fields(cls) if field.init]
+        required = [
+            field.name
+            for field in init_fields
+            if field.default is dataclasses.MISSING
+            and field.default_factory is dataclasses.MISSING
+        ]
+        signatures[qualified] = {
+            "required": required,
+            "optional": [field.name for field in init_fields if field.name not in required],
+            "derived": [field.name for field in dataclasses.fields(cls) if not field.init],
+        }
+    signatures["method_loop.EpisodeTopologyRole"] = {
+        "required": [],
+        "optional": [],
+        "derived": [],
+        "members": [member.name for member in method_loop.EpisodeTopologyRole],
+    }
+    return signatures
+
+
+def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
+    """Check keyword/positional arguments of library class constructions statically.
+
+    A call that unpacks ``*args``/``**kwargs`` cannot be checked and is skipped;
+    everything else must name only real fields and supply every required one.
+    """
+    signatures = {
+        qualified: spec
+        for qualified, spec in constructor_signatures().items()
+        if "members" not in spec
+    }
+    by_module: dict[str, dict[str, str]] = {}
+    for qualified in signatures:
+        module_name, _, class_name = qualified.rpartition(".")
+        by_module.setdefault(module_name, {})[class_name] = qualified
+    local_names: dict[str, str] = {}
+    module_aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in by_module and not node.level:
+            for alias in node.names:
+                qualified = by_module[node.module].get(alias.name)
+                if qualified is not None:
+                    local_names[alias.asname or alias.name] = qualified
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in by_module:
+                    module_aliases[alias.asname or alias.name] = alias.name
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        qualified = None
+        if isinstance(node.func, ast.Name):
+            qualified = local_names.get(node.func.id)
+        elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            module_name = module_aliases.get(node.func.value.id)
+            if module_name is not None:
+                qualified = by_module[module_name].get(node.func.attr)
+        if qualified is None:
+            continue
+        if any(isinstance(item, ast.Starred) for item in node.args) or any(
+            keyword.arg is None for keyword in node.keywords
+        ):
+            continue
+        spec = signatures[qualified]
+        fields = spec["required"] + spec["optional"]
+        supplied = set(fields[: len(node.args)])
+        unknown = sorted(
+            keyword.arg for keyword in node.keywords if keyword.arg not in fields
+        )
+        supplied.update(keyword.arg for keyword in node.keywords if keyword.arg in fields)
+        missing = [name for name in spec["required"] if name not in supplied]
+        if len(node.args) > len(fields):
+            found.append(
+                f"{qualified} at line {node.lineno} takes at most {len(fields)} "
+                f"positional arguments; received {len(node.args)}"
+            )
+        if unknown or missing:
+            parts = []
+            if unknown:
+                parts.append(f"unknown keyword(s) {unknown!r}")
+            if missing:
+                parts.append(f"missing required field(s) {missing!r}")
+            found.append(
+                f"{qualified} at line {node.lineno}: {'; '.join(parts)}; its fields are "
+                f"{fields!r}"
+            )
+    return tuple(found)
+
+
+_FROZEN_BINDING_FIELDS = ("goal", "unit", "result", "progress", "stopping")
+
+
+def _binding_contract_deficits(
+    tree: ast.Module, expected: Mapping[str, object]
+) -> tuple[str, ...]:
+    """Compare the module's BINDING literals with the frozen node, statically.
+
+    The runtime linker rejects a BINDING whose grain_name, interface,
+    topology_role, goal, unit, result, progress or stopping differ from the
+    frozen node by a single character; this makes the same comparison at
+    admission, where the operator sees it as a deficit with the first
+    differing character instead of a failed Run.
+    """
+    constants: dict[str, object] = {}
+    binding: ast.AST | None = None
+    for statement in tree.body:
+        if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+            continue
+        target = statement.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        if target.id == "BINDING":
+            binding = statement.value
+            continue
+        try:
+            constants[target.id] = ast.literal_eval(statement.value)
+        except (ValueError, TypeError, SyntaxError):
+            pass
+    if not isinstance(binding, ast.Call):
+        return ("BINDING must be assigned one EpisodeBindingDeclaration(...) call at module level",)
+    keywords = {keyword.arg: keyword.value for keyword in binding.keywords if keyword.arg}
+    found: list[str] = []
+    for field, want in expected.items():
+        value = keywords.get(field)
+        if value is None:
+            found.append(f"BINDING omits {field}")
+            continue
+        got: object
+        if field == "topology_role" and isinstance(value, ast.Attribute):
+            got = value.attr.lower()
+        elif isinstance(value, ast.Constant):
+            got = value.value
+        elif isinstance(value, ast.Name) and value.id in constants:
+            got = constants[value.id]
+        else:
+            found.append(
+                f"BINDING.{field} must be a string literal or a module-level "
+                "constant so admission can compare it with the frozen contract"
+            )
+            continue
+        if got == want:
+            continue
+        if field in _FROZEN_BINDING_FIELDS and isinstance(got, str) and isinstance(want, str):
+            index = next(
+                (i for i in range(min(len(got), len(want))) if got[i] != want[i]),
+                min(len(got), len(want)),
+            )
+            found.append(
+                f"BINDING.{field} differs from the frozen contract at character "
+                f"{index}: frozen ...{want[max(0, index - 30):index + 40]!r}, module "
+                f"...{got[max(0, index - 30):index + 40]!r}; copy the frozen text "
+                "byte for byte"
+            )
+        else:
+            found.append(f"BINDING.{field} is {got!r}; the frozen node requires {want!r}")
+    return tuple(found)
+
+
 def _imported_modules(tree: ast.Module) -> tuple[str, ...]:
     modules: list[str] = []
     for node in ast.walk(tree):
@@ -358,11 +568,130 @@ def _top_level_effects(tree: ast.Module) -> tuple[str, ...]:
     return tuple(effects)
 
 
+_LOCAL_LIBRARY_ROOTS = frozenset(_INTERNAL_IMPLEMENTATION_ROOTS | {"episode_library"})
+
+
+def _module_file(repository_root: Path, module_name: str) -> Path | None:
+    base = repository_root.joinpath(*module_name.split("."))
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _target_names(target: ast.AST) -> set[str]:
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return set().union(*(_target_names(item) for item in target.elts))
+    return set()
+
+
+def _exported_names(module_file: Path) -> frozenset[str] | None:
+    """Names ``from <module> import <name>`` can bind, read without importing.
+
+    Returns ``None`` when the module star-imports, since its surface cannot be
+    known statically; the caller then skips name resolution for that module.
+    """
+    tree = ast.parse(module_file.read_text("utf-8"), filename=str(module_file))
+    names: set[str] = set()
+
+    def collect(statements: list[ast.stmt]) -> bool:
+        for statement in statements:
+            if isinstance(
+                statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                names.add(statement.name)
+            elif isinstance(statement, ast.Assign):
+                for target in statement.targets:
+                    names.update(_target_names(target))
+            elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+                names.update(_target_names(statement.target))
+            elif isinstance(statement, ast.Import):
+                names.update(
+                    alias.asname or alias.name.split(".", 1)[0]
+                    for alias in statement.names
+                )
+            elif isinstance(statement, ast.ImportFrom):
+                if any(alias.name == "*" for alias in statement.names):
+                    return False
+                names.update(alias.asname or alias.name for alias in statement.names)
+            elif isinstance(statement, (ast.If, ast.Try)):
+                bodies = [statement.body, statement.orelse]
+                if isinstance(statement, ast.Try):
+                    bodies.append(statement.finalbody)
+                    bodies.extend(handler.body for handler in statement.handlers)
+                if not all(collect(body) for body in bodies):
+                    return False
+        return True
+
+    return frozenset(names) if collect(tree.body) else None
+
+
+def _imported_name_deficits(
+    tree: ast.Module, repository_root: Path
+) -> tuple[tuple[str, str], ...]:
+    """Resolve library imports against the real module files, non-executing.
+
+    Admission already restricts import *roots*; this restricts the imported
+    *names* too, so a module that names a real class under the wrong library
+    (``from episode_library.models import EpisodeControllerBinding``) is
+    blocked here instead of failing inside the isolated Run with an
+    ImportError the host cannot see.
+    """
+    found: list[tuple[str, str]] = []
+    for item in ast.walk(tree):
+        if isinstance(item, ast.ImportFrom):
+            if item.level or item.module is None:
+                continue
+            if item.module.split(".", 1)[0] not in _LOCAL_LIBRARY_ROOTS:
+                continue
+            module_file = _module_file(repository_root, item.module)
+            if module_file is None:
+                found.append(
+                    (
+                        "imported_module_missing",
+                        f"import {item.module!r} names no module in the admitted libraries",
+                    )
+                )
+                continue
+            exported = _exported_names(module_file)
+            if exported is None:
+                continue
+            for alias in item.names:
+                if alias.name == "*" or alias.name in exported:
+                    continue
+                if _module_file(repository_root, f"{item.module}.{alias.name}"):
+                    continue
+                found.append(
+                    (
+                        "imported_name_missing",
+                        f"import {alias.name!r} from {item.module!r} names nothing that "
+                        "module defines or re-exports; import it from the library "
+                        "whose __all__ lists it",
+                    )
+                )
+        elif isinstance(item, ast.Import):
+            for alias in item.names:
+                if alias.name.split(".", 1)[0] not in _LOCAL_LIBRARY_ROOTS:
+                    continue
+                if _module_file(repository_root, alias.name) is None:
+                    found.append(
+                        (
+                            "imported_module_missing",
+                            f"import {alias.name!r} names no module in the admitted libraries",
+                        )
+                    )
+    return tuple(found)
+
+
 def _inspect_source(
     module: EmittedEpisodeModule,
     node: NodeMaterializationPlan,
     expected_declaration: Mapping[str, object],
     generated_module_names: frozenset[str],
+    repository_root: Path | None = None,
+    frozen_contract: object | None = None,
 ) -> tuple[BuildDeficit, ...]:
     local_id = node.local_id
     deficits: list[BuildDeficit] = []
@@ -416,11 +745,7 @@ def _inspect_source(
             f"required exports are assigned more than once: {duplicated!r}",
         )
 
-    functions = {
-        statement.name: statement
-        for statement in tree.body
-        if isinstance(statement, ast.FunctionDef)
-    }
+    functions = _top_level_functions(tree)
     module_values = set(assigned)
     required_builders = {
         "build_controller_factory": _BUILD_CONTROLLER_FACTORY_PARAMETERS,
@@ -434,6 +759,12 @@ def _inspect_source(
                 "module_exports_incomplete",
                 f"module_source.{name}",
                 f"module omits synchronous {name}()",
+            )
+        elif isinstance(function, ast.AsyncFunctionDef):
+            add(
+                "builder_async_forbidden",
+                f"module_source.{name}",
+                f"{name} must be a synchronous def; the runtime calls it directly",
             )
         elif _function_parameters(function) != parameters:
             add(
@@ -566,6 +897,10 @@ def _inspect_source(
                 f"{name} differs from the admitted materialization plan",
             )
 
+    if repository_root is not None:
+        for code, detail in _imported_name_deficits(tree, repository_root):
+            add(code, "module_source", detail)
+
     for imported in _imported_modules(tree):
         if imported.startswith("."):
             add(
@@ -594,6 +929,19 @@ def _inspect_source(
                 "module_source",
                 f"generated Episode import {imported!r} bypasses runtime tree linking",
             )
+
+    for detail in _constructor_argument_deficits(tree):
+        add("constructor_arguments_invalid", "module_source", detail)
+
+    if frozen_contract is not None:
+        expected: dict[str, object] = {
+            "grain_name": node.grain_name,
+            "interface": node.interface,
+            "topology_role": node.topology_role,
+            **{field: getattr(frozen_contract, field) for field in _FROZEN_BINDING_FIELDS},
+        }
+        for detail in _binding_contract_deficits(tree, expected):
+            add("binding_contract_mismatch", "module_source.BINDING", detail)
 
     for item in ast.walk(tree):
         if isinstance(item, ast.Attribute) and item.attr in _FORBIDDEN_ATTRIBUTES:
@@ -819,6 +1167,8 @@ class EpisodeBuildAdmission:
                 node,
                 declaration,
                 generated_module_names,
+                self.repository_root,
+                frozen_by_id[local_id].contract,
             )
             deficits.extend(node_deficits)
             if not node_deficits:

@@ -75,12 +75,14 @@ not an additional live reasoning claim.
 ## Evidence and limits
 
 The latest local raw report is
+<!-- no-tmp: ok — historical report path recorded from an acceptance run, not guidance -->
 `/tmp/openchia-reasoning-repair-live.Q01qIk/report.json` (SHA-256
 `b5f73b2808abce58f989045159c26ee613caeeaae5ecda80db797dd54299f83c`).
 It contains the problem, every live model request/response and route, all host
 learning events, the final receipt, the schedule, the explanation and the
 independent oracle result. Temporary RunStore files belong to the normal
 test-runner sandbox and are cleaned after the run. The earlier diagnostic
+<!-- no-tmp: ok — historical report path recorded from an acceptance run, not guidance -->
 report remains at `/tmp/openchia-live-acceptance.9YiSGf/report-v2.json`.
 
 This demonstrates a real model solving a checkable reasoning problem through

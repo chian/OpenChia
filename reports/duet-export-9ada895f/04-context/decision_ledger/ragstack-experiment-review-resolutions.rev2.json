@@ -1,0 +1,92 @@
+{
+  "artifact_id": "context_16e29bcd0427a72b6b74d59514d129ce69799c39018fcbc4908cff528d0770a3",
+  "artifact_kind": "decision_ledger",
+  "purpose": "ragstack_experiment_review_resolutions",
+  "schema_version": 2,
+  "required": true,
+  "content_hash": "sha256:0825d0a0b0ba19e98caa439fbd9694ce07de0eff11efcf44e8fdf7fefd758e04",
+  "created_at": "2026-09-30 15:42:30",
+  "content": {
+    "decisions": [
+      {
+        "finding": "credit_attainable_without_verified_results",
+        "id": "d_credit_result_bearing_only",
+        "overrides": [
+          "execution_policy.closure_statuses.counted_for_root_progress",
+          "execution_policy.closure_evidence.unverifiable",
+          "execution_policy.levels.root.progress"
+        ],
+        "rule": {
+          "admissible_not_tested_reasons": [
+            "collection unreadable to this token",
+            "collection empty or below the minimum document count needed to build 20 synthesis questions",
+            "cut by the recorded global allocation before its setup phase began"
+          ],
+          "blocked_and_not_tested": "Still required as closures with a reason record, and still surfaced by the root, but each contributes 0 to root progress.",
+          "evidence_failure": "A closure whose listed artifacts are missing or fail hash verification is NOT a closure. The root rejects it, records the rejection, and the collection remains open. It may be re-attempted within its remaining allocations, or closed as bound_hit when they are exhausted. Only a bound_hit that lists verified artifacts earns credit.",
+          "result_bearing_closure": "converged, or bound_hit reached AFTER the collection's benchmark was frozen, with every closure artifact listed by path and SHA-256 and verified by the root",
+          "root_progress": "number of readable ASM collections with a verified result-bearing closure, divided by the number of readable ASM collections",
+          "unlisted_reasons": "Any other reason to stop a collection is recorded as blocked (with the trigger) or as bound_hit (with the bound), never as not_tested."
+        }
+      },
+      {
+        "finding": "root_stagnation_can_orphan_unclosed_collections",
+        "id": "d_root_stagnation_and_orphans",
+        "overrides": [
+          "execution_policy.levels.root.stagnation_note",
+          "execution_policy.levels.root.observation_definition"
+        ],
+        "rule": {
+          "completeness_invariant": "The root's terminal update must list every readable ASM collection with exactly one status and a reason. A collection absent from that list is a failed run.",
+          "orphan_closure": "If the root stops for ANY reason while readable collections remain unclosed (a global bound, or the root stopping rule), each unclosed collection is closed as bound_hit, naming the specific bound, or as not_tested with reason 'cut by global allocation' if its setup phase never began. The root terminal update lists them. No collection is ever omitted.",
+          "root_observations": "Only verified result-bearing closures are root stagnation observations. Blocked and not_tested closures are recorded and surfaced, but they are NOT stagnation observations, so a run of them cannot stop the root.",
+          "run_end": "The root ends when every readable collection has a closure of some status, or when a global safety bound is reached, whichever comes first. Progress below 1.0 is reported with the blocked and not_tested collections and their reasons, and is never described as convergence.",
+          "why": "Every result-bearing closure raises progress by 1/N, which is at least 0.01 when N is at most 100. Under this rule, root stagnation therefore cannot fire while collections remain open. Collections beyond 100 are closed as not_tested at reconnaissance with that reason."
+        }
+      },
+      {
+        "finding": "per_collection_graph_scope_unestablished",
+        "id": "d_graph_scope",
+        "rule": "The graph endpoints take no collection parameter, so graph evidence counts for a collection ONLY if every triple used resolves through GET /v1/chunks with that collection explicitly named, and the resolved chunk's doc_id is in that collection's retrieval-derived inventory. For pivot discovery, any triple that does not resolve this way is discarded. For graph availability and the use_graph axis: if the resolvable fraction of a sample of at least 50 top triples is under 0.5, the collection is recorded as graph-not-attributable; pivot discovery then falls back to separate bm25 and vector probes, and use_graph is recorded as not-tested for that collection (never no-effect). The size and graph table must report the resolvable fraction per collection, not the tenant-wide graph counts."
+      },
+      {
+        "finding": "holdout_baseline_winner_delta_confounds_model",
+        "id": "d_holdout_model_matched",
+        "overrides": [
+          "execution_policy.per_collection_budget_and_stopping.close_out_order",
+          "execution_policy.per_collection_budget_and_stopping.holdout_rule",
+          "task_specification.measurement_validity.holdout_split.use"
+        ],
+        "rule": {
+          "attribution_rule": "The configuration effect is reported as holdout #2 minus holdout #1, on the same model. The model effect is reported as holdout #3 minus holdout #2, on the same configuration. The findings note must never attribute the #3 minus #1 difference to the configuration alone.",
+          "budget": "All holdout scorings come from the 300-call close-out reserve.",
+          "holdout_scorings": [
+            "#1: baseline configuration on the cheap sweep model",
+            "#2: final winning configuration on the cheap sweep model",
+            "#3: final winning configuration on the strongest available model, taken only if tuning-set confirmation selected the strongest model; otherwise recorded as not-needed"
+          ],
+          "never_steers": "The holdout still never informs any choice, ordering or stopping decision. All three scorings happen after search and tuning-set confirmation have closed."
+        }
+      },
+      {
+        "finding": "judge_independence_unresolved_if_episode_model_on_tenant_axis",
+        "id": "d_judge_collision",
+        "rule": "If GET /v1/models/available lists the Episode's own model, or another model of the same provider and family, strike it from the llm axis for both the sweep and the strong-model confirmation, and record the strike and its reason. The judge and question generator stay the Episode's own model. If no model remaining after the strike returns grounded answers on the smoke set, close the collection as blocked with trigger 'no_independent_sweep_model'."
+      },
+      {
+        "finding": "episode_side_cost_not_measurable_with_granted_capabilities",
+        "id": "d_episode_cost_estimated",
+        "rule": "Tenant billable calls are measured. Episode-side judging and generation cost is reported as an ESTIMATE: count the judgement calls, estimate tokens from the character length of prompts and responses at a stated characters-per-token ratio, and label the result 'estimated', with the method. Never present it as measured."
+      },
+      {
+        "finding": "token_leak_verification_gate_not_placed",
+        "id": "d_token_leak_gate",
+        "rule": "Before the root writes its terminal update, run a final gate INSIDE the run-wide HTTP client module, which is the only code allowed to open the token file. It scans every file in the run directory and scratch for the token's first 8 and last 8 characters, then writes a hashed scan record with the file count, byte count and pass/fail. The record never contains the token or any substring of it. On any match, the root closes as blocked with trigger 'credential_leak_detected', deletes nothing, and surfaces only the matching file paths. The root terminal update lists the scan record's path and hash."
+      }
+    ],
+    "precedence": "Binding on every descendant Episode. For the items it covers, it overrides execution_policy rev 2 and the task_specification. It never loosens the safety_policy.",
+    "provenance": "Resolutions of the advisory contract reviews at revisions 22 and 23 (review_5ea877d1... and review_aa424686...), proposed by the Duet as conservative defaults for human review before approval.",
+    "revision_note": "Revision 2. Supersedes context_83ffe1d27037f04515f131a8fbb3d59047c096dcf32bbd1ee0d62db6b74dd8d5. Adds root stagnation and orphan-closure rules, per-collection graph attribution, and model-matched holdout scoring (three scorings instead of two).",
+    "title": "Decision ledger: closure credit, root stopping, graph scope, holdout attribution, judge collision, cost labelling, token-leak gate (rev 2)"
+  }
+}

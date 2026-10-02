@@ -1,0 +1,29 @@
+{
+  "identity": {
+    "conversation_id": "conversation_9ada895f2270413a56581fc75097f1fe965fe0f57434c5bdfea9d293c75d44dd",
+    "duet_id": "duet_9ada895f2270413a56581fc75097f1fe965fe0f57434c5bdfea9d293c75d44dd",
+    "human_authority_id": "human_b5fa2bb6433d3594b1a28cce35042a1b8863446531e825d9017601c43ca98c9a",
+    "policy_id": "policy_faeaffb73204330edea1057769ee186e8c19092bef8d3b8fc6072fd435752428"
+  },
+  "policy": {
+    "capability_allowlist": [
+      "creator_context_artifact",
+      "creator_context_read",
+      "duet_answer",
+      "duet_contract_patch",
+      "duet_contract_review",
+      "duet_decision",
+      "duet_status",
+      "episode_creator",
+      "openchia_scope",
+      "web_extract",
+      "web_search"
+    ],
+    "creator_proposal_bound": 8,
+    "maximum_creator_depth": 4,
+    "minimum_method_credit": 0.0,
+    "policy_id": "policy_faeaffb73204330edea1057769ee186e8c19092bef8d3b8fc6072fd435752428"
+  },
+  "state": "failed",
+  "updated_at": "2026-09-30 16:54:59"
+}

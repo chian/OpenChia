@@ -1,0 +1,97 @@
+{
+  "creator_contract_hash": "sha256:bde9529d67540806193dc0c319e3e89211c4d837b3c74097e2b1f5b2401d64a9",
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "lenses": {
+    "contract_alignment": {
+      "findings": [
+        {
+          "code": "goal_not_contract_goal",
+          "explanation": "The root goal is 'Probe A: shared_state deliverable.' The contract goal is a measured, read-only, per-collection RAGstack asm-next configuration and structure experiment. The root would pursue a different objective, and none of the six context artifacts' binding rules would be expressed in it: serial strata, frozen synthesis benchmarks, noise floor, holdout, and HTTP and token enforcement.",
+          "fields": [
+            "workflow.episodes[0].contract.goal",
+            "creator_contract.goal"
+          ],
+          "question": "Will the root goal be replaced with the contract goal, and will it reference the six hash-verified context artifacts and their precedence order?",
+          "severity": "high"
+        },
+        {
+          "code": "progress_metric_mismatch",
+          "explanation": "The root uses durable_evidence_count_v1, which counts 'records'. The contract requires creator_method_credit_v1, which measures root_episode_progress as the coverage-weighted sum of c over N readable ASM collections, with c = 0.5 + 0.25A + 0.25B for verified result-bearing closures only. A record count cannot yield the contracted measurement or the root_experiment_progress credit component. It would also reward artifact volume instead of verified closures.",
+          "fields": [
+            "workflow.episodes[0].contract.progress.adapter_id",
+            "workflow.episodes[0].contract.progress.unit",
+            "creator_contract.progress",
+            "creator_contract.return_contract.measurement_ids"
+          ],
+          "question": "Will the root progress use creator_method_credit_v1 with unit root_episode_progress and the addendum's c, A and B definitions?",
+          "severity": "high"
+        },
+        {
+          "code": "stopping_rule_mismatch",
+          "explanation": "The root stopping rule is target 3.0, minimum_delta 1.0, stagnation 2. The contract requires target 1.0, minimum_delta 0.01, stagnation 3. Under the contract, only verified result-bearing closures count as observations, and the run ends through the root terminal update once all readable collections are closed. The probe's rule could stop after three arbitrary records while collections remain open, and it would not handle orphan closures.",
+          "fields": [
+            "workflow.episodes[0].contract.stopping",
+            "creator_contract.stopping"
+          ],
+          "question": "Will the root stopping rule match the contract, with observations defined as verified result-bearing closures?",
+          "severity": "high"
+        },
+        {
+          "code": "unit_not_per_collection_study",
+          "explanation": "The unit is 'Probe unit.' The contract's repeated unit is one per-collection study, from reconnaissance to a typed, hash-verified closure. That study includes phase A and phase B, model confirmation, and model-matched holdout scoring. Without it, serial largest-first processing and per-collection closure cannot be expressed.",
+          "fields": [
+            "workflow.episodes[0].contract.unit",
+            "creator_contract.unit"
+          ],
+          "question": "Will the root unit be defined as one per-collection study, as the contract specifies?",
+          "severity": "high"
+        },
+        {
+          "code": "safety_bounds_missing",
+          "explanation": "The root has null safety bounds. The contract sets 120 child episodes, depth 3, 43200 seconds and 80 iterations. d_root_closeout_reserve derives its reserve from max_elapsed_seconds and max_iterations, and the execution policy splits child-episode allocations from max_child_episodes. Neither can be computed without these bounds.",
+          "fields": [
+            "workflow.episodes[0].contract.safety_bounds",
+            "creator_contract.safety_bounds"
+          ],
+          "question": "Will the root carry the contract's safety bounds so the close-out reserve and per-collection allocations are defined?",
+          "severity": "high"
+        },
+        {
+          "code": "no_per_collection_decomposition",
+          "explanation": "The workflow has one episode, no children and a null creator_contract. The contract and execution policy expect batched per-collection child studies that return typed, hashed closures for the root to verify, plus 5 reserved child episodes for reconnaissance and consolidation. The blueprint gives no way to allocate, delegate or verify these closures.",
+          "fields": [
+            "workflow.episodes",
+            "workflow.episodes[0].contract.creator_contract"
+          ],
+          "question": "How will the per-collection studies and their closure verification be structured, either as child episodes or as an explicit in-root design within max_depth 3?",
+          "severity": "medium"
+        },
+        {
+          "code": "deliverable_and_result_underspecified",
+          "explanation": "The deliverable is 'Run directory.' and the result is 'Probe result.' The contract requires the extended deliverable manifest: per-collection records, run-level records, any checkpoint, the root closure summary, and a hashed root manifest referenced by the terminal update. None of this would be required or verified.",
+          "fields": [
+            "workflow.episodes[0].contract.deliverable.description",
+            "workflow.episodes[0].contract.result",
+            "creator_contract.deliverable",
+            "creator_contract.result"
+          ],
+          "question": "Will the deliverable and result restate the extended manifest and the root-manifest hash requirement?",
+          "severity": "medium"
+        },
+        {
+          "code": "capability_set_narrower_than_contract",
+          "explanation": "The root omits todo_list, which the contract grants. This is not a safety problem, but a long, multi-phase run loses a planning aid the contract anticipated.",
+          "fields": [
+            "workflow.episodes[0].contract.execution_capability_names",
+            "creator_contract.execution_capability_names"
+          ],
+          "question": "Is omitting todo_list intentional?",
+          "severity": "low"
+        }
+      ],
+      "summary": "The blueprint is a placeholder probe, not the contracted workflow. Its single root episode differs from the creator contract in goal, unit, progress measurement, stopping rule, safety bounds, deliverable and result. It cannot produce the root_episode_progress measurement or the root terminal update the contract's credit assignment depends on.",
+      "verdict": "block"
+    }
+  },
+  "workflow_blueprint_hash": "sha256:57f584768949142dce514bf8e02ab8333371ef643b792fe5bb9b19e4ec6b559f"
+}

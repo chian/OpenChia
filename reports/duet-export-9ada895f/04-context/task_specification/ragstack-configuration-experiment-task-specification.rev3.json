@@ -1,0 +1,224 @@
+{
+  "artifact_id": "context_274dd006f14f08b9e6779632984583e6feab489523d0d9bf910ba31912e1c9cd",
+  "artifact_kind": "task_specification",
+  "purpose": "ragstack_configuration_experiment_task_specification",
+  "schema_version": 3,
+  "required": true,
+  "content_hash": "sha256:7436c7feca4c9016c59962cb2417a34f7262eb5ad49f1666d2a182e1437c3159",
+  "created_at": "2026-09-30 15:05:43",
+  "content": {
+    "benchmark_requirement": {
+      "acceptable_forms_in_preference_order": [
+        {
+          "form": "operator_supplied_answer_key",
+          "rank": 1,
+          "status": "NOT AVAILABLE per operator decision q_answer_key"
+        },
+        {
+          "form": "synthesis_anchored_generated_questions",
+          "gold_object": "For each question: a gold EVIDENCE SET -- two or more chunk_ids drawn from two or more DISTINCT doc_ids within one collection -- plus an enumerated list of the required evidence items the answer must contain, one per contributing document.",
+          "note": "Identify a pivot shared by several documents in a collection and generate a question that cannot be answered correctly from any one of them alone.",
+          "rank": 2,
+          "status": "SELECTED"
+        },
+        {
+          "form": "llm_judge_without_key",
+          "rank": 3,
+          "status": "NOT PERMITTED as the scoring basis. May not be substituted for the rank-2 gold set. A run that does so and presents a correctness ranking is a failed run."
+        }
+      ],
+      "construction_method": {
+        "generator_independence": "Questions and evidence-item lists are written by the executing Episode's own model, NOT by any model enumerated on the llm axis of the tenant.",
+        "per_collection": "Constructed independently within each collection. A question must never require evidence from a document in a different collection.",
+        "pivot_discovery": [
+          "Preferred where the graph is available for the collection: GET /v1/graph/entities (most-connected first) and GET /v1/graph/neighbors/{entity}; a pivot entity whose triples resolve to two or more distinct doc_ids is a cross-paper link.",
+          "Where the graph is unavailable or empty for that collection: issue SEPARATE POST /v1/retrieve probes with retrieval_mode=bm25 and retrieval_mode=vector at high top_k, take the UNION of their results, group by doc_id, and keep pivots spanning two or more documents.",
+          "PROHIBITED: discovering pivots with retrieval_mode=hybrid, or with any rerank setting, or with any configuration that is itself a trial candidate. A benchmark built by the hybrid retriever is biased toward documents the hybrid retriever already finds and would inflate hybrid's document coverage."
+        ],
+        "provenance_per_question": "Every question records which pivot-discovery path produced it (graph, bm25, vector, or both lexical and vector), so a reader can check whether any retrieval mode is favoured by construction.",
+        "validation": "Every generated question is checked against its own gold evidence set before freezing: it must be unanswerable from any single contributing document alone. A question one document answers on its own is reclassified into the control class."
+      },
+      "freeze_rule": "The question set, the tuning/holdout split, the gold evidence sets and the required-evidence-item lists are frozen before the collection's first scored trial and are never edited afterward.",
+      "mix": {
+        "control_class_share": "minority",
+        "control_class_why": "Single-document lookup questions are the control arm that makes a bm25-versus-vector claim interpretable and against which each configuration's synthesis penalty is measured.",
+        "primary_class": "multi_paper_synthesis",
+        "primary_class_share": "majority",
+        "ruling": "Operator directive: 'preferable multi-paper synthesis'."
+      },
+      "selected_form": "synthesis_anchored_generated_questions"
+    },
+    "collection_strata": {
+      "aggregation_across_collections": "Reporting only, never scoring. A cross-collection summary may note that an axis moved the same direction everywhere, or that it did not. It must never average scores across collections into a single headline number.",
+      "definition": "Each readable ASM collection enumerated by GET /v1/collections is an independent experimental stratum with its own benchmark question set, its own trial leaderboard, its own winning configuration profile, its own noise floor, its own holdout result and its own findings.",
+      "no_union_arm": "The multi-collection union is explicitly OUT OF SCOPE. No trial may pass a `collections` array with more than one element. Every request names exactly one collection explicitly.",
+      "ruling": "Operator directive: collections are used and measured SEPARATELY, not merged.",
+      "why_it_matters": "A per-collection design costs more calls than a union design and buys the ability to say that an axis helped one collection and hurt another. The operator has ruled that distinction in."
+    },
+    "deliverable_shape": {
+      "per_collection_outputs": [
+        "winning configuration profile, as a runnable JSON object naming every parameter, the episode structure, and the model it was validated on",
+        "trial leaderboard, one row per trial, with the full parameter vector, synthesis completeness, document coverage, citation support, whether the delta exceeded the noise floor, and the cost vector",
+        "per-question outcome rows for every trial: answer, cited doc_ids and chunk_ids, distinct-document count, verdict, failure class, truncated flag",
+        "the frozen benchmark question set with gold evidence sets, class labels, pivot-discovery provenance, and the tuning/holdout split with its seed",
+        "noise-floor record and holdout result with the overfitting estimate",
+        "findings note: which axes mattered in THIS collection beyond noise, which were within noise, which could not be tested and why"
+      ],
+      "root_directory": "one run-scoped directory under /Users/me/Development/OpenChia",
+      "run_level_outputs": [
+        "the resolved QueryRequest schema as fetched, with fetch timestamp",
+        "the collection, prompt-template and model inventories as fetched, with the cheap/strong model choice and its reasoning",
+        "per-collection size and graph-availability table",
+        "the frozen judging prompt and its hash",
+        "total cost: tenant billable calls per collection plus the Episode's own judging and generation cost recorded separately",
+        "a cross-collection comparison note that reports agreement and disagreement between strata without averaging them"
+      ]
+    },
+    "failure_taxonomy": {
+      "borrowed_from": "the deployment's own grading vocabulary, extended for synthesis",
+      "classes": [
+        {
+          "id": "correct_grounded",
+          "meaning": "All required evidence items present, all citations resolve and support."
+        },
+        {
+          "id": "incomplete_synthesis",
+          "meaning": "Accurate as far as it goes but omits one or more required evidence items. THE CENTRAL FAILURE CLASS. Never scored as correct."
+        },
+        {
+          "id": "retrieval_coverage_miss",
+          "meaning": "One or more required documents never appeared in the retrieved sources."
+        },
+        {
+          "id": "unsupported_citation",
+          "meaning": "Content correct but one or more cited chunk_ids do not support the claim on resolution. A distinct failure, never a pass."
+        },
+        {
+          "id": "wrong",
+          "meaning": "Answer contradicts the gold evidence."
+        },
+        {
+          "id": "truncated",
+          "meaning": "QueryResponse.truncated is set. Recorded separately."
+        },
+        {
+          "id": "retrieval_only_placeholder",
+          "meaning": "No LLM configured; not an answer. Excluded from scoring, recorded as an infrastructure condition."
+        },
+        {
+          "id": "transient_error",
+          "meaning": "429 or 503. Retried with backoff, counted in the cost vector, never scored as an answer failure."
+        }
+      ]
+    },
+    "measurement_validity": {
+      "holdout_split": {
+        "reporting": "The headline per-collection score of the winner is the HOLDOUT score. The tuning-set score is reported alongside it, and the gap between them is reported as the overfitting estimate.",
+        "rule": "Before any scored trial, randomly and reproducibly (with a recorded seed) set aside about 25% of each collection's frozen questions, stratified so both the synthesis and control classes are represented.",
+        "use": "The holdout set is never used to choose a delta. It is scored exactly twice per collection: on the baseline configuration and on the final winning configuration."
+      },
+      "judge_policy": {
+        "independence": "The judge must not be any model on the tenant's llm axis, and must not be the /v1/query pipeline. A pipeline must never grade its own answers.",
+        "mechanical_parts": "Document coverage, distinct-document count, citation resolvability through GET /v1/chunks, and correct-source-document checks are computed mechanically, not judged.",
+        "rule": "Synthesis completeness and citation support are judged by the executing Episode's own model under one fixed judging prompt that is written once, frozen with the benchmark, and hashed into the run record."
+      },
+      "minimum_benchmark_size": {
+        "rule": "At least 20 multi-paper synthesis questions and at least 5 single-document control questions per collection, before the holdout split is taken.",
+        "shortfall": "If a collection cannot yield 20 validated synthesis questions, record the actual count, mark every comparison in that collection as low-power, and do not claim an axis effect there smaller than the collection's noise floor."
+      },
+      "noise_floor": {
+        "interaction_with_stopping": "The stagnation rule counts an observation as non-improving if its gain is below max(minimum_delta, noise floor).",
+        "rule": "Run the baseline configuration on the tuning set at least 2 and preferably 3 times per collection, with identical parameters.",
+        "use": "The spread of synthesis_completeness across those repeats is that collection's noise floor. A trial delta is recorded as an axis EFFECT only if its improvement or regression exceeds the noise floor; smaller deltas are recorded as within-noise, not as effects and not as no-effect."
+      }
+    },
+    "measures": {
+      "citation_support": "Fraction of cited chunk_ids that, on resolution through GET /v1/chunks, actually support the claim they are attached to.",
+      "document_coverage_at_k": "Of the distinct doc_ids in a question's gold evidence set, the fraction that appear in the retrieved sources at k. Primary retrieval measure; computable from POST /v1/retrieve alone.",
+      "primary_score": "synthesis_completeness on the HOLDOUT set, reported per collection",
+      "synthesis_completeness": "Of the enumerated required evidence items for a question, the fraction the returned answer actually states, with each stated item's citation resolving to a supporting chunk in the correct source document.",
+      "yield": "credited datapoints per billable call, where billable_calls = provider_calls + llm_calls. Null when no cost record exists."
+    },
+    "model_cost_policy": {
+      "answer": "Yes for the parameter sweep, with a mandatory confirmation on the strongest model, and no for the judge.",
+      "budget_note": "The 1500 billable-call ceiling counts calls to the asm-next tenant. Judging and question generation by the Episode's own model are not tenant calls; they are recorded separately so the reader sees total cost.",
+      "confirmation_step": "After a collection's winner is found on the cheap model, run the llm axis explicitly: the winning configuration on the cheap model versus on the strongest available model, on the tuning set and then the holdout. Report whether the winning parameters still win on the stronger model.",
+      "cost_inference": "The API does not report model price. Relative cost is inferred from model identity and from the recorded prompt_tokens, completion_tokens and wall_ms per call; the executing Episode records which model it treated as cheap and strong and why.",
+      "judge_exception": "The judge is not a cost-saving target. Judge errors add directly to the noise floor and can erase real axis effects.",
+      "operator_question": "Should we use a cheaper model?",
+      "sweep_model": "Hold the tenant llm override at the cheapest available model (from GET /v1/models/available) that returns real, non-placeholder grounded answers on a small smoke set, and run all retrieval, template, rewrite and structure trials on it.",
+      "why_confirmation_is_required": "Parameter optima can interact with the model. A stronger long-context model may exploit a larger top_k and context_window that a cheap model is swamped by, and synthesis questions are exactly where that interaction is likely. Without this step the recommendation is only valid for the cheap model and must be labelled so."
+    },
+    "open_questions": [],
+    "operator_decisions": [
+      {
+        "decision": "No existing answer key. The run generates a synthesis-anchored question set from the corpus (benchmark form rank 2).",
+        "id": "q_answer_key",
+        "status": "RESOLVED by operator"
+      },
+      {
+        "decision": "All readable ASM collections count equally. If the budget binds, collections are processed in descending order of document count, and any collection not completed is reported as bound_hit / not-tested, never omitted silently.",
+        "id": "q_collection_priority",
+        "status": "RESOLVED by operator"
+      },
+      {
+        "decision": "A ceiling of 1500 billable calls to the asm-next tenant PER COLLECTION, where billable_calls = provider_calls + llm_calls as counted in the cost vector. Reaching it ends that collection's search with bound_hit, never with convergence.",
+        "id": "q_cost_ceiling",
+        "status": "RESOLVED by operator"
+      },
+      {
+        "decision": "Majority multi-paper synthesis within a single collection; minority single-document lookup retained as a control class.",
+        "id": "q_question_mix",
+        "status": "RESOLVED by operator directive 'preferable multi-paper synthesis'"
+      },
+      {
+        "decision": "Apply the noise floor, holdout split, unbiased pivot discovery and minimum benchmark size defined under measurement_validity.",
+        "id": "q_measurement_controls",
+        "status": "RESOLVED by operator (accepted all four)"
+      }
+    ],
+    "revision_note": "Revision 3. Supersedes context_d393ea885029b6da4556ca59c664b75a37df344d0a3090e13a887de2779d131b (rev 2). All open questions are now resolved by operator decision. Adds four measurement-validity controls the operator accepted: a per-collection noise floor from repeated baseline runs, a held-out question split, a pivot-discovery rule that avoids biasing the benchmark toward hybrid retrieval, and a minimum benchmark size. Adds a model-cost policy answering the operator's question about using a cheaper model.",
+    "sequencing": {
+      "phases": [
+        {
+          "id": "reconnaissance",
+          "must_precede_all_scoring": true,
+          "note": "Per collection: size (GET /v1/stats/tenants counts=true), graph availability, readable status, template and model inventories, resolved QueryRequest schema, and cheap/strong model selection via a smoke set. Findings may strike axes."
+        },
+        {
+          "id": "benchmark_construction",
+          "note": "Per collection, using the unbiased pivot-discovery rule. Minimum size enforced. Holdout split taken with a recorded seed. Everything frozen."
+        },
+        {
+          "id": "noise_floor",
+          "note": "Per collection: 2-3 identical baseline runs on the tuning set."
+        },
+        {
+          "id": "retrieval_screening",
+          "note": "Per collection, through POST /v1/retrieve on document_coverage_at_k over the tuning set. No configuration reaches a paid generation trial without passing here."
+        },
+        {
+          "id": "generation_trials",
+          "note": "Per collection, on the cheap sweep model. One axis changed per trial from a named prior configuration; a multi-axis change is recorded as exploratory."
+        },
+        {
+          "id": "structure_trials",
+          "note": "Per collection. single_shot versus the synthesis-oriented structures on the winning parameter configuration, reported against their call multiple."
+        },
+        {
+          "id": "model_confirmation",
+          "note": "Per collection: winner on cheap versus strongest model."
+        },
+        {
+          "id": "holdout_scoring",
+          "note": "Per collection: baseline and final winner scored on the holdout once each."
+        },
+        {
+          "id": "consolidation",
+          "note": "Per-collection findings, then the cross-collection comparison that reports agreement without averaging."
+        }
+      ]
+    },
+    "title": "BV-BRC RAGstack asm-next configuration experiment: task specification (rev 3: per-collection strata, synthesis-weighted, operator decisions recorded, measurement validity controls)"
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "creator_contract_hash": "sha256:bde9529d67540806193dc0c319e3e89211c4d837b3c74097e2b1f5b2401d64a9",
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "lenses": {
+    "contract_alignment": {
+      "findings": [
+        {
+          "code": "goal_unit_result_not_contract",
+          "explanation": "The contract's goal is a measured, read-only, per-collection configuration and structure experiment on asm-next. Its unit is one per-collection study, and its result is a run directory of per-collection winners, leaderboards, outcome rows, benchmarks, noise floors, holdouts and findings. The root instead declares the goal 'Probe B: safety bounds set', the unit 'Probe unit.' and the result 'Probe result.' The executing Episode would have no mandate to perform the contracted work.",
+          "fields": [
+            "workflow.episodes[root].contract.goal",
+            "workflow.episodes[root].contract.unit",
+            "workflow.episodes[root].contract.result"
+          ],
+          "question": "Will the root goal, unit and result be restated to match the contract's goal, per-collection study unit and run-directory result, instead of a probe?",
+          "severity": "high"
+        },
+        {
+          "code": "progress_metric_mismatch",
+          "explanation": "The contract credits only root_episode_progress through adapter creator_method_credit_v1. That value is coverage-weighted: the sum of c over readable ASM collections divided by N, with c = 0.5 + 0.25A + 0.25B for verified result-bearing closures and 0 otherwise, on a 0 to 1 scale. The blueprint uses durable_evidence_count_v1 counting 'records' toward a target of 3.0. The credit component root_experiment_progress would be unmeasurable, or would reward record counts unrelated to result-bearing closures.",
+          "fields": [
+            "workflow.episodes[root].contract.progress",
+            "creator_contract.progress",
+            "creator_contract.return_contract.measurement_ids",
+            "creator_contract.credit_assignment"
+          ],
+          "question": "Will the root progress use creator_method_credit_v1 with the contract's metric, unit root_episode_progress, baseline 0 and target 1.0, derived from the typed terminal update?",
+          "severity": "high"
+        },
+        {
+          "code": "stopping_rule_mismatch",
+          "explanation": "The contract's stopping rule is target 1.0, minimum_delta 0.01 and stagnation_observations 3, applied only to verified result-bearing closures. The blueprint sets target 3.0, minimum_delta 1.0 and stagnation_observations 2. With a delta threshold of 1.0 on a 0-to-1 metric, every observation is sub-threshold. The root could then stagnate after two observations, while collections remain open. That breaks the addendum's guarantee that stagnation cannot fire before all collections close, and it risks omitting collections.",
+          "fields": [
+            "workflow.episodes[root].contract.stopping"
+          ],
+          "question": "Will stopping be set to target 1.0, minimum_delta 0.01 and stagnation_observations 3, as the contract requires?",
+          "severity": "high"
+        },
+        {
+          "code": "deliverable_kind_wrong",
+          "explanation": "The contract's deliverable is shared_state materialized with write_file into a run-scoped directory. It must hold the extended manifest and a hashed root manifest referenced by the terminal update, and the contract states that a typed status alone would not be usable. The blueprint declares a typed_status deliverable with no tools.",
+          "fields": [
+            "workflow.episodes[root].contract.deliverable",
+            "creator_contract.deliverable"
+          ],
+          "question": "Will the deliverable be shared_state using write_file, with the extended manifest and hashed root manifest?",
+          "severity": "high"
+        },
+        {
+          "code": "capabilities_insufficient_for_deliverable",
+          "explanation": "Only execute_code is granted. The contract's deliverable names write_file as its materialization tool, and execution_policy capability_hygiene reserves write_file for writing deliverables inside the run directory. Omitting it makes the contracted deliverable path unavailable.",
+          "fields": [
+            "workflow.episodes[root].contract.execution_capability_names"
+          ],
+          "question": "Will write_file, and todo_list if needed, be granted alongside execute_code, within the assignable set?",
+          "severity": "medium"
+        },
+        {
+          "code": "cannot_spawn_per_collection_studies",
+          "explanation": "The contract and policies assume a tree. There is one per-collection study per readable collection, 5 child episodes are reserved for run-level work (2 of them for the root close-out reserve), trials are batched per child, and the addendum requires serial largest-first closure. The blueprint has a single root with a null creator_contract and no descendant episodes, yet sets max_child_episodes to 10. With 5 of those 10 reserved, too few would remain for three serial collections run in batched-trial children.",
+          "fields": [
+            "workflow.episodes[root].contract.creator_contract",
+            "workflow.episodes[root].contract.safety_bounds.max_child_episodes",
+            "workflow.episodes"
+          ],
+          "question": "Will the blueprint define the per-collection study episodes, or give the root a creator contract to create them, with a child-episode allocation that fits the reservation rules?",
+          "severity": "high"
+        },
+        {
+          "code": "binding_rules_not_carried",
+          "explanation": "The root contract does not reference or restate any of the binding context: the six artifacts and their precedence, the allowlisted run-wide HTTP client with use_graph enforcement, the self-test, the token-only-in-client rule and the leak scan, write confinement, the budget pools, the trigger vocabulary, the run-wide stop and checkpoint procedure, benchmark freezing, the holdout rules, or the closure-evidence hashing. The contract marks these as binding on every descendant. A root without them cannot be held to them, and a credential leak or a tenant mutation would not be excluded by design.",
+          "fields": [
+            "workflow.episodes[root].contract"
+          ],
+          "question": "How will the root contract bind the executing Episode to the six referenced artifacts and to the design_scope rules, including safety_policy rev 2?",
+          "severity": "high"
+        },
+        {
+          "code": "evidence_requirement_unaddressed",
+          "explanation": "The contract requires at least one root_episode_terminal_update accepted by run_episode_host. That update must carry c, A, B and the struck counts per collection, every readable collection with exactly one status, and the root manifest hash. Nothing in the blueprint commits the root to emitting it.",
+          "fields": [
+            "creator_contract.evidence_requirements",
+            "workflow.episodes[root].contract"
+          ],
+          "question": "Will the root contract require the typed terminal update with the per-collection status, c, A and B, and the root manifest path and SHA-256?",
+          "severity": "medium"
+        }
+      ],
+      "summary": "The blueprint is a placeholder probe ('Probe B: safety bounds set') rather than a design for the contract's goal. Its goal, unit, result, progress metric, stopping rule and deliverable all diverge from the frozen Creator contract. It cannot produce the required root_episode_progress measurement or the root_episode_terminal_update evidence. It also cannot spawn the per-collection studies the contract's unit and policies assume. Nothing in it carries the binding execution, safety or measurement rules to the executing Episode.",
+      "verdict": "block"
+    }
+  },
+  "workflow_blueprint_hash": "sha256:7a2f7a1dec23025d63dcfa48643d24fd9f6f3c21ee1250375b77bfb64f1ffec3"
+}

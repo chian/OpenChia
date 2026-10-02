@@ -1,0 +1,195 @@
+{
+  "artifact_id": "context_19bb19376c10bd1e4408b1b2accebfb7169f107f5f23a9fe2e349590a9ad8e06",
+  "artifact_kind": "decision_ledger",
+  "purpose": "ragstack_experiment_review_resolutions",
+  "schema_version": 5,
+  "required": true,
+  "content_hash": "sha256:9d23afbabbf055d68f4e386fb7f6d6cb41de83f57bd819d37a8ff7d56d160ec0",
+  "created_at": "2026-09-30 15:50:01",
+  "content": {
+    "decisions": [
+      {
+        "id": "d_credit_result_bearing_only",
+        "overrides": [
+          "execution_policy.closure_statuses.counted_for_root_progress",
+          "execution_policy.closure_evidence.unverifiable",
+          "execution_policy.levels.root.progress"
+        ],
+        "rule": {
+          "admissible_not_tested_reasons": [
+            "collection unreadable to this token",
+            "collection empty or below the minimum document count needed to build 20 synthesis questions",
+            "cut by the recorded global allocation before its setup phase began"
+          ],
+          "blocked_and_not_tested": "Still required as closures with a reason record, and surfaced by the root, but each contributes 0 to root progress.",
+          "evidence_failure": "A closure whose listed artifacts are missing or fail hash verification is NOT a closure. The root rejects it, records the rejection, and the collection stays open. It may then be re-attempted within its remaining allocations, or closed as bound_hit when those allocations are exhausted.",
+          "result_bearing_closure": "converged, or bound_hit, where the collection has ALL of: a frozen benchmark; a completed noise-floor record with at least 2 baseline repeats; at least one scored one-axis generation trial with non-empty per-question outcome rows; and a leaderboard naming a current-best configuration. Every closure artifact is listed by path and SHA-256 and verified by the root. A bound_hit short of this minimum earns zero credit; it is still recorded and surfaced.",
+          "root_progress": "number of readable ASM collections with a verified result-bearing closure, divided by the number of readable ASM collections",
+          "unlisted_reasons": "Any other reason to stop a collection is recorded as blocked (naming a trigger from d_trigger_vocabulary) or as bound_hit (naming the bound), never as not_tested."
+        }
+      },
+      {
+        "finding": "benchmark_shortfall_outcome_ambiguous",
+        "id": "d_benchmark_shortfall",
+        "overrides": [
+          "task_specification.measurement_validity.minimum_benchmark_size.shortfall",
+          "execution_policy.budget_attribution.exhaustion",
+          "execution_policy.answer_key_resolution.still_blocks_when"
+        ],
+        "rule": {
+          "full_power": "20 or more validated multi-paper synthesis questions: a normal stratum.",
+          "low_power": "10 to 19 validated synthesis questions, when setup has spent its 300-call pool or exhausted pivot discovery: proceed as a LOW-POWER stratum. Freeze the benchmark at the actual count, keep the 25% holdout, and label every comparison in that collection as low-power. Claim no axis effect smaller than twice the noise floor. The collection remains eligible for result-bearing credit, and its findings note and leaderboard carry the low-power label.",
+          "no_gold": "If gold evidence sets cannot be validated at all (the answer-key condition), close as blocked with trigger benchmark_not_freezable. Credit 0.",
+          "not_tested_by_documents": "If reconnaissance shows the collection has fewer documents than needed to form 20 cross-paper pivots, it may still proceed under the low-power rule if 10 or more validated synthesis questions result. Only if it cannot reach 10 does it close as not_tested with the reason 'below minimum document count'.",
+          "too_few": "Fewer than 10 validated synthesis questions after the setup pool is spent: close as bound_hit with the bound 'benchmark_shortfall' and the achieved count. It earns no credit because nothing was scored. Never fall back to keyless self-assessment."
+        }
+      },
+      {
+        "id": "d_axis_coverage",
+        "overrides": [
+          "execution_policy.per_collection_budget_and_stopping.parameter_search_stops_when_any",
+          "execution_policy.per_collection_budget_and_stopping.structure_trials",
+          "task_specification.sequencing"
+        ],
+        "rule": {
+          "budget_exhaustion": "If the budget runs out before coverage is complete, close as bound_hit and list the unscored axes and structures as not-tested.",
+          "hint_scope": "Hints carried over from earlier collections may reorder axes or choose first values. They never cause an axis to be skipped.",
+          "parameter_axes": "retrieval_mode, top_k, rerank (with rerank_candidates and reranker as sub-axes, tested only if rerank is kept), context_window, use_graph (only where the graph is attributable), template, query_rewrite. Reconnaissance may strike an axis only with a recorded reason. llm is covered by model confirmation, not by the sweep.",
+          "phase_A_parameter_search": {
+            "converged_label": "converged only if phase A stopped on stagnation or target with full parameter coverage AND phase B completed.",
+            "coverage_before_stop": "Every surviving parameter axis gets at least one scored generation trial before the stagnation rule may fire. For retrieval axes, a /v1/retrieve screening result alone does NOT count as coverage; the best-screening value must reach at least one generation trial.",
+            "screening_pass_rule": "A retrieval-axis value passes screening if its mean document_coverage_at_k on the tuning set is no worse than the current best minus the collection's noise floor on document coverage, or minus 0.05 if that floor is not yet set. Values that fail are recorded as screened-out with their coverage. A screened-out value does not block coverage as long as at least one value of that axis reached a generation trial.",
+            "stop": "Coverage is complete AND (tuning synthesis completeness >= 0.9, OR 3 consecutive trials across DISTINCT parameter axes each gain < max(0.05, noise floor)), or the phase-A call cap is reached (bound_hit). If the target is reached before coverage is complete, the unscored axes are marked not-tested and the collection closes as bound_hit."
+          },
+          "phase_B_structure_trials": {
+            "coverage": "Runs after phase A, on the phase-A winner. It is not part of the phase-A coverage precondition. single_shot and every structure not struck at reconnaissance are each scored once, with their call multiples. Stopping is the whole list or the budget, whichever comes first; unscored structures are marked not-tested."
+          }
+        }
+      },
+      {
+        "id": "d_closeout_sizing",
+        "overrides": [
+          "execution_policy.budget_attribution.close_out_reserve"
+        ],
+        "rule": {
+          "benchmark_cap": "At most 40 questions per collection (32 synthesis and 8 control). The low-power floor is set in d_benchmark_shortfall.",
+          "overrun": "If the projected cost still exceeds the reserve, close out in priority order within the reserve: holdout #1 and #2, then tuning confirmation, then holdout #3. Record each unaffordable step as not-scored with a reason, and close as bound_hit. Never exceed the operator's per-collection ceiling.",
+          "projection": "Before phase B selects a winner, project close-out cost as (tuning questions + up to 3 x holdout questions) x the candidate winner's measured billable calls per question. If this exceeds the reserve, either pick the best structure whose projection fits (recording the choice) or transfer unspent search budget (recording the transfer)."
+        }
+      },
+      {
+        "id": "d_trigger_vocabulary",
+        "overrides": [
+          "execution_policy.closure_statuses.requirements_by_status.blocked",
+          "execution_policy.escalation.rule"
+        ],
+        "rule": {
+          "allowed_triggers": [
+            "any item of the safety_policy human_escalation list, quoted verbatim",
+            "no_independent_sweep_model",
+            "credential_leak_detected",
+            "benchmark_not_freezable",
+            "error_rate_abort"
+          ],
+          "validation": "A blocked closure that names anything else is rejected as malformed."
+        }
+      },
+      {
+        "finding": "deliverable_omits_required_records",
+        "id": "d_deliverable_manifest",
+        "rule": {
+          "per_collection": [
+            "frozen benchmark: questions, class labels, gold evidence sets, required-evidence-item lists, pivot provenance, tuning/holdout split and seed, and the power label (full or low)",
+            "noise-floor record: repeat scores and spread, for synthesis completeness and for document coverage",
+            "retrieval screening table: axis, value, document_coverage_at_k, pass or screened-out",
+            "trial leaderboard: phase, axis changed, prior configuration id, full parameter vector, tuning synthesis completeness, document coverage, citation support, noise-floor verdict (effect / within-noise), and cost vector",
+            "per-question outcome rows: answer, cited doc_ids and chunk_ids, distinct-document count, verdict, failure class, truncated flag",
+            "structure comparison: each structure scored, with its call multiple and quality per billable call",
+            "model confirmation on the tuning set",
+            "holdout record: scorings #1, #2 and #3 (or not-needed / not-scored with reason), configuration effect (#2 minus #1) and model effect (#3 minus #2), and the overfitting estimate",
+            "winning configuration profile as runnable JSON",
+            "findings note",
+            "closure manifest: status, reason, and the path and SHA-256 of every closure artifact"
+          ],
+          "rule": "The run directory must contain every item listed below. The root verifies their presence as part of close-out.",
+          "run_level": [
+            "resolved QueryRequest schema and fetch timestamp",
+            "collection, prompt-template and model inventories",
+            "per-collection size and graph-attributability table",
+            "cheap/strong model selection record, including any judge-collision strike",
+            "frozen judging prompt and its hash",
+            "allocation record: per-collection call pools, child-episode, judging, iteration and time allocations, and the root close-out reserve",
+            "cost totals: tenant billable calls (measured) and Episode-side cost (estimated, with method)",
+            "HTTP client self-test record and refusal log",
+            "token-leak scan record and its hash",
+            "cross-collection comparison note (no averaging)",
+            "root closure summary listing every readable collection with its status and reason"
+          ]
+        }
+      },
+      {
+        "id": "d_pin_use_graph",
+        "rule": "Every /v1/retrieve and /v1/query request sets use_graph explicitly. Set use_graph=false for pivot probes, for the baseline and noise-floor repeats, for every request on a graph-not-attributable collection, and for every trial whose delta is not use_graph. Set it true only in the use_graph axis trial on attributable collections, and afterwards only if that trial beat the noise floor. The run-wide client refuses any retrieve or query body that lacks use_graph."
+      },
+      {
+        "id": "d_root_closeout_reserve",
+        "rule": "Before any per-collection allocation, reconnaissance withholds a root close-out reserve: 10% of max_elapsed_seconds, 5 of max_iterations, and 2 of the 5 reserved child episodes. The reserve covers closure verification, deliverable-manifest verification, orphan closure, the cross-collection note, the token-leak scan and the terminal update. When unreserved time or iterations run out, collection work stops, open collections close as bound_hit citing 'global allocation', and the root enters close-out."
+      },
+      {
+        "id": "d_root_stagnation_and_orphans",
+        "overrides": [
+          "execution_policy.levels.root.stagnation_note",
+          "execution_policy.levels.root.observation_definition"
+        ],
+        "rule": {
+          "completeness_invariant": "The root terminal update lists every readable ASM collection with exactly one status and a reason. Omitting any collection makes the run a failure.",
+          "orphan_closure": "If the root stops with collections still open, each is closed as bound_hit naming the bound, or as not_tested with 'cut by global allocation' if its setup never began. An orphan earns credit only if it meets the result-bearing minimum.",
+          "root_observations": "Only verified result-bearing closures count as root stagnation observations.",
+          "run_end": "The run ends when every readable collection is closed or a global safety bound is reached. This is the operative termination. A run that ends below 1.0 reports its blocked and not_tested collections and is never described as convergence.",
+          "why": "Each result-bearing closure adds 1/N >= 0.01 when N <= 100. Collections beyond 100 are closed as not_tested at reconnaissance."
+        }
+      },
+      {
+        "id": "d_graph_scope",
+        "rule": "Graph evidence counts for a collection only if every triple used resolves through GET /v1/chunks with that collection named, and the resolved doc_id is in that collection's retrieval-derived inventory. Discard unresolvable triples. If fewer than half of a sample of at least 50 top triples resolve, the collection is graph-not-attributable: pivot discovery falls back to separate bm25 and vector probes, and use_graph is recorded as not-tested."
+      },
+      {
+        "id": "d_holdout_model_matched",
+        "overrides": [
+          "execution_policy.per_collection_budget_and_stopping.close_out_order",
+          "execution_policy.per_collection_budget_and_stopping.holdout_rule",
+          "task_specification.measurement_validity.holdout_split.use"
+        ],
+        "rule": {
+          "attribution_rule": "Configuration effect = #2 minus #1. Model effect = #3 minus #2. #3 minus #1 is never attributed to the configuration alone.",
+          "holdout_scorings": [
+            "#1: baseline on the cheap sweep model",
+            "#2: winner on the cheap sweep model",
+            "#3: winner on the strongest model, only if tuning confirmation selected it; otherwise recorded as not-needed"
+          ],
+          "never_steers": "The holdout never informs any choice, ordering or stopping decision."
+        }
+      },
+      {
+        "id": "d_judge_collision",
+        "rule": "If GET /v1/models/available lists the Episode's own model, or another model of the same provider and family, strike it from the sweep and from confirmation and record the strike. If no remaining model returns grounded answers on the smoke set, close the collection as blocked with trigger no_independent_sweep_model."
+      },
+      {
+        "id": "d_episode_cost_estimated",
+        "rule": "Tenant billable calls are measured. Episode-side cost is an estimate, derived from the judgement-call count and from character length at a stated characters-per-token ratio. It is labelled 'estimated', with its method, and never presented as measured."
+      },
+      {
+        "id": "d_token_leak_gate",
+        "rule": "Before the root terminal update, a gate runs inside the run-wide HTTP client module. It scans every file in the run directory and scratch for the token's first 8 and last 8 characters, and writes a hashed scan record containing no token substring. On a match: close the root as blocked with trigger credential_leak_detected, delete nothing, surface only the matching paths, and list the scan record in the terminal update. The gate runs on the root close-out reserve."
+      }
+    ],
+    "open_for_operator": {
+      "id": "q_phase_budget_fit",
+      "note": "The 1500-call per-collection ceiling was set before the two-phase design existed. A rough projection suggests setup, phase A and phase B together may not fit in 1200 calls. If the operator does not revise the ceiling, the existing rules apply: phase B structures that do not fit are recorded as not-tested, and the collection closes as bound_hit."
+    },
+    "precedence": "Binding on every descendant Episode. For the items it covers, it overrides execution_policy rev 2 and the task_specification. It never loosens the safety_policy.",
+    "provenance": "Resolutions of the advisory contract reviews at revisions 22 to 26, proposed by the Duet as conservative defaults for human review before approval.",
+    "revision_note": "Revision 5. Supersedes context_e38edf2f6cc44442b41ef500edd7a86731fdcd45381f962e8fb6b1c09cf0b230. Adds the benchmark-shortfall rule (low-power stratum at 10 to 19 synthesis questions) and the explicit deliverable manifest.",
+    "title": "Decision ledger (rev 5)"
+  }
+}

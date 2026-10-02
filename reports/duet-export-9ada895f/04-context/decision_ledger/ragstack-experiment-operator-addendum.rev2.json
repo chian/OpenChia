@@ -1,0 +1,108 @@
+{
+  "artifact_id": "context_ba040995a28af61cb1640f1bac586ef8f82d7c066163dd3452ad9ec951d33f7d",
+  "artifact_kind": "decision_ledger",
+  "purpose": "ragstack_experiment_operator_addendum",
+  "schema_version": 2,
+  "required": true,
+  "content_hash": "sha256:3f475d94c86e2114b1b5b0d0d647cb914def5bed2030aa9f4696c9ba0ebb9e76",
+  "created_at": "2026-09-30 16:07:42",
+  "content": {
+    "decisions": [
+      {
+        "id": "d_expected_three_collections",
+        "operator_statement": "There are three ASM collections.",
+        "rule": {
+          "denominator": "Root progress N is the number of readable ASM collections confirmed at reconnaissance, expected to be 3. Each verified result-bearing closure adds about 0.33, so the root stagnation rule cannot fire while collections remain open.",
+          "mismatch": "If reconnaissance finds a count other than 3, record the discrepancy and the identifiers found in the inventory, proceed with the collections actually readable, and flag the mismatch in the root terminal update and the cross-collection note. If no readable collection is an ASM paper collection, close as blocked under the safety_policy trigger."
+        }
+      },
+      {
+        "id": "d_serial_processing",
+        "rule": {
+          "order": "Process the collections one at a time, largest document count first. Each collection is carried through to closure, including close-out and holdout scoring, before the next collection's setup begins. The shared rate limits still apply.",
+          "reconnaissance": "Cheap reconnaissance (inventory, sizes, graph attributability, model list) may run up front for all collections.",
+          "why": "Tenant budget exhaustion or a run-wide abort stops everything. Serial processing leaves fully closed, credited results for the collections already finished, instead of several partial studies with no winner."
+        }
+      },
+      {
+        "finding": "phase_b_orchestration_model_unassigned",
+        "id": "d_structure_orchestration",
+        "rule": {
+          "cost": "Every orchestration call counts as a tenant billable call in that trial's cost vector and call multiple.",
+          "deterministic_glue": "Non-LLM steps (parsing sub-questions, merging citations, de-duplicating sources, frontier bookkeeping) are plain code in the harness and involve no model.",
+          "feasibility_check": "At reconnaissance, run a 3-question smoke test of each multi-call structure's orchestration step through /v1/query. A structure passes if the tenant returns a usable decomposition, assessment or frontier output that the harness can parse deterministically.",
+          "infeasible_structure": "A structure that fails the feasibility check, or cannot be built without an LLM step other than a tenant /v1/query call, is STRUCK at reconnaissance and recorded as not-tested (infeasible under the model and judge rules), with the smoke-test evidence. A struck structure does NOT block the 'converged' label: phase B coverage counts only the structures that survived reconnaissance. Every struck structure is still listed in the findings note, and the answer to 'which structure is best' is stated only over the structures actually scored.",
+          "judge_isolation": "The Episode's own model never takes part in producing any answer being scored, so the judge never grades output it helped produce.",
+          "orchestration_model": "Every LLM step inside a multi-call structure (sufficiency assessment, gap follow-up generation, question decomposition, sub-answer synthesis, table-fill frontier updates) is performed by the TENANT, through POST /v1/query on the same cheap sweep model the trial uses. The orchestration instruction is the query text, and the collection and all parameters are set explicitly. The Episode's own model is NEVER used for any orchestration step, and it does not receive chunk text for orchestration."
+        }
+      },
+      {
+        "finding": "error_rate_abort_status_conflict; budget_cut_unstarted_status_ambiguous",
+        "id": "d_run_wide_stop_statuses",
+        "overrides": [
+          "decision_ledger rev 5 d_trigger_vocabulary.allowed_triggers (removes error_rate_abort)",
+          "operator_addendum rev 1 d_small_collection_status"
+        ],
+        "rule": {
+          "applies_to": [
+            "tenant_budget_exhausted_until_monday (safety_policy rev 2 tenant_budget_exhaustion)",
+            "error_rate_abort (safety_policy rolling-window abort: more than 25% errors in 20 requests)"
+          ],
+          "blocked_vocabulary_now": [
+            "any item of the safety_policy human_escalation list, quoted verbatim",
+            "no_independent_sweep_model",
+            "credential_leak_detected",
+            "benchmark_not_freezable"
+          ],
+          "on_either": "Stop all tenant calls run-wide immediately; do not retry and do not wait. Write the resumable checkpoint. Close EVERY collection that is not yet closed, whether in progress or not yet started, as bound_hit naming the bound. The status is bound_hit, per safety_policy reporting_policy, never blocked. An in-progress collection earns credit only if it already meets the result-bearing minimum. An unstarted collection earns 0. Then proceed to root close-out.",
+          "single_status_rule": "Each collection's status is determined by exactly one path. not_tested applies ONLY to a collection that is unreadable, contains zero documents, or was cut by the recorded per-collection allocation at reconnaissance before any setup began. bound_hit applies to everything stopped by a bound, including unstarted collections cut by a run-wide stop. blocked applies only to the triggers listed above. Once benchmark construction has been attempted, a shortfall below 10 validated synthesis questions closes as bound_hit benchmark_shortfall."
+        }
+      },
+      {
+        "id": "d_budget_exhaustion_checkpoint",
+        "rule": {
+          "checkpoint_contents": [
+            "run id, UTC timestamp, and the detection record of the stopping response",
+            "for each collection: status, phase reached, tenant calls spent per pool, and remaining allocation",
+            "hashes of each frozen benchmark, tuning/holdout split and seed, and judging prompt",
+            "noise-floor record, leaderboard so far, named current-best configuration, and the queue of untested axes and structures",
+            "resolved model identities (cheap sweep, strong, judge) and the tenant /v1/version"
+          ],
+          "checkpoint_rules": "The checkpoint is a file in the run directory, listed in the closure manifest with its hash. It contains no token material and no Authorization header.",
+          "resume_is_out_of_scope": "Resuming after Monday is a separate, human-approved run that reads this checkpoint. That run must first rerun one baseline repeat for each partially complete collection and compare /v1/version and model identities with the checkpoint. If the baseline falls outside the recorded noise floor, or any version has changed, earlier trials are not comparable: the resumed run says so and re-establishes the noise floor or restarts that collection's search.",
+          "trigger": "Either run-wide stop in d_run_wide_stop_statuses."
+        }
+      },
+      {
+        "finding": "deliverable_excludes_addendum_manifest_extension",
+        "id": "d_manifest_extension",
+        "rule": {
+          "additions": [
+            "the resumable checkpoint (required whenever a run-wide stop occurred)",
+            "per-collection budget record: tenant calls spent per pool against the 1500 ceiling",
+            "expected-versus-found collection-count record",
+            "structure feasibility record: smoke-test evidence for each structure and a struck/kept verdict",
+            "root closure summary listing every readable collection with its status and reason",
+            "root manifest file: a list of every deliverable path and its SHA-256, which the root writes and verifies at close-out"
+          ],
+          "rule": "The deliverable is decision_ledger rev 5 d_deliverable_manifest AS EXTENDED by the items below. The root verifies the whole extended manifest at close-out.",
+          "terminal_update_reference": "The root terminal update carries the root manifest's path and SHA-256, so the manifest behind the credited fraction can be checked independently of the root's own verification."
+        }
+      },
+      {
+        "id": "d_budget_expectation",
+        "note": "Worst-case tenant usage is 3 x 1500 = 4500 billable calls. The operator did not state the weekly budget. If it is lower, the run is expected to stop on tenant budget exhaustion part-way through. Serial processing and the checkpoint make that stop safe and informative."
+      }
+    ],
+    "open_for_operator": {
+      "id": "q_wait_until_monday",
+      "operator_statement": "if we run out of budget we have to wait until the budget resets on Monday",
+      "question": "The operator's instruction says to wait for the Monday reset. Is stopping at once with a checkpoint, then resuming in a separate human-approved run after the reset, an acceptable way to meet that instruction?",
+      "why_not_literal_wait": "The Episode's elapsed-time bound is 12 hours. An Episode that stays alive across a weekend cannot finish inside it. It would also hold its allocation idle and would risk resuming against a changed server or models without re-establishing the noise floor."
+    },
+    "precedence": "Operator decisions from the Duet. For the items they cover, they take precedence over decision_ledger rev 5, execution_policy rev 2 and task_specification rev 3. They never loosen safety_policy rev 2.",
+    "provenance": "Operator answers recorded in the Duet: (a) ASM paper text may go to the Episode's own model, implemented in safety_policy rev 2; (b) if the budget runs out, the run must wait until it resets on Monday; (c) there are three ASM collections. Revision 2 also resolves the contract review findings at revision 30.",
+    "revision_note": "Revision 2. Supersedes context_23bdd3532b4aaf195986d8f41dba9316de4d4a8b9b9edd961ee4ba2da5ec2c71. Adds: tenant-only orchestration of multi-call structures, with infeasible structures struck at reconnaissance; one status rule for run-wide stops, under which an error-rate abort is bound_hit and unstarted collections are bound_hit; a manifest extension that includes the root closure summary and a hashed root manifest referenced from the terminal update. Records the operator's wait-until-Monday instruction as open for confirmation of the stop-and-checkpoint interpretation.",
+    "title": "Operator addendum (rev 2): three collections, serial processing, structure orchestration, run-wide stops, checkpoint, manifest"
+  }
+}

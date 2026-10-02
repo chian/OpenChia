@@ -1,0 +1,68 @@
+{
+  "creator_contract_hash": "sha256:bde9529d67540806193dc0c319e3e89211c4d837b3c74097e2b1f5b2401d64a9",
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "lenses": {
+    "contract_alignment": {
+      "findings": [
+        {
+          "code": "goal_unit_result_not_aligned",
+          "explanation": "The contract goal is a per-collection, synthesis-weighted configuration and structure experiment against asm-next. Its unit is one per-collection study and its result is a detailed per-collection and run-level deliverable. The root instead says 'Probe K: durable, bounds depth 3 iter 80', 'Probe unit.' and 'Probe result.' None of the contract's work is assigned to any Episode.",
+          "fields": [
+            "episodes[root].contract.goal",
+            "episodes[root].contract.unit",
+            "episodes[root].contract.result"
+          ],
+          "question": "Will the root goal, unit and result be restated to match the contract: a per-collection study as the repeated unit, serial largest-first processing, and the specified per-collection and run-level outputs?",
+          "severity": "high"
+        },
+        {
+          "code": "progress_measurement_mismatch",
+          "explanation": "The contract's only credit component, root_experiment_progress, requires the measurement root_episode_progress via creator_method_credit_v1. That measurement is coverage-weighted: sum of c, where c = 0.5 + 0.25A + 0.25B for verified result-bearing closures and 0 otherwise, divided by N. The root instead uses durable_evidence_count_v1 with unit 'records'. That counts records rather than verified, coverage-weighted collection closures. Credit could then be earned without any result-bearing closure, which the ledger and addendum prohibit.",
+          "fields": [
+            "episodes[root].contract.progress.adapter_id",
+            "episodes[root].contract.progress.unit",
+            "episodes[root].contract.progress.description"
+          ],
+          "question": "Will the root adopt creator_method_credit_v1 and root_episode_progress, with the addendum's c, A and B definitions and fixed denominators, so the credit component can be computed?",
+          "severity": "high"
+        },
+        {
+          "code": "stopping_rule_mismatch",
+          "explanation": "The contract sets target 1.0, minimum_delta 0.01 and 3 stagnation observations. The blueprint sets target 3.0, minimum_delta 1.0 and 2 observations. A minimum_delta of 1.0 means almost any real closure (worth at least 0.5/N) counts as non-improving. The root could therefore stagnate and stop while collections remain open. That violates the rules that root stagnation counts only verified result-bearing closures and cannot fire before all collections close.",
+          "fields": [
+            "episodes[root].contract.stopping.target",
+            "episodes[root].contract.stopping.minimum_delta",
+            "episodes[root].contract.stopping.stagnation_observations"
+          ],
+          "question": "Will stopping be set to the contract's target 1.0, minimum_delta 0.01 and stagnation_observations 3, with stagnation observations limited to verified result-bearing closures?",
+          "severity": "high"
+        },
+        {
+          "code": "deliverable_kind_mismatch",
+          "explanation": "The contract requires a shared_state deliverable written with write_file: a run directory with the extended manifest and a hashed root manifest referenced by the terminal update. It states explicitly that a typed status alone would not be usable. The blueprint declares a typed_status deliverable with no tools. It also grants only execute_code, omitting write_file and todo_list from the contract's execution capabilities.",
+          "fields": [
+            "episodes[root].contract.deliverable.kind",
+            "episodes[root].contract.deliverable.tool_names",
+            "episodes[root].contract.execution_capability_names"
+          ],
+          "question": "Will the root deliverable be shared_state via write_file, covering the full extended manifest, with capabilities matching the contract (write_file, execute_code, todo_list)?",
+          "severity": "high"
+        },
+        {
+          "code": "no_per_collection_structure_or_binding_rules",
+          "explanation": "The blueprint defines no per-collection study level. The root's creator_contract is null, so nothing passes down the phase A and phase B coverage rules, the 1500/300/1200/300 call pools, benchmark freeze and holdout rules, or the child-episode reserve. It also omits the safety and enforcement obligations that bind every descendant: the allowlisted run-wide HTTP client, the token handling, the self-test, the leak scan, and run-wide stop-and-checkpoint. The child cap of 19, set without an allocation rationale, is also unexplained against the contract's 120 and the reserve rules.",
+          "fields": [
+            "workflow.episodes",
+            "episodes[root].contract.creator_contract",
+            "episodes[root].contract.safety_bounds.max_child_episodes"
+          ],
+          "question": "How will each per-collection study be expressed and bound to the six context artifacts (including safety_policy rev 2) so descendants inherit the required rules and allocations?",
+          "severity": "high"
+        }
+      ],
+      "summary": "The blueprint is a single placeholder root ('Probe K') and does not implement the frozen contract. Its goal, unit, result, progress metric, stopping rule, deliverable and capabilities all differ from the creator contract. It cannot produce the root_episode_progress measurement the credit component depends on. It also does not bind the per-collection study design or the safety, enforcement and manifest rules to any Episode.",
+      "verdict": "block"
+    }
+  },
+  "workflow_blueprint_hash": "sha256:dc27fabafc2aff6274f1c4197c89dce4e1ccab02dd0c93f01a799a86115a0e71"
+}

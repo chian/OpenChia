@@ -22,6 +22,7 @@ from llm_call_library import (
     structured_json_completion,
 )
 
+from .admission import ADMITTED_IMPORT_ROOTS, INTERNAL_IMPLEMENTATION_ROOTS
 from ._contract_base import BuildDeficit, EmittedEpisodeModule
 from ._contract_plan import (
     EdgeMaterializationPlan,
@@ -29,6 +30,8 @@ from ._contract_plan import (
 )
 from .declaration import DECLARATION_EXPORT, build_module_declaration
 from .reference import EpisodeReferenceContext
+from .admission import constructor_signatures
+from .planner import materializer_function_catalog
 
 
 _DOTTED_MODULE = re.compile(
@@ -160,7 +163,9 @@ def _assigned_names(tree: ast.Module) -> set[str]:
     return names
 
 
-def _builder_parameters(function: ast.FunctionDef) -> tuple[str, ...] | None:
+def _builder_parameters(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[str, ...] | None:
     arguments = function.args
     if (
         arguments.posonlyargs
@@ -314,7 +319,7 @@ def _validate_module_source(
     functions = {
         statement.name: statement
         for statement in tree.body
-        if isinstance(statement, ast.FunctionDef)
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     module_values = _assigned_names(tree)
     required_builders = {
@@ -329,6 +334,13 @@ def _validate_module_source(
                 code="module_exports_incomplete",
                 field_path="module_source",
                 detail=f"generated module omits synchronous {name}()",
+                episode_local_id=local_id,
+            )
+        if isinstance(function, ast.AsyncFunctionDef):
+            raise EpisodeEmissionError(
+                code="builder_async_forbidden",
+                field_path=f"module_source.{name}",
+                detail=f"{name} must be a synchronous def; the runtime calls it directly",
                 episode_local_id=local_id,
             )
         actual_parameters = _builder_parameters(function)
@@ -480,6 +492,54 @@ def _child_summary(
     }
 
 
+_CONSTRUCTION_EXAMPLE = """\
+# Shape only. Every <...> is copied from admitted_node_plan / frozen_episode_contract.
+from episode_library.models import EpisodeLibraryDesign
+from function_library.models import FunctionImplementation, LibraryFunction
+from method_loop import EpisodeBindingDeclaration, EpisodeControllerBinding, EpisodeFunctionBinding, EpisodeTopologyRole
+from handoff_library import ADMIT_DUET_LAUNCH_REQUEST, HandoffPayloadContract
+from numeric_control_library import MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND, COMPOSE_INCIDENCE_CONTROLLER
+
+OPEN_TASK_SOURCE = LibraryFunction(          # one per generated_component_specs entry
+    library=<plan binding .library>, function_id=<plan binding .function_id>, interface=<plan binding .interface>,
+    description=..., input_type=..., output_type=..., effect=..., failure_contract=...,
+    implementation=FunctionImplementation(module="<target_module_name>", symbol="open_task_source", is_async=False),
+    provenance={"materialization_kind": "episode_builder", "contract_hash": <contract_hash>,
+                "episode_local_id": <local_id>, "component_role": "open_source"},
+)
+
+def _binding(name, entry, definition_id):   # entry = one admitted_node_plan.selected_function_bindings item
+    return EpisodeFunctionBinding(name=name, library=entry["library"], function_id=entry["function_id"],
+                                  interface=entry["interface"], definition_id=definition_id,
+                                  arguments=entry["arguments"])
+
+BINDING = EpisodeBindingDeclaration(
+    grain_name=<plan.grain_name>, interface=<plan.interface>,
+    topology_role=EpisodeTopologyRole.LEAF,          # or .BRANCH, per plan.topology_role
+    goal=<contract.goal>, unit=<contract.unit>, result=<contract.result>,
+    progress=<contract.progress>, stopping=<contract.stopping>,          # verbatim strings
+    admit_request=_binding("admit_request", <entry role admit_request>, ADMIT_DUET_LAUNCH_REQUEST.definition_id),
+    open_source=_binding("open_source", <entry role open_source>, OPEN_TASK_SOURCE.definition_id),
+    controller=EpisodeControllerBinding(
+        schema=_binding("schema", <entry role controller.schema>, <that LibraryFunction>.definition_id),
+        composer=_binding("composer", ..., COMPOSE_INCIDENCE_CONTROLLER.definition_id),
+        credit=_binding("credit", ..., MARGINAL_DOMINATED_HYPERVOLUME.definition_id),
+        rarefaction=_binding("rarefaction", ..., PAIRED_INCIDENCE.definition_id),
+        continuation=_binding("continuation", ..., PREDICTED_CREDIT_UPPER_BOUND.definition_id),
+    ),
+    build_result=_binding("build_result", <entry role build_result>, <that LibraryFunction>.definition_id),
+    components=(_binding("<binding-name>", <entry role component.<binding-name>>, <that LibraryFunction>.definition_id), ...),
+    child_slots=(),                                    # tuple of EpisodeChildSlot for a branch
+)
+DESIGN = EpisodeLibraryDesign(
+    qualified_name=<plan.interface>, title="<short title>", binding=BINDING,
+    function_definitions=(ADMIT_DUET_LAUNCH_REQUEST, OPEN_TASK_SOURCE, COMPOSE_INCIDENCE_CONTROLLER,
+                          MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND, ...),
+    source_symbols=(),
+)
+"""
+
+
 _EMITTER_SYSTEM_PROMPT = """You are the scoped Python-module emitter inside OpenChia EpisodeBuilder.
 Materialize exactly one already-admitted task-specific Episode plan as a
 complete importable Python module. The frozen Duet contract owns the workflow
@@ -498,7 +558,17 @@ Import EpisodeLibraryDesign from episode_library.models; reference Episode
 modules are evidence to port, never concrete modules to import.
 Bind registered LibraryFunction constants as declarations and import their
 public pure implementations directly when construction needs them; do not
-dynamically load a definition.
+dynamically load a definition. Import only modules whose root package is
+listed in required_module_contract.import_surface.admitted_import_roots;
+write each FunctionImplementation exactly as
+required_module_contract.builder_runtime.generated_implementation states.
+
+The selected_library_definitions identify exact reusable functions. Their
+library/function_id labels are semantic identities; implementation.module and
+implementation.symbol identify the actual Python code. Preserve the registered
+functions' computed definition IDs. Use the public imports and construction rules
+in required_module_contract.library_exports and
+required_module_contract.constructor_signatures.
 
 Every edge receive_result implementation first calls
 handoff_library.admit_child_result with the matching parent request, declared
@@ -542,6 +612,28 @@ without Markdown fences and derivation_notes mapping planned field paths to
 concise provenance statements. The model call only authors source;
 non-executing host admission decides whether that exact source can enter the
 materialized build."""
+
+
+def _library_exports() -> dict[str, list[str]]:
+    """The exact public surface of every library a generated module may import."""
+    import episode_library.models
+    import function_library.models
+    import handoff_library
+    import http_call_library
+    import method_loop
+    import numeric_control_library
+
+    return {
+        module.__name__: sorted(module.__all__)
+        for module in (
+            episode_library.models,
+            function_library.models,
+            handoff_library,
+            http_call_library,
+            method_loop,
+            numeric_control_library,
+        )
+    }
 
 
 _MODULE_CONTRACT = {
@@ -607,8 +699,27 @@ _MODULE_CONTRACT = {
             "already-admitted EpisodeRequest"
         ),
         "generated_implementation": (
-            "each generated FunctionImplementation uses target_module_name as "
-            "a literal module string and a top-level function symbol"
+            "each generated FunctionImplementation is written literally as "
+            'FunctionImplementation(module="<target_module_name>", '
+            'symbol="<top-level function name>", is_async=<bool>); module is '
+            "the exact target_module_name string literal, never a variable, "
+            "constant, or expression, and never a keyword named "
+            "target_module_name"
+        ),
+    },
+    "import_surface": {
+        "admitted_import_roots": sorted(ADMITTED_IMPORT_ROOTS),
+        "library_packages": sorted(INTERNAL_IMPLEMENTATION_ROOTS),
+        "rule": (
+            "every import names a module whose first dotted segment is one of "
+            "admitted_import_roots; library packages are top-level packages "
+            "imported exactly as listed, for example "
+            "'from method_loop import Episode', "
+            "'from handoff_library import admit_child_result', "
+            "'from http_call_library import HTTP_JSON', "
+            "'from numeric_control_library import ...'; there is no 'agent.' "
+            "package prefix and no other package root; host admission rejects "
+            "the whole module on any other import"
         ),
     },
     "method_loop_api": {
@@ -631,6 +742,15 @@ _MODULE_CONTRACT = {
             "schema, credit, rarefaction, and continuation functions"
         ),
     },
+    "library_exports": {
+        "rule": (
+            "import a name only from the module whose __all__ lists it below; "
+            "a name imported from any other module, even one that defines a "
+            "similarly named class, is rejected by host admission before the "
+            "module can run"
+        ),
+        "exports": _library_exports(),
+    },
     "binding_role_paths": {
         "admit_request": "BINDING.admit_request",
         "open_source": "BINDING.open_source",
@@ -648,6 +768,47 @@ _MODULE_CONTRACT = {
         "edge.<slot>.receive_result": (
             "matching EpisodeChildSlot.receive_result"
         ),
+    },
+    "constructor_signatures": {
+        "rule": (
+            "construct each class below with keyword arguments naming exactly "
+            "its listed fields and supply every required one; a derived field "
+            "is computed by the class and is never passed; host admission "
+            "rejects a call with an unknown or missing field before the "
+            "module can run"
+        ),
+        "classes": constructor_signatures(),
+    },
+    "binding_construction": {
+        "EpisodeFunctionBinding": (
+            "one per admitted_node_plan.selected_function_bindings entry: name is "
+            "the entry role without its 'component.' or 'controller.' prefix with "
+            "'.' replaced by '_'; library, function_id, interface and arguments "
+            "are copied verbatim from the entry; definition_id is the "
+            ".definition_id of the LibraryFunction object the binding selects "
+            "(an imported library constant for source 'library', this module's "
+            "generated LibraryFunction constant for source 'generated')"
+        ),
+        "EpisodeBindingDeclaration": (
+            "grain_name, interface and topology_role from the admitted node "
+            "plan; goal, unit, result, progress and stopping are the "
+            "frozen_episode_contract strings pasted byte for byte as plain "
+            "string literals (never reflowed, shortened, re-punctuated or "
+            "paraphrased: host admission compares every character and "
+            "reports the first difference); admit_request, open_source, "
+            "build_result, controller (an EpisodeControllerBinding), components "
+            "(a tuple) and child_slots (a tuple of EpisodeChildSlot) hold the "
+            "EpisodeFunctionBindings above; the runtime linker rejects any "
+            "value that differs from the frozen contract"
+        ),
+        "EpisodeLibraryDesign": (
+            "qualified_name is the plan interface, binding is the BINDING "
+            "object itself, function_definitions is a tuple holding exactly one "
+            "LibraryFunction per selection BINDING makes (no extra, none "
+            "missing; each must match its binding's library, function_id and "
+            "interface), source_symbols is () unless porting a reference"
+        ),
+        "example": _CONSTRUCTION_EXAMPLE,
     },
     "reference_port_provenance": {
         "materialization_kind": "reference_port",
@@ -783,6 +944,11 @@ class EpisodeModuleEmitter:
             _child_summary(slot_name, direct_children[slot_name])
             for slot_name in sorted(direct_children)
         ]
+        selected_library_ids = {
+            binding["definition_id"]
+            for binding in plan.selected_function_bindings
+            if binding["source"] == "library"
+        }
         prompt = _canonical(
             {
                 "target_module_name": target_module_name,
@@ -805,6 +971,11 @@ class EpisodeModuleEmitter:
                     "root" if plan.parent_local_id is None else "child"
                 ),
                 "required_module_contract": _MODULE_CONTRACT,
+                "selected_library_definitions": [
+                    definition
+                    for definition in materializer_function_catalog()
+                    if definition["definition_id"] in selected_library_ids
+                ],
                 "required_response": {
                     "module_source": "complete raw Python module source",
                     "derivation_notes": {

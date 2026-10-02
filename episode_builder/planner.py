@@ -768,6 +768,14 @@ and result projection; every receive_result component first applies exact
 child-result correlation admission and then projects on the parent's scale.
 The child owns request admission and its closed result.
 
+HandoffPayloadContract declares vocabulary, while the actual values travel in
+request/result records. state_values maps each state name to a nonempty array
+of allowed lowercase string tokens. measurement_names declares finite scalar
+numeric quantities, including counts; flag_names declares booleans. Artifact
+roles carry arrays of stable opaque IDs for data held elsewhere. Each
+required_* array is a subset of its corresponding admitted names. Choose
+payload fields that these existing closed handoff records can represent.
+
 The root Episode's approved Architecture is the complete task input for this
 initial runtime. Give the root the closed empty request payload contract; child
 request and result contracts remain task-specific and are owned by their exact

@@ -1,0 +1,40 @@
+{
+  "contract_hash": "sha256:ccd7b68e3056d83d469bfe997e6a1d51dcf8366f6bb3e1f6ab34fbdc75616d3d",
+  "findings": [
+    {
+      "code": "open_operator_questions_declared_resolved",
+      "explanation": "The design_scope says 'Every question is resolved; do not reopen any', and unresolved_question_ids is empty. Two referenced artifacts still record open operator questions. The addendum's open_for_operator q_wait_until_monday records the operator's statement that the run must wait for the Monday reset. It explicitly asks whether stop-and-checkpoint with a separate resume run satisfies that instruction. The draft adopts that answer ('Resuming is a separate run') without any recorded confirmation. The ledger's q_phase_budget_fit is also still open: whether the 1500-call ceiling should be revised for the two-phase design. Both questions have safe defaults. However, telling descendants not to reopen questions presents an unconfirmed reading of a literal operator instruction as settled.",
+      "fields": [
+        "design_scope",
+        "design_context.unresolved_question_ids"
+      ],
+      "question": "Has the operator confirmed that stopping at once with a checkpoint, then resuming in a separate run, meets the 'wait until Monday' instruction? Has the operator confirmed keeping the 1500-call ceiling? If not, should both be listed as unresolved rather than declared resolved?",
+      "severity": "medium"
+    },
+    {
+      "code": "progress_saturates_without_goal_answer",
+      "explanation": "The goal asks which parameter combination and which episode structure produce the best answers per collection. Root progress credits a collection fully once it reaches bound_hit with a frozen benchmark, a noise floor, a single scored one-axis generation trial and a leaderboard. q_phase_budget_fit already projects that setup, phase A and phase B may not fit within 1200 calls. The expected outcome is therefore bound_hit in every collection, with phase B structures, and possibly several parameter axes, marked not-tested. Progress could still reach 1.0 in that case. The credited fraction would then say little about whether the goal's structure question was answered. Bound_hit is reported honestly, but the progress measure does not reflect how much of the goal was covered.",
+      "fields": [
+        "goal",
+        "progress.description",
+        "unit",
+        "credit_assignment"
+      ],
+      "question": "Is it acceptable that root progress reaches 1.0 when no collection scores any phase B structure? Or should the result-bearing minimum, or a reported coverage figure, reflect how much of the parameter and structure comparison was actually done?",
+      "severity": "medium"
+    },
+    {
+      "code": "host_stopping_cannot_express_run_end",
+      "explanation": "stopping.target is 1.0. Readable collections that close as not_tested (for example, below the minimum document count) or blocked contribute 0, so the target can be unreachable by design. Root stagnation counts only verified result-bearing closures. Each such closure adds at least 1/N, which is 0.33 when N is 3, so the stagnation rule can never fire. The run's actual end condition is 'every readable collection closed, or a bound hit'. That condition lives only in the ledger and design_scope and is carried out by the root's own terminal update. The host stopping fields do not encode it, so if the root fails to close itself, the run would only end at max_iterations or max_elapsed_seconds.",
+      "fields": [
+        "stopping",
+        "progress.description"
+      ],
+      "question": "Is it intended that the run ends only through the root's own terminal update or the safety bounds, and never through the declared target or stagnation rule, when some readable collection closes as not_tested or blocked?",
+      "severity": "low"
+    }
+  ],
+  "revision": 32,
+  "summary": "The draft closely follows its six artifacts. Precedence, safety bounds, capabilities, budget pools, closure statuses, the blocked-trigger vocabulary, the deliverable manifest and the credit rule all line up. Three coherence gaps remain. First, the draft says every question is resolved, but two operator questions are still recorded as open, and one of them concerns a literal operator instruction that the draft overrides. Second, root progress can reach 1.0 while the goal's structure comparison and most of the parameter search go unanswered, and the ledger already projects that outcome. Third, the host stopping fields cannot express the run's actual end condition.",
+  "verdict": "concern"
+}

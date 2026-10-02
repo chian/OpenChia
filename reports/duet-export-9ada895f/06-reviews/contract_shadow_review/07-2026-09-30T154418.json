@@ -1,0 +1,52 @@
+{
+  "contract_hash": "sha256:575779e174bd29e0d2bf66a2a2df4b467f0f793197d75cb9724d90251a0b49c5",
+  "findings": [
+    {
+      "code": "stagnation_convergence_vs_axis_coverage",
+      "explanation": "The goal is to find the best parameter and structure combination per collection. Search moves one axis at a time and stops as 'converged' after 3 consecutive trials each gaining less than max(0.05, noise floor). Three sub-threshold values of a single axis (for example rerank_candidates 20/50/100) can end search before template or query_rewrite is tried, even though the interface contract says template 'may matter more than any retrieval axis' for synthesis. The unit also carries axis-ordering hints from earlier collections into later ones. Under a 3-trial stagnation stop, those hints decide which axes get tested at all. That conflicts with the claim that a hint changes only which axis is tried first. The result would be a 'converged' label, which counts as result-bearing, on a search that is order-dependent and possibly narrow.",
+      "fields": [
+        "goal",
+        "unit",
+        "design_scope",
+        "stopping"
+      ],
+      "question": "Should 'converged' require that each untruck axis surviving reconnaissance has had at least one trial, or that stagnation be counted across distinct axes rather than across values of one axis, so that ordering hints cannot change which axes are tested?",
+      "severity": "medium"
+    },
+    {
+      "code": "use_graph_default_not_pinned",
+      "explanation": "RetrieveRequest.use_graph defaults to true. Graph endpoints are not collection-scoped, and the ledger requires use_graph to be recorded as not-tested for graph-not-attributable collections. The draft forbids hybrid, rerank and trial configs for pivot discovery, but it never pins use_graph=false for pivot probes, the named baseline, or trials on non-attributable collections. Every request could then silently run with graph augmentation while use_graph is reported as not-tested. That would confound the baseline and the noise floor, and could bias the bm25/vector pivot probes.",
+      "fields": [
+        "design_scope",
+        "unit"
+      ],
+      "question": "Must pivot probes, the baseline, and every trial on a graph-not-attributable collection set use_graph=false explicitly, with use_graph varied only as its own axis where attribution holds?",
+      "severity": "medium"
+    },
+    {
+      "code": "no_reserve_for_root_closeout_gate",
+      "explanation": "The only evidence requirement is the root terminal update. Before that update is written, the root must verify every closure's hashes, close orphaned collections by name, write the cross-collection note, and run the token-leak scan. The draft divides child-episode, judging, iteration and time allocations across collections at reconnaissance, and the execution policy reserves 5 child episodes. No elapsed-time or iteration reserve is stated for root close-out. If the 43200 s or 80-iteration bound hits during collection work, the leak scan and a complete terminal update may be unreachable. The ledger treats an incomplete terminal update as a failed run.",
+      "fields": [
+        "safety_bounds",
+        "design_scope",
+        "creator_contract.evidence_requirements"
+      ],
+      "question": "Should reconnaissance hold back an explicit time and iteration reserve for root close-out, covering verification, orphan closure, leak scan and terminal update, that no per-collection allocation may draw on?",
+      "severity": "medium"
+    },
+    {
+      "code": "stale_holdout_wording_and_unreachable_target",
+      "explanation": "The unit says to 'score baseline and winner once each on the holdout'. The ledger and design_scope require up to three model-matched scorings, with #3 being the winner on the strong model, and separate reporting of configuration and model effects. Separately, stopping.target is 1.0, but any admissibly not_tested or blocked collection earns 0. In those runs the target is structurally unreachable, and the run actually ends under the ledger's 'every collection closed' rule, which is not part of the stopping fields.",
+      "fields": [
+        "unit",
+        "stopping.target",
+        "progress"
+      ],
+      "question": "Should the unit text follow the three-scoring rule, and should the stopping description name the ledger's all-collections-closed run end as the operative termination when the target cannot be reached?",
+      "severity": "low"
+    }
+  ],
+  "revision": 24,
+  "summary": "The draft is largely coherent. It adopts the decision ledger's rules for credit, orphan closure, model-matched holdout and cost labelling. Capabilities (write_file, execute_code, todo_list) match the enforcement design, and the progress measure, evidence requirement and stopping rule line up at the root. Four gaps remain. The per-collection stagnation rule can declare 'converged' after a few one-axis trials, leaving most axes untested, and the cross-collection ordering hints make that coverage depend on order. use_graph defaults to true and is not pinned for baseline and pivot probes. No time or iteration reserve protects the root's close-out gate. The unit text and the stopping target still carry pre-ledger wording.",
+  "verdict": "concern"
+}

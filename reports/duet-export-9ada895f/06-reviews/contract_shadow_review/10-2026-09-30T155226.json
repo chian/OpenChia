@@ -1,0 +1,41 @@
+{
+  "contract_hash": "sha256:e2b19294fc85e6a7461bb2dd98cfc19cf51db474ced13b77e39c6be9917367f3",
+  "findings": [
+    {
+      "code": "judge_egress_vs_safety_network_policy",
+      "explanation": "The task_specification and the draft require the executing Episode's own model to generate questions and judge answers against retrieved chunk text. That puts corpus content in front of the Episode's own model provider. The safety_policy prohibits sending retrieved corpus content to any third-party model endpoint not reachable through the tenant's llm override. d_judge_collision strikes the Episode's model if the tenant lists it, and otherwise implies it is not tenant-reachable. So in both cases the judge path is, read literally, an endpoint the safety_policy excludes. The draft says the stricter rule wins, the safety_policy is never loosened, and no allowed trigger covers this case. A strict child could therefore refuse to judge, with no valid way to block, and the whole scoring design would stall.",
+      "fields": [
+        "design_scope",
+        "goal",
+        "safety_policy.network_policy.prohibited",
+        "task_specification.measurement_validity.judge_policy"
+      ],
+      "question": "Is the Episode's own model processing corpus text for question generation and judging an intended exception to the safety_policy egress rule? If so, will the draft state that exception explicitly instead of leaving it to the 'stricter rule wins' precedence?",
+      "severity": "medium"
+    },
+    {
+      "code": "root_stagnation_invariant_breaks_above_100",
+      "explanation": "d_root_stagnation_and_orphans claims that closing collections beyond 100 as not_tested keeps N at or below 100, so each result-bearing closure adds at least 0.01. But root_progress divides by all readable ASM collections, and not_tested closures remain in that denominator. If more than 100 collections are readable, each result-bearing closure adds less than 0.01, counts as non-improving, and the root would stop after 3 closures. That contradicts the operative run-end rule, which is all collections closed or a global bound hit.",
+      "fields": [
+        "stopping.minimum_delta",
+        "stopping.stagnation_observations",
+        "progress.description"
+      ],
+      "question": "When more than 100 collections are readable, should the collections cut at reconnaissance be excluded from N, or should root stagnation be disabled so that run_end alone governs termination?",
+      "severity": "low"
+    },
+    {
+      "code": "small_collection_status_ambiguity",
+      "explanation": "The not_tested reason 'below the minimum document count needed to build 20 synthesis questions' overlaps with two other ledger rules. d_benchmark_shortfall allows such a collection to proceed if it reaches 10 validated questions. It also sends a collection with fewer than 10 validated questions after setup to bound_hit 'benchmark_shortfall'. A small collection that attempts benchmark construction and falls short therefore has two candidate statuses. The completeness invariant requires exactly one.",
+      "fields": [
+        "unit",
+        "design_scope"
+      ],
+      "question": "For a collection with too few documents that attempts construction and ends with fewer than 10 validated synthesis questions, which status is required: not_tested 'below minimum document count', or bound_hit 'benchmark_shortfall'?",
+      "severity": "low"
+    }
+  ],
+  "revision": 28,
+  "summary": "The goal, per-collection unit, sub-unit, result, deliverable manifest, capabilities, credit assignment and Creator scope are coherent after the decision_ledger overrides. Three textual gaps could still lead a strict descendant to stall or mislabel a collection. The most material is that the safety_policy's corpus-egress rule, read literally under the draft's 'stricter rule wins' precedence, conflicts with the mandated Episode-side judge and question generator.",
+  "verdict": "concern"
+}

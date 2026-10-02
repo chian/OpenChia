@@ -50,6 +50,7 @@ from .protocol import (
     ProtocolError,
     ProtocolFrame,
     WorkerFrameType,
+    _thaw_json,
     decode_frame,
 )
 from .store import RunStore, RunStoreConflict
@@ -157,6 +158,40 @@ class _ExecutorFacts:
 class _LaunchIdentity:
     unit_name: str
     description: str
+
+
+WORKER_STDERR_TAIL_BYTES = 4096
+
+
+async def _drain_stderr(stream: asyncio.StreamReader) -> bytes:
+    """Consume the worker's stderr so it can never block, keeping only a tail."""
+    tail = b""
+    while True:
+        chunk = await stream.read(65536)
+        if not chunk:
+            return tail
+        tail = (tail + chunk)[-WORKER_STDERR_TAIL_BYTES:]
+
+
+async def _attach_worker_stderr(
+    exc: Optional[BaseException], stderr_tail: Optional["asyncio.Task[bytes]"]
+) -> None:
+    """Note the worker's last stderr bytes on the host-side failure.
+
+    The note is host diagnostics only: it reaches the operator through the
+    raised exception, never the evidence chain, and a worker that wrote nothing
+    leaves the exception untouched.
+    """
+    if stderr_tail is None:
+        return
+    try:
+        tail = await asyncio.wait_for(stderr_tail, 5.0)
+    except BaseException:
+        stderr_tail.cancel()
+        return
+    text = " ".join(tail.decode("utf-8", errors="replace").replace("\x00", " ").split())
+    if exc is not None and text:
+        exc.add_note(f"worker stderr: {text}")
 
 
 class _HostChannel:
@@ -897,6 +932,7 @@ class _RunExecutorBase:
             source_package,
         )
         launcher: Optional[asyncio.subprocess.Process] = None
+        stderr_tail: Optional[asyncio.Task[bytes]] = None
         channel: Optional[_HostChannel] = None
         facts: Optional[_ExecutorFacts] = None
         claimed = False
@@ -912,6 +948,8 @@ class _RunExecutorBase:
                 raise RunExecutionError(
                     "the Run launcher did not provide protocol pipes"
                 )
+            if launcher.stderr is not None:
+                stderr_tail = asyncio.create_task(_drain_stderr(launcher.stderr))
             channel = _HostChannel(
                 binding=ProtocolBinding.from_registration(registration),
                 reader=launcher.stdout,
@@ -1025,7 +1063,11 @@ class _RunExecutorBase:
                                        {"request_id": frame.body["request_id"], "response": response})
                     continue
                 if frame.frame_type == WorkerFrameType.MODEL_REQUEST.value:
-                    request = admit_model_request(frame.body["request"])
+                    # Frame bodies are frozen (lists become tuples) for hashing;
+                    # the broker contract is plain JSON, so thaw the record once
+                    # here, exactly as INITIALIZE and START thaw theirs.
+                    request_record = _thaw_json(frame.body["request"])
+                    request = admit_model_request(request_record)
                     request_hash = model_request_hash(request)
                     episode_id = OpaqueId(frame.body["episode_id"])
                     self.run_store.append_event(
@@ -1040,7 +1082,7 @@ class _RunExecutorBase:
                             "task": request.task,
                         },
                     )
-                    response = await model_broker(frame.body["request"])
+                    response = await model_broker(request_record)
                     from function_library.epistemic_schemas import model_call_id
                     response_frame = await channel.send(
                         HostFrameType.MODEL_RESPONSE.value,
@@ -1175,6 +1217,7 @@ class _RunExecutorBase:
         finally:
             if launcher is not None and launcher.returncode is None:
                 await self._stop_exact(launch_identity, launcher, facts)
+            await _attach_worker_stderr(sys.exception(), stderr_tail)
 
 
 
@@ -1267,6 +1310,7 @@ class SystemdRunExecutor(_RunExecutorBase):
         source_package: Path,
     ) -> tuple[ReadOnlyRuntimeMount, ...]:
         suffix = registration.run_id.value.rsplit("_", 1)[-1][:40]
+        # no-tmp: ok — path inside the systemd unit's PrivateTmp namespace, never host scratch
         base = PurePosixPath(f"/tmp/openchia-episode-inputs-{suffix}")
         mounts = [
             ReadOnlyRuntimeMount(
@@ -1341,6 +1385,7 @@ class SystemdRunExecutor(_RunExecutorBase):
                 "-S",
                 "-B",
                 "-X",
+                # no-tmp: ok — path inside the systemd unit's PrivateTmp namespace, never host scratch
                 "pycache_prefix=/tmp/openchia-disabled-pycache",
                 "-c",
                 bootstrap_program,
@@ -1457,7 +1502,7 @@ class SystemdRunExecutor(_RunExecutorBase):
             ),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
 
     async def _inspect(
