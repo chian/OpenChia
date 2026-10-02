@@ -50,6 +50,7 @@ from .protocol import (
     ProtocolError,
     ProtocolFrame,
     WorkerFrameType,
+    _thaw_json,
     decode_frame,
 )
 from .store import RunStore, RunStoreConflict
@@ -1025,7 +1026,11 @@ class _RunExecutorBase:
                                        {"request_id": frame.body["request_id"], "response": response})
                     continue
                 if frame.frame_type == WorkerFrameType.MODEL_REQUEST.value:
-                    request = admit_model_request(frame.body["request"])
+                    # Frame bodies are frozen (lists become tuples) for hashing;
+                    # the broker contract is plain JSON, so thaw the record once
+                    # here, exactly as INITIALIZE and START thaw theirs.
+                    request_record = _thaw_json(frame.body["request"])
+                    request = admit_model_request(request_record)
                     request_hash = model_request_hash(request)
                     episode_id = OpaqueId(frame.body["episode_id"])
                     self.run_store.append_event(
@@ -1040,7 +1045,7 @@ class _RunExecutorBase:
                             "task": request.task,
                         },
                     )
-                    response = await model_broker(frame.body["request"])
+                    response = await model_broker(request_record)
                     from function_library.epistemic_schemas import model_call_id
                     response_frame = await channel.send(
                         HostFrameType.MODEL_RESPONSE.value,
