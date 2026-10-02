@@ -11,6 +11,21 @@ from .broker import (
     model_response_hash,
     model_response_record,
 )
+from .http_broker import (
+    CredentialSpec,
+    HostHttpTransport,
+    HttpxHostTransport,
+    ResponseTooLarge,
+    ScopedHttpBroker,
+    load_egress_config,
+)
+from .http_contracts import (
+    HttpBrokerError,
+    admit_http_request,
+    admit_http_response,
+    http_request_hash,
+    http_response_hash,
+)
 from .audit_contracts import (
     RunAuditChunk,
     RunAuditLog,
@@ -208,6 +223,17 @@ __all__ = [
     "SeccompError",
     "SeccompPolicyReceipt",
     "ScopedModelBroker",
+    "ScopedHttpBroker",
+    "CredentialSpec",
+    "HostHttpTransport",
+    "HttpxHostTransport",
+    "HttpBrokerError",
+    "ResponseTooLarge",
+    "admit_http_request",
+    "admit_http_response",
+    "http_request_hash",
+    "http_response_hash",
+    "load_egress_config",
     "SystemdRunExecutor",
     "WORKER_ENTRYPOINT",
     "WorkerFrameType",

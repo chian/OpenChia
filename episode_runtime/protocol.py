@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Any, BinaryIO, Mapping
 
 from agent.episode_contracts import OpaqueId, Sha256Digest
+from method_loop.identities import EpisodeRef
 
 from .contracts import (
     DEFAULT_MAX_FRAME_BYTES,
@@ -19,6 +20,11 @@ from .contracts import (
     RunEventKind,
     RunRegistration,
     RunTerminalStatus,
+)
+from .http_contracts import (
+    HttpBrokerError,
+    admit_http_request,
+    admit_http_response,
 )
 from .landlock import LandlockPolicyReceipt
 from .seccomp import SeccompPolicyReceipt
@@ -40,6 +46,7 @@ class HostFrameType(str, Enum):
     INITIALIZE = "initialize"
     START = "start"
     MODEL_RESPONSE = "model_response"
+    HTTP_RESPONSE = "http_response"
     TERMINAL_ACK = "terminal_ack"
     CANCEL = "cancel"
 
@@ -47,6 +54,7 @@ class HostFrameType(str, Enum):
 class WorkerFrameType(str, Enum):
     READY = "ready"
     MODEL_REQUEST = "model_request"
+    HTTP_REQUEST = "http_request"
     RUN_EVENT = "run_event"
     TERMINAL = "terminal"
 
@@ -113,6 +121,44 @@ def _json_mapping(value: object, name: str) -> Mapping[str, object]:
     if not isinstance(frozen, Mapping):
         raise AssertionError("mapping freeze changed the top-level shape")
     return frozen
+
+
+def _episode_path(value: object) -> tuple[Mapping[str, str], ...]:
+    if not isinstance(value, (tuple, list)) or not value:
+        raise ProtocolError("episode_path must be a non-empty list")
+    segments: list[Mapping[str, str]] = []
+    for index, item in enumerate(value):
+        segment = _record(item, f"episode_path[{index}]", {"grain", "key"})
+        grain = segment["grain"]
+        key = segment["key"]
+        if (
+            not isinstance(grain, str)
+            or not grain
+            or not isinstance(key, str)
+            or not key
+        ):
+            raise ProtocolError(
+                "episode_path segments must carry non-empty grain and key text"
+            )
+        segments.append(MappingProxyType({"grain": grain, "key": key}))
+    return tuple(segments)
+
+
+def episode_id_for_path(
+    run_id: OpaqueId,
+    episode_path: object,
+) -> OpaqueId:
+    """Recompute the runtime Episode identity the linker gives ``episode_path``."""
+
+    if not isinstance(run_id, OpaqueId):
+        raise TypeError("run_id must be an OpaqueId")
+    segments = _episode_path(episode_path)
+    return OpaqueId(
+        EpisodeRef(
+            run_id=run_id.value,
+            path=tuple((item["grain"], item["key"]) for item in segments),
+        ).episode_id
+    )
 
 
 def _thaw_json(value: object) -> object:
@@ -215,7 +261,10 @@ def _validate_body(
                 "initialize body",
                 {"registration", "executor_instance_id"},
             )
-            registration = RunRegistration.from_record(record["registration"])
+            # Frames arrive frozen (arrays as tuples); the contract parsers want plain JSON.
+            registration = RunRegistration.from_record(
+                _thaw_json(record["registration"])
+            )
             if (
                 registration.run_id != binding.run_id
                 or registration.registration_hash
@@ -237,7 +286,7 @@ def _validate_body(
                 {"executor_attestation"},
             )
             attestation = InspectedExecutorAttestation.from_record(
-                record["executor_attestation"]
+                _thaw_json(record["executor_attestation"])
             )
             if (
                 attestation.run_id != binding.run_id
@@ -260,6 +309,23 @@ def _validate_body(
                 {
                     "model_request_id": request_id.value,
                     "response": response,
+                }
+            )
+        if frame_type == HostFrameType.HTTP_RESPONSE.value:
+            record = _record(
+                body,
+                "http_response body",
+                {"http_request_id", "response"},
+            )
+            request_id = OpaqueId(record["http_request_id"])
+            try:
+                response = admit_http_response(record["response"])
+            except HttpBrokerError as exc:
+                raise ProtocolError(f"http response: {exc}") from exc
+            return MappingProxyType(
+                {
+                    "http_request_id": request_id.value,
+                    "response": _json_mapping(response, "http response"),
                 }
             )
         if frame_type == HostFrameType.TERMINAL_ACK.value:
@@ -332,6 +398,31 @@ def _validate_body(
                     "model_request_id": request_id.value,
                     "episode_id": episode_id.value,
                     "request": request,
+                }
+            )
+        if frame_type == WorkerFrameType.HTTP_REQUEST.value:
+            record = _record(
+                body,
+                "http_request body",
+                {"http_request_id", "episode_id", "episode_path", "request"},
+            )
+            request_id = OpaqueId(record["http_request_id"])
+            episode_id = OpaqueId(record["episode_id"])
+            episode_path = _episode_path(record["episode_path"])
+            if episode_id_for_path(binding.run_id, episode_path) != episode_id:
+                raise ProtocolError(
+                    "http_request episode_path does not identify its episode_id"
+                )
+            try:
+                request = admit_http_request(record["request"])
+            except HttpBrokerError as exc:
+                raise ProtocolError(f"http request: {exc}") from exc
+            return MappingProxyType(
+                {
+                    "http_request_id": request_id.value,
+                    "episode_id": episode_id.value,
+                    "episode_path": episode_path,
+                    "request": _json_mapping(request, "http request"),
                 }
             )
         if frame_type == WorkerFrameType.RUN_EVENT.value:
@@ -639,4 +730,5 @@ __all__ = [
     "WorkerFrameType",
     "decode_frame",
     "encode_frame",
+    "episode_id_for_path",
 ]

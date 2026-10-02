@@ -25,6 +25,23 @@ def test_openchia_method_loop_is_in_the_installed_package_set():
     )
 
 
+def test_every_staged_worker_root_is_in_the_installed_package_set():
+    # The isolated worker stages these roots from the installed tree; a root
+    # missing from the package set would be absent from a wheel install.
+    from episode_runtime.identity import ADMITTED_LOCAL_ROOTS
+
+    manifest = tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    included = set(manifest["tool"]["setuptools"]["packages"]["find"]["include"])
+    missing = {
+        root
+        for root in ADMITTED_LOCAL_ROOTS
+        if root not in included or f"{root}.*" not in included
+    }
+    assert not missing
+
+
 def test_test_dependencies_are_group_only_in_manifest_and_lock():
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))

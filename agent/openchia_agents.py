@@ -79,6 +79,8 @@ def _duet_authority_scope(
         "assignable_child_capability_names": sorted(
             service.allowed_episode_capabilities
         ),
+        "allowed_egress_hosts": sorted(service.allowed_egress_hosts),
+        "egress_credential_names": sorted(service.egress_credential_names),
         "tree_boundary": {
             "owns": "human_facing_architecture_of_the_episode_workflow",
             "may_design_descendant_task_tree": True,
