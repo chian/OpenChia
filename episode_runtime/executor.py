@@ -159,6 +159,40 @@ class _LaunchIdentity:
     description: str
 
 
+WORKER_STDERR_TAIL_BYTES = 4096
+
+
+async def _drain_stderr(stream: asyncio.StreamReader) -> bytes:
+    """Consume the worker's stderr so it can never block, keeping only a tail."""
+    tail = b""
+    while True:
+        chunk = await stream.read(65536)
+        if not chunk:
+            return tail
+        tail = (tail + chunk)[-WORKER_STDERR_TAIL_BYTES:]
+
+
+async def _attach_worker_stderr(
+    exc: Optional[BaseException], stderr_tail: Optional["asyncio.Task[bytes]"]
+) -> None:
+    """Note the worker's last stderr bytes on the host-side failure.
+
+    The note is host diagnostics only: it reaches the operator through the
+    raised exception, never the evidence chain, and a worker that wrote nothing
+    leaves the exception untouched.
+    """
+    if stderr_tail is None:
+        return
+    try:
+        tail = await asyncio.wait_for(stderr_tail, 5.0)
+    except BaseException:
+        stderr_tail.cancel()
+        return
+    text = " ".join(tail.decode("utf-8", errors="replace").replace("\x00", " ").split())
+    if exc is not None and text:
+        exc.add_note(f"worker stderr: {text}")
+
+
 class _HostChannel:
     def __init__(
         self,
@@ -897,6 +931,7 @@ class _RunExecutorBase:
             source_package,
         )
         launcher: Optional[asyncio.subprocess.Process] = None
+        stderr_tail: Optional[asyncio.Task[bytes]] = None
         channel: Optional[_HostChannel] = None
         facts: Optional[_ExecutorFacts] = None
         claimed = False
@@ -912,6 +947,8 @@ class _RunExecutorBase:
                 raise RunExecutionError(
                     "the Run launcher did not provide protocol pipes"
                 )
+            if launcher.stderr is not None:
+                stderr_tail = asyncio.create_task(_drain_stderr(launcher.stderr))
             channel = _HostChannel(
                 binding=ProtocolBinding.from_registration(registration),
                 reader=launcher.stdout,
@@ -1175,6 +1212,7 @@ class _RunExecutorBase:
         finally:
             if launcher is not None and launcher.returncode is None:
                 await self._stop_exact(launch_identity, launcher, facts)
+            await _attach_worker_stderr(sys.exception(), stderr_tail)
 
 
 
@@ -1457,7 +1495,7 @@ class SystemdRunExecutor(_RunExecutorBase):
             ),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
 
     async def _inspect(

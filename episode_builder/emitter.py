@@ -544,6 +544,28 @@ non-executing host admission decides whether that exact source can enter the
 materialized build."""
 
 
+def _library_exports() -> dict[str, list[str]]:
+    """The exact public surface of every library a generated module may import."""
+    import episode_library.models
+    import function_library.models
+    import handoff_library
+    import http_call_library
+    import method_loop
+    import numeric_control_library
+
+    return {
+        module.__name__: sorted(module.__all__)
+        for module in (
+            episode_library.models,
+            function_library.models,
+            handoff_library,
+            http_call_library,
+            method_loop,
+            numeric_control_library,
+        )
+    }
+
+
 _MODULE_CONTRACT = {
     "exports": {
         "REQUEST_PAYLOAD_CONTRACT": (
@@ -630,6 +652,15 @@ _MODULE_CONTRACT = {
             "callable(path) returning the controller composed from the admitted "
             "schema, credit, rarefaction, and continuation functions"
         ),
+    },
+    "library_exports": {
+        "rule": (
+            "import a name only from the module whose __all__ lists it below; "
+            "a name imported from any other module, even one that defines a "
+            "similarly named class, is rejected by host admission before the "
+            "module can run"
+        ),
+        "exports": _library_exports(),
     },
     "binding_role_paths": {
         "admit_request": "BINDING.admit_request",

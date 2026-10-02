@@ -358,11 +358,129 @@ def _top_level_effects(tree: ast.Module) -> tuple[str, ...]:
     return tuple(effects)
 
 
+_LOCAL_LIBRARY_ROOTS = frozenset(_INTERNAL_IMPLEMENTATION_ROOTS | {"episode_library"})
+
+
+def _module_file(repository_root: Path, module_name: str) -> Path | None:
+    base = repository_root.joinpath(*module_name.split("."))
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _target_names(target: ast.AST) -> set[str]:
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return set().union(*(_target_names(item) for item in target.elts))
+    return set()
+
+
+def _exported_names(module_file: Path) -> frozenset[str] | None:
+    """Names ``from <module> import <name>`` can bind, read without importing.
+
+    Returns ``None`` when the module star-imports, since its surface cannot be
+    known statically; the caller then skips name resolution for that module.
+    """
+    tree = ast.parse(module_file.read_text("utf-8"), filename=str(module_file))
+    names: set[str] = set()
+
+    def collect(statements: list[ast.stmt]) -> bool:
+        for statement in statements:
+            if isinstance(
+                statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                names.add(statement.name)
+            elif isinstance(statement, ast.Assign):
+                for target in statement.targets:
+                    names.update(_target_names(target))
+            elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+                names.update(_target_names(statement.target))
+            elif isinstance(statement, ast.Import):
+                names.update(
+                    alias.asname or alias.name.split(".", 1)[0]
+                    for alias in statement.names
+                )
+            elif isinstance(statement, ast.ImportFrom):
+                if any(alias.name == "*" for alias in statement.names):
+                    return False
+                names.update(alias.asname or alias.name for alias in statement.names)
+            elif isinstance(statement, (ast.If, ast.Try)):
+                bodies = [statement.body, statement.orelse]
+                if isinstance(statement, ast.Try):
+                    bodies.append(statement.finalbody)
+                    bodies.extend(handler.body for handler in statement.handlers)
+                if not all(collect(body) for body in bodies):
+                    return False
+        return True
+
+    return frozenset(names) if collect(tree.body) else None
+
+
+def _imported_name_deficits(
+    tree: ast.Module, repository_root: Path
+) -> tuple[tuple[str, str], ...]:
+    """Resolve library imports against the real module files, non-executing.
+
+    Admission already restricts import *roots*; this restricts the imported
+    *names* too, so a module that names a real class under the wrong library
+    (``from episode_library.models import EpisodeControllerBinding``) is
+    blocked here instead of failing inside the isolated Run with an
+    ImportError the host cannot see.
+    """
+    found: list[tuple[str, str]] = []
+    for item in ast.walk(tree):
+        if isinstance(item, ast.ImportFrom):
+            if item.level or item.module is None:
+                continue
+            if item.module.split(".", 1)[0] not in _LOCAL_LIBRARY_ROOTS:
+                continue
+            module_file = _module_file(repository_root, item.module)
+            if module_file is None:
+                found.append(
+                    (
+                        "imported_module_missing",
+                        f"import {item.module!r} names no module in the admitted libraries",
+                    )
+                )
+                continue
+            exported = _exported_names(module_file)
+            if exported is None:
+                continue
+            for alias in item.names:
+                if alias.name == "*" or alias.name in exported:
+                    continue
+                if _module_file(repository_root, f"{item.module}.{alias.name}"):
+                    continue
+                found.append(
+                    (
+                        "imported_name_missing",
+                        f"import {alias.name!r} from {item.module!r} names nothing that "
+                        "module defines or re-exports; import it from the library "
+                        "whose __all__ lists it",
+                    )
+                )
+        elif isinstance(item, ast.Import):
+            for alias in item.names:
+                if alias.name.split(".", 1)[0] not in _LOCAL_LIBRARY_ROOTS:
+                    continue
+                if _module_file(repository_root, alias.name) is None:
+                    found.append(
+                        (
+                            "imported_module_missing",
+                            f"import {alias.name!r} names no module in the admitted libraries",
+                        )
+                    )
+    return tuple(found)
+
+
 def _inspect_source(
     module: EmittedEpisodeModule,
     node: NodeMaterializationPlan,
     expected_declaration: Mapping[str, object],
     generated_module_names: frozenset[str],
+    repository_root: Path | None = None,
 ) -> tuple[BuildDeficit, ...]:
     local_id = node.local_id
     deficits: list[BuildDeficit] = []
@@ -565,6 +683,10 @@ def _inspect_source(
                 f"module_source.{name.lower()}",
                 f"{name} differs from the admitted materialization plan",
             )
+
+    if repository_root is not None:
+        for code, detail in _imported_name_deficits(tree, repository_root):
+            add(code, "module_source", detail)
 
     for imported in _imported_modules(tree):
         if imported.startswith("."):
@@ -819,6 +941,7 @@ class EpisodeBuildAdmission:
                 node,
                 declaration,
                 generated_module_names,
+                self.repository_root,
             )
             deficits.extend(node_deficits)
             if not node_deficits:
