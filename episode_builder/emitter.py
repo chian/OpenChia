@@ -29,6 +29,7 @@ from ._contract_plan import (
 )
 from .declaration import DECLARATION_EXPORT, build_module_declaration
 from .reference import EpisodeReferenceContext
+from .planner import materializer_function_catalog
 
 
 _DOTTED_MODULE = re.compile(
@@ -500,6 +501,22 @@ Bind registered LibraryFunction constants as declarations and import their
 public pure implementations directly when construction needs them; do not
 dynamically load a definition.
 
+The selected_library_definitions identify exact reusable functions. Their
+library/function_id labels are semantic identities; implementation.module and
+implementation.symbol identify the actual Python code. Reusable numeric
+components live in numeric_control_library and handoff components live in
+handoff_library. Preserve the registered functions' computed definition IDs.
+Import binding types from method_loop, function declaration types from
+function_library, and EpisodeLibraryDesign from episode_library.models.
+
+For a generated function, LibraryFunction takes library, function_id,
+interface, description, implementation, input_type, output_type, effect,
+failure_contract, and provenance; evaluation and source_symbols are optional.
+Its definition_id is computed by the constructor. FunctionImplementation takes
+exactly module, symbol, and is_async. Write module as the exact supplied
+target_module_name in a quoted string literal, symbol as the top-level function
+name, and is_async as a boolean. This makes the target statically inspectable.
+
 Every edge receive_result implementation first calls
 handoff_library.admit_child_result with the matching parent request, declared
 RESULT_CHANNEL_IDS, and the exact edge result payload contract. It then
@@ -783,6 +800,11 @@ class EpisodeModuleEmitter:
             _child_summary(slot_name, direct_children[slot_name])
             for slot_name in sorted(direct_children)
         ]
+        selected_library_ids = {
+            binding["definition_id"]
+            for binding in plan.selected_function_bindings
+            if binding["source"] == "library"
+        }
         prompt = _canonical(
             {
                 "target_module_name": target_module_name,
@@ -805,6 +827,11 @@ class EpisodeModuleEmitter:
                     "root" if plan.parent_local_id is None else "child"
                 ),
                 "required_module_contract": _MODULE_CONTRACT,
+                "selected_library_definitions": [
+                    definition
+                    for definition in materializer_function_catalog()
+                    if definition["definition_id"] in selected_library_ids
+                ],
                 "required_response": {
                     "module_source": "complete raw Python module source",
                     "derivation_notes": {
