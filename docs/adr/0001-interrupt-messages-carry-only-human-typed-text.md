@@ -16,7 +16,20 @@ The interrupt-control boundary already records provenance. `interrupt_issuer(age
 
 The decision has two parts.
 
-First, the interrupt message field contains only text a human actually typed. Its single legitimate producer is the OpenChia CLI keyboard path: `_chat_monitor_agent_thread` pulls text from the interrupt queue and calls `agent.interrupt(interrupt_msg)`. Every other interrupt producer passes no message. A button press and a watchdog both carry zero user text, so neither has text to replay.
+First, the interrupt message field contains only text a human actually typed.
+The legitimate producers are the paths that carry such text directly:
+
+- the CLI keyboard path — `_chat_monitor_agent_thread` reads the interrupt
+  queue and calls `agent.interrupt(interrupt_msg)`
+  (`hermes_cli/cli_chat_turn_mixin.py:438`)
+- the gateway inbound paths, where a user messages a running session —
+  `gateway/run_inbound.py:716` and `gateway/run_busy.py:679`
+- the gateway pending-event drain and voice barge-in —
+  `gateway/run_turn.py:3336`
+
+All of these already classify as `_REASON_NEW_MESSAGE`. Every other interrupt
+producer passes no message: a button press, a watchdog, a signal and a
+cancelled task all carry zero user text, so none has text to replay.
 
 Second, replay prevention is enforced at each consumer using interrupt provenance rather than message matching. `turn_finalizer.py` carries `interrupt_issuer(agent)` into the turn result. Both the CLI and gateway consumers inspect that value before deciding whether any interrupt text can become a subsequent user turn.
 
@@ -29,7 +42,37 @@ Second, replay prevention is enforced at each consumer using interrupt provenanc
 - `_CONTROL_INTERRUPT_MESSAGES` and `_is_control_interrupt_message()` are deleted.
 - Any future `request_hard_interrupt()` caller is covered by the provenance rule without adding another string or call-site exception.
 
-**Live correction.** Three human-initiated stops currently pass invented boilerplate even though the human typed nothing:
+### Soft interrupts need explicit provenance before the guard can be trusted
+
+`InterruptControlMixin.interrupt()` derives provenance differently for soft
+interrupts: with `hard_cancel=False`, the mere presence of a message yields
+`_REASON_NEW_MESSAGE`, which `USER_INTERRUPT_REASONS` treats as human, so
+`interrupt_issuer()` returns `None`. The inference is circular — it concludes
+the text is human because the text exists — and the consumer guard cannot
+distinguish these cases.
+
+The following producers pass system text through that path and are therefore
+misreported as human stops:
+
+- `agent/tool_executor.py:1336` and `:1747` — `"keyboard interrupt"` on Ctrl+C
+- `agent/tool_executor.py:973` — `"terminal batch tool did not complete"`
+- `hermes_cli/cli_shutdown.py:202` — the shutdown reason slug, de-underscored
+- `agent/terminal_approval_batch.py:306` — `str(exc)`, an exception message
+- `cron/scheduler.py:1920` — `"Cron fire claim ownership was lost"`
+- `gateway/platforms/api_server.py:3759` — `"SSE client disconnected"` /
+  `"SSE task cancelled"`
+
+Ctrl+C is the clearest case: a human act carrying no typed text, which today
+injects the literal string `"keyboard interrupt"` as the next prompt.
+
+Each must supply a `tool_reason` or drop its message argument. Until then the
+provenance guard covers hard interrupts only, and this family is unaffected by
+it. This is producer-side work, but bounded and enumerable rather than a
+standing obligation on every future caller.
+
+### Producer-side work: human-initiated stops
+
+Three human-initiated stops currently pass invented boilerplate even though the human typed nothing:
 
 - `POST /v1/runs/{run_id}/stop` in `gateway/platforms/api_server_runs.py:1270`
 - `interrupt_subagent()` in `tools/delegate_tool_registry.py:102`
