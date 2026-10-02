@@ -8,7 +8,7 @@ is destroyed a few seconds later — the handoff reply is silently lost.
 
 Fix under test: ``ProcessRegistry.wait_for_pending_completions`` gives the
 one-shot exit paths (``cli._finalize_single_query`` and
-``hermes_cli.oneshot``) a bounded linger over every tracked
+``openchia_cli.oneshot``) a bounded linger over every tracked
 ``notify_on_complete`` process, so the delivery lands before the parent dies.
 
 Covers:
@@ -198,14 +198,14 @@ def test_config_reader_falls_back_when_config_unreadable(monkeypatch):
         raise RuntimeError("config unreadable")
 
     monkeypatch.setattr(
-        "hermes_cli.config.read_raw_config", _boom, raising=False
+        "openchia_cli.config.read_raw_config", _boom, raising=False
     )
     val = pr_mod.ProcessRegistry._oneshot_completion_wait_seconds()
     assert val > 0
 
 def test_config_value_is_floored_at_zero(monkeypatch):
     monkeypatch.setattr(
-        "hermes_cli.config.read_raw_config",
+        "openchia_cli.config.read_raw_config",
         lambda: {"terminal": {"oneshot_completion_wait_seconds": -5}},
         raising=False,
     )

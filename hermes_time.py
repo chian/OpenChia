@@ -89,9 +89,9 @@ def _resolve_timezone_name() -> str:
         # Prefer the shared cached effective-config loader (mtime-keyed + libyaml, managed overlay
         # included so an administrator can pin ``timezone``): a direct safe_load of a large
         # config.yaml costs ~100 ms and this ran inside the FIRST system prompt build. The bare
-        # parse is the stdlib-safe fallback for bootstrap consumers without hermes_cli importable.
+        # parse is the stdlib-safe fallback for bootstrap consumers without openchia_cli importable.
         try:
-            from hermes_cli.config_effective import load_user_config_effective
+            from openchia_cli.config_effective import load_user_config_effective
             cfg = load_user_config_effective(get_config_path())
         except Exception:
             import hermes_yaml as yaml

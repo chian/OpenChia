@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 
 from agent.memory_provider import spawn_context_thread as _spawn_context_thread
 from agent.secret_scope import get_secret
-from hermes_cli.profiles import _get_default_hermes_home
+from openchia_cli.profiles import _get_default_hermes_home
 from hermes_constants import get_hermes_home
 from hermes_state_common import TITLE_SOURCE_DERIVED, TITLE_SOURCE_LLM
 
@@ -81,7 +81,7 @@ def resolve_active_host() -> str:
     if explicit:
         return explicit
     try:
-        from hermes_cli.profiles import get_active_profile_name
+        from openchia_cli.profiles import get_active_profile_name
         profile_host = profile_host_key(get_active_profile_name())
     except Exception:
         profile_host = HOST
@@ -642,7 +642,7 @@ def _build_client(config: HonchoClientConfig) -> "Honcho":
     base_url, timeout = config.base_url, config.timeout
     if not base_url or timeout is None:
         with contextlib.suppress(Exception):
-            from hermes_cli.config import load_config
+            from openchia_cli.config import load_config
             honcho_cfg = load_config().get("honcho", {})
             if isinstance(honcho_cfg, dict):
                 base_url = base_url or _sanitize_url(honcho_cfg.get("base_url", "").strip() or None)

@@ -8,7 +8,7 @@ import threading
 
 import pytest
 
-from hermes_cli.dashboard_auth import ws_tickets
+from openchia_cli.dashboard_auth import ws_tickets
 
 
 def test_install_worker_keeps_the_requested_profile_scope(tmp_path, monkeypatch):
@@ -247,7 +247,7 @@ def test_switch_sandbox_image_decides_only_a_pending_switch(monkeypatch, tmp_pat
     otherwise the decision is made through the same module the CLI offer uses and the fresh
     status rides back."""
     import tui_gateway.server as server
-    from hermes_cli import sandbox_image_switch as sw
+    from openchia_cli import sandbox_image_switch as sw
     from tools.bot_desktop import runtime
 
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))

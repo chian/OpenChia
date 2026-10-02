@@ -31,7 +31,7 @@ def _emit(**payload: object) -> None:
 def main(spec_path: str) -> None:
     spec = json.loads(open(spec_path, encoding="utf-8").read())
 
-    from hermes_cli.config import load_config
+    from openchia_cli.config import load_config
     from hermes_state import SessionDB
     from run_agent import AIAgent
 

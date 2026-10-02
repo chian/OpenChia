@@ -157,9 +157,9 @@ def _isolated_checkout(tmp_path: Path) -> Path:
     root = tmp_path / "checkout with spaces"
     root.mkdir()
     shutil.copytree(REPO_ROOT / "pm", root / "pm", ignore=shutil.ignore_patterns("__pycache__"))
-    (root / "hermes_cli").mkdir()
-    for relative in ("activate", "activate.ps1", "hermes_constants.py", "hermes_cli/__init__.py",
-                     "pm/environments.py", "hermes_cli/runtime_state.py"):
+    (root / "openchia_cli").mkdir()
+    for relative in ("activate", "activate.ps1", "hermes_constants.py", "openchia_cli/__init__.py",
+                     "pm/environments.py", "openchia_cli/runtime_state.py"):
         shutil.copy2(REPO_ROOT / relative, root / relative)
     # Environment-only tests do not exercise provisioning; the runtime tests
     # replace these stubs with a publisher that records and applies each sync.

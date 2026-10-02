@@ -131,7 +131,7 @@ def _is_production_state_db(resolved: Path, root: Path) -> bool:
 # teardown in tests/conftest.py (_close_leaked_session_dbs) can close whatever
 # a test forgot to close. Dozens of tests build SessionDB() directly and never
 # close it; each instance holds a writer connection plus pooled readers, and a
-# single-process run over tests/hermes_cli/ accumulated 16-25 GB RSS (OOM
+# single-process run over tests/openchia_cli/ accumulated 16-25 GB RSS (OOM
 # incident 20260816). The per-file runner masks this in CI; the registry fixes
 # the class at the source instead of patching ~40 test files.
 #

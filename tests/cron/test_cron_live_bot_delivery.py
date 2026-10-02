@@ -12,7 +12,7 @@ def test_live_delivery_retry_keeps_receipt_across_owner_loss(tmp_path, monkeypat
     monkeypatch.setenv("HERMES_HOME", str(source))
     subprocess_run = Mock(side_effect=AssertionError("live owner must not spawn CLI"))
     monkeypatch.setattr(delivery, "_run_bot_chat_turn", subprocess_run)
-    from hermes_cli.profiles import get_profile_dir
+    from openchia_cli.profiles import get_profile_dir
 
     for profile, home in [("", source), ("research", get_profile_dir("research"))]:
         owner = dict(profile_home=str(home.resolve()), session_id="bot", lease_id="lease",

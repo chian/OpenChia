@@ -85,8 +85,8 @@ def test_native_cli_consumes_real_minimal_preparation_without_bootstrap(tmp_path
     assert result.returncode == 0, result.stderr
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["runtime"]["commands"] == {"probe": "bin/probe"}
-    assert not (code / "hermes_cli/tui_dist").exists()
-    assert not (code / "hermes_cli/web_dist").exists()
+    assert not (code / "openchia_cli/tui_dist").exists()
+    assert not (code / "openchia_cli/web_dist").exists()
     probe = subprocess.run([str(out / "bin/probe")], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)
     assert probe.returncode == 0, probe.stderr
     assert probe.stdout.strip() == "native fixture"

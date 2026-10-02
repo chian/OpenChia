@@ -89,9 +89,9 @@ function verifyImports(python: string, env: Record<string, string>): string {
       '-c',
       [
         'import json, pathlib, sys',
-        'import hermes_cli.main, hermes_cli.web_server, tui_gateway.server',
+        'import openchia_cli.main, openchia_cli.web_server, tui_gateway.server',
         'root = pathlib.Path.cwd().resolve()',
-        'paths = {name: str(pathlib.Path(sys.modules[name].__file__).resolve()) for name in ("hermes_cli.main", "hermes_cli.web_server", "tui_gateway.server")}',
+        'paths = {name: str(pathlib.Path(sys.modules[name].__file__).resolve()) for name in ("openchia_cli.main", "openchia_cli.web_server", "tui_gateway.server")}',
         'assert all(pathlib.Path(p).is_relative_to(root) for p in paths.values()), paths',
         'sys.__stdout__.write(json.dumps(paths))'
       ].join('\n')
@@ -167,7 +167,7 @@ async function startRemote(python: string, env: Record<string, string>, logPath:
 
   const child = spawn(
     python,
-    ['-m', 'hermes_cli.main', 'serve', '--isolated', '--host', '127.0.0.1', '--port', String(port), '--skip-build'],
+    ['-m', 'openchia_cli.main', 'serve', '--isolated', '--host', '127.0.0.1', '--port', String(port), '--skip-build'],
     {
       cwd: REPO_ROOT,
       env: { ...env, HERMES_DASHBOARD_SESSION_TOKEN: REMOTE_TOKEN },

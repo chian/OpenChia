@@ -24,7 +24,7 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 import requests
 
 from agent.secret_scope import get_secret
-from hermes_cli.config import cfg_get, load_config, read_raw_config
+from openchia_cli.config import cfg_get, load_config, read_raw_config
 from hermes_constants import get_hermes_home_override, hermes_home_key
 from tools.browser_camofox_state import get_camofox_identity
 from tools.registry import tool_error
@@ -81,7 +81,7 @@ def _config_cdp_url() -> str:
     """Persistent ``browser.cdp_url`` from config.yaml, or "" (read here, not via
     ``browser_tool_cdp._get_cdp_override`` — circular import)."""
     try:
-        from hermes_cli.config import read_raw_config  # late-bound: tests patch the source module
+        from openchia_cli.config import read_raw_config  # late-bound: tests patch the source module
         browser_cfg = read_raw_config().get("browser", {})
         if isinstance(browser_cfg, dict):
             return str(browser_cfg.get("cdp_url", "") or "").strip()

@@ -67,7 +67,7 @@ const resolveSidecarUrl = () => {
 }
 
 const resolvePython = () => {
-  // Trust HERMES_PYTHON only. The launcher guarantees it: hermes_cli/main.py
+  // Trust HERMES_PYTHON only. The launcher guarantees it: openchia_cli/main.py
   // validates it and falls back to its own sys.executable, and the Nix
   // wrapper sets it too. So a TUI started the normal way already knows its
   // interpreter, and scanning VIRTUAL_ENV / .venv here can only find a

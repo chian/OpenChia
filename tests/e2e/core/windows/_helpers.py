@@ -1,7 +1,7 @@
 """Shared harness for the native-Windows end-to-end suite.
 
 Every test drives REAL Hermes processes (the source launcher / ``python -m
-hermes_cli.main``) on a real Windows host against the recording loopback
+openchia_cli.main``) on a real Windows host against the recording loopback
 provider (``tests/fakes/fake_llm_provider.py``). Nothing in Hermes is mocked;
 verdicts come from what reached the provider wire, what landed in ``state.db``
 / on disk, and the live process table (psutil).
@@ -109,7 +109,7 @@ def make_home(tmp_path: Path, base_url: str, *, extra_config: str = "") -> WinHo
 
 
 def hermes_argv(*args: str) -> list[str]:
-    return [sys.executable, "-m", "hermes_cli.main", *args]
+    return [sys.executable, "-m", "openchia_cli.main", *args]
 
 
 def hermes_exe(home: WinHome) -> Path:
@@ -120,7 +120,7 @@ def hermes_exe(home: WinHome) -> Path:
     a scratch home keeps its dependencies in that interpreter, not PM install
     facts for the runner's real home.
     """
-    from hermes_cli._launchers import mint_launcher
+    from openchia_cli._launchers import mint_launcher
 
     bin_dir = home.profile / "AppData" / "Local" / "hermes" / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)

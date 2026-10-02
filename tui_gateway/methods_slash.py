@@ -183,7 +183,7 @@ def _format_live_tools_output(sid: str, session: dict, arg: str) -> str:
 
 def _format_live_help_output(sid: str, session: dict, arg: str) -> str:
     try:
-        from hermes_cli.commands import COMMANDS_BY_CATEGORY
+        from openchia_cli.commands import COMMANDS_BY_CATEGORY
         lines = ["Available commands:", ""]
         for category, commands in COMMANDS_BY_CATEGORY.items():
             lines.append(f"{category}:")
@@ -311,7 +311,7 @@ def _mirror_approvals(sid, session, agent, arg) -> None:
 def _mirror_personality(sid, session, agent, arg) -> None:
     if arg and agent:
         pname, new_prompt = _validate_personality(arg, _load_cfg())
-        from hermes_cli.personality import persist_personality  # single owner: no surface drift
+        from openchia_cli.personality import persist_personality  # single owner: no surface drift
         persist_personality(pname)
         _apply_personality_to_session(sid, session, new_prompt, pname)
 

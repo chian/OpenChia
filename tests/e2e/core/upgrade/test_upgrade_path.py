@@ -138,7 +138,7 @@ added = subprocess.run(["git", "-C", str(root), "diff", "--name-only", "--diff-f
                         *[f"{t}/*.py" for t in tops]], capture_output=True, text=True).stdout.split()
 added = [a[:-3].replace("/", ".") for a in added if "/tests/" not in a and not a.endswith("__init__.py")][:3]
 bad = []
-for name in tops + ["hermes_cli.main", "run_agent", "hermes_state"] + added:
+for name in tops + ["openchia_cli.main", "run_agent", "hermes_state"] + added:
     try:
         mod = importlib.import_module(name)
     except BaseException as exc:
@@ -239,7 +239,7 @@ def user_config(base_url: str, version: int) -> str:
 
 def _base_config_version(leg: Leg) -> int:
     """The N-1 schema version, as N-1's own code reports it (imported in the N-1 install's venv)."""
-    cp = leg.run("-c", "from hermes_cli.config_defaults import DEFAULT_CONFIG; print(DEFAULT_CONFIG['_config_version'])",
+    cp = leg.run("-c", "from openchia_cli.config_defaults import DEFAULT_CONFIG; print(DEFAULT_CONFIG['_config_version'])",
                  argv0=leg.python)
     assert cp.returncode == 0, "could not import the N-1 DEFAULT_CONFIG:\n" + H.describe(cp)
     return int(cp.stdout.strip().splitlines()[-1])
@@ -455,7 +455,7 @@ def migrate_oracle(leg: Leg, name: str, before: bytes) -> bytes:
     src_env = _profile_homes(leg)[name] / ".env"
     if src_env.exists():
         shutil.copy2(src_env, home / ".env")
-    code = "from hermes_cli.config import migrate_config; migrate_config(interactive=False, quiet=True)"
+    code = "from openchia_cli.config import migrate_config; migrate_config(interactive=False, quiet=True)"
     cp = H.run([str(H.WORKTREE / ".venv" / "bin" / "python"), "-c", code],
                env=env, cwd=H.WORKTREE, writable=[oroot], timeout=CLI_TIMEOUT)
     assert cp.returncode == 0 and TRACEBACK not in cp.stderr, H.describe(cp)

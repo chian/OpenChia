@@ -1,6 +1,6 @@
 """Shared harness for the native-dialect provider wire suites (``test_native_*.py``).
 
-Every scenario drives the REAL ``hermes`` CLI (``python -m hermes_cli.main chat -q ... -Q``) as a
+Every scenario drives the REAL ``hermes`` CLI (``python -m openchia_cli.main chat -q ... -Q``) as a
 subprocess with a hermetic fake HOME / HERMES_HOME, a config.yaml that selects a native provider,
 and the provider's endpoint redirected to a loopback fake from ``tests/fakes/providers/``. Only the
 vendor boundary is faked; runtime resolution, the adapter, the agent loop, tools and SQLite are real.
@@ -120,7 +120,7 @@ class ChatResult:
 def run_chat(nh: NativeHome, prompt: str, *, resume: str | None = None, env: dict[str, str] | None = None,
              args: tuple[str, ...] = (), timeout: float = TURN_TIMEOUT) -> ChatResult:
     """One real ``hermes chat -q`` turn (optionally ``--resume <id>``) against the fake provider."""
-    argv = [sys.executable, "-m", "hermes_cli.main", "chat", "-q", prompt, "-Q", *args]
+    argv = [sys.executable, "-m", "openchia_cli.main", "chat", "-q", prompt, "-Q", *args]
     if resume:
         argv += ["--resume", resume]
     started = time.monotonic()

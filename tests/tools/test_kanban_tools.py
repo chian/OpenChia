@@ -53,8 +53,8 @@ def worker_env(monkeypatch, tmp_path):
     from pathlib import Path as _Path
     monkeypatch.setattr(_Path, "home", lambda: tmp_path)
 
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     kb._INITIALIZED_PATHS.clear()
     kb.init_db()
     conn = kbc.connect()
@@ -85,8 +85,8 @@ def test_show_defaults_to_env_task_id(worker_env):
 def test_list_filters_tasks(monkeypatch, worker_env):
     """kanban_list gives orchestrators filtered board discovery."""
     monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         a = kb.create_task(conn, title="alpha", assignee="factory", priority=5)
@@ -124,8 +124,8 @@ def test_complete_happy_path(worker_env):
     assert d["ok"] is True
     assert d["task_id"] == worker_env
     # Verify via kernel
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         run = kb.latest_run(conn, worker_env)
@@ -140,8 +140,8 @@ def test_complete_retry_with_empty_created_cards_succeeds(worker_env):
     """After a phantom rejection, retrying kanban_complete with
     created_cards=[] (the documented escape hatch) must complete the
     task. Regression for #22923."""
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     # Hit the gate first.
@@ -171,9 +171,9 @@ def test_complete_reports_registered_attachments(worker_env):
     workers narrated "registered at completion: none" even when the rows landed.
     The completion result must report the card's durable attachment set, in the
     same shape the readback tool returns."""
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
-    from hermes_cli import kanban_db_workspace as kbw
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db_workspace as kbw
     from tools import kanban_tools as kt
 
     with kbc.connect() as conn:
@@ -200,8 +200,8 @@ def test_request_review_rejects_unknown_reviewer_without_mutation(monkeypatch, w
     """#106163: a non-profile ``reviewer`` (e.g. the literal "reviewer") must be
     refused with an error the model sees, leaving the task running under the
     implementer — never parked in ``review`` on an assignee nobody can spawn."""
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     (tmp_path / ".hermes" / "profiles" / "verifier").mkdir(parents=True)
@@ -221,8 +221,8 @@ def test_request_review_rejects_unknown_reviewer_without_mutation(monkeypatch, w
 
 
 def test_request_review_accepts_installed_profile(monkeypatch, worker_env, tmp_path):
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     (tmp_path / ".hermes" / "profiles" / "verifier").mkdir(parents=True)
@@ -243,8 +243,8 @@ def test_unbound_worker_cannot_mutate_card(monkeypatch, worker_env):
     on every run-lifecycle mutation. ``expected_run_id=None`` would silently skip
     the run-ownership CAS in kanban_db, so an unbound stale worker could complete
     a card a live successor owns (regression for #116239)."""
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     # Worker is scoped to the task (HERMES_KANBAN_TASK set by the fixture) but
@@ -281,8 +281,8 @@ def test_malformed_run_id_refused_but_nonlifecycle_allowed(monkeypatch, worker_e
     """A malformed (non-integer) HERMES_KANBAN_RUN_ID is treated as unbound and
     refuses run-lifecycle mutations, while non-lifecycle tools (heartbeat /
     attach) that do not terminate a run stay available to the worker."""
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     monkeypatch.setenv("HERMES_KANBAN_RUN_ID", "not-an-int")
@@ -302,8 +302,8 @@ def test_complete_goal_mode_rejected_by_judge(monkeypatch, tmp_path):
     """Goal-mode tasks must pass the auxiliary judge before completion.
     Regression for #38367: workers bypassing the judge via early kanban_complete."""
     from pathlib import Path as _Path
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     # Set up isolated HERMES_HOME
@@ -361,8 +361,8 @@ def test_block_happy_path(worker_env):
     out = kt._handle_block({"reason": "need clarification"})
     d = json.loads(out)
     assert d["ok"] is True
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         assert kb.get_task(conn, worker_env).status == "blocked"
@@ -374,8 +374,8 @@ def _make_goal_mode_worker_env(monkeypatch, tmp_path):
     """Set up an isolated HERMES_HOME with one claimed goal_mode task,
     matching the pattern used by the kanban_complete judge gate tests."""
     from pathlib import Path as _Path
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
 
     home = tmp_path / ".hermes"
     home.mkdir()
@@ -406,8 +406,8 @@ def test_block_goal_mode_rejects_missing_kind(monkeypatch, tmp_path):
     to use it as an unguarded escape from the goal loop (Issue #38696,
     sibling of the kanban_complete judge gate / Issue #38367)."""
     from tools import kanban_tools as kt
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
 
     tid = _make_goal_mode_worker_env(monkeypatch, tmp_path)
     out = kt._handle_block({"reason": "giving up"})
@@ -426,8 +426,8 @@ def test_block_goal_mode_rejects_disallowed_kind(monkeypatch, tmp_path):
     """`capability` / `transient` are valid kinds in general but must not
     let a goal_mode worker exit the loop without going through the judge."""
     from tools import kanban_tools as kt
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
 
     tid = _make_goal_mode_worker_env(monkeypatch, tmp_path)
     for kind in ("capability", "transient"):
@@ -464,8 +464,8 @@ def test_heartbeat_extends_claim_expires(worker_env):
     static while last_heartbeat_at advanced.
     """
     import time as _time
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     # Rewind claim_expires into the past so any forward movement is
@@ -519,8 +519,8 @@ def test_worker_the_dispatcher_never_recorded_keeps_its_claim_or_never_starts(mo
     pid. The worker registers itself, so the expired claim is extended, not handed to a second worker;
     a worker that starts only after its run was reclaimed is told not to work the card."""
     import os as _os
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     assert kt.register_current_worker_from_env() is True
@@ -546,8 +546,8 @@ def test_worker_the_dispatcher_never_recorded_keeps_its_claim_or_never_starts(mo
 def test_reclaim_loses_to_a_worker_registering_mid_sweep(monkeypatch, worker_env):
     """The worker registers between the stale-claim SELECT and its UPDATE: the claim stays its own."""
     import os as _os
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     real_terminate = kb._terminate_reclaimed_worker
@@ -571,8 +571,8 @@ def test_comment_rejects_caller_supplied_author(worker_env):
         "task_id": worker_env, "body": "hi", "author": "hermes-system",
     })
     assert "author" in json.loads(out)["error"]
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         assert kb.list_comments(conn, worker_env) == []
@@ -595,8 +595,8 @@ def test_create_happy_path(worker_env):
     assert d["task_id"]
     assert d["status"] == "todo"  # parent isn't done yet
     assert d["gated"] is True and d["gated_by"] == worker_env
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         child = kb.get_task(conn, d["task_id"])
@@ -614,8 +614,8 @@ def test_create_explicit_scratch_ignores_ambient_board_project(
     """#106342: an explicit scratch / empty project wins over the project the
     session's current board (and, when scoped, the target board itself) carries.
     Omitting both still inherits the target board's project."""
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import projects_db as pdb
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import projects_db as pdb
     from tools import kanban_tools as kt
 
     repo = tmp_path / "repo"
@@ -636,8 +636,8 @@ def test_create_explicit_scratch_ignores_ambient_board_project(
 
 
 def test_link_running_child_allows_owner_but_rejects_foreign(monkeypatch, worker_env):
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     with kbc.connect() as conn:
@@ -662,8 +662,8 @@ def test_link_running_child_allows_owner_but_rejects_foreign(monkeypatch, worker
 
 def test_unblock_happy_path(monkeypatch, worker_env):
     monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         tid = kb.create_task(conn, title="blocked", assignee="worker")
@@ -693,8 +693,8 @@ def test_unblock_with_pending_parents_returns_todo(monkeypatch, tmp_path):
     from pathlib import Path as _Path
     monkeypatch.setattr(_Path, "home", lambda: tmp_path)
 
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     kb._INITIALIZED_PATHS.clear()
     kb.init_db()
     conn = kbc.connect()
@@ -754,8 +754,8 @@ def test_worker_lifecycle_through_tools(worker_env):
     assert comp["ok"]
 
     # Verify final state
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         parent = kb.get_task(conn, worker_env)
@@ -803,8 +803,8 @@ def test_worker_lifecycle_through_tools(worker_env):
 
 def test_worker_complete_rejects_foreign_task_id(worker_env):
     """A worker cannot complete a task that isn't its own (#19534)."""
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         other = kb.create_task(conn, title="sibling")
@@ -836,8 +836,8 @@ def test_worker_can_comment_on_foreign_task(worker_env):
     so a future change accidentally adding ``_enforce_worker_task_ownership``
     to ``_handle_comment`` would fail CI immediately.
     """
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         other = kb.create_task(conn, title="sibling")
@@ -872,8 +872,8 @@ def test_worker_unblock_rejects_foreign_task_id(worker_env):
     cross-task-ownership refusal. Either is fine — the property we're
     pinning is "worker cannot mutate foreign task via kanban_unblock".
     """
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     conn = kbc.connect()
     try:
         other = kb.create_task(conn, title="blocked sibling", assignee="peer")
@@ -906,8 +906,8 @@ def test_orchestrator_complete_any_task_allowed(monkeypatch, tmp_path):
     from pathlib import Path as _P
     monkeypatch.setattr(_P, "home", lambda: tmp_path)
 
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     kb._INITIALIZED_PATHS.clear()
     kb.init_db()
     conn = kbc.connect()
@@ -939,8 +939,8 @@ def test_orchestrator_complete_any_task_allowed(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def _list_subs_for_task(task_id):
-    from hermes_cli import kanban_db_connect as kbc
-    from hermes_cli import kanban_db_notify as kbn
+    from openchia_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db_notify as kbn
     conn = kbc.connect()
     try:
         return list(kbn.list_notify_subs(conn, task_id))
@@ -1089,7 +1089,7 @@ def test_maybe_auto_subscribe_swallows_add_notify_sub_failure(monkeypatch, worke
     monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
     monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "chat-42")
 
-    from hermes_cli import kanban_db_notify as kbn
+    from openchia_cli import kanban_db_notify as kbn
 
     def _boom(*a, **kw):
         raise RuntimeError("simulated DB failure")
@@ -1142,8 +1142,8 @@ def default_url_guard(monkeypatch):
 def _assert_attach_url_blocked(worker_env, url):
     """Call kanban_attach_url with ``url`` and assert the SSRF guard fired
     (clean tool error, no attachment row, no network fetch needed)."""
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     out = kt._handle_attach_url({"url": url})
@@ -1219,8 +1219,8 @@ def test_attach_url_happy_path_public_host(worker_env, default_url_guard, monkey
 
     import httpx
 
-    from hermes_cli import kanban_db as kb
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import kanban_db as kb
+    from openchia_cli import kanban_db_connect as kbc
     from tools import kanban_tools as kt
 
     _fake_public_dns(monkeypatch, {"files.example.com": "93.184.216.34"})

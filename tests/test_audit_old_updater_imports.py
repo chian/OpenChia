@@ -51,44 +51,44 @@ def commit(root, message):
 
 def test_discovers_entrypoint_renames_extractions_and_deleted_helpers(audit):
     root = audit.REPO_ROOT
-    put(root, "hermes_cli/ancient.py", "def cmd_update():\n    from hermes_constants import first\n")
+    put(root, "openchia_cli/ancient.py", "def cmd_update():\n    from hermes_constants import first\n")
     first = commit(root, "first updater at an unknown address")
-    git(root, "mv", "hermes_cli/ancient.py", "hermes_cli/briefly.py")
+    git(root, "mv", "openchia_cli/ancient.py", "openchia_cli/briefly.py")
     renamed = commit(root, "rename without editing the blob")
-    put(root, "hermes_cli/briefly.py", "from hermes_cli.gone import phase\ndef cmd_update():\n    phase()\n")
-    put(root, "hermes_cli/gone.py", "def phase():\n    from hermes_constants import extracted\n")
+    put(root, "openchia_cli/briefly.py", "from openchia_cli.gone import phase\ndef cmd_update():\n    phase()\n")
+    put(root, "openchia_cli/gone.py", "def phase():\n    from hermes_constants import extracted\n")
     extracted = commit(root, "extract a helper under an unrelated filename")
-    git(root, "mv", "hermes_cli/gone.py", "hermes_cli/later.py")
-    put(root, "hermes_cli/briefly.py", "from hermes_cli.later import phase\ndef cmd_update():\n    phase()\n")
+    git(root, "mv", "openchia_cli/gone.py", "openchia_cli/later.py")
+    put(root, "openchia_cli/briefly.py", "from openchia_cli.later import phase\ndef cmd_update():\n    phase()\n")
     commit(root, "rename the extracted helper")
-    git(root, "rm", "hermes_cli/briefly.py", "hermes_cli/later.py")
-    put(root, "hermes_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import newest\n")
+    git(root, "rm", "openchia_cli/briefly.py", "openchia_cli/later.py")
+    put(root, "openchia_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import newest\n")
     commit(root, "delete every historical filename")
 
     surface = audit.audit_history()
     assert {("hermes_constants", s) for s in ("first", "extracted", "newest")} <= surface.required.keys()
     assert {
-        "hermes_cli/ancient.py:cmd_update", "hermes_cli/briefly.py:cmd_update"
+        "openchia_cli/ancient.py:cmd_update", "openchia_cli/briefly.py:cmd_update"
     } <= surface.sites[("hermes_constants", "first")]
     assert first[:12] in surface.required[("hermes_constants", "first")]
     assert renamed[:12] in surface.required[("hermes_constants", "first")]
     assert extracted[:12] in surface.required[("hermes_constants", "extracted")]
     assert {
-        "hermes_cli/gone.py:phase", "hermes_cli/later.py:phase"
+        "openchia_cli/gone.py:phase", "openchia_cli/later.py:phase"
     } <= surface.sites[("hermes_constants", "extracted")]
     assert surface.stats["commits"] == int(git(root, "rev-list", "--count", "origin/main"))
     assert surface.stats["complete_history"] is True
     assert surface.stats["history_ref"] == git(root, "rev-parse", "origin/main")
     assert surface.stats["roots"] == [first]
-    assert {"hermes_cli/ancient.py", "hermes_cli/briefly.py"} <= set(surface.stats["entrypoint_paths"])
-    assert {"hermes_cli/gone.py", "hermes_cli/later.py"} <= set(surface.stats["files_analyzed"])
-    assert not any(root.glob("hermes_cli/*gone*"))
+    assert {"openchia_cli/ancient.py", "openchia_cli/briefly.py"} <= set(surface.stats["entrypoint_paths"])
+    assert {"openchia_cli/gone.py", "openchia_cli/later.py"} <= set(surface.stats["files_analyzed"])
+    assert not any(root.glob("openchia_cli/*gone*"))
     assert audit.audit_tree().required.keys() == {("hermes_constants", "newest")}
 
 
 def test_all_merge_parents_and_merge_result_but_not_unmerged_branches(audit):
     root = audit.REPO_ROOT
-    path = "hermes_cli/prehistoric.py"
+    path = "openchia_cli/prehistoric.py"
     put(root, path, "def cmd_update():\n    pass\n")
     base = commit(root, "base")
     git(root, "checkout", "-b", "side")
@@ -125,25 +125,25 @@ def test_all_merge_parents_and_merge_result_but_not_unmerged_branches(audit):
 
 def test_deleted_siblings_and_renamed_seed_helper_are_not_tied_to_head(audit):
     root = audit.REPO_ROOT
-    put(root, "hermes_cli/update_cmd.py", "def cmd_update():\n    pass\n")
-    put(root, "hermes_cli/old_support.py", "def old_phase():\n    from hermes_constants import before_rename\n")
+    put(root, "openchia_cli/update_cmd.py", "def cmd_update():\n    pass\n")
+    put(root, "openchia_cli/old_support.py", "def old_phase():\n    from hermes_constants import before_rename\n")
     commit(root, "support before its known name")
-    git(root, "mv", "hermes_cli/old_support.py", "hermes_cli/post_update.py")
-    put(root, "hermes_cli/update_cmd_removed.py", "def phase():\n    from hermes_constants import deleted_sibling\n")
+    git(root, "mv", "openchia_cli/old_support.py", "openchia_cli/post_update.py")
+    put(root, "openchia_cli/update_cmd_removed.py", "def phase():\n    from hermes_constants import deleted_sibling\n")
     commit(root, "known helper and temporary extraction")
-    git(root, "rm", "hermes_cli/post_update.py", "hermes_cli/update_cmd_removed.py")
+    git(root, "rm", "openchia_cli/post_update.py", "openchia_cli/update_cmd_removed.py")
     commit(root, "remove both helpers")
     surface = audit.audit_history()
     assert {("hermes_constants", s) for s in ("before_rename", "deleted_sibling")} <= surface.required.keys()
-    assert "hermes_cli/old_support.py:old_phase" in surface.sites[("hermes_constants", "before_rename")]
+    assert "openchia_cli/old_support.py:old_phase" in surface.sites[("hermes_constants", "before_rename")]
     assert not audit.audit_tree().required
 
 
 def test_shallow_clone_refuses_freeze_without_overwriting_and_tree_still_works(audit, tmp_path, monkeypatch, capsys):
     root = audit.REPO_ROOT
-    put(root, "hermes_cli/unknown.py", "def cmd_update():\n    from hermes_constants import old\n")
+    put(root, "openchia_cli/unknown.py", "def cmd_update():\n    from hermes_constants import old\n")
     commit(root, "historical contract")
-    put(root, "hermes_cli/unknown.py", "def cmd_update():\n    from hermes_constants import current\n")
+    put(root, "openchia_cli/unknown.py", "def cmd_update():\n    from hermes_constants import current\n")
     commit(root, "current contract")
     clone = tmp_path / "shallow"
     git(root, "clone", "--depth=1", root.as_uri(), str(clone))
@@ -163,7 +163,7 @@ def test_shallow_clone_refuses_freeze_without_overwriting_and_tree_still_works(a
 
 def test_freeze_requires_cutoff_and_keeps_only_shipped_loads(audit, tmp_path, capsys):
     root = audit.REPO_ROOT
-    put(root, "hermes_cli/update_cmd.py", """def cmd_update():
+    put(root, "openchia_cli/update_cmd.py", """def cmd_update():
     from hermes_constants import old_only, bare_then_guarded
     try:
         from hermes_constants import guarded_then_bare, always_guarded
@@ -171,7 +171,7 @@ def test_freeze_requires_cutoff_and_keeps_only_shipped_loads(audit, tmp_path, ca
         pass
 """)
     commit(root, "not a tag, still a shipped updater")
-    put(root, "hermes_cli/update_cmd.py", """def cmd_update():
+    put(root, "openchia_cli/update_cmd.py", """def cmd_update():
     from hermes_constants import guarded_then_bare
     try:
         from hermes_constants import bare_then_guarded, always_guarded
@@ -179,9 +179,9 @@ def test_freeze_requires_cutoff_and_keeps_only_shipped_loads(audit, tmp_path, ca
         pass
 """)
     cutoff = commit(root, "last updater before the PM migration")
-    put(root, "hermes_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import after_cutoff\n")
+    put(root, "openchia_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import after_cutoff\n")
     commit(root, "origin/main has advanced beyond the contract cutoff")
-    put(root, "hermes_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import uncommitted\n")
+    put(root, "openchia_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import uncommitted\n")
     output = tmp_path / "history.json"
     output.write_text("do not overwrite without a cutoff", encoding="utf-8")
     with pytest.raises(SystemExit) as failure:
@@ -235,19 +235,19 @@ def cmd_update():
 def test_identical_blobs_have_path_specific_relative_imports_and_seed_roles(audit):
     root = audit.REPO_ROOT
     source = "def cmd_update():\n    from .constants import important\ndef unrelated():\n    from hermes_constants import helper_only\n"
-    put(root, "hermes_cli/unknown.py", source)
-    put(root, "hermes_cli/post_update.py", source)
+    put(root, "openchia_cli/unknown.py", source)
+    put(root, "openchia_cli/post_update.py", source)
     put(root, "pm/unknown.py", source)
     commit(root, "identical source, distinct modules and seed modes")
     surface = audit.audit_history()
-    assert ("hermes_cli.constants", "important") in surface.required
+    assert ("openchia_cli.constants", "important") in surface.required
     assert ("pm.constants", "important") in surface.required
-    assert surface.sites[("hermes_constants", "helper_only")] == {"hermes_cli/post_update.py:unrelated"}
+    assert surface.sites[("hermes_constants", "helper_only")] == {"openchia_cli/post_update.py:unrelated"}
 
 
 def test_only_swallowed_matching_load_failures_are_guarded(audit):
     root = audit.REPO_ROOT
-    put(root, "hermes_cli/update_cmd.py", """def cmd_update():
+    put(root, "openchia_cli/update_cmd.py", """def cmd_update():
     import sys
     try:
         from hermes_constants import wrong_exception
@@ -275,19 +275,19 @@ def test_only_swallowed_matching_load_failures_are_guarded(audit):
 
 def test_lazy_module_facade_follows_called_helper_not_unrelated_commands(audit):
     root = audit.REPO_ROOT
-    put(root, "hermes_cli/entry.py", """def _m():
-    from hermes_cli import main
+    put(root, "openchia_cli/entry.py", """def _m():
+    from openchia_cli import main
     return main
 
 def cmd_update():
     _m().phase()
 """)
-    put(root, "hermes_cli/main.py", """from hermes_cli.gone import phase as phase
+    put(root, "openchia_cli/main.py", """from openchia_cli.gone import phase as phase
 
 def unrelated_command():
     from hermes_constants import not_an_updater_load
 """)
-    put(root, "hermes_cli/gone.py", "def phase():\n    from hermes_constants import actual_helper_load\n")
+    put(root, "openchia_cli/gone.py", "def phase():\n    from hermes_constants import actual_helper_load\n")
     commit(root, "lazy facade and re-exported helper")
     surface = audit.audit_history()
     assert ("hermes_constants", "actual_helper_load") in surface.required
@@ -335,7 +335,7 @@ else:
 def cmd_update():
     Second().phase()
     platform_phase()
-""", "hermes_cli/update_cmd.py", entrypoints=True)
+""", "openchia_cli/update_cmd.py", entrypoints=True)
     assert {r.symbol for r in result.requirements} == {
         "first", "second", "platform_a", "platform_b",
     }
@@ -343,18 +343,18 @@ def cmd_update():
 
 def test_reviewed_dynamic_loads_survive_history_freeze_within_cutoff(audit, monkeypatch):
     root = audit.REPO_ROOT
-    put(root, "hermes_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import anchor\n")
+    put(root, "openchia_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import anchor\n")
     witness = commit(root, "module-object call manually reviewed")
-    put(root, "hermes_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import later\n")
+    put(root, "openchia_cli/update_cmd.py", "def cmd_update():\n    from hermes_constants import later\n")
     later = commit(root, "module-object call after the contract cutoff")
     monkeypatch.setattr(audit, "REVIEWED_DYNAMIC_LOADS", (
-        ("hermes_constants", "dynamic", witness[:12], "hermes_cli/update_cmd.py:cmd_update"),
-        ("hermes_constants", "after_cutoff", later[:12], "hermes_cli/update_cmd.py:cmd_update"),
+        ("hermes_constants", "dynamic", witness[:12], "openchia_cli/update_cmd.py:cmd_update"),
+        ("hermes_constants", "after_cutoff", later[:12], "openchia_cli/update_cmd.py:cmd_update"),
     ))
     surface = audit.audit_history(witness)
     assert surface.required[("hermes_constants", "dynamic")] == {witness[:12]}
     assert surface.kinds[("hermes_constants", "dynamic")] == {"reviewed-module-call"}
-    assert surface.sites[("hermes_constants", "dynamic")] == {"hermes_cli/update_cmd.py:cmd_update"}
+    assert surface.sites[("hermes_constants", "dynamic")] == {"openchia_cli/update_cmd.py:cmd_update"}
     assert ("hermes_constants", "dynamic") not in surface.guarded_only
     assert ("hermes_constants", "after_cutoff") not in surface.required
     output = root / "history.json"

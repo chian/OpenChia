@@ -309,7 +309,7 @@ def test_fetch_portal_account_is_wall_clock_bounded(monkeypatch, fetch):
         return object()
 
     monkeypatch.setattr(
-        "hermes_cli.nous_account.get_nous_portal_account_info", hanging_portal_fetch
+        "openchia_cli.nous_account.get_nous_portal_account_info", hanging_portal_fetch
     )
     started = time.monotonic()
     try:
@@ -331,7 +331,7 @@ def test_fetch_portal_account_returns_value_and_keeps_caller_context(monkeypatch
         return sentinel
 
     monkeypatch.setattr(
-        "hermes_cli.nous_account.get_nous_portal_account_info", probing_portal_fetch
+        "openchia_cli.nous_account.get_nous_portal_account_info", probing_portal_fetch
     )
     token = marker.set("profile-scope")
     try:

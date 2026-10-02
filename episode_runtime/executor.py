@@ -811,6 +811,12 @@ class _RunExecutorBase:
             or source_package.name != registration.manifest_id.value
         ):
             raise ValueError("source_package_path must name the exact manifest package")
+        from .learning_broker import LearningBroker
+        # Package rejection must precede publication: an unclaimed registration
+        # has no event channel through which it could be finalized.
+        learning_broker = await asyncio.to_thread(
+            LearningBroker, self.run_store, registration, source_package
+        )
         self.run_store.publish_registration(registration)
 
         launch_identity = self._launch_identity(registration.run_id)
@@ -942,6 +948,11 @@ class _RunExecutorBase:
             }
             while True:
                 frame = await channel.receive()
+                if frame.frame_type == WorkerFrameType.LEARNING_REQUEST.value:
+                    response = await learning_broker(frame.body["episode_id"], frame.body["operation"], frame.body["payload"])
+                    await channel.send(HostFrameType.LEARNING_RESPONSE.value,
+                                       {"request_id": frame.body["request_id"], "response": response})
+                    continue
                 if frame.frame_type == WorkerFrameType.MODEL_REQUEST.value:
                     request = admit_model_request(frame.body["request"])
                     request_hash = model_request_hash(request)
@@ -959,6 +970,7 @@ class _RunExecutorBase:
                         },
                     )
                     response = await model_broker(frame.body["request"])
+                    from function_library.epistemic_schemas import model_call_id
                     response_frame = await channel.send(
                         HostFrameType.MODEL_RESPONSE.value,
                         {
@@ -976,6 +988,8 @@ class _RunExecutorBase:
                             "model_request_id": frame.body["model_request_id"],
                             "request_hash": request_hash.value,
                             "response_hash": model_response_hash(response).value,
+                            "producer_call_id": model_call_id(response.text, request.task, response.route),
+                            "response_text": response.text,
                             "route": dict(response.route),
                         },
                     )
@@ -999,6 +1013,10 @@ class _RunExecutorBase:
                     continue
                 if frame.frame_type != WorkerFrameType.TERMINAL.value:
                     raise ProtocolError("worker sent an invalid post-start frame")
+                if frame.body["terminal_status"] == RunTerminalStatus.SUCCEEDED.value:
+                    await asyncio.to_thread(
+                        learning_broker.validate_completion, frame.body["typed_status"]
+                    )
                 terminal_status = RunTerminalStatus(frame.body["terminal_status"])
                 evidence = self.run_store.finalize_run(
                     run_id=registration.run_id,
@@ -1053,14 +1071,21 @@ class _RunExecutorBase:
                 except BaseException:
                     sender_sequence = channel.next_sender_sequence
                 failure = " ".join(str(exc).replace("\x00", " ").split())[:2048]
+                status = RunTerminalStatus.FAILED
+                if isinstance(exc.__cause__, asyncio.IncompleteReadError):
+                    status = RunTerminalStatus.INTERRUPTED
+                elif isinstance(exc, (ProtocolError, ValueError)):
+                    status = RunTerminalStatus.INVALID
+                elif isinstance(exc, MemoryError):
+                    status = RunTerminalStatus.RESOURCE_LIMITED
                 try:
                     evidence = self.run_store.finalize_run(
                         run_id=registration.run_id,
                         origin=RunEventOrigin.HOST,
                         sender_sequence=sender_sequence,
-                        terminal_status=RunTerminalStatus.FAILED,
+                        terminal_status=status,
                         typed_status={
-                            "outcome": "failed",
+                            "outcome": status.value,
                             "failure_type": type(exc).__name__,
                             "failure": failure or "host executor failure",
                         },

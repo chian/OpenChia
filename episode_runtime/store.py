@@ -33,6 +33,10 @@ _TERMINAL_KIND = {
     RunTerminalStatus.SUCCEEDED: RunEventKind.RUN_SUCCEEDED,
     RunTerminalStatus.FAILED: RunEventKind.RUN_FAILED,
     RunTerminalStatus.CANCELLED: RunEventKind.RUN_CANCELLED,
+    RunTerminalStatus.BLOCKED: RunEventKind.RUN_BLOCKED,
+    RunTerminalStatus.INTERRUPTED: RunEventKind.RUN_INTERRUPTED,
+    RunTerminalStatus.INVALID: RunEventKind.RUN_INVALID,
+    RunTerminalStatus.RESOURCE_LIMITED: RunEventKind.RUN_RESOURCE_LIMITED,
 }
 
 
@@ -411,6 +415,9 @@ class RunStore:
         if not isinstance(kind, RunEventKind):
             raise TypeError("kind must be a RunEventKind")
         self._validate_sender_position(events, origin, sender_sequence)
+        if kind is RunEventKind.LEARNING_COMMITTED:
+            from .learning_integrity import validate_learning_commit
+            validate_learning_commit(events=events, origin=origin, episode_id=episode_id, payload=payload)
         return RunEvent(
             run_id=registration.run_id,
             registration_hash=registration.registration_hash,
@@ -560,11 +567,7 @@ class RunStore:
         episode_id: Optional[OpaqueId],
         payload: Mapping[str, object],
     ) -> RunEvent:
-        if kind in {
-            RunEventKind.RUN_SUCCEEDED,
-            RunEventKind.RUN_FAILED,
-            RunEventKind.RUN_CANCELLED,
-        }:
+        if kind in _TERMINAL_KIND.values():
             raise ValueError("terminal events must be published with finalize_run")
         registration = self.read_registration(run_id)
         attestation = self.read_claim(run_id)

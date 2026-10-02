@@ -30,7 +30,7 @@ describe('profile-name identity', () => {
 
     const long = slugifyProfileName('小助手'.repeat(7))
     expect(long).toBe('u5c0f-u52a9-u624b-u5c0f-u52a9-u624b-u5c0f-u52a9-u624b-u5c0f')
-    // Every id still satisfies hermes_cli.profiles._PROFILE_ID_RE.
+    // Every id still satisfies openchia_cli.profiles._PROFILE_ID_RE.
     expect(long).toMatch(/^[a-z0-9][a-z0-9_-]{0,63}$/)
   })
 })

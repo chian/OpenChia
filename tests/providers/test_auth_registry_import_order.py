@@ -29,7 +29,7 @@ def test_tui_import_exposes_auth_registry_to_provider_plugins(tmp_path):
         ")\n"
         "register_provider(profile)\n"
         "\n"
-        "from hermes_cli.auth import PROVIDER_REGISTRY, ProviderConfig\n"
+        "from openchia_cli.auth import PROVIDER_REGISTRY, ProviderConfig\n"
         "PROVIDER_REGISTRY['import-order-probe'] = ProviderConfig(\n"
         "    id='import-order-probe',\n"
         "    name='Plugin injection',\n"
@@ -52,7 +52,7 @@ def test_tui_import_exposes_auth_registry_to_provider_plugins(tmp_path):
             sys.executable,
             "-c",
             "from tools.environments.local import _HERMES_PROVIDER_ENV_BLOCKLIST; "
-            "from hermes_cli.auth import PROVIDER_REGISTRY; "
+            "from openchia_cli.auth import PROVIDER_REGISTRY; "
             "cfg = PROVIDER_REGISTRY['import-order-probe']; "
             "assert cfg.name == 'Plugin injection', cfg; "
             "assert cfg.inference_base_url == 'https://plugin.example/v1', cfg; "
@@ -67,4 +67,4 @@ def test_tui_import_exposes_auth_registry_to_provider_plugins(tmp_path):
     )
 
     assert probe.returncode == 0, probe.stdout + probe.stderr
-    assert "partially initialized module 'hermes_cli.auth'" not in probe.stderr
+    assert "partially initialized module 'openchia_cli.auth'" not in probe.stderr

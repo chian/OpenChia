@@ -49,7 +49,7 @@ DEMO_HOME_ARGV = [
 # Same, spelled through the venv interpreter + hermes launcher script.
 DEMO_VENV_ARGV = [
     "/home/demo/.hermes/hermes-agent/venv/bin/python",
-    "/home/demo/.hermes/hermes-agent/hermes_cli/main.py",
+    "/home/demo/.hermes/hermes-agent/openchia_cli/main.py",
     "gateway",
 ]
 

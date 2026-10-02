@@ -41,7 +41,7 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.web_search_provider import WebSearchProvider
-from hermes_cli.version_info import get_version_info
+from openchia_cli.version_info import get_version_info
 
 logger = logging.getLogger(__name__)
 

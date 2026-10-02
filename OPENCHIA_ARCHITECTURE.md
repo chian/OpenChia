@@ -220,8 +220,8 @@ human's later `/build` action creates the fresh build request.
   `numeric_control_library/` own reusable declared components.
 - `method_loop/` owns the generic Episode loop, nesting, runtime identity, and
   routing.
-- `hermes_cli/openchia_episode_editor.py` and
-  `hermes_cli/openchia_episode_views.py` render the dual-view Workspace.
+- `openchia_cli/openchia_episode_editor.py` and
+  `openchia_cli/openchia_episode_views.py` render the dual-view Workspace.
 
 The detailed materialization and refinement boundary is in
 [`docs/openchia/duet_owned_episode_design.md`](docs/openchia/duet_owned_episode_design.md).

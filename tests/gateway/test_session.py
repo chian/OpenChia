@@ -118,8 +118,8 @@ class TestBuildSessionContextPrompt:
         token = ss.set_secret_scope(_ExplodingScope())
         try:
             with patch("tools.mcp_tool_discovery.get_registered_mcp_server_names", return_value=[]), \
-                    patch("hermes_cli.config.load_config", return_value={}), \
-                    patch("hermes_cli.tools_config._get_platform_tools", return_value=["slack"]):
+                    patch("openchia_cli.config.load_config", return_value={}), \
+                    patch("openchia_cli.tools_config._get_platform_tools", return_value=["slack"]):
                 assert _slack_tools_loaded() is False
         finally:
             ss.reset_secret_scope(token)

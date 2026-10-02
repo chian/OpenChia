@@ -71,7 +71,7 @@ def _redact_reference_text(text: Any) -> Any:
 
 def _moa_privacy_mode(moa_raw: Any) -> str:
     """Normalized privacy-filter mode from a raw ``moa`` config."""
-    from hermes_cli.moa_config import coerce_privacy_filter
+    from openchia_cli.moa_config import coerce_privacy_filter
     raw = moa_raw if isinstance(moa_raw, dict) else {}
     return coerce_privacy_filter(raw.get("privacy_filter"))
 
@@ -123,8 +123,8 @@ _preset_cache: dict[tuple, Any] = {}
 def _resolve_preset_cached(preset_name: str) -> tuple[dict[str, Any], Any]:
     """``(preset, raw moa config)``; the resolved preset is cached per config file signature
     (skips resolve_moa_preset's full validation of the moa block on every create())."""
-    from hermes_cli.config import get_config_path, load_config
-    from hermes_cli.moa_config import resolve_moa_preset
+    from openchia_cli.config import get_config_path, load_config
+    from openchia_cli.moa_config import resolve_moa_preset
     from utils import file_signature
     try:
         cfg_stamp = file_signature(get_config_path().stat())
@@ -239,7 +239,7 @@ def _aggregator_reasoning_config(aggregator: dict[str, Any]) -> dict[str, Any] |
     if cfg is not None:
         return cfg
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         from hermes_constants import resolve_reasoning_config
         return resolve_reasoning_config(load_config() or {}, str(aggregator.get("model") or ""))
     except Exception:  # pragma: no cover - bad config must not break MoA
@@ -265,7 +265,7 @@ def _slot_runtime(slot: dict[str, Any]) -> dict[str, Any]:
         return entry[1]
     out: dict[str, Any] = {"provider": provider, "model": model}
     try:
-        from hermes_cli.runtime_provider import resolve_runtime_provider
+        from openchia_cli.runtime_provider import resolve_runtime_provider
         rt = resolve_runtime_provider(requested=provider, target_model=model)
         out.update({k: rt[k] for k in ("base_url", "api_key", "api_mode") if rt.get(k)})
         overrides = rt.get("request_overrides")
@@ -863,7 +863,7 @@ def aggregate_moa_context(
     )
     privacy_full = False
     try:
-        from hermes_cli.config import load_config as _load_config
+        from openchia_cli.config import load_config as _load_config
         privacy_full = _moa_privacy_mode((_load_config() or {}).get("moa")) == "full"
     except Exception:  # pragma: no cover - privacy filter must never break a turn
         logger.debug("MoA privacy filter check failed", exc_info=True)
@@ -1464,8 +1464,8 @@ def build_moa_facade(agent, preset_name: Any = None) -> MoAClient:
         resolved_preset = getattr(agent, "model", None)
     resolved_preset = str(resolved_preset or "default")
     try:
-        from hermes_cli.config import load_config
-        from hermes_cli.moa_config import normalize_moa_config
+        from openchia_cli.config import load_config
+        from openchia_cli.moa_config import normalize_moa_config
         moa_cfg = normalize_moa_config(load_config().get("moa") or {})
         if resolved_preset not in (moa_cfg.get("presets") or {}):
             resolved_preset = moa_cfg.get("default_preset") or "default"

@@ -67,4 +67,4 @@ runs:
         _VALIDATOR_PYTHON: ${{ steps.runtime.outputs.python }}
       run: |
         set -euo pipefail
-        "$_VALIDATOR_PYTHON" -I -m hermes_cli.main plugins validate "$_PLUGIN_PATH"
+        "$_VALIDATOR_PYTHON" -I -m openchia_cli.main plugins validate "$_PLUGIN_PATH"

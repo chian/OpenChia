@@ -80,7 +80,7 @@ JOBS_FILE = CRON_DIR / "jobs.json"
 TICKER_HEARTBEAT_FILE = CRON_DIR / "ticker_heartbeat"
 TICKER_SUCCESS_FILE = CRON_DIR / "ticker_last_success"
 # Single source of truth for the ticker interval (scheduler_provider.py) and the staleness
-# threshold in `hermes cron status` (hermes_cli/cron.py), so they never drift apart.
+# threshold in `hermes cron status` (openchia_cli/cron.py), so they never drift apart.
 TICKER_INTERVAL_SECONDS = 60
 
 # In-process lock for load_jobs→modify→save_jobs cycles; without it, parallel tick threads'
@@ -564,13 +564,13 @@ def _is_recoverable_error_job(job: Dict[str, Any]) -> bool:
 def _secure_dir(path: Path):
     """Owner-only (0700) via the shared helper, so cron/ and cron/output honor the same managed/
     container/HERMES_HOME_MODE rules as the rest of HERMES_HOME (#10757)."""
-    from hermes_cli.config import _secure_dir as _shared_secure_dir
+    from openchia_cli.config import _secure_dir as _shared_secure_dir
     _shared_secure_dir(path)
 
 
 def _secure_file(path: Path):
     """Owner-only (0600) via the shared helper (managed/container skip included)."""
-    from hermes_cli.config import _secure_file as _shared_secure_file
+    from openchia_cli.config import _secure_file as _shared_secure_file
     _shared_secure_file(path)
 
 
@@ -1272,7 +1272,7 @@ def ticker_heartbeat_writer_alive() -> bool:
     bare-epoch stamp names no writer and is NOT proof of a live scheduler by itself."""
     fields = _read_marker_fields("ticker_heartbeat")
     try:
-        from hermes_cli._subprocess_compat import pid_exists_stdlib
+        from openchia_cli._subprocess_compat import pid_exists_stdlib
         return len(fields) >= 2 and pid_exists_stdlib(int(fields[1]))
     except Exception:
         return False
@@ -1659,7 +1659,7 @@ def _main_model_pin() -> Tuple[Optional[str], Optional[str]]:
     """``(provider, model)`` the main agent runs on right now (``model.default`` + the provider it
     resolves to), for ``pinned=True`` jobs: the lock is a plain per-job pin, so the scheduler needs
     no second precedence axis. ``(None, None)`` when nothing is configured (the job stays unpinned)."""
-    from hermes_cli.config_effective import load_user_config_effective
+    from openchia_cli.config_effective import load_user_config_effective
 
     cfg_path = get_hermes_home() / "config.yaml"
     cfg = load_user_config_effective(cfg_path) if cfg_path.exists() else {}
@@ -1670,7 +1670,7 @@ def _main_model_pin() -> Tuple[Optional[str], Optional[str]]:
         return None, None
     provider = None
     with contextlib.suppress(Exception):
-        from hermes_cli.runtime_provider import resolve_runtime_provider
+        from openchia_cli.runtime_provider import resolve_runtime_provider
         provider = _normalize_job_optional_text(resolve_runtime_provider(requested=None).get("provider"))
     return (provider.lower() if provider else None), model
 
@@ -2807,7 +2807,7 @@ COMPLETED_ONESHOT_RETENTION_DAYS = 7
 def _cron_config_number(key: str, default: Any, cast: Callable[[Any], Any]) -> Any:
     """Read ``cron.<key>`` from config as *cast*, falling back to *default* on any failure."""
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         cfg = load_config() or {}
         cron_cfg = cfg.get("cron", {}) if isinstance(cfg, dict) else {}
         return cast(cron_cfg.get(key, default))
@@ -3325,7 +3325,7 @@ def _get_due_jobs_locked() -> List[Dict[str, Any]]:
 
 # Per-run output files (`cron/output/<job>/<timestamp>.md`) are capped so a frequent job can't fill
 # the disk.
-# Unlike the quick-snapshot store (`hermes_cli.backup`, capped at 20) it had no retention, so a
+# Unlike the quick-snapshot store (`openchia_cli.backup`, capped at 20) it had no retention, so a
 # frequently-scheduled job on a long-running deploy accumulated one file per run forever and could fill the
 # disk (#52383). Keep the most recent N files per job; a non-positive value disables pruning (opt-out).
 _CRON_OUTPUT_DEFAULT_KEEP = 50

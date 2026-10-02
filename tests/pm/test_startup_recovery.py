@@ -47,13 +47,13 @@ def test_bootstrap_repairs_before_dependency_activation(tmp_path, monkeypatch, m
     for name in ("hermes_bootstrap.py", "hermes_constants.py"):
         shutil.copy2(repo / name, core / name)
     shutil.copytree(repo / "pm", core / "pm", ignore=shutil.ignore_patterns("__pycache__"))
-    cli = core / "hermes_cli"
+    cli = core / "openchia_cli"
     cli.mkdir()
     # Include the real preimport protocol, including its ownership check. Do
     # not stub prepare_launch: the same files are also saved in PM's workspace.
     for name in ("__init__.py", "runtime_state.py", "_early_recovery.py",
                  "_parser.py", "venv_sync.py", "steward.py"):
-        shutil.copy2(repo / "hermes_cli" / name, cli / name)
+        shutil.copy2(repo / "openchia_cli" / name, cli / name)
     wheels = tmp_path / "wheels"
     wheels.mkdir()
     _wheel(wheels, "startup_dep", "1.0")

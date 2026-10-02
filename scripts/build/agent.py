@@ -33,11 +33,11 @@ def plant_surfaces(repo: Path, frontends: dict[str, Path]) -> None:
     validate_frontends(frontends)
     if "tui" in frontends:
         tui = frontends["tui"]
-        destination = repo / "hermes_cli/tui_dist"
+        destination = repo / "openchia_cli/tui_dist"
         _copy(tui / "dist", destination, replace=True)
         _copy(tui / "package.json", destination / "package.json")
     if "web" in frontends:
-        _copy(frontends["web"], repo / "hermes_cli/web_dist", replace=True)
+        _copy(frontends["web"], repo / "openchia_cli/web_dist", replace=True)
 
 
 def write_metadata(project_path: Path, repo: Path) -> None:

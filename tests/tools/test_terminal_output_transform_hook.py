@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import hermes_cli.plugins as plugins_mod
+import openchia_cli.plugins as plugins_mod
 import tools.terminal_tool as terminal_tool_module
 from tools.environments.local import LocalEnvironment
 
@@ -55,7 +55,7 @@ def _run_terminal(
     monkeypatch.setitem(terminal_tool_module._last_activity, "default", 0.0)
 
     if invoke_hook is not _UNSET:
-        monkeypatch.setattr("hermes_cli.plugins.invoke_hook", invoke_hook)
+        monkeypatch.setattr("openchia_cli.plugins.invoke_hook", invoke_hook)
 
     result = json.loads(terminal_tool_module.terminal_tool(command=command))
     return result, mock_env
@@ -124,7 +124,7 @@ def test_large_process_output_is_bounded_before_sudo_and_plugin_hooks(
     monkeypatch.setattr(
         "tools.terminal_tool_sudo._sudo_wrong_password_failure", _sudo_spy
     )
-    monkeypatch.setattr("hermes_cli.plugins.invoke_hook", _hook_spy)
+    monkeypatch.setattr("openchia_cli.plugins.invoke_hook", _hook_spy)
 
     env = LocalEnvironment(cwd=str(tmp_path), timeout=10)
     monkeypatch.setitem(terminal_tool_module._active_environments, "default", env)

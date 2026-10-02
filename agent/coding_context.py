@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from hermes_cli._subprocess_compat import bounded_git_probe
+from openchia_cli._subprocess_compat import bounded_git_probe
 
 logger = logging.getLogger("hermes.coding_context")
 
@@ -182,7 +182,7 @@ def _agent_config_value(config: Optional[dict[str, Any]], key: str, default: Any
     """``config["agent"][key]``, loading config when none was passed."""
     if config is None:
         try:
-            from hermes_cli.config import load_config, load_config_readonly
+            from openchia_cli.config import load_config, load_config_readonly
             config = load_config_readonly() if readonly else load_config()
         except Exception:
             config = {}
@@ -280,7 +280,7 @@ def _detect_profile(mode: str, platform: str, cwd: Path) -> ContextProfile:
 def _enabled_mcp_servers(config: Optional[dict[str, Any]]) -> list[str]:
     """Names of MCP servers the user has enabled — kept in the coding posture."""
     try:
-        from hermes_cli.config import read_raw_config
+        from openchia_cli.config import read_raw_config
         from tools.mcp_tool_common import mcp_server_enabled
         servers = read_raw_config().get("mcp_servers") or {}
         return [

@@ -31,7 +31,7 @@ def generations(tmp_path, monkeypatch):
 
 
 def test_unlocked_reader_releases_a_lease_the_installer_moved_away_from(generations, monkeypatch):
-    from hermes_cli import runtime_state
+    from openchia_cli import runtime_state
     from pm.environments import activate_dependencies
 
     repo, state, select = generations
@@ -65,7 +65,7 @@ def test_unlocked_reader_releases_a_lease_the_installer_moved_away_from(generati
 
 
 def test_release_removes_the_lease_file(generations):
-    from hermes_cli.runtime_state import lease_generation
+    from openchia_cli.runtime_state import lease_generation
 
     _, state, select = generations
     environment = select("first")

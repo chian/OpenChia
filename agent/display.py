@@ -48,7 +48,7 @@ def _hex_rgb(h: str) -> tuple[int, int, int]:
 def _get_skin():
     """Active skin config, or None when unavailable (lazy import avoids cycles)."""
     try:
-        from hermes_cli.skin_engine import get_active_skin
+        from openchia_cli.skin_engine import get_active_skin
         return get_active_skin()
     except Exception:
         return None

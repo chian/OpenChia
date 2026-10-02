@@ -154,7 +154,7 @@ alone does not prove that the latest build succeeded.
 
 Existing arbitrary output directories require the builder's `.hermes-product`
 marker. Files, symlinks, and source directories are rejected. The exact npm
-destinations (`ui-tui/dist`, `hermes_cli/web_dist`, `apps/desktop/dist`, and
+destinations (`ui-tui/dist`, `openchia_cli/web_dist`, `apps/desktop/dist`, and
 `apps/desktop/build/native-deps`) remain rebuildable without a prior marker.
 Other in-tree products live beneath `.build/` or `apps/desktop/build/products/`.
 `frontend-common.mjs` classifies these destinations independently of which source
@@ -219,7 +219,7 @@ npm run build --workspace apps/desktop
 | Command | Output | Preparation outside the product compiler |
 |---|---|---|
 | TUI build | `ui-tui/dist/entry.js` | Existing installed workspace dependencies |
-| Web build | `hermes_cli/web_dist/` | npm `prebuild` prepares icons |
+| Web build | `openchia_cli/web_dist/` | npm `prebuild` prepares icons |
 | Desktop build | `apps/desktop/dist/` | Icons, root-install assertion, install stamp, and native-dependency staging |
 
 Compositions prepare icons once and pass `npm run build -- --icons /prepared/root`
@@ -373,8 +373,8 @@ runs the target interpreter and therefore needs a runnable native environment.
 A target label alone does not prove ABI compatibility.
 
 For copied frontends, the assembler places TUI files at
-`OUT/repo/hermes_cli/tui_dist/` and web files at
-`OUT/repo/hermes_cli/web_dist/`. Reference placement links TUI at `OUT/ui-tui`
+`OUT/repo/openchia_cli/tui_dist/` and web files at
+`OUT/repo/openchia_cli/web_dist/`. Reference placement links TUI at `OUT/ui-tui`
 and web at `OUT/repo/web_dist` and records their environment bindings.
 
 After structural assembly, `manifest.json` records `schema`, `target`, `repo`,

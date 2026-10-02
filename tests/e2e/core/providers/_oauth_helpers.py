@@ -84,7 +84,7 @@ def make_home(root: Path) -> FakeHome:
 
 
 def hermes_argv(*args: str) -> list[str]:
-    return [sys.executable, "-m", "hermes_cli.main", *args]
+    return [sys.executable, "-m", "openchia_cli.main", *args]
 
 
 def run_hermes(fh: FakeHome, args: list[str], *, extra_env: dict[str, str] | None = None,

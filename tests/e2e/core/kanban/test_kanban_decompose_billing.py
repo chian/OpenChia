@@ -137,7 +137,7 @@ def gateway(b: Board) -> Iterator[subprocess.Popen]:
                 "HERMES_STATE_DB_GUARD_BYPASS": "1"})
     log_path = b.root / "gateway.log"
     with open(log_path, "wb") as log:
-        proc = subprocess.Popen([PY, "-m", "hermes_cli.main", "gateway", "run"], cwd=str(b.root),
+        proc = subprocess.Popen([PY, "-m", "openchia_cli.main", "gateway", "run"], cwd=str(b.root),
                                 env=env, stdout=log, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True)
     try:

@@ -34,7 +34,7 @@ class TestCloudProviderCachePolicy:
         )
 
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "profile-provider"}},
         )
         providers = {}
@@ -98,7 +98,7 @@ class TestCloudProviderCachePolicy:
         first = Provider("first")
         second = Provider("second")
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "cache-replacement"}},
         )
         monkeypatch.setattr("tools.browser_tool_cloud._ensure_browser_plugins_loaded", lambda: None)
@@ -169,7 +169,7 @@ class TestCloudProviderCachePolicy:
             return resolved
 
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "cache-race"}},
         )
         monkeypatch.setattr("tools.browser_tool_cloud._ensure_browser_plugins_loaded", lambda: None)
@@ -202,7 +202,7 @@ class TestCloudProviderCachePolicy:
     def test_explicit_local_caches_permanently(self, monkeypatch):
         """`cloud_provider: local` is a positive choice and must stick."""
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "local"}},
         )
 
@@ -211,7 +211,7 @@ class TestCloudProviderCachePolicy:
 
         # Even if config later changes, the cache stays.
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "browser-use"}},
         )
         assert bt_cloud._get_cloud_provider() is None
@@ -220,7 +220,7 @@ class TestCloudProviderCachePolicy:
     def test_no_credentials_yet_does_not_cache_none(self, monkeypatch):
         """Auto-detect path with no creds: must NOT poison the cache."""
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {}},
         )
 
@@ -257,7 +257,7 @@ class TestCloudProviderCachePolicy:
         monkeypatch.setattr("tools.browser_tool_cloud._ensure_browser_plugins_loaded", lambda: None)
         monkeypatch.setattr("tools.browser_tool_cloud._registry_get_browser_provider", exploding_factory)
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "browser-use"}},
         )
 

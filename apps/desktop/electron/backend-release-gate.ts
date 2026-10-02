@@ -5,7 +5,7 @@
  * backends, decide when it is actually safe to hand off to the updater.
  *
  * Why this exists (#74805): `taskkill /T /F` returns once termination is
- * INITIATED, not completed. A dying `python.exe -m hermes_cli.main serve`
+ * INITIATED, not completed. A dying `python.exe -m openchia_cli.main serve`
  * stays in the process table while it unmaps .pyd files (AV / NTFS filter
  * drivers stretch this out), and it need not hold the venv `hermes.exe` shim
  * at all — so a gate that only probes the shim can pass on its very first

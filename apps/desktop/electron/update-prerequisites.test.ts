@@ -41,10 +41,10 @@ test('earlier PM user-bin launchers are accepted only for the reported source tr
     const root: string = path.join(base, 'checkout')
     const other: string = path.join(base, 'other')
     const home: string = path.join(base, 'home')
-    fs.mkdirSync(path.join(root, 'hermes_cli'), { recursive: true })
+    fs.mkdirSync(path.join(root, 'openchia_cli'), { recursive: true })
     fs.mkdirSync(path.join(root, 'pm'))
     fs.mkdirSync(other)
-    fs.writeFileSync(path.join(root, 'hermes_cli', '_launchers.py'), '')
+    fs.writeFileSync(path.join(root, 'openchia_cli', '_launchers.py'), '')
     fs.mkdirSync(path.join(home, 'bin'), { recursive: true })
     const launcher: string = path.join(home, 'bin', process.platform === 'win32' ? 'hermes.cmd' : 'hermes')
 

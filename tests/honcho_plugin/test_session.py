@@ -1157,7 +1157,7 @@ class TestSessionStartInjection:
               "## AI Self-Representation", "## AI Identity Card"]),
     ], ids=["pin", "empty-list", "blank-clears-the-pin"])
     def test_desktop_panel_writes_the_pin_the_provider_reads(self, submitted, headings):
-        from hermes_cli.web_routers.memory_providers import _apply_field_values
+        from openchia_cli.web_routers.memory_providers import _apply_field_values
         from plugins.memory.honcho.config_schema import CONFIG_SCHEMA
 
         host_block = {"injection": {"sessionStart": ["summary"]}}

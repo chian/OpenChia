@@ -115,7 +115,7 @@ assert json.loads((migrator.archive_dir / "session-config.json").read_text(encod
 results["migration_timers_ignored_advanced_archived"] = True
 from contextlib import redirect_stdout
 from io import StringIO
-from hermes_cli.cli_info_mixin import CLIInfoMixin
+from openchia_cli.cli_info_mixin import CLIInfoMixin
 status_output = StringIO()
 with redirect_stdout(status_output):
     CLIInfoMixin._show_gateway_status(object.__new__(CLIInfoMixin))

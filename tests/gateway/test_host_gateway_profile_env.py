@@ -93,10 +93,10 @@ class TestProfileEnvIsNotThePrimaryClaim:
         started = []
 
         monkeypatch.setattr(
-            "hermes_cli.profiles.profiles_to_serve",
+            "openchia_cli.profiles.profiles_to_serve",
             lambda multiplex, **_kw: [("default", default_home), ("worker", worker_home)],
         )
-        monkeypatch.setattr("hermes_cli.profiles.get_active_profile_name", lambda: "worker")
+        monkeypatch.setattr("openchia_cli.profiles.get_active_profile_name", lambda: "worker")
 
         async def fake_start(profile_name, profile_home, claimed):
             started.append(profile_name)
@@ -178,7 +178,7 @@ class TestSettledHostRecordDecidesRestart:
         self, tmp_path, monkeypatch,
     ):
         """The updater sits on the named profile's home; the host record proves hostness."""
-        from hermes_cli.gateway import _restart_argv_is_host_gateway
+        from openchia_cli.gateway import _restart_argv_is_host_gateway
 
         default_home, worker_home = _two_homes(tmp_path)
         self._publish_live_host_record(
@@ -187,14 +187,14 @@ class TestSettledHostRecordDecidesRestart:
         _inherit_worker_env(monkeypatch, worker_home)
 
         assert _restart_argv_is_host_gateway(
-            ["python", "-m", "hermes_cli.main", "gateway", "run"]
+            ["python", "-m", "openchia_cli.main", "gateway", "run"]
         ), "a live host multiplexer's selector-less argv must replay as the host"
 
     def test_replay_stays_profile_scoped_without_a_live_host_record(
         self, tmp_path, monkeypatch,
     ):
         """No live host record + a named-profile home => the argv is that profile's."""
-        from hermes_cli.gateway import _restart_argv_is_host_gateway
+        from openchia_cli.gateway import _restart_argv_is_host_gateway
 
         _default_home, worker_home = _two_homes(tmp_path)
         (worker_home / "config.yaml").write_text("gateway: {}\n", encoding="utf-8")
@@ -202,7 +202,7 @@ class TestSettledHostRecordDecidesRestart:
         monkeypatch.setenv("HERMES_GATEWAY_LOCK_DIR", str(tmp_path / "empty-locks"))
 
         assert not _restart_argv_is_host_gateway(
-            ["python", "-m", "hermes_cli.main", "gateway", "run"]
+            ["python", "-m", "openchia_cli.main", "gateway", "run"]
         ), "without settled proof a named-home process must not mint host authority"
 
     def test_restart_watcher_uses_the_live_host_record_when_no_flag_is_set(

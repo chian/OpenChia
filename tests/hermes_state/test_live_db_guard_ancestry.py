@@ -144,7 +144,7 @@ class TestPytestProcessRecognition:
         "cmdline",
         [
             ["hermes", "gateway", "start"],
-            ["/usr/bin/python", "-m", "hermes_cli.main", "sessions", "list"],
+            ["/usr/bin/python", "-m", "openchia_cli.main", "sessions", "list"],
             # A path that merely *contains* "pytest" is not a pytest process:
             # tmp paths like /tmp/pytest-of-dev/... show up in real argv.
             ["hermes", "run", "--file", "/tmp/pytest-of-dev/test0/input.txt"],

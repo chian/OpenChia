@@ -21,7 +21,7 @@ import os
 import sys
 import threading
 from cron import scheduler
-from hermes_cli import worktree_ops
+from openchia_cli import worktree_ops
 
 assert 'cli' not in sys.modules, 'requires a cold CLI import'
 before = os.environ['TERMINAL_CWD']

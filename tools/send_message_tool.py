@@ -26,7 +26,7 @@ from tools.registry import tool_error
 
 def prepare_send_message_platforms() -> None:
     """Load enabled standalone plugins before tool schemas/cache keys are built."""
-    from hermes_cli.plugins import discover_plugins
+    from openchia_cli.plugins import discover_plugins
     discover_plugins()
 
 
@@ -337,7 +337,7 @@ def _not_configured_error(platform_name, platform, entry):
     dotenv_state = (f"{names} present" if any(n in dotenv_keys for n in env_names) else f"no {names}") \
         if env_path.exists() else "missing"
     try:
-        from hermes_cli.config_effective import load_user_config_effective
+        from openchia_cli.config_effective import load_user_config_effective
         user_config = load_user_config_effective(config_path) or {}
         block = user_config.get("platforms", {}).get(platform_name)
     except Exception:

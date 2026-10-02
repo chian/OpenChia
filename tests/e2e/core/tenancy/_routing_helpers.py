@@ -246,7 +246,7 @@ def inference_hosts() -> frozenset[str]:
     """
     from urllib.parse import urlparse
 
-    from hermes_cli.auth import PROVIDER_REGISTRY
+    from openchia_cli.auth import PROVIDER_REGISTRY
     from hermes_constants import OPENROUTER_BASE_URL
 
     urls = [getattr(p, "inference_base_url", "") or "" for p in PROVIDER_REGISTRY.values()] + [OPENROUTER_BASE_URL]
@@ -291,7 +291,7 @@ def run_hermes(argv: list[str], home: Path, *, hermes_home: Path | None = None, 
     """Run the real ``hermes`` entry point in its own process group; kill only that group."""
     start = time.monotonic()
     proc = subprocess.Popen(
-        [sys.executable, "-m", "hermes_cli.main", *argv],
+        [sys.executable, "-m", "openchia_cli.main", *argv],
         cwd=str(home), env=hermetic_env(home, hermes_home, proxy), stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
     )

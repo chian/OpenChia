@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 import plugins.memory.openviking as openviking_plugin
-from hermes_cli.version_info import get_version_info
+from openchia_cli.version_info import get_version_info
 from plugins.memory.openviking import OpenVikingMemoryProvider
 
 

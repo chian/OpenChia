@@ -94,7 +94,7 @@ class TestResolverPlumbing:
 
     def test_config_path_folds_in_the_session_surface(self, no_desktop_env):
         import agent.coding_context as cc
-        import hermes_cli.config as config_mod
+        import openchia_cli.config as config_mod
 
         no_desktop_env.setattr(cc, "coding_selection", lambda **_: None)
         no_desktop_env.setattr(

@@ -434,7 +434,7 @@ def test_unresolved_plugin_target_requires_explicit_parser() -> None:
                  return_value=None,
              ), \
              patch(
-                 "hermes_cli.plugins.discover_plugins",
+                 "openchia_cli.plugins.discover_plugins",
                  side_effect=lambda: platform_registry.register(entry),
              ) as discover_mock, \
              patch("model_tools._run_async", side_effect=_run_async_immediately), \

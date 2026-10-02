@@ -52,7 +52,7 @@ def test_main_skips_configured_mcp_discovery_when_requested(monkeypatch):
 def test_main_setup_offers_browser_install_when_tty(monkeypatch):
     """When stdin is a TTY and the user answers yes, model setup is followed
     by a browser-tools bootstrap call."""
-    monkeypatch.setattr("hermes_cli.main.main", lambda: None)
+    monkeypatch.setattr("openchia_cli.main.main", lambda: None)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda *_args, **_kwargs: "y")
 

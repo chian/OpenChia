@@ -85,7 +85,7 @@ def local_gateway(monkeypatch):
 def test_only_managed_search_may_use_billed_fallback(
     monkeypatch, tmp_path, local_gateway, selection, direct_key, expected_paths,
 ):
-    from hermes_cli.config import atomic_config_write
+    from openchia_cli.config import atomic_config_write
     from tools import web_tools
     from tests.tools.conftest import register_all_web_providers
 
@@ -120,7 +120,7 @@ def test_only_managed_search_may_use_billed_fallback(
 
 
 def test_unentitled_managed_search_names_the_gateway(monkeypatch, tmp_path, local_gateway):
-    from hermes_cli.config import atomic_config_write
+    from openchia_cli.config import atomic_config_write
     from tools import managed_tool_gateway, web_tools
     from tests.tools.conftest import register_all_web_providers
 

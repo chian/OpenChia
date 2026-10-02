@@ -6,8 +6,8 @@ import pytest
 
 
 def _tree(root: Path) -> None:
-    (root / "hermes_cli").mkdir()
-    (root / "hermes_cli" / "__init__.py").write_text(
+    (root / "openchia_cli").mkdir()
+    (root / "openchia_cli" / "__init__.py").write_text(
         '__release_date__ = "2026.1.1"\n', encoding="utf-8")
     (root / "pyproject.toml").write_text('version = "0.0.0"\n', encoding="utf-8")
     desktop = root / "apps" / "desktop"
@@ -42,7 +42,7 @@ def test_stamping_only_writes_external_builder_inputs(tmp_path):
     build.mkdir()
     _tree(build)
     inert = [
-        build / "hermes_cli" / "__init__.py",
+        build / "openchia_cli" / "__init__.py",
         build / "pyproject.toml",
         build / "uv.lock",
         build / "apps" / "desktop" / "package.json",
@@ -54,7 +54,7 @@ def test_stamping_only_writes_external_builder_inputs(tmp_path):
 
     written = stamp(build, "0.21.5")
 
-    assert not (build / "hermes_cli" / "_version.py").exists()
+    assert not (build / "openchia_cli" / "_version.py").exists()
     assert {path: path.read_bytes() for path in inert} == before
     assert 'version ? "0.21.5"' in (build / "nix" / "hermes-agent.nix").read_text()
     tauri = build / "apps" / "bootstrap-installer" / "src-tauri" / "tauri.conf.json"

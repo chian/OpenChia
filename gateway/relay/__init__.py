@@ -215,7 +215,7 @@ def relay_display_name() -> Optional[str]:
     value = os.environ.get("GATEWAY_RELAY_DISPLAY_NAME", "").strip()
     if not value:
         try:
-            from hermes_cli.skin_engine import get_active_skin  # late import: boot-safe
+            from openchia_cli.skin_engine import get_active_skin  # late import: boot-safe
 
             value = str(get_active_skin().get_branding("agent_name", "") or "").strip()
         except Exception:  # noqa: BLE001 - branding absence must never crash boot
@@ -425,7 +425,7 @@ def _resolve_relay_identity_token() -> str:
     token_url, client_id, client_secret, scope = (env[k] for k in _IDP_KEYS)
 
     if not token_url:
-        from hermes_cli.auth import resolve_nous_access_token
+        from openchia_cli.auth import resolve_nous_access_token
 
         return resolve_nous_access_token()
 

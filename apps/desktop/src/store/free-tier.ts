@@ -62,7 +62,7 @@ export async function refreshFreeTierStatus(requestGateway: FreeTierRequester): 
  * codes get "try again / another provider" only.
  */
 export interface FreeTierSetupFailure {
-  /** One of the backend's `anon_*` codes (`hermes_cli/anon_auth.py`), or a newer one this build does not know. */
+  /** One of the backend's `anon_*` codes (`openchia_cli/anon_auth.py`), or a newer one this build does not know. */
   code: string
   door: 'retry' | 'sign_in'
   message: string

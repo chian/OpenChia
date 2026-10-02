@@ -9,8 +9,8 @@ import pytest
 
 from gateway.config import Platform
 from gateway.session import SessionEntry, build_session_key
-from hermes_cli import anon_auth
-from hermes_cli.auth import _auth_store_lock, _load_auth_store, _save_auth_store
+from openchia_cli import anon_auth
+from openchia_cli.auth import _auth_store_lock, _load_auth_store, _save_auth_store
 from tests.gateway.test_status_command import _make_event, _make_runner, _make_source
 
 def _runner():

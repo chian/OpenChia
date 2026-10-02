@@ -15,7 +15,7 @@ _CONFIG = {"custom_providers": [{
 
 
 def _build(route):
-    with patch("agent.anthropic_adapter._require_sdk") as sdk, patch("hermes_cli.config.load_config", return_value=_CONFIG):
+    with patch("agent.anthropic_adapter._require_sdk") as sdk, patch("openchia_cli.config.load_config", return_value=_CONFIG):
         build_anthropic_client("sk-test", route)
     return sdk.return_value.Anthropic.call_args.kwargs["default_headers"]
 

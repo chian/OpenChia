@@ -5,7 +5,7 @@ import contextlib
 
 
 def tick(verbose=True, adapters=None, loop=None, sync=True, *, can_dispatch=None):
-    from hermes_cli.backend_retirement import retirement
+    from openchia_cli.backend_retirement import retirement
 
     # Hold admission through the entire scan/advance/submit handoff. A predicate alone races
     # prepare after the check but before a due job enters the running-job ledger.

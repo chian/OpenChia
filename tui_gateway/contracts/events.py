@@ -64,7 +64,7 @@ event("skin.changed", SkinPayload,
 
 
 class SetupReadyPayload(OpenPayload):
-    """``hermes_cli/free_tier_bootstrap.py::SetupRecord.as_payload``."""
+    """``openchia_cli/free_tier_bootstrap.py::SetupRecord.as_payload``."""
 
     provider_configured: bool
     inference_provider: str

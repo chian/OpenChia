@@ -21,7 +21,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from gateway.config import PlatformConfig
 from gateway.platforms.api_server import APIServerAdapter
-from hermes_cli.subcommands import peer as peer_mod
+from openchia_cli.subcommands import peer as peer_mod
 from hermes_state import SessionDB
 from tools import bot_live_delivery as mailbox
 
@@ -108,7 +108,7 @@ async def test_a_peer_turn_into_an_open_bot_chat_is_answered_by_its_live_owner(
     db.create_session("scratch", "api_server")
     lease = None
     if open_in_desktop:
-        from hermes_cli.active_sessions import try_acquire_active_session
+        from openchia_cli.active_sessions import try_acquire_active_session
         lease, refusal = try_acquire_active_session(
             session_id="bot-chat", surface="desktop", config={}, registry_home=home, track_liveness=True,
             metadata={"live_session_id": "live-1", "bot_live_delivery_consumer": True})
@@ -166,7 +166,7 @@ async def test_a_streamed_peer_turn_into_an_open_bot_chat_is_answered_by_its_liv
     db = SessionDB(home / "state.db")
     db.create_session("bot-chat", "desktop")
     db.set_session_title("bot-chat", "Bot Chat")
-    from hermes_cli.active_sessions import try_acquire_active_session
+    from openchia_cli.active_sessions import try_acquire_active_session
     lease, refusal = try_acquire_active_session(
         session_id="bot-chat", surface="desktop", config={}, registry_home=home, track_liveness=True,
         metadata={"live_session_id": "live-1", "bot_live_delivery_consumer": True})
@@ -241,7 +241,7 @@ async def test_a_peer_run_into_an_open_bot_chat_is_driven_by_its_owners_receipt(
     db.create_session("bot-chat", "desktop")
     db.set_session_title("bot-chat", "Bot Chat")
     db.create_session("scratch", "api_server")
-    from hermes_cli.active_sessions import try_acquire_active_session
+    from openchia_cli.active_sessions import try_acquire_active_session
     lease, refusal = try_acquire_active_session(
         session_id="bot-chat", surface="desktop", config={}, registry_home=home, track_liveness=True,
         metadata={"live_session_id": "live-1", "bot_live_delivery_consumer": True})

@@ -27,12 +27,12 @@ def acp_env(monkeypatch, tmp_path):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr("run_agent.AIAgent", _CapturingAgent)
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         lambda requested=None, **_kwargs: {"provider": requested or "openai-api", "api_mode": "codex_responses",
                                            "base_url": "https://example.invalid/v1", "api_key": "test-key"},
     )
     monkeypatch.setattr("acp_adapter.session._register_task_cwd", lambda task_id, cwd: None)
-    monkeypatch.setattr("hermes_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kwargs: None)
+    monkeypatch.setattr("openchia_cli.mcp_startup.ensure_mcp_discovery_before_agent_build", lambda **_kwargs: None)
 
     def _write_config(cfg: dict) -> None:
         (Path(os.environ["HERMES_HOME"]) / "config.yaml").write_text(yaml.safe_dump(cfg), encoding="utf-8")

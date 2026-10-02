@@ -69,11 +69,11 @@ test('matches the autostart gateway shim (hermes.exe under venv Scripts)', () =>
   )
 })
 
-test('matches the dashboard scheduled task (python -m hermes_cli / -m hermes)', () => {
+test('matches the dashboard scheduled task (python -m openchia_cli / -m hermes)', () => {
   assert.equal(
     isExternalVenvHolder(
       'C:\\Hermes\\venv\\Scripts\\python.exe',
-      '"C:\\Hermes\\venv\\Scripts\\python.exe" -m hermes_cli.main dashboard',
+      '"C:\\Hermes\\venv\\Scripts\\python.exe" -m openchia_cli.main dashboard',
       SCRIPTS
     ),
     true

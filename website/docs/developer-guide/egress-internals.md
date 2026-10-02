@@ -20,19 +20,19 @@ agent/proxy_sources/iron_proxy.py     Core: binary lookup, GPG checks, CA gen, c
                                        subprocess lifecycle, mappings I/O, PID/nonce
                                        defense.  Pure-function surface where possible.
 
-hermes_cli/proxy_cli.py               Wizard + slash command handlers.
+openchia_cli/proxy_cli.py               Wizard + slash command handlers.
                                        `hermes egress {install,setup,start,stop,
                                        status,disable,config}`.  Wires the
                                        core module into argparse.
 
-hermes_cli/subcommands/egress.py:_dispatch_egress
+openchia_cli/subcommands/egress.py:_dispatch_egress
                                        Top-level subparser dispatcher.
                                        dest='egress_command' (intentionally
                                        disjoint from the inbound OAuth
                                        `hermes proxy` subparser, which uses
                                        dest='proxy_command').
 
-hermes_cli/config.py: proxy schema    The `proxy:` block in DEFAULT_CONFIG.
+openchia_cli/config.py: proxy schema    The `proxy:` block in DEFAULT_CONFIG.
                                        Adding a knob means: add it here, add a
                                        wizard prompt or `setdefault` in
                                        proxy_cli.cmd_setup, and document it
@@ -55,7 +55,7 @@ tests/agent/test_iron_proxy.py              Hermetic tests (~70).  Binary instal
                                        deny CIDR defaults, bind policy, CA
                                        TOCTOU, ensure_audit_log behaviour, etc.
 
-tests/hermes_cli/test_iron_proxy_cli.py          CLI handler unit tests (~20).  Argparse
+tests/openchia_cli/test_iron_proxy_cli.py          CLI handler unit tests (~20).  Argparse
                                        wiring, fail-loud paths, BWS refresh
                                        wire-up, dest='egress_command'
                                        regression guard.
@@ -300,14 +300,14 @@ iron-proxy writes line-delimited JSON to `~/.hermes/proxy/iron-proxy.log` on the
 
 ```bash
 # Hermetic suite (no network, no real binary)
-scripts/run_tests.sh tests/agent/test_iron_proxy.py tests/hermes_cli/test_iron_proxy_cli.py
+scripts/run_tests.sh tests/agent/test_iron_proxy.py tests/openchia_cli/test_iron_proxy_cli.py
 
 # Live E2E (real binary, real curl, real CONNECT tunnel)
 HERMES_RUN_E2E=1 scripts/run_tests.sh tests/agent/test_iron_proxy_e2e.py
 
 # Live PTY smoke against `hermes egress`
-HERMES_HOME=$HOME/.hermes/cache/scratch/hermes-egress-test python3 -m hermes_cli.main egress --help
-HERMES_HOME=$HOME/.hermes/cache/scratch/hermes-egress-test python3 -m hermes_cli.main egress setup --help
+HERMES_HOME=$HOME/.hermes/cache/scratch/hermes-egress-test python3 -m openchia_cli.main egress --help
+HERMES_HOME=$HOME/.hermes/cache/scratch/hermes-egress-test python3 -m openchia_cli.main egress setup --help
 ```
 
 The CLI uses argparse, so `--help` is a good first probe for "did my new flag register correctly".

@@ -39,7 +39,7 @@ def test_pm_handoff_reports_update_and_gateway_results(
 ) -> None:
     install = tmp_path / 'checkout with spaces'
     publish_fixture_launcher(install, CLI)
-    (install / 'hermes_cli/desktop_update_verify.py').write_text('pass\n')
+    (install / 'openchia_cli/desktop_update_verify.py').write_text('pass\n')
     home = tmp_path / 'profile'; home.mkdir()
     calls = tmp_path / 'calls.jsonl'
     command = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
@@ -76,8 +76,8 @@ def test_earlier_pm_userbin_launcher_is_identity_checked(tmp_path: Path) -> None
     launcher.rename(external)
     wrong = tmp_path / 'other'
     (wrong / 'pm').mkdir(parents=True)
-    (wrong / 'hermes_cli').mkdir()
-    (wrong / 'hermes_cli/_launchers.py').touch()
+    (wrong / 'openchia_cli').mkdir()
+    (wrong / 'openchia_cli/_launchers.py').touch()
     helper = str(ROOT / 'scripts/desktop-update/runtime.ps1').replace("'", "''")
     for target, expected_code in [(root, 0), (wrong, 1)]:
         script = f". '{helper}'; try {{ @(Get-HermesRuntimeCommand -InstallRoot '{target}') | ConvertTo-Json -Compress }} catch {{ exit 1 }}"

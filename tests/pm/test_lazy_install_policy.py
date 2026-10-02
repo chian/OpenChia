@@ -3,7 +3,7 @@
 import pytest
 
 import pm
-from hermes_cli.config import get_config_path
+from openchia_cli.config import get_config_path
 
 
 @pytest.mark.parametrize("content,expected", [

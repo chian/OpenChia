@@ -208,7 +208,7 @@ def write_tenant_home(t: Tenant, extra_config: dict[str, Any] | None = None,
 def assert_profiles_root_under(root: Path, home: Path) -> None:
     """The profile root is HOME-anchored: prove it resolves inside ``root`` before any write."""
     probe = subprocess.run(
-        [sys.executable, "-c", "from hermes_cli.profiles import _get_profiles_root as r; print(r())"],
+        [sys.executable, "-c", "from openchia_cli.profiles import _get_profiles_root as r; print(r())"],
         env=hermetic_env(home), cwd=str(home), capture_output=True, text=True, timeout=120,
         stdin=subprocess.DEVNULL,
     )
@@ -364,7 +364,7 @@ def kill_group(proc: subprocess.Popen, sig: int = signal.SIGKILL) -> None:
 def run_hermes(argv: list[str], home: Path, timeout: float = 120.0,
                extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     proc = subprocess.Popen(
-        [sys.executable, "-m", "hermes_cli.main", *argv], cwd=str(home), env=hermetic_env(home, extra_env),
+        [sys.executable, "-m", "openchia_cli.main", *argv], cwd=str(home), env=hermetic_env(home, extra_env),
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         start_new_session=True,
     )
@@ -478,7 +478,7 @@ class ServeBackend(TuiBackend):
         self._log = open(log_path, "a", encoding="utf-8")  # noqa: SIM115 - closed in close()
         env = {"HERMES_DASHBOARD_SESSION_TOKEN": self.token, "HERMES_DESKTOP": "1", **(extra_env or {})}
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "hermes_cli.main", "serve", "--host", "127.0.0.1", "--port", "0"],
+            [sys.executable, "-m", "openchia_cli.main", "serve", "--host", "127.0.0.1", "--port", "0"],
             cwd=str(home), env=hermetic_env(home, env), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True,
         )

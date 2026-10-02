@@ -42,7 +42,7 @@ concurrency:
 jobs:
   # A `paths:` filter cannot gate this workflow correctly. The flake packages
   # the product, and nine of the checks then run the built binary, so a change
-  # to hermes_cli/ alone can fail `nix flake check` without touching one file
+  # to openchia_cli/ alone can fail `nix flake check` without touching one file
   # under nix/. The `nix` lane therefore follows python_prod as well as the
   # flake inputs. On push the classifier fails open and every lane is true.
   detect:

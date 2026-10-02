@@ -107,7 +107,7 @@ fallback_providers:
     def fake_resolve_runtime_provider(*, requested=None, explicit_base_url=None, explicit_api_key=None,
                                       target_model=None):
         if requested in {None, "", "openai-codex"}:
-            from hermes_cli.auth import AuthError
+            from openchia_cli.auth import AuthError
             raise AuthError("No Codex credentials stored. Run `hermes auth` to authenticate.")
         assert requested == "openrouter"
         # The fallback rung is resolved against the model it will send, not the primary default.
@@ -122,7 +122,7 @@ fallback_providers:
             "credential_pool": None,
         }
 
-    import hermes_cli.runtime_provider as runtime_provider
+    import openchia_cli.runtime_provider as runtime_provider
 
     monkeypatch.setattr(runtime_provider, "resolve_runtime_provider", fake_resolve_runtime_provider)
 

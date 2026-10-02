@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent.error_classifier import classify_api_error
-from tests.hermes_cli.anon_portal import make_jwt
+from tests.openchia_cli.anon_portal import make_jwt
 from agent.error_surface import build_error_surface_from_result
 from agent.turn_recovery import max_retries_exhausted_result, nonretryable_client_error_result
 

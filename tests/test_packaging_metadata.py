@@ -21,7 +21,7 @@ def test_openchia_method_loop_is_in_the_installed_package_set():
     assert "THIRD_PARTY_NOTICES.md" in manifest["project"]["license-files"]
     assert "method_loop/LICENSE" in manifest["project"]["license-files"]
     assert manifest["project"]["scripts"]["openchia"] == (
-        "hermes_cli.openchia_main:main"
+        "openchia_cli.openchia_main:main"
     )
 
 

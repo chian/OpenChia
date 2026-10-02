@@ -40,5 +40,5 @@ def ownership(rid, params):
 server._methods["probe.ownership"] = ownership
 
 if __name__ == "__main__":
-    from hermes_cli.main import main
+    from openchia_cli.main import main
     main()

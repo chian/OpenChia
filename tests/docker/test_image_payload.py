@@ -33,7 +33,7 @@ def test_dashboard_ships_generated_icon_without_build_environment(built_image: s
 from pathlib import Path
 from PIL import Image
 
-with Image.open('/opt/hermes/hermes_cli/web_dist/favicon.ico') as image:
+with Image.open('/opt/hermes/openchia_cli/web_dist/favicon.ico') as image:
     image.load()
     assert image.width > 0 and image.height > 0
 assert not Path('/opt/hermes/node_modules/vite').exists()

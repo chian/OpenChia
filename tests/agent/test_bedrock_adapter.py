@@ -1087,7 +1087,7 @@ class TestBedrockContextLength:
         Anthropic id, so a model added to the picker can't silently land on the 128K default."""
         from agent.bedrock_adapter import get_bedrock_context_length
         from agent.model_metadata import DEFAULT_CONTEXT_LENGTHS, _longest_key_match
-        from hermes_cli.models_catalog_static import _PROVIDER_MODELS
+        from openchia_cli.models_catalog_static import _PROVIDER_MODELS
 
         mismatched = []
         for model_id in _PROVIDER_MODELS["bedrock"]:
@@ -1552,7 +1552,7 @@ class TestBearerTokenRoutesToConverse:
     def _resolve(self, monkeypatch, *, bearer: bool):
         import os
 
-        from hermes_cli import runtime_provider as rp
+        from openchia_cli import runtime_provider as rp
 
         if bearer:
             monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "test-bearer-token-123")

@@ -5,7 +5,7 @@ job (``--deliver local``: no platform; ``--workdir``: cron's documented
 per-job cwd/context channel, see ``hermes cron create --help``), then
 ``hermes cron run <id>`` executes it. With no gateway owning the store the CLI
 runs the job synchronously through ``cron.scheduler.run_job`` — the same agent
-build the ticker uses (``hermes_cli/cron.py::_job_action`` forces the
+build the ticker uses (``openchia_cli/cron.py::_job_action`` forces the
 synchronous path) — and prints ``Ran now: succeeded.``. The job's saved output
 file (``cron/output/<id>/<ts>.md``, ``## Response`` section) is what cron
 delivers locally, so that is ``final_text``.
