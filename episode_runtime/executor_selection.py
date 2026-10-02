@@ -15,10 +15,23 @@ CONTAINER_IMAGE_ENV = "OPENCHIA_CONTAINER_IMAGE"
 _SYSTEMD_RUN = Path("/usr/bin/systemd-run")
 
 
-def resolve_executor_backend(requested: str | None = None) -> str:
+def resolve_executor_backend(
+    requested: str | None = None,
+    *,
+    platform: str | None = None,
+    systemd_available: bool | None = None,
+) -> str:
+    """Pick the backend from explicit host facts; the host's own are the default.
+
+    ``platform`` and ``systemd_available`` are data so the decision is testable
+    on any host without faking ``sys.platform`` (AGENTS.md, "Don't fake the
+    host OS"); callers normally pass neither.
+    """
     selected = (requested or os.environ.get(EXECUTOR_BACKEND_ENV) or "auto").strip().lower()
     if selected == "auto":
-        return "systemd" if sys.platform.startswith("linux") and _SYSTEMD_RUN.exists() else "container"
+        host = sys.platform if platform is None else platform
+        has_systemd = _SYSTEMD_RUN.exists() if systemd_available is None else systemd_available
+        return "systemd" if host.startswith("linux") and has_systemd else "container"
     if selected not in {"systemd", "container"}:
         raise ValueError(f"{EXECUTOR_BACKEND_ENV} must be auto, systemd or container, not {selected!r}")
     return selected

@@ -287,13 +287,12 @@ def test_backend_selection(monkeypatch):
     from episode_runtime import executor_selection as sel
 
     monkeypatch.delenv(sel.EXECUTOR_BACKEND_ENV, raising=False)
-    monkeypatch.setattr(sel.sys, "platform", "darwin")
-    assert sel.resolve_executor_backend() == "container"
-    monkeypatch.setattr(sel.sys, "platform", "linux")
-    monkeypatch.setattr(sel, "_SYSTEMD_RUN", Path("/nonexistent/systemd-run"))
-    assert sel.resolve_executor_backend() == "container"
+    # Host facts are data: no host is faked, every branch runs everywhere.
+    assert sel.resolve_executor_backend(platform="darwin", systemd_available=True) == "container"
+    assert sel.resolve_executor_backend(platform="linux", systemd_available=False) == "container"
+    assert sel.resolve_executor_backend(platform="linux", systemd_available=True) == "systemd"
     monkeypatch.setenv(sel.EXECUTOR_BACKEND_ENV, "systemd")
-    assert sel.resolve_executor_backend() == "systemd"
+    assert sel.resolve_executor_backend(platform="darwin", systemd_available=False) == "systemd"
     monkeypatch.setenv(sel.EXECUTOR_BACKEND_ENV, "bogus")
     with pytest.raises(ValueError):
         sel.resolve_executor_backend()
