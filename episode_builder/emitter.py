@@ -344,6 +344,18 @@ def _validate_module_source(
                 episode_local_id=local_id,
             )
         actual_parameters = _builder_parameters(function)
+        if actual_parameters is None:
+            raise EpisodeEmissionError(
+                code="builder_signature_invalid",
+                field_path=f"module_source.{name}",
+                detail=(
+                    f"{name} parameters must be exactly {expected_parameters!r} "
+                    "as plain positional parameters; the generated def uses "
+                    "default values, *args/**kwargs, keyword-only or "
+                    "positional-only parameters"
+                ),
+                episode_local_id=local_id,
+            )
         if actual_parameters != expected_parameters:
             raise EpisodeEmissionError(
                 code="builder_signature_invalid",
@@ -675,6 +687,15 @@ _MODULE_CONTRACT = {
         "build_episode": (
             "def build_episode(grain, key, request, goal_view, collaborators, "
             "child_builders) -> method_loop.Episode"
+        ),
+        "builder_signatures_are_exact": (
+            "each builder above is a plain def with exactly the listed "
+            "positional parameters in that order: no extra parameters, no "
+            "default values, no *args/**kwargs, no keyword-only parameters, "
+            "not async; anything a builder needs beyond its parameters "
+            "(library callables, host-supplied values) is reached through "
+            "the collaborators mapping or a module-level constant, never "
+            "through an added parameter"
         ),
     },
     "builder_runtime": {
