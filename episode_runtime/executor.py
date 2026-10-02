@@ -13,6 +13,7 @@ import stat
 import sys
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
+from urllib.parse import urlsplit
 
 from agent.episode_contracts import OpaqueId
 
@@ -24,6 +25,8 @@ from .broker import (
     model_response_record,
 )
 from .audit_contracts import RunEvidence
+from .http_broker import ScopedHttpBroker, http_response_bytes
+from .http_contracts import http_request_hash, http_response_hash
 from .contracts import (
     ExecutorKind,
     RuntimeIdentity,
@@ -718,6 +721,7 @@ class RunExecutor(Protocol):
         registration: RunRegistration,
         source_package_path: str | Path,
         model_broker: ScopedModelBroker,
+        http_broker: ScopedHttpBroker,
     ) -> RunEvidence: ...
 
 
@@ -774,12 +778,77 @@ class _RunExecutorBase:
     ) -> None:
         raise NotImplementedError
 
+    async def _broker_http_request(
+        self,
+        *,
+        registration: RunRegistration,
+        channel: _HostChannel,
+        frame: ProtocolFrame,
+        http_broker: ScopedHttpBroker,
+    ) -> None:
+        """Broker one admitted HTTP request and record both evidence events.
+
+        The decoder already admitted the request and verified that
+        ``episode_path`` hashes to ``episode_id``; the path's leaf grain names
+        the node whose approved rules apply.  Policy outcomes come back as
+        response records; only a malformed request raises.
+        """
+
+        body = frame.body
+        local_id = body["episode_path"][-1]["grain"]
+        request = body["request"]
+        request_hash = http_request_hash(request)
+        episode_id = OpaqueId(body["episode_id"])
+        matched = http_broker.match_rule(local_id, request)
+        rule_name = None if matched is None else matched.name
+        url = urlsplit(str(request["url"]))
+        self.run_store.append_event(
+            run_id=registration.run_id,
+            origin=RunEventOrigin.WORKER,
+            sender_sequence=frame.sender_sequence,
+            kind=RunEventKind.HTTP_REQUESTED,
+            episode_id=episode_id,
+            payload={
+                "http_request_id": body["http_request_id"],
+                "request_hash": request_hash.value,
+                "rule": rule_name,
+                "method": request["method"],
+                "host": url.hostname,
+                "path": url.path,
+            },
+        )
+        response = await http_broker(local_id=local_id, request=request)
+        response_frame = await channel.send(
+            HostFrameType.HTTP_RESPONSE.value,
+            {
+                "http_request_id": body["http_request_id"],
+                "response": response,
+            },
+        )
+        self.run_store.append_event(
+            run_id=registration.run_id,
+            origin=RunEventOrigin.HOST,
+            sender_sequence=response_frame.sender_sequence,
+            kind=RunEventKind.HTTP_RESPONDED,
+            episode_id=episode_id,
+            payload={
+                "http_request_id": body["http_request_id"],
+                "request_hash": request_hash.value,
+                "response_hash": http_response_hash(response).value,
+                "outcome": response["outcome"],
+                "status": response["status"],
+                "response_bytes": http_response_bytes(response),
+                "rule": response["rule"],
+            },
+        )
+
     async def execute(
         self,
         *,
         registration: RunRegistration,
         source_package_path: str | Path,
         model_broker: ScopedModelBroker,
+        http_broker: ScopedHttpBroker,
     ) -> RunEvidence:
         """Execute one fresh registration; cancellation persists cancellation."""
 
@@ -787,6 +856,8 @@ class _RunExecutorBase:
             raise TypeError("registration must be a RunRegistration")
         if not isinstance(model_broker, ScopedModelBroker):
             raise TypeError("model_broker must be a ScopedModelBroker")
+        if not isinstance(http_broker, ScopedHttpBroker):
+            raise TypeError("http_broker must be a ScopedHttpBroker")
         runtime_source_package = (
             self.run_store.runtime_sources_root
             / registration.runtime_identity.runtime_source_manifest_id.value
@@ -978,6 +1049,14 @@ class _RunExecutorBase:
                             "response_hash": model_response_hash(response).value,
                             "route": dict(response.route),
                         },
+                    )
+                    continue
+                if frame.frame_type == WorkerFrameType.HTTP_REQUEST.value:
+                    await self._broker_http_request(
+                        registration=registration,
+                        channel=channel,
+                        frame=frame,
+                        http_broker=http_broker,
                     )
                     continue
                 if frame.frame_type == WorkerFrameType.RUN_EVENT.value:

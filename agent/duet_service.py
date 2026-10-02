@@ -29,6 +29,7 @@ from agent.episode_blueprints import (
     INITIAL_WORKFLOW_SOURCE_STAGES,
     REFINEMENT_WORKFLOW_SOURCE_STAGES,
     WORKFLOW_DRAFT_FIELDS,
+    creation_spec_from_blueprint,
     workflow_blueprint_from_spec,
     workflow_draft_record,
     workflow_spec_from_blueprint,
@@ -39,6 +40,8 @@ from agent.episode_contracts import (
     EpisodeWorkflowSpec,
     OpaqueId,
     Sha256Digest,
+    validate_egress_host,
+    validate_egress_name,
 )
 from iterative_episode_refiner.contracts import (
     CurrentBuildAuthorization,
@@ -70,6 +73,71 @@ class WorkflowAdmissionError(DuetProtocolError):
                 f"{item.field_path}:{item.code}" for item in self.deficits
             )
         )
+
+
+def _egress_rule_invalid_detail(
+    workflow_blueprint: Mapping[str, Any],
+    exc: Exception,
+) -> str:
+    """Name the Episode whose egress_allowlist failed host validation."""
+
+    episodes = workflow_blueprint.get("episodes")
+    if isinstance(episodes, list):
+        for node in episodes:
+            if not isinstance(node, Mapping):
+                continue
+            try:
+                creation_spec_from_blueprint(node.get("contract"))
+            except EpisodeContractError as node_exc:
+                if node_exc.field_path[:1] == ("egress_allowlist",):
+                    local_id = node.get("local_id")
+                    if isinstance(local_id, str):
+                        return f"{local_id}: {node_exc}"
+            except (TypeError, ValueError):
+                continue
+    return str(exc)
+
+
+def _egress_ceiling_deficits(
+    workflow: EpisodeWorkflowSpec,
+    authority: WorkflowAdmissionAuthority,
+) -> list[ContractDeficit]:
+    """One deficit per exceeded ceiling, naming every offending Episode rule."""
+
+    offenders: dict[str, list[str]] = {"host": [], "credential": []}
+    for item in workflow.episodes:
+        for rule in item.contract.egress_allowlist:
+            for dimension in authority.egress_rule_violations(rule):
+                value = rule.host if dimension == "host" else rule.credential
+                offenders[dimension].append(
+                    f"{item.local_id} rule {rule.name!r} {dimension} {value!r}"
+                )
+    deficits = []
+    if offenders["host"]:
+        deficits.append(
+            ContractDeficit(
+                "egress_host_not_allowed",
+                "egress_allowlist.host",
+                detail=(
+                    "; ".join(offenders["host"])
+                    + " is outside the operator's allowed egress hosts "
+                    + repr(list(authority.egress_hosts))
+                ),
+            )
+        )
+    if offenders["credential"]:
+        deficits.append(
+            ContractDeficit(
+                "egress_credential_unknown",
+                "egress_allowlist.credential",
+                detail=(
+                    "; ".join(offenders["credential"])
+                    + " names no operator-configured credential "
+                    + repr(list(authority.egress_credential_names))
+                ),
+            )
+        )
+    return deficits
 
 
 def _artifact_spec(
@@ -157,14 +225,26 @@ class DuetService:
         store: DuetStore,
         *,
         allowed_episode_capabilities: Iterable[str],
+        allowed_egress_hosts: Iterable[str] = (),
+        egress_credential_names: Iterable[str] = (),
     ) -> None:
         if not isinstance(store, DuetStore):
             raise TypeError("DuetService requires a DuetStore")
         capabilities = tuple(sorted(set(allowed_episode_capabilities)))
         if any(not isinstance(item, str) or not item for item in capabilities):
             raise ValueError("allowed Episode capabilities must be names")
+        egress_hosts = frozenset(
+            validate_egress_host(item, "allowed egress host")
+            for item in allowed_egress_hosts
+        )
+        credential_names = frozenset(
+            validate_egress_name(item, "egress credential name")
+            for item in egress_credential_names
+        )
         self.store = store
         self.allowed_episode_capabilities = frozenset(capabilities)
+        self.allowed_egress_hosts = egress_hosts
+        self.egress_credential_names = credential_names
         self._workflow_draft_lock = threading.RLock()
         self.refiner = IterativeEpisodeRefiner(store, self)
 
@@ -215,6 +295,10 @@ class DuetService:
             assignable_capability_names=tuple(
                 sorted(self.allowed_episode_capabilities)
             ),
+            egress_hosts=tuple(sorted(self.allowed_egress_hosts)),
+            egress_credential_names=tuple(
+                sorted(self.egress_credential_names)
+            ),
         )
 
     def validate_duet_workflow(
@@ -238,6 +322,16 @@ class DuetService:
                 if isinstance(exc, EpisodeContractError) and exc.field_path
                 else "goal"
             )
+            if field_path.split(".")[0] == "egress_allowlist":
+                return None, (
+                    ContractDeficit(
+                        "egress_rule_invalid",
+                        field_path,
+                        detail=_egress_rule_invalid_detail(
+                            workflow_blueprint, exc
+                        ),
+                    ),
+                )
             return None, (
                 ContractDeficit(
                     "invalid_workflow",
@@ -253,11 +347,9 @@ class DuetService:
         ]
         if len(roots) != 1:
             deficits.append(ContractDeficit("single_root_required", "goal"))
-        allowed = set(
-            self.workflow_admission_authority(
-                duet_id
-            ).assignable_capability_names
-        )
+        authority = self.workflow_admission_authority(duet_id)
+        allowed = set(authority.assignable_capability_names)
+        deficits.extend(_egress_ceiling_deficits(workflow, authority))
         episodes_by_id = {item.local_id: item for item in workflow.episodes}
         for item in workflow.episodes:
             capabilities = set(item.contract.execution_capability_names)
@@ -542,6 +634,13 @@ class DuetService:
                 raise DuetProtocolError(
                     "frozen workflow violates capability inheritance"
                 )
+            if any(
+                authority.egress_rule_violations(rule)
+                for rule in episode.contract.egress_allowlist
+            ):
+                raise DuetProtocolError(
+                    "frozen workflow egress exceeds its admission authority"
+                )
         return approval, frozen, authority
 
     def resolve_current_build_authorization(
@@ -596,6 +695,14 @@ class DuetService:
         ):
             raise DuetProtocolError(
                 "workflow authority exceeds current host capabilities"
+            )
+        if not set(authority.egress_hosts).issubset(
+            self.allowed_egress_hosts
+        ) or not set(authority.egress_credential_names).issubset(
+            self.egress_credential_names
+        ):
+            raise DuetProtocolError(
+                "workflow authority exceeds current host egress ceiling"
             )
         return CurrentBuildAuthorization(
             authority_approval=head,
@@ -1175,6 +1282,8 @@ class DuetService:
             "allowed_episode_capability_names": sorted(
                 self.allowed_episode_capabilities
             ),
+            "allowed_egress_hosts": sorted(self.allowed_egress_hosts),
+            "egress_credential_names": sorted(self.egress_credential_names),
         }
 
 

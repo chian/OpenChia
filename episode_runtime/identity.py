@@ -32,6 +32,7 @@ RUNTIME_MANIFEST_FILENAME = "runtime_source_manifest.json"
 ADMITTED_LOCAL_ROOTS = (
     "function_library",
     "handoff_library",
+    "http_call_library",
     "llm_call_library",
     "method_loop",
     "numeric_control_library",
@@ -57,6 +58,7 @@ _SELECTED_LOCAL_SOURCES = (
     BOOTSTRAP_SOURCE_PATH,
     "episode_runtime/broker.py",
     "episode_runtime/contracts.py",
+    "episode_runtime/http_contracts.py",
     "episode_runtime/identity.py",
     "episode_runtime/interpreter.py",
     "episode_runtime/landlock.py",

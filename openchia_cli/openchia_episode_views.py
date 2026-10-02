@@ -808,6 +808,17 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
                     True,
                 ),
                 (
+                    "egress_allowlist",
+                    "External requests",
+                    (
+                        "Read-only HTTPS endpoints this Episode may call through "
+                        "the host broker, with budgets and credential names."
+                    ),
+                    contract.get("egress_allowlist"),
+                    contract_pointer + "/egress_allowlist",
+                    True,
+                ),
+                (
                     "deliverable",
                     "Deliverable",
                     "Closed result form emitted by this Episode.",
@@ -899,6 +910,7 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
             "stopping",
             "numeric_control",
             "execution_capability_names",
+            "egress_allowlist",
             "deliverable",
         }
         if part_key in contract_keys:

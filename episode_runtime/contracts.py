@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Optional
 from agent.duet_contracts import content_id, digest_record
 from agent.episode_contracts import (
     EpisodeDeliverableKind,
+    EpisodeEgressRule,
     OpaqueId,
     Sha256Digest,
 )
@@ -49,6 +50,7 @@ _BOOT_ID = re.compile(
 _INVOCATION_ID = re.compile(r"^[0-9a-f]{32}$")
 _CONTAINER_NAME = re.compile(r"^openchia-episode-[a-z0-9]{1,32}-[0-9a-f]{32}$")
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{64}$")
+_EPISODE_LOCAL_ID = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 def _record(
@@ -313,6 +315,8 @@ class RunEventKind(str, Enum):
     EPISODE_COMPLETED = "episode_completed"
     MODEL_REQUESTED = "model_requested"
     MODEL_RESPONDED = "model_responded"
+    HTTP_REQUESTED = "http_requested"
+    HTTP_RESPONDED = "http_responded"
     RUN_SUCCEEDED = "run_succeeded"
     RUN_FAILED = "run_failed"
     RUN_CANCELLED = "run_cancelled"
@@ -778,6 +782,60 @@ class RuntimeIdentity:
         return result
 
 
+EgressPolicy = Mapping[str, tuple[EpisodeEgressRule, ...]]
+
+
+def _egress_policy(value: object) -> EgressPolicy:
+    """Freeze one ``local_id -> rules`` policy; empty nodes are omitted."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError("egress_policy must be a mapping")
+    frozen: dict[str, tuple[EpisodeEgressRule, ...]] = {}
+    for local_id in sorted(value):
+        if (
+            not isinstance(local_id, str)
+            or _EPISODE_LOCAL_ID.fullmatch(local_id) is None
+        ):
+            raise ValueError("egress_policy keys must be Episode local_ids")
+        rules = value[local_id]
+        if not isinstance(rules, (tuple, list)) or not rules:
+            raise ValueError(
+                f"egress_policy[{local_id!r}] must be a non-empty rule sequence"
+            )
+        if any(not isinstance(rule, EpisodeEgressRule) for rule in rules):
+            raise TypeError(
+                f"egress_policy[{local_id!r}] must contain EpisodeEgressRule values"
+            )
+        names = [rule.name for rule in rules]
+        if len(set(names)) != len(names):
+            raise ValueError(
+                f"egress_policy[{local_id!r}] rule names must be unique"
+            )
+        frozen[local_id] = tuple(rules)
+    return MappingProxyType(frozen)
+
+
+def _egress_policy_record(policy: EgressPolicy) -> dict[str, list[dict[str, Any]]]:
+    return {
+        local_id: [rule.as_record() for rule in policy[local_id]]
+        for local_id in sorted(policy)
+    }
+
+
+def _egress_policy_from_record(value: object) -> EgressPolicy:
+    if not isinstance(value, Mapping):
+        raise ValueError("egress_policy must be an object")
+    return _egress_policy(
+        {
+            local_id: tuple(
+                EpisodeEgressRule.from_record(item)
+                for item in _array(rules, f"egress_policy[{local_id!r}]")
+            )
+            for local_id, rules in value.items()
+        }
+    )
+
+
 @dataclass(frozen=True)
 class RunRegistration:
     """The complete immutable authority and materialization binding for one Run."""
@@ -799,6 +857,9 @@ class RunRegistration:
     launch_request: DuetLaunchRequest
     runtime_identity: RuntimeIdentity
     runtime_policy: RuntimePolicy
+    egress_policy: EgressPolicy = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     run_id: OpaqueId = field(init=False)
     registration_hash: Sha256Digest = field(init=False)
 
@@ -833,6 +894,11 @@ class RunRegistration:
             raise TypeError("runtime_identity must be a RuntimeIdentity")
         if not isinstance(self.runtime_policy, RuntimePolicy):
             raise TypeError("runtime_policy must be a RuntimePolicy")
+        object.__setattr__(
+            self,
+            "egress_policy",
+            _egress_policy(self.egress_policy),
+        )
         run_id = content_id("run", self.semantic_record())
         object.__setattr__(self, "run_id", run_id)
         object.__setattr__(
@@ -860,6 +926,7 @@ class RunRegistration:
             "launch_request": self.launch_request.as_record(),
             "runtime_identity": self.runtime_identity.as_record(),
             "runtime_policy": self.runtime_policy.as_record(),
+            "egress_policy": _egress_policy_record(self.egress_policy),
         }
 
     def as_record(self) -> dict[str, Any]:
@@ -961,6 +1028,11 @@ class RunRegistration:
             launch_request=launch_request,
             runtime_identity=runtime_identity,
             runtime_policy=runtime_policy,
+            egress_policy={
+                episode.local_id: episode.contract.egress_allowlist
+                for episode in frozen.workflow.episodes
+                if episode.contract.egress_allowlist
+            },
         )
 
     @classmethod
@@ -988,6 +1060,7 @@ class RunRegistration:
                 "launch_request",
                 "runtime_identity",
                 "runtime_policy",
+                "egress_policy",
             },
         )
         result = cls(
@@ -1020,6 +1093,7 @@ class RunRegistration:
                 record["runtime_identity"]
             ),
             runtime_policy=RuntimePolicy.from_record(record["runtime_policy"]),
+            egress_policy=_egress_policy_from_record(record["egress_policy"]),
         )
         if (
             result.run_id.value != record["run_id"]
@@ -1659,6 +1733,7 @@ __all__ = [
     "RUNTIME_WORKER_ENTRYPOINT",
     "TERMINAL_EVENT_KINDS",
     "EffectReceipt",
+    "EgressPolicy",
     "InspectedExecutorAttestation",
     "ReadOnlyRuntimeMount",
     "RunEffectMode",

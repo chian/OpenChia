@@ -40,6 +40,12 @@ capabilities, child topology, and deliverable boundary.
 - Assign the root the complete capability set used by the workflow, with each
   child declaring the subset it inherits and uses. Each child returns its
   declared closed result to its parent.
+- When an Episode's unit calls an external HTTP API, declare each endpoint in
+  that Episode's `egress_allowlist`: a rule name, the exact host, the path
+  prefix, the methods, `read_only: true`, the `max_requests` and
+  `max_response_bytes` budgets, and the credential name (or null). Only
+  read-only use is admitted. The operator's allowed egress hosts and credential
+  names, reported by `duet_status`, bound what a rule may name.
 - Human approval freezes the exact Architecture or refinement decision.
   EpisodeBuilder materialization and Run launch are separate human actions after
   approval.

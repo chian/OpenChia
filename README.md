@@ -142,6 +142,19 @@ The backend is chosen automatically. Override it with
 `OPENCHIA_CONTAINER_IMAGE` (default `python:3.14-slim`, which must match the
 host's Python minor version).
 
+### External requests from a Run
+
+A Run has no network. An Episode that calls an external API declares an
+`egress_allowlist` in its contract, and the human approves it with the rest of
+the workflow. Each rule names one host, a path prefix, the methods, request and
+response-size budgets, and optionally a credential by name. The worker sends
+each request to the host over the protocol pipe. The host admits it against the
+approved rules and the operator's `openchia.egress` ceiling in
+`config.yaml`, injects the named credential itself, and returns the response.
+Request and response hashes are recorded in the Run evidence. Only read-only
+use is admitted, and redirects are not followed
+([ADR 0002](docs/adr/0002-run-http-requests-are-host-brokered.md)).
+
 ## Lineage and license
 
 OpenChia uses the terminal and provider infrastructure originally developed in

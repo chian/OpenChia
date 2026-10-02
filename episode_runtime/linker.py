@@ -50,7 +50,7 @@ from method_loop import (
     Grain,
     Path as EpisodePath,
 )
-from method_loop.identities import EpisodeRef
+from method_loop.identities import EpisodeRef, normalize_structural_path
 
 from .contracts import RunEventKind, RunRegistration
 
@@ -110,6 +110,14 @@ _CURRENT_RUNTIME_EPISODE_ID: ContextVar[Optional[OpaqueId]] = ContextVar(
 )
 
 
+_CURRENT_RUNTIME_EPISODE_PATH: ContextVar[
+    Optional[tuple[tuple[str, str], ...]]
+] = ContextVar(
+    "openchia_runtime_episode_path",
+    default=None,
+)
+
+
 def current_runtime_episode_id() -> OpaqueId:
     """Return the Episode owning the current generated-code execution context."""
 
@@ -117,6 +125,20 @@ def current_runtime_episode_id() -> OpaqueId:
     if episode_id is None:
         raise RuntimeLinkError("model transport was called outside an Episode")
     return episode_id
+
+
+def current_runtime_episode_path() -> list[dict[str, str]]:
+    """Return the root-to-leaf structural path of the current Episode.
+
+    Each element is ``{"grain": ..., "key": ...}`` exactly as the linker used
+    it to build ``EpisodeRef(run_id, path)``, so the host can recompute the
+    same ``episode_id`` from it.
+    """
+
+    path = _CURRENT_RUNTIME_EPISODE_PATH.get()
+    if path is None:
+        raise RuntimeLinkError("HTTP transport was called outside an Episode")
+    return [{"grain": grain, "key": key} for grain, key in path]
 
 
 def _pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -718,11 +740,17 @@ class _GoalViewRegistry:
 class _InstrumentedEpisode(Episode):
     runtime_episode_id: OpaqueId = field(default=None)  # type: ignore[assignment]
     runtime_event_sink: RunEventSink = field(default=None, repr=False)  # type: ignore[assignment]
+    runtime_episode_path: tuple[tuple[str, str], ...] = field(default=None)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         super().__post_init__()
         if not isinstance(self.runtime_episode_id, OpaqueId):
             raise TypeError("runtime_episode_id must be an OpaqueId")
+        object.__setattr__(
+            self,
+            "runtime_episode_path",
+            normalize_structural_path(self.runtime_episode_path),
+        )
         if not callable(self.runtime_event_sink):
             raise TypeError("runtime_event_sink must be callable")
 
@@ -732,6 +760,7 @@ class _InstrumentedEpisode(Episode):
 
     async def run_async(self, ctx: Context):  # type: ignore[override]
         token = _CURRENT_RUNTIME_EPISODE_ID.set(self.runtime_episode_id)
+        path_token = _CURRENT_RUNTIME_EPISODE_PATH.set(self.runtime_episode_path)
         try:
             await self.runtime_event_sink(
                 RunEventKind.EPISODE_STARTED,
@@ -751,6 +780,7 @@ class _InstrumentedEpisode(Episode):
             )
             return record
         finally:
+            _CURRENT_RUNTIME_EPISODE_PATH.reset(path_token)
             _CURRENT_RUNTIME_EPISODE_ID.reset(token)
 
 
@@ -976,12 +1006,12 @@ class ActivatedSourcePackage:
                 else tuple(context_holder["context"].path)
                 + ((grains[local_id].name, key),)
             )
-            runtime_episode_id = OpaqueId(
-                EpisodeRef(
-                    run_id=self.registration.run_id.value,
-                    path=path,
-                ).episode_id
+            runtime_ref = EpisodeRef(
+                run_id=self.registration.run_id.value,
+                path=path,
             )
+            runtime_episode_id = OpaqueId(runtime_ref.episode_id)
+            runtime_path = runtime_ref.path
 
             prior_on_unit = episode.on_unit
             prior_build_result = episode.build_result
@@ -1006,6 +1036,7 @@ class ActivatedSourcePackage:
 
             async def build_result(record: object) -> ClosedRecord:
                 token = _CURRENT_RUNTIME_EPISODE_ID.set(runtime_episode_id)
+                path_token = _CURRENT_RUNTIME_EPISODE_PATH.set(runtime_path)
                 try:
                     result = prior_build_result(record)
                     if inspect.isawaitable(result):
@@ -1016,6 +1047,7 @@ class ActivatedSourcePackage:
                         )
                     return result
                 finally:
+                    _CURRENT_RUNTIME_EPISODE_PATH.reset(path_token)
                     _CURRENT_RUNTIME_EPISODE_ID.reset(token)
 
             return _InstrumentedEpisode(
@@ -1029,6 +1061,7 @@ class ActivatedSourcePackage:
                 resume_units=episode.resume_units,
                 runtime_episode_id=runtime_episode_id,
                 runtime_event_sink=event_sink,
+                runtime_episode_path=runtime_path,
             )
 
         root_episode = build_node(
@@ -1052,5 +1085,6 @@ __all__ = [
     "RunEventSink",
     "RuntimeLinkError",
     "current_runtime_episode_id",
+    "current_runtime_episode_path",
     "prepare_source_package",
 ]

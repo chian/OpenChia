@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import json
+import logging
 from pathlib import Path
 import secrets
 import threading
@@ -50,14 +51,18 @@ from episode_builder import (
     WorkflowMaterializationPlan,
 )
 from episode_runtime import (
+    CredentialSpec,
+    HttpxHostTransport,
     RunEvidence,
     RunRegistration,
     RunStore,
     RunStoreNotFound,
     RuntimePolicy,
+    ScopedHttpBroker,
     ScopedModelBroker,
     RunExecutor,
     inspect_runtime_identity,
+    load_egress_config,
 )
 from handoff_library import (
     DuetLaunchAddress,
@@ -73,6 +78,32 @@ from llm_call_library import (
     call_model_transport,
     model_transport_scope,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _operator_egress_ceiling() -> tuple[
+    tuple[str, ...], Mapping[str, CredentialSpec]
+]:
+    """The operator's ``openchia.egress`` ceiling; closed when unreadable.
+
+    Only credential names and file paths are loaded here; token files are
+    read by the broker at request time and never at construction.
+    """
+
+    try:
+        from openchia_cli.config import load_config_readonly
+
+        return load_egress_config(load_config_readonly() or {})
+    except Exception as exc:
+        logger.warning(
+            "ignoring openchia.egress config (%s: %s); no egress hosts or "
+            "credentials are allowed",
+            type(exc).__name__,
+            exc,
+        )
+        return (), {}
 
 
 _INITIAL_EDITABLE_STATES = frozenset(
@@ -145,9 +176,12 @@ class OpenChiaHost:
             policy_id=policy_id,
             conversation_id=OpaqueId.mint("conversation", session_id),
         )
+        self.egress_hosts, self.egress_credentials = _operator_egress_ceiling()
         self.service = DuetService(
             self.store,
             allowed_episode_capabilities=(),
+            allowed_egress_hosts=self.egress_hosts,
+            egress_credential_names=tuple(sorted(self.egress_credentials)),
         )
         self.refiner = self.service.refiner
         try:
@@ -1451,6 +1485,12 @@ class OpenChiaHost:
                     runtime_policy=RuntimePolicy(),
                 )
                 broker = ScopedModelBroker(call_model_transport)
+                http_broker = ScopedHttpBroker(
+                    policy=registration.egress_policy,
+                    credentials=self.egress_credentials,
+                    transport=HttpxHostTransport(),
+                    max_frame_bytes=registration.runtime_policy.max_frame_bytes,
+                )
                 self._run_registration = registration
                 self._run_evidence = None
                 self._run_baseline = None
@@ -1467,6 +1507,7 @@ class OpenChiaHost:
                             registration=registration,
                             source_package_path=source_package,
                             model_broker=broker,
+                            http_broker=http_broker,
                         )
                     )
                     with self._run_lock:

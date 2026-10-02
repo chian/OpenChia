@@ -78,6 +78,7 @@ _ALLOWED_IMPORT_ROOTS = frozenset(
         "functools",
         "handoff_library",
         "hashlib",
+        "http_call_library",
         "itertools",
         "json",
         "llm_call_library",
@@ -96,6 +97,7 @@ _INTERNAL_IMPLEMENTATION_ROOTS = frozenset(
     {
         "function_library",
         "handoff_library",
+        "http_call_library",
         "llm_call_library",
         "method_loop",
         "numeric_control_library",

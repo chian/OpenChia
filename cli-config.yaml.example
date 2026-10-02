@@ -1803,6 +1803,31 @@ delegation:
   #     model: "deepseek/deepseek-chat"       # unpinned children inherit when unset. [] disables fallback (#65038).
 
 # =============================================================================
+# OpenChia Run Egress (host-brokered HTTP requests)
+# =============================================================================
+# Episode Runs have no network. A Run reaches an external API only through the
+# host broker, and only for rules its approved Episode contract declares in
+# `egress_allowlist`. This block is the operator ceiling: the Duet cannot
+# propose, and the host will not admit, a rule whose host or credential is not
+# listed here. Default: no hosts, no credentials (no Run egress at all).
+#
+# openchia:
+#   egress:
+#     # Exact lowercase hostnames. No scheme, no port, no wildcards.
+#     # Requests always use https://; http:// is never admitted.
+#     allowed_hosts:
+#       - "www.bv-brc.org"
+#     # Credentials by name. An allowlist rule refers to a name, never a value.
+#     # The host reads the file at request time and adds the header itself;
+#     # the token never enters the sandbox, a frame, an event or a hash.
+#     credentials:
+#       patric:                        # the name a rule's `credential` uses
+#         kind: bearer_token_file      # the only supported kind
+#         path: ~/.patric_token        # regular file, at most 64 KiB; whitespace is stripped
+#         header: Authorization        # default: Authorization
+#         scheme: Bearer               # default: Bearer; header value = "<scheme> <token>"
+
+# =============================================================================
 # Honcho Integration (Cross-Session User Modeling)
 # =============================================================================
 # AI-native persistent memory via Honcho (https://honcho.dev/).

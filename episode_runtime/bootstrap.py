@@ -29,6 +29,7 @@ _EXPECTED_WORKER_ENTRYPOINT = "episode_runtime.worker.main"
 _EXPECTED_ADMITTED_LOCAL_ROOTS = [
     "function_library",
     "handoff_library",
+    "http_call_library",
     "llm_call_library",
     "method_loop",
     "numeric_control_library",
