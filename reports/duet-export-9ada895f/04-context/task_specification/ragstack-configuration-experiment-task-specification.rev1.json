@@ -1,0 +1,205 @@
+{
+  "artifact_id": "context_e3d42147e03b0923f9a600d797f1045d5a2661ec8abd3043d585d46e9ef09696",
+  "artifact_kind": "task_specification",
+  "purpose": "ragstack_configuration_experiment_task_specification",
+  "schema_version": 1,
+  "required": true,
+  "content_hash": "sha256:98a2a8ef59bfa086db3a6fefac16dc9ddc28f787080349f363e345bb50fa402b",
+  "created_at": "2026-09-30 14:40:13",
+  "content": {
+    "benchmark_requirement": {
+      "acceptable_forms_in_preference_order": [
+        {
+          "form": "operator_supplied_answer_key",
+          "note": "Strongest. A question set over the ASM collections with reference answers and, ideally, the doc_id or chunk_id that contains each answer. Verdicts become mechanical and the leaderboard is trustworthy.",
+          "preference": 1
+        },
+        {
+          "form": "source_anchored_generated_questions",
+          "note": "Acceptable. Sample chunks from each ASM collection, generate questions whose answer is stated in that specific chunk, and record the originating chunk_id as the gold span. The answer key is then grounded in the corpus rather than in a model's opinion. Retrieval recall at k becomes directly measurable: did the gold chunk come back. Weaker on answer-phrasing quality than a human key, but strong on retrieval, which is where most of the parameter axes act.",
+          "preference": 2
+        },
+        {
+          "form": "llm_judge_without_key",
+          "note": "Weakest and must be declared as such if used. A model judging its own pipeline's output measures self-consistency, not correctness, and a configuration that is confidently wrong scores well. If this is the only available form, the run must report it as a self-assessment study and must not present its leaderboard as a correctness ranking.",
+          "preference": 3
+        }
+      ],
+      "status": "UNRESOLVED -- blocking on the human. This is the single decision that determines whether the experiment measures anything.",
+      "why_blocking": "Every parameter axis in this study is scored by comparing answers. Without an answer key the scorer degrades to a model grading its own output, which measures fluency and self-consistency rather than correctness, and would rank a confidently wrong configuration above a correctly hedged one."
+    },
+    "constraints": {
+      "cost": "Each /v1/query call costs a generation. The cross-product of the declared axes is far larger than the budget. The workflow must move one axis at a time from a declared baseline and record the delta; a full grid is out of scope.",
+      "load": "Shared multi-tenant production service. Concurrency, pacing, backoff and abort thresholds are fixed by the safety_policy artifact.",
+      "read_only": "No corpus, registry, ACL or grading mutation. Only GET routes plus POST /v1/retrieve and POST /v1/query. The full permitted and prohibited lists are in the safety_policy artifact and are binding."
+    },
+    "definition_of_good_answer": {
+      "components": [
+        {
+          "id": "correctness",
+          "measured_by": "verdict against the answer key",
+          "note": "The primary component. Nothing else matters if this is wrong."
+        },
+        {
+          "id": "groundedness",
+          "measured_by": "every factual claim in the answer traces to a cited chunk_id that, when fetched through GET /v1/chunks, actually contains the supporting text",
+          "note": "A correct answer with fabricated or non-supporting citations is a distinct and serious failure class, not a pass."
+        },
+        {
+          "id": "retrieval_recall",
+          "measured_by": "whether the gold chunk or document appears in the returned sources at k",
+          "note": "Measurable through /v1/retrieve alone, without generation. This is where most of the retrieval axes act and it is far cheaper to measure than full generation. Prefer it for coarse axis screening."
+        },
+        {
+          "id": "cost",
+          "measured_by": "the trial's cost vector",
+          "note": "Not a quality component, but the denominator. A structure that lifts correctness at four times the call cost is a different verdict from one that lifts it for free."
+        }
+      ],
+      "failure_taxonomy": {
+        "basis": "Adapted from this deployment's own grading verdict vocabulary, which is the tenant's native notion of answer quality.",
+        "classes": [
+          "correct",
+          "wrong-location -- right claim, citation points at the wrong span",
+          "non-minimal -- correct but padded with unsupported or irrelevant material",
+          "missed-evidence -- the supporting chunk was retrieved but the answer did not use it",
+          "retrieval-miss -- the supporting chunk was never retrieved; a retrieval-parameter failure, not a generation failure",
+          "fabricated -- a claim with no supporting chunk anywhere in the returned sources",
+          "correctly-none -- the corpus does not support an answer and the system correctly declined",
+          "refused-wrongly -- the corpus did support an answer and the system declined anyway",
+          "placeholder -- the response was a retrieval-only placeholder because no LLM endpoint was configured; an infrastructure outcome, not an answer outcome",
+          "truncated -- the response carried a truthy truncated flag",
+          "infrastructure-failure -- 429, 503, timeout or transport error after the declared retries"
+        ],
+        "why_it_matters": "The dominant failure class tells the next unit which axis to move. retrieval-miss points at top_k, retrieval_mode, rerank or collection scope. missed-evidence and non-minimal point at the prompt template, the llm, or context_window. fabricated points at the template and the groundedness instructions. Collapsing everything to a single accuracy number destroys exactly the signal that makes this an episode rather than a grid search."
+      }
+    },
+    "open_questions": [
+      {
+        "default_if_unanswered": "Fall back to source-anchored generated questions and declare the limitation prominently in the findings note.",
+        "id": "q_answer_key",
+        "impact": "high",
+        "question": "What is the benchmark question set and what is the answer key? Is there an existing set of ASM questions with reference answers, should the run generate source-anchored questions from sampled chunks, or is there a grading batch already on the tenant that can be read?"
+      },
+      {
+        "default_if_unanswered": "Weight all readable ASM collections equally and additionally test the multi-collection union.",
+        "id": "q_collection_priority",
+        "impact": "medium",
+        "question": "Are all readable ASM paper collections equally important, or is there a primary one the winning configuration must serve?"
+      },
+      {
+        "default_if_unanswered": "Balance across both and report scores per question class, since the retrieval_mode axis is expected to split precisely along this line.",
+        "id": "q_question_mix",
+        "impact": "medium",
+        "question": "What is the intended question mix -- specific factual lookup such as strain names, gene symbols, accession numbers and table values, versus synthesis and comparison across papers?"
+      },
+      {
+        "default_if_unanswered": "Optimize for answer quality subject only to the safety policy's pacing limits, and report the cost vector so a cost-constrained choice can be made afterward from the recorded data.",
+        "id": "q_cost_ceiling",
+        "impact": "medium",
+        "question": "Is there a per-answer latency or cost ceiling the winning configuration must respect in production, or is this purely a quality optimization?"
+      }
+    ],
+    "phases": [
+      {
+        "exit_criterion": "The resolved QueryRequest schema, the collection inventory, the template inventory, the model inventory and the graph availability flag are all written to the run directory. Any axis that turns out to be inert on this tenant is struck from the plan and recorded as not-tested.",
+        "id": "phase_0_reconnaissance",
+        "purpose": "Establish what is actually true about this tenant before designing any sweep.",
+        "steps": [
+          "GET /v1/health and /v1/version to confirm liveness and record the build identity the results are attributed to.",
+          "GET /v1/stats/tenants with counts=false to establish caller identity, role, readable tenants and the collection allowlist. Confirm the token is not admin; if it is, escalate per the safety policy.",
+          "GET /v1/collections to enumerate the readable ASM paper collections, their chunk-strategy labels, their counts and the caller's effective default. This resolves what 'the different ASM papers collections' concretely means.",
+          "GET /v1/prompt-templates to enumerate the template axis by id, version and hash. An empty list means the template axis does not exist on this tenant and must be struck.",
+          "GET /v1/models/available to enumerate the llm and reranker axes. A single available model per task means that axis is fixed, not swept.",
+          "GET /v1/graph/stats to decide whether use_graph and the graph_seeded structure are live axes or must be recorded as not-tested.",
+          "GET /ragstack/asm-next/api/openapi.json and resolve #/components/schemas/QueryRequest in full. Write the resolved schema to the run directory. Do not sweep a parameter whose name has not been confirmed here.",
+          "GET /v1/documents with pagination to sample the document inventory and its metadata shape, noting that this endpoint is implicit-collection only.",
+          "Probe GET /v1/chunks with a deliberately oversized id list to discover max_chunk_ids from the 422, or read it from GET /v1/config."
+        ]
+      },
+      {
+        "exit_criterion": "A frozen, versioned question set with an answer key, written to the run directory, with the provenance of each answer recorded. Frozen means no question or key is edited after the first trial scores against it.",
+        "id": "phase_1_benchmark_construction",
+        "purpose": "Build the fixed measuring instrument. Everything downstream is meaningless if this moves.",
+        "steps": [
+          "Resolve the answer-key question above.",
+          "Stratify the question set across the readable ASM collections and across question classes -- specific factual lookup, multi-hop, cross-paper synthesis, and at least a few questions the corpus genuinely cannot answer so that correctly-none and refused-wrongly are distinguishable.",
+          "Record for each question its gold chunk_id or doc_id where known, its class, and its source collection.",
+          "Size the set so that one full trial is affordable under the pacing limits -- roughly 30 to 60 questions is the usual sweet spot, large enough that a five-point difference is not noise and small enough that dozens of trials fit the budget."
+        ]
+      },
+      {
+        "exit_criterion": "Baseline scored, per-question rows written, dominant failure classes identified and recorded.",
+        "id": "phase_2_baseline",
+        "purpose": "Establish the control every delta is measured against.",
+        "steps": [
+          "Run the API defaults -- retrieval_mode hybrid, top_k 5, no rerank, context_window 0, default template, default llm, single_shot structure, caller's default collection -- over the full question set.",
+          "Score, write per-question rows, record the cost vector.",
+          "Tabulate the failure-class distribution. This determines which axis the first delta moves."
+        ]
+      },
+      {
+        "exit_criterion": "Each axis has a recorded effect direction and magnitude, or is recorded as not-tested with the reason.",
+        "id": "phase_3_retrieval_axis_screening",
+        "note": "This phase is the main reason to separate /v1/retrieve from /v1/query. Screening retrieval_mode, top_k, rerank and collection scope on recall alone costs no generation calls and eliminates most of the parameter space before any expensive trial runs.",
+        "purpose": "Screen the retrieval axes cheaply, without paying for generation.",
+        "steps": [
+          "Using POST /v1/retrieve alone, measure gold-chunk recall at k across retrieval_mode, top_k, rerank and rerank_candidates and reranker, and collection scope.",
+          "Record recall per question class, not just in aggregate. The expectation to test is that bm25 wins on exact identifiers and vector wins on paraphrase; if that does not hold, that is itself a finding.",
+          "Carry only the configurations on the recall frontier into generation trials."
+        ]
+      },
+      {
+        "exit_criterion": "A ranked set of generation configurations with per-question verdicts and cost vectors.",
+        "id": "phase_4_generation_trials",
+        "purpose": "Test the axes that only manifest in the generated answer.",
+        "steps": [
+          "For each surviving retrieval configuration, sweep template, llm, query-rewrite mode and context_window through POST /v1/query.",
+          "Move one axis at a time from a declared prior configuration and record the delta, including which specific questions flipped verdict.",
+          "Verify citations by resolving every cited chunk_id through GET /v1/chunks and checking that the cited text supports the claim. An answer that is correct with unsupported citations is recorded as such, not as a pass."
+        ]
+      },
+      {
+        "exit_criterion": "A recommendation stating which structure to use for which question class, with the cost premium of each named explicitly.",
+        "id": "phase_5_structure_trials",
+        "purpose": "Test whether episodic structure beats single-shot, and at what cost.",
+        "steps": [
+          "Holding the best parameter vector fixed, compare the episode structures enumerated in the interface_contract artifact: single_shot as control, retrieve_assess_followup, decompose_synthesize, chunk_neighbourhood_expansion, and graph_seeded if the graph is available.",
+          "Score each on the same frozen question set, with the same scorer.",
+          "Report the quality lift alongside the cost multiple. A structure that lifts correctness by two points at four times the cost must be reported that way, not as a win."
+        ]
+      },
+      {
+        "exit_criterion": "Every artifact named in the result field exists, the findings note is written, and the token-leak grep required by the safety policy has passed.",
+        "id": "phase_6_consolidation",
+        "purpose": "Make the outcome usable and honest.",
+        "steps": [
+          "Write the winning configuration as a runnable JSON profile.",
+          "Write the leaderboard, the per-question outcome rows, the fetched inventories and the resolved schema.",
+          "Write the findings note: which axes mattered, which did not, which could not be tested and why, which question classes remain badly served, and the residual uncertainty including the benchmark's own limitations.",
+          "State explicitly whether the run converged on the stopping rule or hit a declared bound."
+        ]
+      }
+    ],
+    "problem": "The BV-BRC RAGstack asm-next tenant exposes a configurable RAG service over collections of ASM papers. Many retrieval and generation parameters are settable per request, and the question-answering loop around those requests can be structured in several ways. Which combination produces good answers is currently unknown and is being guessed at. The work is to find out by measurement.",
+    "scoring_discipline": {
+      "cost_vector_fields": [
+        "provider_calls",
+        "llm_calls",
+        "billable_calls",
+        "prompt_tokens",
+        "completion_tokens",
+        "returned_hits",
+        "retries",
+        "wall_ms",
+        "errors"
+      ],
+      "frozen_benchmark": "The question set and answer key are frozen before the first scored trial. Editing them mid-run invalidates every earlier comparison.",
+      "one_delta_at_a_time": "Each trial changes one axis from a named prior configuration. A trial that changes three things at once yields no attributable finding and must be recorded as exploratory rather than as evidence for any axis.",
+      "per_question_rows_are_the_evidence": "The leaderboard is a derived view. The per-question outcome rows with resolvable citations are the primary record. A leaderboard figure with no underlying rows is prohibited by the safety policy.",
+      "yield_reporting": "Report score as correctness and, separately, as correctness per billable call. When no cost record exists for a trial, the per-call figure is null, never the raw correctness number."
+    },
+    "title": "Find the best parameter combination and episode structure for question answering over the ASM paper collections on the BV-BRC RAGstack asm-next tenant",
+    "why_episodic": "Each configuration trial produces an observation -- which questions flipped verdict and which failure class now dominates -- that directly determines which axis the next trial should move. The dominant failure class is a pointer to the next experiment. That feedback loop is what makes this an Episode rather than a grid search, and it is also what makes the search affordable: the cross-product of the declared axes is far larger than the call budget, so the run must be steered by observation rather than enumerated."
+  }
+}

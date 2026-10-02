@@ -1,0 +1,62 @@
+{
+  "contract_hash": "sha256:0927853bb47a939f4c562dd6856d174ee07fd8ec1c07c5e618be671b1cd5300e",
+  "findings": [
+    {
+      "code": "enforcement_allowlist_broader_than_policy",
+      "explanation": "The enforced client admits any GET under /ragstack/asm-next/. That covers GET /v1/admin/* and GET /v1/ingest/{job_id}. The safety policy forbids every /v1/admin/* route absolutely and lists a closed set of permitted GETs. The only enforcement point is a wrapper inside execute_code, which could reach any host, path, or method. The safety policy says the Creator may not delegate a capability that makes a prohibited action reachable, so the allowlist is the sole barrier. The required self-test covers only DELETE and an off-prefix path, not a prohibited in-prefix GET. The contract also does not say how one run-wide client, with one rate limiter and one rolling error window, is shared across separately executed child Episodes when no persistent-process capability is assigned.",
+      "fields": [
+        "design_scope",
+        "execution_capability_names",
+        "safety_bounds"
+      ],
+      "question": "Should the client allowlist be the safety policy's exact permitted endpoint list instead of the whole prefix, and should the self-test also refuse an in-prefix admin GET? How are the rate limiter and error window shared across child Episodes, for example through file-locked state in the run directory?",
+      "severity": "medium"
+    },
+    {
+      "code": "escalation_triggers_incomplete",
+      "explanation": "The contract lists four escalation triggers, and the list does not match the safety policy's human_escalation list. It omits the trigger for a scored result reported without an answer key where model self-assessment would substitute for ground truth. That is directly relevant here: the Episode's own model writes the gold evidence sets and also judges against them. The contract also rewords 'the only readable collection is not an ASM paper collection' as 'no readable ASM collection', which changes when the trigger fires.",
+      "fields": [
+        "design_scope"
+      ],
+      "question": "Does the contract treat the frozen, validated gold evidence sets as satisfying the answer-key condition? If so, should it say that explicitly rather than silently dropping the trigger? Should the collection trigger use the safety policy's exact wording?",
+      "severity": "medium"
+    },
+    {
+      "code": "progress_definition_excludes_valid_closures",
+      "explanation": "Root progress counts a collection only if it closed as converged, bound_hit, or not-tested and also has its holdout scoring and findings note written. Several closures the contract itself requires cannot meet that definition:\n- A collection cut by the global allocation and reported as bound_hit has no holdout scoring.\n- A not-tested collection has no holdout scoring.\n- A collection closed with the typed 'blocked' status after an escalation is not in the counted status set at all.\nAs a result, target 1.0 is unreachable whenever any of these paths is correctly taken.",
+      "fields": [
+        "progress.description",
+        "stopping.target",
+        "unit",
+        "design_scope"
+      ],
+      "question": "Should a collection count as closed when it has any typed terminal update with a recorded reason, including blocked, with the holdout-scoring requirement applying only to studies that reached close-out?",
+      "severity": "medium"
+    },
+    {
+      "code": "model_confirmation_holdout_ambiguity",
+      "explanation": "The contract and the task specification disagree on the holdout:\n- The task specification says model confirmation runs on the tuning set and then on the holdout.\n- The task specification also says the holdout is scored exactly twice (baseline and winner) and never informs a choice.\n- The contract reserves close-out budget for confirmation plus two holdout scorings, and places confirmation before holdout scoring.\nThe contract does not say whether confirmation touches the holdout. It also does not say which model the baseline and the winner are scored on when the strongest model changes the result.",
+      "fields": [
+        "unit",
+        "design_scope",
+        "result"
+      ],
+      "question": "Is model confirmation run on the tuning set only? For the two holdout scorings, is the baseline scored on the cheap sweep model and the winner on its confirming model?",
+      "severity": "low"
+    },
+    {
+      "code": "judging_and_child_budget_feasibility",
+      "explanation": "Synthesis completeness and citation support must be judged by the Episode's own model. Every other model endpoint is excluded by the judge and network policies, so each per-question outcome row consumes Episode-side reasoning. Volume could reach hundreds to thousands of judgements per collection. The global allocation covers only iteration and time bounds. It says nothing about the judging volume or the max_child_episodes=120 limit, even though each trial is a child Episode and each collection may need roughly 20-40 trials.",
+      "fields": [
+        "safety_bounds",
+        "design_scope",
+        "execution_capability_names"
+      ],
+      "question": "How are judging volume and child-episode count allocated per collection? Is exhausting either one reported as bound_hit, just as the iteration and time bounds are?",
+      "severity": "medium"
+    }
+  ],
+  "revision": 20,
+  "summary": "Goal, result, unit, and deliverable fit together. The two-level design is coherent: the root measures collection coverage and each child is a tuning-set trial stopped on that collection's own synthesis completeness. Capabilities match a code-driven, file-materialized experiment. Five material gaps need answers before execution. The HTTP allowlist is broader than the safety policy allows. The escalation list drops a policy trigger. The root progress definition cannot score some of the closure statuses the contract allows. The contract does not say whether model confirmation runs on the holdout. It does not show that per-question judging and child-episode counts fit the declared bounds.",
+  "verdict": "concern"
+}

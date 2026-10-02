@@ -1,0 +1,62 @@
+{
+  "contract_hash": "sha256:cdb590d7be3c00647e23c3bfd9b72629bf8299472526a0ccd94f94cad31c4a64",
+  "findings": [
+    {
+      "code": "credit_decoupled_from_deliverable",
+      "explanation": "The only evidence requirement is root_episode_terminal_update, and credit is 100% root_episode_progress. That measure counts collections closed with any typed status, including not_tested and blocked. So progress can reach 1.0 and credit_complete with no benchmark, leaderboard, per-question rows or holdout files. The deliverable itself says a typed status alone would not be usable, and the safety_policy's no_fabrication rule requires every score to trace to recorded rows. The credit path does not check for any of those artifacts.",
+      "fields": [
+        "credit_assignment",
+        "evidence_requirements",
+        "progress",
+        "deliverable"
+      ],
+      "question": "Should acceptance of a converged or bound_hit closure require evidence that the collection's per-question rows, leaderboard and findings note exist, so that full credit cannot come from status labels alone?",
+      "severity": "medium"
+    },
+    {
+      "code": "root_stagnation_vs_multi_child_study",
+      "explanation": "Root stopping is target 1.0, minimum_delta 0.01, stagnation_observations 3, and progress moves only when a collection closes. The execution_policy recommends batching trials so that one study spans several child Episodes. It also reserves children for run-level reconnaissance and consolidation, and neither closes a collection. If the root records an observation per returned child, three such returns in a row trigger stagnation and end the run mid-study. It is also possible that 1/N falls below 0.01 if there are more than 100 collections, though that is unlikely.",
+      "fields": [
+        "stopping",
+        "unit",
+        "safety_bounds",
+        "progress"
+      ],
+      "question": "Is a root observation defined as one completed per-collection study, rather than each child return, so that intermediate children and reconnaissance cannot count toward the 3-observation stagnation stop?",
+      "severity": "medium"
+    },
+    {
+      "code": "capabilities_reach_prohibited_actions",
+      "explanation": "The safety_policy says the Creator may not delegate a capability that makes a prohibited action reachable. execute_code can issue arbitrary HTTP, including DELETE, admin and ingest routes and other tenants, and can write anywhere. The single-client allowlist and write-confinement check are imports a program is asked to use, not capability limits. read_file can pull /Users/me/.patric_token into model context and transcripts. That bypasses the rule to read at request time inside the HTTP process and makes echoing reachable. write_file also bypasses the mandated real-path confinement check.",
+      "fields": [
+        "execution_capability_names",
+        "assignable_capability_names",
+        "design_scope"
+      ],
+      "question": "Is procedural enforcement through the run-wide client and self-test accepted as satisfying the safety_policy's reachability rule for execute_code? Should read_file and write_file be restricted or dropped, given that execute_code already covers file I/O through the confinement check?",
+      "severity": "medium"
+    },
+    {
+      "code": "pre_search_budget_attribution",
+      "explanation": "Per collection, 1500 billable calls are split into 1200 for search and 300 for close-out. Reconnaissance smoke sets, pivot-discovery retrieve probes at high top_k, and the 2-3 baseline noise-floor repeats are not assigned to either pool. The stop condition 'search calls reach 1200' therefore has an undefined denominator. Heavy benchmark construction could silently shrink the budget left for parameter and structure trials.",
+      "fields": [
+        "design_scope",
+        "unit"
+      ],
+      "question": "Do benchmark construction, noise-floor repeats and retrieval screening draw from the 1200 search budget, from the 300 reserve, or from a separate declared allocation?",
+      "severity": "low"
+    },
+    {
+      "code": "answer_key_trigger_precedence",
+      "explanation": "design_scope says the stricter rule wins against the safety_policy. It also says frozen gold evidence sets satisfy the answer-key escalation condition. Those gold sets are written, and completeness is judged, by the same Episode model. A descendant applying 'stricter wins' literally could still read the safety_policy trigger as firing and block every collection. The operator's q_answer_key decision appears to be the human resolution of that trigger, but the contract does not say so explicitly.",
+      "fields": [
+        "design_scope"
+      ],
+      "question": "Should the contract state that the operator's q_answer_key decision is the completed human escalation for that trigger, so that 'stricter wins' is not re-applied to it?",
+      "severity": "low"
+    }
+  ],
+  "revision": 21,
+  "summary": "The contract hangs together well. Unit, levels, statuses, per-collection bounds, holdout discipline and deliverable all agree with the four referenced artifacts, and the design_scope settles the rev-3 conflict over holdout use in model confirmation. Three medium gaps remain. The Episode could earn full credit without producing the auditable deliverable. The root stagnation rule could fire while a study is still running across several child Episodes. The assigned capabilities can reach actions the safety_policy forbids, and only code convention prevents that. Two smaller ambiguities cover which budget pays for pre-search calls and how 'stricter wins' interacts with the answer-key ruling.",
+  "verdict": "concern"
+}

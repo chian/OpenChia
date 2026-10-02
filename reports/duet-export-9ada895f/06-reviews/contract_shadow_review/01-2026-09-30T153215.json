@@ -1,0 +1,65 @@
+{
+  "contract_hash": "sha256:f39dbfe43c3170393a6b1ffbaa128ad6e8a00c30375f277bd91108fea27e7781",
+  "findings": [
+    {
+      "code": "progress_measure_uses_holdout_as_search_signal",
+      "explanation": "The unit produces a tuning-set delta against a named prior configuration. The progress measure instead tracks best-so-far HOLDOUT synthesis completeness. The task spec says the holdout is scored exactly twice per collection (baseline and final winner) and is never used to choose a delta. That leaves two outcomes. Either the progress measure changes at most twice per collection, so the 3-observation stagnation rule and the 0.9 target cannot govern the trial loop. Or holdout scores are computed after each trial to feed the rule, which uses the holdout to decide when to stop and silently breaks the overfitting estimate.",
+      "fields": [
+        "progress.description",
+        "stopping.target",
+        "stopping.minimum_delta",
+        "stopping.stagnation_observations",
+        "unit"
+      ],
+      "question": "Should the progress and stopping measure be each collection's tuning-set synthesis completeness, with the holdout kept only for the two final reporting scores?",
+      "severity": "high"
+    },
+    {
+      "code": "stopping_rule_applied_to_cross_collection_mean",
+      "explanation": "The progress description says the cross-collection mean is 'a reporting rollup only.' Yet it is the only declared progress measure, and the stopping target, minimum_delta and stagnation rule all apply to it. This makes the mean a control signal.\n- One strong collection could push the mean over 0.9 and stop search on weak ones.\n- Stagnation on the mean could end one collection's search because other collections plateaued.\n- The spec defines stagnation as a gain below max(minimum_delta, noise floor), and noise floors are per collection, so they have no coherent meaning for a mean.\n- The draft does not say how unfinished or bound_hit collections enter the mean. Excluding them inflates it; zero-filling them conflates bound_hit with poor performance.\nThis conflicts with the operator ruling that each collection has its own winner and no cross-collection score averaging.",
+      "fields": [
+        "progress.description",
+        "stopping",
+        "goal",
+        "design_scope"
+      ],
+      "question": "Should stopping be evaluated per collection, against that collection's own max(0.05, noise floor), and should the mean be dropped as a stopping input and kept only as a labelled rollup?",
+      "severity": "high"
+    },
+    {
+      "code": "result_omits_required_validity_records",
+      "explanation": "The task spec's deliverable_shape requires several records that are missing from both the result and the deliverable:\n- the frozen judging prompt and its hash;\n- the per-collection noise-floor record;\n- the tuning-versus-holdout overfitting estimate;\n- the cheap/strong model choice and its reasoning;\n- the per-collection size and graph-availability table;\n- total cost, with tenant billable calls kept separate from the Episode's own judging and generation cost.\nWithout the judge prompt hash and the noise-floor record, the 'noise-floor verdict' and holdout claims the result does list cannot be audited.",
+      "fields": [
+        "result",
+        "deliverable.description"
+      ],
+      "question": "Should the result and deliverable explicitly name the frozen judging prompt and hash, the noise-floor record, the overfitting estimate, the model-selection record, the size and graph table, and the split cost totals?",
+      "severity": "medium"
+    },
+    {
+      "code": "capabilities_exceed_network_and_write_bounds",
+      "explanation": "The safety policy forbids delegating any capability that makes a prohibited action reachable.\n- execute_code can issue arbitrary HTTP methods to any host, including DELETE, admin routes and other tenants, and can write anywhere on disk.\n- write_file is not scoped to the run directory.\n- web_extract can reach any host, yet execute_code already covers fetching openapi.json.\nexecute_code is likely unavoidable because POST /v1/retrieve and /v1/query need it. The draft states no host-side enforcement of the allowed host, path prefix, method allowlist or write root, so compliance rests on prose alone. web_extract appears unnecessary.",
+      "fields": [
+        "execution_capability_names",
+        "assignable_capability_names",
+        "design_scope"
+      ],
+      "question": "Is there host enforcement restricting execute_code and write_file to www.bv-brc.org /ragstack/asm-next/ (and the gateway liveness paths), the permitted methods and the run directory plus scratch, and can web_extract be removed?",
+      "severity": "medium"
+    },
+    {
+      "code": "global_iteration_cap_vs_per_collection_budget",
+      "explanation": "The unit is one trial within one collection, and the budget is 1500 tenant calls per collection. max_iterations=80 and the 12-hour elapsed cap are global. With several collections, the 1 request/second pacing and a 2-request concurrency limit, the global caps will likely bind before the per-collection ceilings. That may leave later collections as bound_hit or not-tested by design. This is allowed if it is reported honestly, but the draft does not say whether it is intended.",
+      "fields": [
+        "safety_bounds.max_iterations",
+        "safety_bounds.max_elapsed_seconds",
+        "unit"
+      ],
+      "question": "Is it intended that the global iteration and time caps, rather than the per-collection 1500-call ceiling, are expected to bind, and should the iteration cap be allocated per collection?",
+      "severity": "low"
+    }
+  ],
+  "revision": 17,
+  "summary": "The draft follows the task specification closely on scope, prohibitions, the per-collection unit and the per-collection deliverable. Its progress and stopping design contradicts the operator's measurement controls. Progress is defined as best-so-far holdout completeness averaged across collections. The holdout is scored only twice per collection and may not steer the search, and the operator forbids cross-collection averaging. As written, the stopping rule either cannot fire or can only fire by misusing the holdout. Smaller gaps: some required audit records are missing from the result, the capability set is broader than the network and write bounds, and the global iteration cap does not match the per-collection budget.",
+  "verdict": "block"
+}

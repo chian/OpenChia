@@ -1,0 +1,537 @@
+{
+  "artifact_id": "context_b0a5e2fabfb19736152821b9f06bafe1521f42abf691b06f43946fd3aaac382a",
+  "artifact_kind": "interface_contract",
+  "purpose": "ragstack_asm_next_api_surface_and_parameter_space",
+  "schema_version": 2,
+  "required": true,
+  "content_hash": "sha256:60a56dffa2bb4ea4b05930609de6191cc69e9967e8afafbf184efaf8a5fc3a33",
+  "created_at": "2026-09-30 14:52:24",
+  "content": {
+    "authentication": {
+      "credential_handling": "See the companion safety_policy artifact. The token value must be read directly from the file at request time and must never be echoed, logged, written into any result artifact, embedded in a committed script, or included in a typed status update.",
+      "credential_location": "/Users/me/.patric_token on the operator workstation",
+      "schemes": [
+        {
+          "header": "Authorization",
+          "id": "BearerIdentity",
+          "note": "BV-BRC user identity token. This deployment treats a bearer BV-BRC identity as the caller identity for owner-scoped and workspace-backed operations.",
+          "transport": "HTTP header"
+        },
+        {
+          "header": "X-API-Key",
+          "id": "APIKeyHeader",
+          "note": "Service-account style credential mapped to an API-key tenant.",
+          "transport": "HTTP header"
+        }
+      ]
+    },
+    "deployment": {
+      "api_base": "https://www.bv-brc.org/ragstack/asm-next/api",
+      "gateway": "https://www.bv-brc.org/ragstack/",
+      "health": "https://www.bv-brc.org/ragstack/asm-next/api/health",
+      "note": "Only asm-next is in scope for this work.",
+      "openapi": "https://www.bv-brc.org/ragstack/asm-next/api/openapi.json",
+      "other_tenants_present": [
+        "dev",
+        "lucid-next",
+        "hackathon"
+      ],
+      "path_prefix": "/v1/",
+      "tenant_list": "https://www.bv-brc.org/ragstack/tenants",
+      "ui": "https://www.bv-brc.org/ragstack/asm-next/ui/"
+    },
+    "documented_bounds_and_gotchas": [
+      {
+        "bound": "1 to 5 per request",
+        "item": "collections",
+        "revision_note": "Operator has ruled the multi-collection union OUT of scope. The `collections` array field is therefore NOT an experimental axis. It may still be used with a single-element array only where that is the cleanest way to name a collection explicitly, but `collection` is preferred."
+      },
+      {
+        "bound": "0 to 3",
+        "item": "context_window"
+      },
+      {
+        "bound": "1 to 5",
+        "item": "graph neighbors depth"
+      },
+      {
+        "bound": "1 to 500, default 100; paginate with the opaque cursor echoed in the X-Next-Cursor response header, which is absent on the last page",
+        "item": "/v1/documents limit"
+      },
+      {
+        "bound": "1 to 500, default 100",
+        "item": "/v1/graph/entities limit"
+      },
+      {
+        "bound": "more than max_chunk_ids entries returns 422 rather than truncating; discover the actual limit empirically or from /v1/config",
+        "item": "/v1/chunks ids"
+      },
+      {
+        "gotcha": "GET /v1/documents and DELETE /v1/documents/{doc_id} cannot name a collection and silently target the caller's effective default. This is a SERIOUS constraint for per-collection work: the per-collection document inventory CANNOT be obtained from /v1/documents for any collection other than the caller's default. Build each collection's document inventory instead from the doc_id values surfaced by scoped POST /v1/retrieve calls, and record that the inventory is retrieval-derived and therefore possibly incomplete.",
+        "item": "implicit collection resolution",
+        "severity": "high"
+      },
+      {
+        "gotcha": "Graph endpoints degrade to available=false with null counts instead of erroring. An empty graph result is indistinguishable from an unconfigured graph store unless /v1/graph/stats is checked first. Note also that graph scoping is per confined collection while vector/text counts sum across readable collections, so the two figures are not directly comparable.",
+        "item": "graph availability"
+      },
+      {
+        "gotcha": "GET /v1/stats/tenants with counts=true probes every (tenant, collection, store) cell and can take seconds on a large deployment. Poll no faster than roughly every 15 seconds. It is however the one endpoint that gives a per-(tenant, collection) count breakdown, which is the authoritative per-collection size figure for this work. Call it once, early, with counts=true, and cache the result.",
+        "item": "stats cost"
+      },
+      {
+        "gotcha": "If no LLM endpoint is configured for the tenant, /v1/query returns a retrieval-only placeholder rather than failing. A scorer that does not detect this will record a configuration as catastrophically bad when it was never actually generating.",
+        "item": "retrieval-only placeholder"
+      },
+      {
+        "gotcha": "Treat a truthy truncated flag as a distinct outcome class in the scorer, not as a wrong answer. Truncation is expected to be MORE common under synthesis questions with large top_k and non-zero context_window, so this flag must be tracked per trial, not only per question.",
+        "item": "QueryResponse.truncated",
+        "severity": "elevated_under_synthesis"
+      },
+      {
+        "gotcha": "429 with Retry-After is used for in-flight guards; 503 is used for fail-closed store outages. Both are transient and must be retried with backoff and recorded as errors in the cost vector, never scored as answer failures.",
+        "item": "error semantics"
+      },
+      {
+        "gotcha": "Source.collection is stamped ONLY on a multi-collection request. Since every trial in this study is single-collection, this field will be absent from responses. The collection a result came from is known from the request, not the response, and must be stamped onto every outcome row by the harness.",
+        "item": "Source.collection stamping"
+      }
+    ],
+    "endpoints": {
+      "grading_subsystem_reference": {
+        "read_only_probe": "GET /v1/grading/batches answers 200 with an empty list for a caller with no reads, and 404 on a server that does not implement grading.",
+        "span_judgement_vocabulary": [
+          "located",
+          "wrong",
+          "non-minimal"
+        ],
+        "status": "present on this tenant but OUT OF SCOPE as a mutation surface",
+        "structure": "A batch carries a rubric hash, a seed, and named readers; each task pairs a question with a document and evidence sets of spans; readers submit independent verdicts and an admin adjudicates. Batch creation is admin-only.",
+        "verdict_vocabulary": [
+          "correct",
+          "wrong-location",
+          "non-minimal",
+          "missed-evidence",
+          "correctly-none",
+          "ambiguous"
+        ],
+        "why_recorded": "Its verdict vocabulary is the deployment's own native notion of answer quality and is the recommended basis for the offline scorer's failure taxonomy. Note that its task shape pairs ONE question with ONE document, which does not directly model a multi-paper synthesis question; the taxonomy is borrowed, the task shape is not."
+      },
+      "mutating_out_of_scope": [
+        "POST /v1/ingest",
+        "POST /v1/ingest/upload",
+        "GET /v1/ingest/{job_id}",
+        "DELETE /v1/documents/{doc_id}",
+        "POST /v1/collections",
+        "DELETE /v1/collections/{collection_id}",
+        "POST /v1/collections/{id}/restore",
+        "POST /v1/collections/{id}/graph",
+        "POST /v1/collections/{id}/shares",
+        "DELETE /v1/collections/{id}/shares/{share_id}",
+        "POST /v1/collections/{id}/owner",
+        "POST /v1/groups",
+        "DELETE /v1/groups/{group_id}",
+        "POST /v1/groups/{id}/members",
+        "DELETE /v1/groups/{id}/members/{subject}",
+        "POST /v1/grading/batches",
+        "DELETE /v1/grading/batches/{batch_id}",
+        "PUT /v1/grading/tasks/{task_id}/verdict",
+        "PUT /v1/grading/tasks/{task_id}/adjudication",
+        "POST /v1/grading/batches/{id}/adjudicate",
+        "POST /v1/stats/models/benchmark",
+        "all /v1/admin/* routes"
+      ],
+      "read_only_in_scope": [
+        {
+          "method": "GET",
+          "path": "/v1/collections",
+          "returns": "CollectionsResponse",
+          "use": "Enumerate the ASM paper collections this token can read, with their chunk-strategy labels and tenant-scoped counts. Each readable ASM collection becomes its own independent experimental stratum. Also reports the caller's effective default collection, which is what an omitted `collection` resolves to -- relevant because /v1/documents silently targets it."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/prompt-templates",
+          "returns": "PromptTemplatesResponse",
+          "use": "Declarations only: template id, version, hash, label, output shape, columns, slots. The system/user bodies are deliberately never returned. This enumerates the prompt-template axis. Inspect output shape and slots for any template oriented toward multi-source synthesis as opposed to single-passage extraction."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/models/available",
+          "returns": "AvailableModelsResponse",
+          "use": "Models assignable per-request to the hot-swappable llm and reranker tasks. Enumerates the model axis. base_urls are not exposed."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/retrieve",
+          "request": "RetrieveRequest",
+          "returns": "RetrieveResponse",
+          "use": "Retrieval without generation. The primary screening instrument: it measures whether the gold evidence was retrieved at all, per collection, at zero generation cost. For synthesis questions the relevant measure is SET coverage -- what fraction of the required distinct source documents appear in the returned sources -- not whether any single chunk was hit."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/query",
+          "request": "QueryRequest",
+          "returns": "QueryResponse",
+          "use": "Full RAG flow: optional query rewrite (HyDE / multi-query), hybrid retrieval per variant, RRF fusion, optional cross-encoder rerank, grounded generation. Per-request llm and reranker overrides swap those clients for that request only, leaving the global assignment and the corpus fixed, which the API documents as a clean A/B. Always pass `collection` explicitly; never rely on default resolution."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/chunks",
+          "query_params": [
+            "ids (comma-separated)",
+            "collection"
+          ],
+          "returns": "ChunksResponse",
+          "use": "Fetch chunks by id, typically the prev_chunk_id / next_chunk_id carried in a Source's metadata, to expand neighbouring context. Also the mechanism for resolving a cited chunk_id back to its text when verifying a citation. Accepts an explicit `collection`, so unlike /v1/documents it is safe for per-collection work. Exceeding max_chunk_ids is a 422, never a silent truncation."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/documents",
+          "query_params": [
+            "limit (1-500, default 100)",
+            "cursor (opaque, from X-Next-Cursor)"
+          ],
+          "returns": "DocumentInfo[]",
+          "use": "List indexed documents with document-level metadata (title, doc_type, doi, chunk_count). IMPLICIT-collection only -- it targets the caller's effective default and CANNOT be pointed at a named collection. Usable as a document inventory for the default collection alone; for every other collection the inventory must be derived from retrieval results instead."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/graph/stats",
+          "returns": "GraphStatsResponse",
+          "use": "Entity and relationship counts. Degrades to available=false with null counts when no graph store is configured; check this before designing any graph-dependent structure. Graph scope narrows to one collection for a confined tenant."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/graph/entities",
+          "query_params": [
+            "limit (1-500, default 100)"
+          ],
+          "returns": "EntityInfo[]",
+          "use": "Entities most-connected first. Directly useful for synthesis-question construction: a high-degree entity appearing across several documents is a natural pivot for a question that requires more than one paper."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/graph/neighbors/{entity}",
+          "query_params": [
+            "depth (1-5, default 1)"
+          ],
+          "returns": "TripleResponse[]",
+          "use": "Neighbourhood triples for multi-hop expansion. Each triple carries a chunk_id, so the graph can identify which distinct documents jointly discuss an entity -- the raw material for a grounded multi-paper question."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/stats/stores",
+          "returns": "StoreStatsResponse",
+          "use": "Per-store vector/text/graph counts summed over readable collections."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/stats/tenants",
+          "query_params": [
+            "counts (bool, default true)"
+          ],
+          "returns": "TenantsResponse",
+          "use": "Caller identity, readable tenants, collection allowlist, and the per-(tenant, collection) count breakdown. The authoritative per-collection size figure. Call once with counts=true and cache; use counts=false for cheap identity checks."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/config",
+          "returns": "ConfigResponse",
+          "use": "Server configuration as exposed to callers."
+        },
+        {
+          "aliases": [
+            "/health",
+            "/v1/health/deep",
+            "/v1/version"
+          ],
+          "method": "GET",
+          "path": "/v1/health",
+          "use": "Liveness and build identity. /v1/version reports package version, git tag, git sha, start time."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/jobs",
+          "returns": "JobsResponse",
+          "use": "Job listing, read-only."
+        }
+      ]
+    },
+    "episode_structure_axes": {
+      "candidates": [
+        {
+          "cost_shape": "1 generation call, 1 retrieval pass",
+          "description": "One POST /v1/query per benchmark question. The control arm every other structure must beat.",
+          "id": "single_shot",
+          "synthesis_note": "Expected to be the WEAKEST structure on multi-paper synthesis, because a single retrieval pass with a fixed top_k must surface every required paper simultaneously. Its failure mode should be partial coverage: a fluent answer built from the two papers that ranked highest, silently omitting the third. The scorer must catch this as incomplete-synthesis rather than passing it as correct."
+        },
+        {
+          "cost_shape": "n+1 generation calls, n+1 retrieval passes",
+          "description": "Answer, then judge the answer against the question for sufficiency and enumerate gaps, then issue gap-targeted follow-up queries and re-answer. Mirrors strategy.assess_answer and strategy.followup_queries in the reference.",
+          "id": "retrieve_assess_followup",
+          "reference_detail": "The reference sends the candidate answer to the assessor whole and unabridged, on the stated grounds that sufficiency is a property of the whole answer and a judgement made from a truncated answer is a judgement of a different object. It returns {sufficient, confidence, gaps[], rationale} and is deliberately strict: a hedged answer is not sufficient. The follow-up generator is additionally given the entities already in the graph and told to avoid redundant searches.",
+          "synthesis_note": "A LEADING CANDIDATE for synthesis. The gap enumeration is precisely the mechanism that notices a missing paper, and the follow-up query is what goes and gets it. This is the structure most likely to convert a partial-coverage answer into a complete one."
+        },
+        {
+          "description": "Split the question into sub-questions, retrieve and answer each independently, then synthesize with the sub-answers and their citations as context.",
+          "id": "decompose_synthesize",
+          "synthesis_note": "A LEADING CANDIDATE for synthesis, and the natural rival to retrieve_assess_followup. Decomposition gives each sub-question its own retrieval budget, so a paper that would never outrank the others under one fused query gets its own pass. Compare the two directly: decomposition front-loads breadth, assess-followup discovers it reactively. Their cost profiles differ and so may their failure modes -- decomposition risks sub-questions that do not reassemble into a coherent answer."
+        },
+        {
+          "description": "Seed from GET /v1/graph/entities, expand with GET /v1/graph/neighbors/{entity} at depth 1-2, use the resulting entity and predicate vocabulary as query expansion, then query. Inert unless graph stats report available.",
+          "id": "graph_seeded",
+          "synthesis_note": "Potentially strong for synthesis IF the graph is populated for the collection under test, because graph triples carry chunk_ids and therefore directly identify which distinct documents discuss a shared entity. This is exactly the cross-paper link a synthesis question depends on. Must be recorded as not-tested, never as no-effect, for any collection whose graph store reports unavailable or empty."
+        },
+        {
+          "description": "Retrieve with context_window=0, then selectively expand only the top-scoring sources through GET /v1/chunks using their prev_chunk_id / next_chunk_id, then generate. A cheaper targeted alternative to raising context_window globally.",
+          "id": "chunk_neighbourhood_expansion",
+          "synthesis_note": "Addresses depth within a paper rather than breadth across papers. Expected to help a synthesis question only when one contributing paper's relevant passage straddles a chunk boundary. Worth testing as a cheap modifier on top of a winning breadth structure rather than as a standalone competitor."
+        },
+        {
+          "applicability": "Only for benchmark questions that are genuinely enumerative; misapplied to a single-fact question it is pure overhead.",
+          "description": "Treat the answer as a set of required cells rather than prose. Maintain a durable frontier of unfilled cells, search to fill missing rows, and stop when count targets are covered. The reference's table_fill mode.",
+          "id": "table_fill",
+          "synthesis_note": "Relevant where a synthesis question is really an enumeration across papers -- for example, comparing a reported quantity across every study that measured it. The reference's durable frontier is what prevents the run from re-finding the same two papers. Consider it for the enumerative subset of the synthesis questions, not for all of them."
+        },
+        {
+          "description": "For a given deficit, generate sibling prompt arms that each mutate exactly one thing -- expected source shape, external terminology, anchoring breadth, or context-qualifier emphasis -- so the contrast between siblings is attributable. The reference enforces one delta per arm and shares seed vocabulary across all arms of a call so seeds cannot differentially bias one sibling against another.",
+          "id": "prompt_arm_mutation",
+          "synthesis_note": "A modifier applicable inside any of the above, not a competitor to them."
+        }
+      ],
+      "credit_and_cost_discipline_from_reference": {
+        "bound_vs_convergence": "A run cut by a declared resource bound must be recorded as bound_hit and must never be reported as convergence.",
+        "cost_vector": "Cost is recorded as a vector, not a scalar: provider_calls, llm_calls, prompt_tokens, completion_tokens, returned_hits, fetched_bytes, retries, wall_ms, errors. billable_calls = provider_calls + llm_calls is the one place two units are summed, defensible because both count discrete paid round trips.",
+        "credit_rule": "Credit is assigned once, after accepted evidence has been written into typed state, and only for a logical slot that is new to that state. A repeat assignment onto an already-filled slot is recorded as uncredited volume, not as yield.",
+        "relevance_here": "Especially sharp under a synthesis-weighted benchmark, because the structures most likely to win -- retrieve_assess_followup and decompose_synthesize -- are precisely the multi-call ones. Their quality lift must always be reported against their call multiple, or the study will recommend an expensive structure without saying so.",
+        "yield_rule": "score = credited datapoints per billable call. When no cost record exists the score is null, never the raw datapoint count -- a yield that has not been divided by anything must not be read as a yield."
+      },
+      "note": "These are candidate workflow shapes for the repeated unit, drawn from the reference implementation at github.com/chian/nano-graphrag/tree/main/question_pipeline. They are structures to compare, not a prescribed design. Synthesis notes reflect the operator's ruling that the benchmark is weighted toward multi-paper synthesis."
+    },
+    "parameter_search_space": {
+      "generation": [
+        {
+          "axis": "template",
+          "synthesis_note": "Templates differ in whether they instruct the model to integrate across sources or to answer from the single best passage. This axis may matter more than any retrieval axis for synthesis questions.",
+          "values": "enumerate from GET /v1/prompt-templates; record id, version and hash with every trial"
+        },
+        {
+          "axis": "llm",
+          "values": "enumerate from GET /v1/models/available where task is llm"
+        },
+        {
+          "axis": "query_rewrite",
+          "status": "exact request field names unverified; resolve from QueryRequest before use",
+          "synthesis_note": "multi-query rewrite is a strong prior candidate for synthesis: it issues several retrieval variants and fuses with RRF, which is a cheap in-request approximation of decomposition. Test it before reaching for the more expensive decompose_synthesize structure, and report the comparison.",
+          "values": [
+            "off",
+            "HyDE",
+            "multi-query"
+          ]
+        }
+      ],
+      "note": "Axes are independent unless a dependency is stated. Every axis is swept WITHIN a single collection; collection is a stratum, not an axis. Full cross-product is large; the workflow is expected to move one axis at a time from a declared baseline and record the delta, not to enumerate.",
+      "retrieval": [
+        {
+          "axis": "retrieval_mode",
+          "hypothesis": "bm25 should win on exact strain names, gene symbols, accession numbers and table captions; vector should win on paraphrased conceptual questions; hybrid should dominate on a mixed set. Under a synthesis-weighted benchmark the vector and hybrid legs are expected to matter most, since synthesis questions rarely hinge on one exact string -- but the bm25 arm must still be run, because a synthesis question anchored on a specific named entity may still depend on lexical recall of that entity across papers.",
+          "values": [
+            "hybrid",
+            "vector",
+            "bm25"
+          ]
+        },
+        {
+          "axis": "top_k",
+          "hypothesis": "Under multi-paper synthesis this is expected to be one of the most consequential axes. A synthesis question needs several DISTINCT source documents in context simultaneously, and a top_k tuned for single-fact lookup will systematically starve it. Measure not just how many chunks came back but how many distinct doc_ids came back -- a top_k of 10 that returns ten chunks from two papers has failed a synthesis question while looking healthy on a naive recall metric.",
+          "values": [
+            5,
+            10,
+            20,
+            30
+          ],
+          "why_extended": "The upper end is raised relative to a lookup-oriented sweep because distinct-document coverage, not chunk count, is the binding constraint."
+        },
+        {
+          "axis": "rerank",
+          "depends_on": "rerank_candidates, reranker",
+          "synthesis_note": "A cross-encoder optimizes per-chunk relevance and may actively HURT synthesis by concentrating the top of the ranking on the single most on-topic paper and displacing the second and third. Test rerank explicitly against distinct-document coverage, not only against chunk relevance. If it raises relevance while lowering document diversity, that is a finding worth reporting.",
+          "values": [
+            false,
+            true
+          ]
+        },
+        {
+          "applies_when": "rerank is true",
+          "axis": "rerank_candidates",
+          "values": [
+            20,
+            50,
+            100
+          ]
+        },
+        {
+          "axis": "reranker",
+          "values": "enumerate from GET /v1/models/available where task is reranker"
+        },
+        {
+          "axis": "context_window",
+          "hypothesis": "Helps questions whose answer straddles a chunk boundary; costs prompt budget on everything else. Under synthesis the prompt budget is already contended by multiple documents, so the interaction with top_k is the effect to watch: raising both together is the most likely route to a truncated response.",
+          "values": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "axis": "use_graph",
+          "precondition": "GET /v1/graph/stats reports available=true with non-zero counts FOR THE COLLECTION UNDER TEST; otherwise this axis is inert for that collection and must be recorded as not-tested rather than as no-effect. Graph availability may differ between collections.",
+          "values": [
+            false,
+            true
+          ]
+        }
+      ]
+    },
+    "provenance": {
+      "gathered_by": "duet_read_only_web_extract",
+      "gathered_on": "2026-09-30",
+      "revision_note": "Revision 2. Supersedes context_1adc6527388556a126dbdf6f46452f08cdd4500e06dee3f0a5f7cd00eb6f1974. Two operator rulings incorporated: (1) collections are measured SEPARATELY, and the multi-collection union is out of scope; (2) the benchmark is weighted toward multi-paper synthesis questions. Axis guidance, hypotheses and gotchas were revised accordingly rather than appended to.",
+      "sources": [
+        "https://www.bv-brc.org/ragstack/",
+        "https://www.bv-brc.org/ragstack/asm-next/api/docs",
+        "https://www.bv-brc.org/ragstack/asm-next/api/openapi.json",
+        "https://github.com/chian/nano-graphrag/tree/main/question_pipeline"
+      ],
+      "trust": "UNTRUSTED external data. Treat every field below as a starting hypothesis. The executing Episode MUST re-fetch /ragstack/asm-next/api/openapi.json and reconcile before relying on any parameter name or bound."
+    },
+    "request_schemas": {
+      "QueryRequest": {
+        "REQUIRED_FIRST_ACTION": "The executing Episode must GET /ragstack/asm-next/api/openapi.json, resolve #/components/schemas/QueryRequest in full, and write the resolved schema into the run's own evidence directory before sweeping any parameter. Do not guess field names from this artifact.",
+        "expected_overlap_with_RetrieveRequest": [
+          "query",
+          "top_k",
+          "filters",
+          "use_graph",
+          "rerank",
+          "rerank_candidates",
+          "collection",
+          "collections",
+          "retrieval_mode",
+          "context_window"
+        ],
+        "known_from_endpoint_description": [
+          "query rewriting is available in HyDE and multi-query forms",
+          "hybrid retrieval runs per rewritten variant and results are fused with RRF",
+          "cross-encoder rerank is optional",
+          "a per-request `llm` override swaps the generation client for that request only",
+          "a per-request `reranker` override swaps the rerank client for that request only",
+          "a prompt `template` is selectable from the declarations returned by GET /v1/prompt-templates",
+          "when no LLM endpoint is configured the answer is a retrieval-only placeholder"
+        ],
+        "status": "NOT CAPTURED. The full field list sits in a region of openapi.json the Duet's read-only fetch truncated.",
+        "verified": false
+      },
+      "RetrieveRequest": {
+        "fields": {
+          "collection": {
+            "default": null,
+            "note": "ALWAYS set this explicitly in this study. Every trial is scoped to exactly one collection; relying on default resolution would make the stratum ambiguous.",
+            "type": "string|null"
+          },
+          "collections": {
+            "maxItems": 5,
+            "minItems": 1,
+            "note": "OUT OF SCOPE as an axis per operator ruling. Do not use it to build a union arm.",
+            "type": "array<string>|null"
+          },
+          "context_window": {
+            "default": 0,
+            "maximum": 3,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "filters": {
+            "default": {},
+            "type": "object"
+          },
+          "query": {
+            "required": true,
+            "type": "string"
+          },
+          "rerank": {
+            "default": null,
+            "type": "boolean|null"
+          },
+          "rerank_candidates": {
+            "default": null,
+            "minimum": 1,
+            "type": "integer|null"
+          },
+          "reranker": {
+            "default": null,
+            "note": "model id from /v1/models/available",
+            "type": "string|null"
+          },
+          "retrieval_mode": {
+            "default": "hybrid",
+            "type": "enum",
+            "values": [
+              "hybrid",
+              "vector",
+              "bm25"
+            ]
+          },
+          "top_k": {
+            "default": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "use_graph": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "verified": true
+      }
+    },
+    "response_schemas": {
+      "QueryResponse": {
+        "answer": "string, required",
+        "model": "string, omitted when unset",
+        "rewritten_queries": "string[], required -- record these; under multi-query rewrite they are the in-request decomposition and are directly comparable to an explicit decompose_synthesize structure",
+        "serialization_note": "Provenance fields are omitted rather than emitted as null, so absence is normal and must not be read as an error.",
+        "sources": "Source[], required",
+        "template": "string, omitted when unset",
+        "template_hash": "string, omitted when unset",
+        "template_version": "integer, omitted when unset",
+        "truncated": "boolean, omitted when unset"
+      },
+      "RetrieveResponse": {
+        "sources": "Source[], required"
+      },
+      "Source": {
+        "chunk_id": "string, required",
+        "collection": "string; stamped ONLY on a multi-collection request. Absent throughout this study, since every trial is single-collection. Stamp the collection from the request side.",
+        "content": "string, required",
+        "context": "ContextChunk[]; present only when context_window > 0, otherwise omitted",
+        "doc_id": "string, required -- the key field for synthesis scoring. Distinct doc_id count in the returned sources is the document-coverage measure.",
+        "metadata": "object; carries document fields plus prev_chunk_id / next_chunk_id (null at document boundaries)",
+        "score": "number, required"
+      },
+      "TripleResponse": {
+        "chunk_id": "string -- resolvable to a document, which is what lets the graph identify cross-paper links",
+        "confidence": "integer",
+        "derived_by": "string",
+        "evidence": "string",
+        "object": "string, required",
+        "object_id": "string",
+        "predicate": "string, required",
+        "subject": "string, required",
+        "subject_id": "string"
+      }
+    },
+    "title": "BV-BRC RAGstack asm-next tenant: API surface, parameter space, and episode-structure axes (rev 2: per-collection strata, synthesis-weighted)"
+  }
+}

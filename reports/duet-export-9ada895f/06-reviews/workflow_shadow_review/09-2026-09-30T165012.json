@@ -1,0 +1,338 @@
+{
+  "creator_contract_hash": "sha256:bde9529d67540806193dc0c319e3e89211c4d837b3c74097e2b1f5b2401d64a9",
+  "creator_episode_id": "episode_20fa3e92b571d77b3ead73e4a2f029f9d424d251723bc0f2711e98f29e752f93",
+  "lenses": {
+    "capability_safety": {
+      "findings": [
+        {
+          "code": "client_hash_pin_rewritable_by_descendants",
+          "explanation": "The guard against a tampered client is a check of ragclient.py's SHA-256 against RUN/harness/selftest.json. Both files sit in RUN and are writable by every descendant that holds execute_code. setup_r* goes further: on a hash mismatch it permits 'no tenant calls until the full self-test is rerun and recorded'. That licenses a later Episode to change the client that opens the token, rerun a self-test that only covers the listed refusal cases, and re-pin the file. After that, every later guard passes. The execution_policy accepted procedural enforcement on the premise of a single mandatory self-tested client. A pin that any child can rewrite gives no assurance that later Episodes are using the self-tested client.",
+          "fields": [
+            "setup_r1.contract.goal",
+            "setup_r2.contract.goal",
+            "setup_r3.contract.goal",
+            "recon_harness.contract.goal",
+            "root.contract.goal"
+          ],
+          "question": "Should the client and scorer hashes be captured by the root from recon_harness's typed return and passed down in each child contract, with re-pinning forbidden outside recon_harness? Under that rule, any mismatch would close the affected collection as bound_hit (harness_integrity) with no tenant calls, rather than letting a child rerun the self-test.",
+          "severity": "medium"
+        },
+        {
+          "code": "token_leak_paths_outside_selftest_and_scan",
+          "explanation": "The self-test checks only that refusal logs omit the Authorization header or any token substring. It does not force the failure paths of real requests: connection errors, TLS failures, timeouts, HTTP errors, and debug or verbose output from the HTTP library. So it never verifies that exception messages, tracebacks, reprs of request objects, or stdout and stderr exclude the token. execute_code output goes straight into the Episode model context and host transcripts, which lie outside RUN and scratch. The token_leak_scan never reaches that path, yet safety_policy prohibits returning the token to the host or the Duet in any form.",
+          "fields": [
+            "recon_harness.contract.goal",
+            "root_verify.contract.goal"
+          ],
+          "question": "Should the self-test add forced-failure cases (unreachable host, timeout, 5xx, malformed response) that assert the token's first and last 8 characters are absent from the client's raised exceptions, their str() and repr(), and captured stdout and stderr? Should the client also wrap every exception it raises in a sanitized error type?",
+          "severity": "medium"
+        },
+        {
+          "code": "write_file_scope_exceeds_capability_hygiene",
+          "explanation": "execution_policy capability_hygiene keeps write_file only for materializing deliverables and requires every path it writes to be inside the run directory. The blueprint gives every Episode a generic 'write only in RUN and scratch' rule without separating write_file from code writes. It also has the scratch pointer file written outside RUN. This lets write_file land outside the run directory, which the policy does not allow.",
+          "fields": [
+            "root.contract.goal",
+            "recon_harness.contract.goal",
+            "recon_inventory.contract.goal"
+          ],
+          "question": "Should the contracts state that write_file targets only RUN, and that scratch writes, including the active-run pointer, go only through execute_code with the write-confinement check?",
+          "severity": "low"
+        }
+      ],
+      "summary": "Capability assignments stay within the contract: execute_code, write_file and todo_list, with subsets for the children. The design routes all HTTP through one allowlisted client. That client uses the correct intersection of the two allowlists, refuses redirects, pins HTTPS to www.bv-brc.org, requires an explicit use_graph and a single collection, and holds the token only inside itself. The leak scan runs last on the reserve. The residual execute_code risk is the one the operator accepted. Two gaps weaken the procedural controls the operator relied on. First, descendants can re-pin the client, which makes the hash guard circular. Second, the self-test never checks whether the token appears in exceptions or stdout, and those paths reach model context without being scanned. A smaller scope issue: write_file is allowed to write to scratch.",
+      "verdict": "concern"
+    },
+    "contract_alignment": {
+      "findings": [
+        {
+          "code": "root_target_reachable_before_closeout",
+          "explanation": "The root's host progress counts verified result-bearing closures and its stopping target is 3.0. With the expected three collections all closing result-bearing, the target is met when the serial gate verifies study_r3. That happens before root_consolidate and root_verify. If the host honours the target, the root stops early, and these never happen: orphan reconciliation, the token-leak gate, ROOT_MANIFEST.json, and the terminal update carrying c/A/B, manifest hash and scan record. That contradicts addendum d_run_end_is_intended (the run ends via the root terminal update), d_token_leak_gate (the scan runs before the terminal update), d_manifest_extension, and the completeness invariant. The contract's own target of 1.0 on coverage-weighted progress is expected to be unreachable for exactly this reason.",
+          "fields": [
+            "episodes[root].contract.stopping.target",
+            "episodes[root].contract.progress",
+            "episodes[root_consolidate]",
+            "episodes[root_verify]"
+          ],
+          "question": "Should the root's host target be set so it cannot be met before close-out finishes? One option is to count close-out records, so the final increment is root_verify's manifest and leak-scan record. Another is a target above the achievable closure count. Either way, the host cannot stop the root before root_consolidate and root_verify run.",
+          "severity": "high"
+        },
+        {
+          "code": "root_host_stagnation_may_count_non_closure_iterations",
+          "explanation": "The root has stagnation_observations=3 and minimum_delta=1.0, and its progress unit gains only from verified result-bearing closures. Three root iterations can pass without increasing that count: recon_harness, recon_inventory, and a zero-credit study_r1 closure (benchmark_shortfall or blocked). If the host treats each iteration as an observation, stagnation fires before study_r2, study_r3 and close-out. Ledger d_root_stagnation_and_orphans and execution_policy levels.root say only verified result-bearing closures are root observations. They also say root stagnation must not fire while collections remain open. The blueprint states this only in prose, and the host adapter may not honour prose.",
+          "fields": [
+            "episodes[root].contract.stopping.stagnation_observations",
+            "episodes[root].contract.stopping.minimum_delta"
+          ],
+          "question": "Can the root's progress unit or stagnation settings be changed so that recon steps and zero-credit closures cannot trigger host stagnation while collections remain open or close-out is pending?",
+          "severity": "medium"
+        },
+        {
+          "code": "phase_a_target_can_truncate_axis_coverage",
+          "explanation": "Phase A's target of 14 counts both scored trials and screening tables. The blueprint lets one axis take several trials: context_window at 1 to 3, query_rewrite as HyDE and multi-query, and several templates. Add three to five screening tables and the count can reach 14 before every applicable axis has a trial, and before the post-coverage stagnation rule can fire. d_axis_coverage requires full coverage before the stagnation stop. A host stop at the target is also not among the ends the phase-A goal names as bound_hit. Coverage A, and therefore c, would drop for a reason the contract does not recognise.",
+          "fields": [
+            "episodes[phase_a_r1|r2|r3].contract.stopping.target",
+            "episodes[phase_a_r*].contract.progress"
+          ],
+          "question": "Should phase A's progress unit count covered applicable axes, with a target equal to the axis denominator plus stagnation headroom, or should the target be raised so it cannot bind before coverage is complete and the stagnation rule has fired?",
+          "severity": "medium"
+        },
+        {
+          "code": "run_level_escalation_not_propagated",
+          "explanation": "recon_inventory 'stops and records' if it finds admin role, a need to write, or only a non-ASM readable collection. Nothing tells the root to withhold the studies, close the collections as blocked with the verbatim human_escalation item, or close the root as blocked when zero ASM collections are readable (execution_policy escalation). study_r1 starts on 'recon records exist'; if ranking.json is missing it writes a 'no-collection' record. root_consolidate then closes open collections as not_tested or bound_hit rather than blocked. The safety policy requires escalation before proceeding, and the vocabulary rules allow only blocked for these triggers.",
+          "fields": [
+            "episodes[recon_inventory].contract.goal",
+            "episodes[root].contract.goal",
+            "episodes[study_r1].contract.goal",
+            "episodes[root_consolidate].contract.goal"
+          ],
+          "question": "Should the root, the study gates and root_consolidate explicitly check for a recorded run-level escalation trigger, and then make no tenant calls and close every affected collection (or the root) as blocked with the verbatim trigger?",
+          "severity": "medium"
+        },
+        {
+          "code": "graph_unavailable_or_sparse_strike_undefined",
+          "explanation": "Setup tests attributability only 'if /v1/graph/stats is available', and that value is a cached run-level record, not a per-collection one. It does not define the outcome when the graph is unavailable or empty, or when fewer than 50 triples exist to sample. Phase B skips 'only setup strikes with evidence'. Without an explicit strike, use_graph and graph_seeded could stay in the A and B denominators unscored. That lowers c for a reason the addendum excludes, and risks recording them as unscored rather than as struck not-tested.",
+          "fields": [
+            "episodes[setup_r*].contract.goal",
+            "episodes[phase_b_r*].contract.goal",
+            "episodes[closeout_r*].contract.goal"
+          ],
+          "question": "Should setup explicitly strike use_graph and graph_seeded, with evidence, as not-tested (graph not attributable) when the graph is unavailable or empty or yields fewer than 50 sampleable triples for the collection?",
+          "severity": "medium"
+        },
+        {
+          "code": "leak_scan_record_outside_root_manifest",
+          "explanation": "d_deliverable_manifest lists the token-leak scan record and its hash as a run-level deliverable. d_manifest_extension requires the root manifest to list every deliverable path with its SHA-256 and to be verified at close-out. root_verify writes the scan record after ROOT_MANIFEST.json and keeps it out of the manifest, so one required deliverable sits outside the verified manifest.",
+          "fields": [
+            "episodes[root_verify].contract.goal"
+          ],
+          "question": "Should the manifest be written after the scan and include the scan record, followed by a final scan of the manifest file alone, so every deliverable appears in the verified manifest?",
+          "severity": "low"
+        },
+        {
+          "code": "rejected_closure_closed_without_reattempt",
+          "explanation": "Ledger d_credit_result_bearing_only.evidence_failure says a rejected closure 'is NOT a closure' and the collection stays open. It may be re-attempted within its remaining allocations, or closed bound_hit once those are exhausted. The serial gate instead closes it at once as bound_hit with reason 'closure_evidence_missing', which does not name a bound, and no episode slot is left for a re-attempt.",
+          "fields": [
+            "episodes[root].contract.goal"
+          ],
+          "question": "Should the gate allow a no-tenant-call manifest repair or re-attempt within the study's remaining allocation before closing, and name an actual bound in the bound_hit reason?",
+          "severity": "low"
+        },
+        {
+          "code": "screened_out_value_forced_into_generation",
+          "explanation": "If every non-prior value of a retrieval axis fails screening, phase A still runs a paid generation trial on the best screened-out value. Task-specification sequencing says no configuration reaches a paid generation trial without passing screening. d_axis_coverage requires only that the best-screening value reach a generation trial. Forcing a known-worse configuration spends search budget to earn A-coverage.",
+          "fields": [
+            "episodes[phase_a_r*].contract.goal"
+          ],
+          "question": "When all non-prior values of an axis are screened out, should the axis's coverage come from the prior value's existing trial, with this recorded, instead of a paid trial on a screened-out value?",
+          "severity": "low"
+        },
+        {
+          "code": "static_zero_allocation_for_extra_collections",
+          "explanation": "Collections ranked 4 and below get zero allocation up front and close as not_tested, and the root's 20-child budget has no spare study slots. If an earlier study closes early (for example benchmark_shortfall or blocked), the unused time cannot go to a fourth readable collection, even though operator decision q_collection_priority cuts collections only 'if the budget binds'.",
+          "fields": [
+            "episodes[recon_inventory].contract.goal",
+            "episodes[root].contract.safety_bounds.max_child_episodes"
+          ],
+          "question": "Should unspent study time and child slots be reallocatable to the next-ranked readable collection before it is closed as not_tested?",
+          "severity": "low"
+        }
+      ],
+      "summary": "The per-collection pipeline follows the contract's rules closely: the pool split, phase A/B coverage, the model-matched holdout, the trigger vocabulary, the run-wide stop and the manifest are all present. The blocking problem is the root's host stopping block. Its count target of 3.0 can be reached as soon as the third study is verified, which is before root_consolidate and root_verify run. The run could then end without the root manifest, the token-leak scan or a complete terminal update. The contract says the run ends only through the root's terminal update, and it designs its own target to be effectively unreachable. The root's host stagnation settings and phase A's target also sit uneasily with the contract's rules on observations and coverage. Several smaller gaps affect credit denominators and escalation handling.",
+      "verdict": "block"
+    },
+    "iteration_recovery": {
+      "findings": [
+        {
+          "code": "study_fallback_has_no_time_budget",
+          "explanation": "The child bounds sum to 2600+5200+2300+1300 = 11400 s, which equals the study's own bound exactly. The study also spends time on its own gate checks, re-hashing and returning the closure. Suppose phase A or B runs to its time cap and close-out then fails or never starts. The fallback 'write the closure manifest yourself from existing records' then has zero seconds left. The collection falls through to root orphan handling and gets a less precise status and reason.",
+          "fields": [
+            "episodes[study_r1..r3].safety_bounds.max_elapsed_seconds",
+            "episodes[setup_r*/phase_a_r*/phase_b_r*/closeout_r*].safety_bounds.max_elapsed_seconds",
+            "episodes[study_r*].contract.goal"
+          ],
+          "question": "Should the phase child caps be reduced so each study keeps explicit time and iteration slack for its own fallback closure write, for example 300-600 s?",
+          "severity": "medium"
+        },
+        {
+          "code": "phase_a_iteration_cap_below_coverage_need",
+          "explanation": "phase_a has max_iterations 12 but target 14. If rerank is kept, coverage alone needs up to 9 one-axis generation trials plus at least 2 dependent screening batches. The rerank sub-axis screening can only run after the rerank trial. That leaves about 1 iteration for any failed or abandoned trial (503 after 5 attempts, judge failure) or post-coverage stagnation trials. A single failed iteration forces phase-A bound_hit with unscored axes. That lowers A and rules out converged.",
+          "fields": [
+            "episodes[phase_a_r*].safety_bounds.max_iterations",
+            "episodes[phase_a_r*].stopping.target",
+            "episodes[phase_a_r*].contract.unit"
+          ],
+          "question": "Should phase A's iteration cap be raised to at least the target plus retry slack, or should the unit explicitly allow batching all screening for independent axes into one iteration?",
+          "severity": "medium"
+        },
+        {
+          "code": "terminal_status_runs_noop_phases_into_stagnation",
+          "explanation": "When setup ends with a terminal status (benchmark_shortfall, benchmark_not_freezable, no_independent_sweep_model, not_tested), the study still releases phase A and phase B. Their preconditions fail and they return without new records. The study's progress unit is completed phase hand-offs with minimum_delta 1 and stagnation_observations 2. Two no-op hand-offs can therefore trip host stagnation before closeout runs. The collection then lacks its final manifest and correct reason, and root rejects or orphans it as closure_evidence_missing instead of the true status.",
+          "fields": [
+            "episodes[study_r*].contract.goal",
+            "episodes[study_r*].stopping.stagnation_observations",
+            "episodes[phase_a_r*].contract.goal"
+          ],
+          "question": "Should the study skip directly to closeout, or write the terminal closure itself, when state already holds a terminal status, instead of releasing no-op phase children?",
+          "severity": "medium"
+        },
+        {
+          "code": "recon_failure_recovery_undefined",
+          "explanation": "Suppose recon_harness exhausts its 5 iterations or 2-observation stagnation without a passing self-test, or recon_inventory fails to write ranking.json. The root has no rule to re-spawn either, and the studies define no return status when their start preconditions fail. A missing ranking makes each study write a 'no-collection' record and flag a count mismatch. That can yield N=0, a false 'zero readable ASM collections' blocked root, or a terminal update that omits collections which are readable but not enumerated.",
+          "fields": [
+            "episodes[root].contract.goal",
+            "episodes[recon_harness]",
+            "episodes[recon_inventory]",
+            "episodes[study_r*].contract.goal"
+          ],
+          "question": "What should the root do when a recon child fails: re-spawn it within the child-episode headroom, or close the root with an explicit infrastructure reason distinct from 'no collection'?",
+          "severity": "medium"
+        },
+        {
+          "code": "root_host_stagnation_counting_unclear",
+          "explanation": "The root sets stagnation_observations 3 and minimum_delta 1.0 on a count of verified result-bearing closures. The ledger says only such closures are observations. If the host instead evaluates stagnation per root iteration, three zero-delta iterations would fire it: recon_harness, recon_inventory, and a non-result-bearing r1 closure such as benchmark_shortfall. The root would stop before r2 and r3 start, and consolidation would then run only on reserve.",
+          "fields": [
+            "episodes[root].stopping",
+            "episodes[root].progress"
+          ],
+          "question": "Does the host evaluate root stagnation per iteration or only per progress-bearing observation? If per iteration, should stagnation_observations be raised above the count of non-closure root iterations?",
+          "severity": "medium"
+        },
+        {
+          "code": "setup_single_retry_per_stage",
+          "explanation": "Setup says failed stages are retried within the cap. With stagnation_observations 2 and minimum_delta 1, though, any stage gets at most one retry before host stagnation ends setup. The heaviest stages are benchmark generation, validation and freeze, and the 3 baseline repeats with re-judge. Each is a single iteration.",
+          "fields": [
+            "episodes[setup_r*].stopping.stagnation_observations",
+            "episodes[setup_r*].contract.unit"
+          ],
+          "question": "Should setup's stagnation threshold be raised to 3 so the heavy benchmark and noise-floor stages get a second retry within the 7-iteration cap?",
+          "severity": "low"
+        }
+      ],
+      "summary": "Recovery is layered: a provisional closure manifest is written first in close-out, study-level and root-level fallbacks exist, orphan closure is handled, and a run-wide stop leads to a checkpoint. Several iteration and time budgets still leave those fallbacks unreachable or too tight. Each study's time bound equals the exact sum of its phase children, so the study has no time of its own to write a closure itself. Phase A's iteration cap is below its own target and leaves almost no retry slack for coverage. Early terminal statuses push no-op phase children through study-level stagnation. A failure in recon_harness or recon_inventory has no defined recovery and would be misreported as missing collections.",
+      "verdict": "concern"
+    },
+    "measurement_evidence": {
+      "findings": [
+        {
+          "code": "selected_winner_score_reused_as_comparator",
+          "explanation": "Phase B scores single_shot 'by reference to Wa's phase-A trial, no rerun'. Model confirmation compares W on the strongest model against 'W's cheap-model record'. Wa became current best because its single tuning draw exceeded the floor, so that recorded score is biased upward (winner's curse). Each competing structure, and the strong-model run, gets one fresh unselected draw measured against this inflated comparator. W = single_shot and 'keep the cheap model' are therefore systematically favoured. The effect is largest near the noise floor, which is exactly where synthesis-structure differences are expected.",
+          "fields": [
+            "phase_b_r1.goal",
+            "phase_b_r2.goal",
+            "phase_b_r3.goal",
+            "closeout_r1.goal",
+            "closeout_r2.goal",
+            "closeout_r3.goal"
+          ],
+          "question": "Should phase B rerun single_shot on Wa once, and confirmation rerun W on the cheap model, so each comparison is between contemporaneous unselected draws? These reruns cost about one tuning pass each. Alternatively, should the design record that the comparator is a selected score, and require the verdict to clear the floor against the mean of the selected and fresh draws?",
+          "severity": "medium"
+        },
+        {
+          "code": "trial_aggregate_and_exclusions_undefined",
+          "explanation": "score.py and the phase-A contracts classify truncated as 'separate', and retrieval_only_placeholder and transient_error as 'excluded'. They never say how these rows enter a trial's tuning synthesis_completeness, which drives every effect verdict, the stagnation stop and Wa selection. Truncation is expected to rise with top_k and context_window. Dropping truncated or abandoned-503 rows would therefore compare trials on different question subsets and could inflate exactly those axes. It is also unstated whether the headline completeness averages synthesis questions only or mixes in single-item control questions, which would dilute the primary synthesis measure differently per power level.",
+          "fields": [
+            "recon_harness.goal (score.py)",
+            "phase_a_r1.goal",
+            "phase_a_r2.goal",
+            "phase_a_r3.goal",
+            "setup_r1.goal (Stage 4)"
+          ],
+          "question": "Should score.py fix one aggregation rule, recorded in the frozen benchmark, and apply it to every trial, holdout scoring and noise-floor repeat? The rule would cover: synthesis_completeness as the mean over synthesis-class questions only, with control reported separately; truncated rows scored on the text returned rather than dropped; and trials with excluded rows compared on the common question subset, with the excluded count in the leaderboard.",
+          "severity": "medium"
+        },
+        {
+          "code": "noise_floor_not_representative_for_multi_call_structures",
+          "explanation": "The effective floor comes from repeats of baseline_v0 single_shot. retrieve_assess_followup and decompose_synthesize chain several stochastic tenant generations and several judge-visible sub-answers, so their run-to-run variance is likely larger. Applying the single_shot floor to structure verdicts can label within-noise structure differences as effects.",
+          "fields": [
+            "setup_r1.goal (Stage 4)",
+            "phase_b_r1.goal"
+          ],
+          "question": "Should phase B record the structure verdict as provisional when the margin is under, say, 2x the floor, or spend a small repeat on the leading multi-call structure so its own spread is known before W is fixed?",
+          "severity": "low"
+        },
+        {
+          "code": "judge_not_blinded_to_configuration",
+          "explanation": "The frozen judging prompt allows batched multi-question calls. Nothing requires the judge input to omit the trial id, configuration, structure or model, or forbids mixing answers from different configurations in one batch. Either could let the Episode-model judge favour known-expensive structures or produce contrast effects. The single re-judge in setup measures judge variance, not judge bias.",
+          "fields": [
+            "recon_inventory.goal (4)",
+            "phase_a_r1.goal",
+            "phase_b_r1.goal",
+            "closeout_r1.goal"
+          ],
+          "question": "Should the judging contract require that judge inputs carry only the question, gold set, answer and resolved chunks, with no configuration, structure or model identifiers, and that a batch never mixes answers from different trials?",
+          "severity": "low"
+        }
+      ],
+      "summary": "Under the measurement_evidence lens the blueprint is largely sound. It freezes benchmarks before scoring and uses unbiased pivot discovery. The noise floor combines repeat and judge spread, verdicts are noise-gated, holdout effects are model-matched, and root_verify derives A and B independently from hashed trial evidence. Two gaps could bias the reported winners. First, phase B and model confirmation compare fresh runs against a single_shot/Wa score that was already selected upward by phase A. Second, the per-trial aggregate is undefined: which classes enter the mean, how truncated, placeholder and transient-error rows are treated, and whether control questions are included. Both gaps are correctable by tightening the child contracts.",
+      "verdict": "concern"
+    },
+    "task_specific_skeptic": {
+      "findings": [
+        {
+          "code": "citation_attribution_rule_unspecified",
+          "explanation": "synthesis_completeness credits a required item only if it is stated and cited to a supporting chunk of its correct source document. The blueprint never says how score.py decides which chunk_id backs which claim in a /v1/query answer. QueryResponse exposes a sources list, but inline chunk citations in the answer text are unverified. Template output shapes also differ across the template axis. Multi-call structures make this worse: in decompose_synthesize and retrieve_assess_followup, the final answer cites sub-answer evidence that is not in the final call's sources. If the rule is left to runtime improvisation, two bad outcomes are possible. Either every item fails the citation test, making completeness uniformly near zero and the axes indistinguishable, or all returned sources are treated as citations, which inflates citation_support and hides unsupported_citation. The rule would also differ by template and structure, confounding exactly the axes under test.",
+          "fields": [
+            "workflow.episodes[recon_harness].contract.goal (score.py)",
+            "workflow.episodes[recon_inventory].contract.goal (step 1 schema resolution)",
+            "workflow.episodes[phase_b_r*].contract.goal"
+          ],
+          "question": "Should recon_inventory record, from the resolved QueryRequest/QueryResponse schema and template output shapes, how answers reference chunks? Should score.py then freeze one attribution rule before the self-test hash is pinned, including how sub-answer sources propagate to the final answer in multi-call structures, with an explicit not-scorable outcome if a template emits no attributable citations?",
+          "severity": "high"
+        },
+        {
+          "code": "phase_bound_suppresses_later_phases",
+          "explanation": "Phase A is likely to end on a bound: it has 12 iterations against a target of 14, a squeezed call cap, and a 5200 s time cap. The blueprint does not separate a phase-level bound from a terminal collection status. Read literally, a phase-A time or iteration cap is a 'phase that ends early'. Phase B and close-out would then run without tenant calls, even though phase B has its own reservation and close-out has its own untouched 300-call reserve. If that happens, B shrinks to single_shot only and the holdout headline is never scored. The execution_policy only allows skipping the holdout when the close-out reserve is unavailable, not whenever an earlier phase hit a bound.",
+          "fields": [
+            "workflow.episodes[study_r*].contract.goal ('A phase that ends early records its bound in state; later phases still run without tenant calls')",
+            "workflow.episodes[phase_b_r*].contract.goal (precondition 'no terminal status')",
+            "workflow.episodes[closeout_r*].contract.goal ('If a terminal status or RUN_STOP already exists, make no tenant call')"
+          ],
+          "question": "Should state.json distinguish a phase-level bound (the next phase proceeds on the current best with its own budget) from a collection-terminal status (blocked, not_tested, RUN_STOP, or collection call ceiling)? Should tenant calls be suppressed only for the latter?",
+          "severity": "high"
+        },
+        {
+          "code": "closeout_time_not_prioritized",
+          "explanation": "Close-out has 1300 s. The normal order runs tuning-set model confirmation first: W on the strongest model over about 30 tuning questions, with every orchestration step. The priority order (#1, #2, confirmation, #3) applies only when the call projection does not fit. If W is a multi-call structure, strong-model latency at 1 query/s and concurrency 2, plus judging, can consume most of the 1300 s. The time cap would then hit before holdout #1 and #2, losing the headline holdout score and forcing bound_hit.",
+          "fields": [
+            "workflow.episodes[closeout_r*].contract.goal (stage order 2 then 3)",
+            "workflow.episodes[closeout_r*].contract.safety_bounds.max_elapsed_seconds"
+          ],
+          "question": "Should the close-out projection also estimate wall time from measured latencies, and apply the #1, #2, confirmation, #3 priority order whenever either calls or time do not fit?",
+          "severity": "medium"
+        },
+        {
+          "code": "top_k_screening_is_monotone",
+          "explanation": "document_coverage_at_k cannot decrease as k rises at fixed mode, so top_k=30 always screens best. The one covering generation trial for top_k will therefore always test 30 against the prior. The task spec calls top_k one of the most consequential synthesis axes and flags truncation risk at large top_k. Under this rule, 10 and 20 are never generation-tested unless extra trials happen after coverage, and the blueprint gives no rule for choosing them.",
+          "fields": [
+            "workflow.episodes[phase_a_r*].contract.goal (screening pass rule and 'best non-prior value that passed screening')"
+          ],
+          "question": "For top_k, should the covering trial use the smallest value whose screened coverage is within the doc-coverage floor of the maximum? Or should a second top_k value be queued after coverage?",
+          "severity": "medium"
+        },
+        {
+          "code": "noise_floor_can_be_zero",
+          "explanation": "With a deterministic cheap model and deterministic retrieval, baseline repeats may be byte-identical, and a re-judge may agree. The effective floor then becomes 0. Every nonzero delta, including a single-question flip of about 0.03 to 0.05 on roughly 22 tuning synthesis questions, would be labelled an effect and would move the current best. The blueprint records byte-identical flags but defines no response to them, so reported 'effects' could be question-sampling artifacts.",
+          "fields": [
+            "workflow.episodes[setup_r*].contract.goal (stage 4 effective floor)",
+            "workflow.episodes[phase_a_r*].contract.goal (verdict and current-best movement)"
+          ],
+          "question": "When repeats are byte-identical or the spread is below one-question granularity, should the floor record that as degenerate and apply a documented minimum, such as one question's weight? Or should this situation be flagged in the findings note so zero-floor effects are not overclaimed?",
+          "severity": "medium"
+        },
+        {
+          "code": "setup_stagnation_fragile",
+          "explanation": "Setup has target 4, minimum_delta 1.0 and stagnation after 2 observations. Stage 3 generates, validates, resolves and freezes up to 40 questions. Stage 4 runs about 90 queries plus about 120 judgements. Each is heavy enough that it may span or fail an iteration. Two iterations without a new stage record would stop setup before the benchmark freezes, giving that collection c=0. The same pattern applies at the root. If the host counts recon or non-result-bearing closures as root observations, three such events could end the run before rank 3 starts, despite the ledger rule that only verified result-bearing closures count.",
+          "fields": [
+            "workflow.episodes[setup_r*].contract.stopping",
+            "workflow.episodes[root].contract.stopping"
+          ],
+          "question": "Should setup either allow more stagnation observations or count sub-stage records (generation, validation, freeze) as progress? And is it confirmed that the host's root adapter ignores non-result-bearing child returns for stagnation?",
+          "severity": "medium"
+        }
+      ],
+      "summary": "The blueprint implements the rulings, but six task-specific gaps could keep it from producing a valid per-collection answer. (1) Score.py does not say how it attributes citations to claims, and synthesis_completeness depends on that rule. (2) A phase-A bound may suppress phase B and holdout scoring. (3) Close-out ordering accounts for calls but not time, so holdout scoring can be squeezed out. (4) top_k screening always passes the largest value. (5) The noise floor can collapse to zero. (6) Setup's benchmark-building stages sit behind a two-observation stagnation rule.",
+      "verdict": "concern"
+    }
+  },
+  "workflow_blueprint_hash": "sha256:020b6cdbc23e016b52c1babaafdc3f9dcf888139287fca2cdde8c52891a9b298"
+}

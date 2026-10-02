@@ -1,0 +1,46 @@
+{
+  "contract_hash": "sha256:0ad050f93ac8b5cfdc124c52e8cb467a0ff69999bf495cf959fd1e9623bd0bc7",
+  "findings": [
+    {
+      "code": "root_stagnation_can_orphan_unclosed_collections",
+      "explanation": "The decision ledger overrides root progress so that blocked and not_tested closures contribute 0. Each of them is still a root observation, because it is an accepted closure. So three consecutive blocked, not_tested, or pre-freeze bound_hit closures give three observations with zero gain, and root stagnation fires. This is likely, not hypothetical. For example, d_judge_collision's 'no_independent_sweep_model' block will probably recur in every collection, and the smallest collections at the end of the order may all be not_tested. The ledger's run_end lets the stopping rule end the root first. But execution_policy still says 'every readable collection ends in exactly one of these four statuses; omission is not a status', q_collection_priority says a collection is 'never omitted silently', and the stagnation_note still states the now-false guarantee that stagnation cannot fire while collections remain unclosed. The draft does not say what status the collections left open receive when stagnation stops the root.",
+      "fields": [
+        "stopping.stagnation_observations",
+        "stopping.minimum_delta",
+        "progress",
+        "design_context:decision_ledger.d_credit_result_bearing_only",
+        "design_context:execution_policy.levels.root.stagnation_note",
+        "design_context:execution_policy.closure_statuses.note",
+        "design_context:task_specification.operator_decisions.q_collection_priority"
+      ],
+      "question": "When root stagnation fires with readable collections still unclosed, should those collections be closed with a stated status (for example bound_hit naming root stagnation, or not_tested), or should zero-credit closures be excluded from root stagnation counting so the root always closes every collection?",
+      "severity": "medium"
+    },
+    {
+      "code": "per_collection_graph_scope_unestablished",
+      "explanation": "The draft asks for per-collection graph availability, graph-based pivot discovery 'for the collection', and a use_graph precondition checked 'for the collection under test'. However, /v1/graph/stats, /v1/graph/entities and /v1/graph/neighbors take no collection parameter. Their scope narrows only 'for a confined tenant'. Graph-derived pivots could therefore link documents across collections, which the per-collection rule forbids, and the graph-availability table may not actually be per collection. Nothing in the draft says how a graph result is shown to belong to the collection under test.",
+      "fields": [
+        "unit",
+        "design_context:task_specification.benchmark_requirement.construction_method.pivot_discovery",
+        "design_context:interface_contract.parameter_search_space.retrieval.use_graph",
+        "deliverable"
+      ],
+      "question": "Should graph evidence count for a collection only when every triple's chunk_id resolves through /v1/chunks with that collection explicitly named, and otherwise be treated as graph-unavailable, so pivot discovery falls back to bm25/vector and use_graph is recorded as not-tested?",
+      "severity": "low"
+    },
+    {
+      "code": "holdout_baseline_winner_delta_confounds_model",
+      "explanation": "The two holdout scorings are the baseline on the cheap sweep model and the winner on its confirming model, which may be the strongest model. The only held-out comparison between baseline and winner can therefore mix the parameter/structure change with a model change. That weakens the result's claim about which parameter combination is best, as distinct from which model is.",
+      "fields": [
+        "result",
+        "goal",
+        "design_context:execution_policy.per_collection_budget_and_stopping.close_out_order"
+      ],
+      "question": "Should the findings note and holdout record be required to state explicitly when the baseline and winner holdout scores were taken on different models, and to attribute the delta accordingly rather than to the configuration alone?",
+      "severity": "low"
+    }
+  ],
+  "revision": 23,
+  "summary": "The draft's goal, result, unit, capabilities, deliverable and per-collection budgets and stopping rules fit together, and the precedence stack resolves most overlaps. One material incoherence remains at the root level. The decision ledger scores blocked and not_tested closures at 0, but the root stagnation rule (3 observations under 0.01) was justified in execution_policy on the assumption that every closure adds 1/N. With that assumption gone, a run of zero-gain closures can stop the root before every readable collection is closed. Two lower-severity measurement gaps are also noted.",
+  "verdict": "concern"
+}

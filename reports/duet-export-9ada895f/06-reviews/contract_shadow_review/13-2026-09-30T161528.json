@@ -1,0 +1,32 @@
+{
+  "contract_hash": "sha256:f4658514acf247ffd1e08b44b7e49c9b12262a9977777c9bb83924ae76225cad",
+  "findings": [
+    {
+      "code": "coverage_denominator_underspecified",
+      "explanation": "The formula A = covered surviving axes / surviving axes after reconnaissance strikes, and the matching formula for B, drive every collection's c. Three cases are not defined.\n\n1. **Conditional rerank sub-axes.** The ledger lists rerank_candidates and reranker as sub-axes tested only if rerank is kept. If rerank loses during phase A, these sub-axes are never tested, but they were not struck at reconnaissance. It is undefined whether they sit in A's denominator. If they do, A can never reach 1 even with legitimate full coverage.\n\n2. **use_graph on non-attributable collections.** d_graph_scope says use_graph is 'recorded as not-tested' on a graph-not-attributable collection. It does not say this counts as a reconnaissance strike that removes use_graph from A's denominator.\n\n3. **Modifier-type structures.** Phase B must score single_shot and every unstruck structure. Striking is permitted only for failing the orchestration feasibility check or needing an LLM step outside /v1/query. The interface contract, however, describes:\n   - prompt_arm_mutation as a modifier, not a competitor;\n   - chunk_neighbourhood_expansion as a modifier on a winning structure;\n   - table_fill as applicable only to the enumerative subset.\n\n   None of these is infeasible, so none can be struck under the stated rule. Yet each is not a standalone structure to score once on the whole tuning set.\n\nThe Creator must therefore guess the denominators. The result is that different correct designs yield different c values for the same work. The progress claim that 1.0 means every collection was fully compared on both parameters and structures cannot be checked.",
+      "fields": [
+        "progress.description",
+        "unit",
+        "design_scope",
+        "context_2c560e55…:d_coverage_weighted_credit",
+        "context_19bb1937…:d_axis_coverage",
+        "context_19bb1937…:d_graph_scope",
+        "context_b0a5e2fa…:episode_structure_axes"
+      ],
+      "question": "For A and B, which items count in the denominator? Specifically:\n- Are rerank_candidates and reranker counted only when rerank is kept?\n- Does a graph-not-attributable finding count as a reconnaissance strike of use_graph?\n- Are prompt_arm_mutation, chunk_neighbourhood_expansion and table_fill phase-B structures, excluded modifiers, or strikeable for a recorded non-feasibility reason?",
+      "severity": "medium"
+    },
+    {
+      "code": "progress_formula_wording_inverted",
+      "explanation": "The progress description says 'c is 0 unless the collection has a verified result-bearing closure ... Otherwise c = 0.5 + 0.25*A + 0.25*B.' Read literally, 'Otherwise' attaches to the zero case and could be parsed as awarding 0.5+ to collections without a result-bearing closure. The addendum's d_coverage_weighted_credit states the rule unambiguously (c = 0 without a verified result-bearing closure, and 0.5 + 0.25A + 0.25B with one). The host-normalized progress description should not be readable the other way.",
+      "fields": [
+        "progress.description"
+      ],
+      "question": "Should the progress description read 'c = 0.5 + 0.25*A + 0.25*B for a collection with a verified result-bearing closure, and 0 otherwise' to match the addendum?",
+      "severity": "low"
+    }
+  ],
+  "revision": 33,
+  "summary": "The goal, result, unit, stopping rule, capabilities, deliverable and Creator scope are mostly coherent. The precedence chain (addendum over ledger rev 5 over execution_policy rev 2, never loosening safety_policy rev 2) resolves the apparent conflicts, including trigger vocabulary, close-out order, holdout count, closure-evidence failure and the run-wide stop statuses. Unreachable root stagnation and a possibly unreachable target of 1.0 are documented as intended in d_run_end_is_intended. One material gap remains: the A and B denominators in the coverage-weighted root progress measure are underspecified for conditional sub-axes, the graph axis on non-attributable collections, and modifier-type structures. So c and root progress cannot be computed reproducibly, and the claim that 1.0 means full comparison is not reliable. A minor wording issue in the progress description could also invert the credit rule.",
+  "verdict": "concern"
+}
