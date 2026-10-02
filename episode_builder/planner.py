@@ -764,6 +764,9 @@ prepare_request, receive_result, and build_child implementation specifications
 around those fixed child facts. Every selected binding that carries one of
 these payload contracts in arguments.payload_contract repeats the same complete
 object field-for-field.
+Choose each slot_name as a descriptive lowercase token for the child's role in
+this parent. Fill the slot-name placeholder with that choice and use it
+consistently in edge binding roles and child_builders keys.
 
 For admit_request, select the exact root or child admission function identified
 by structural_binding_contract for this node. Its arguments.payload_contract
@@ -861,17 +864,15 @@ def _plan_shape_for_children(
     """Instantiate the planner guide with exact finalized child facts."""
 
     shape = json.loads(_canonical(_PLAN_SHAPE))
-    shape["child_slots"] = [
-        {
+    child_slots: list[dict[str, object]] = []
+    for child in child_plans:
+        record = child.as_record()
+        slot = {
             "child_local_id": child.local_id,
-            "slot_name": f"slot_{index}",
+            "slot_name": "<choose a descriptive parent-owned slot name>",
             "child_interface": child.interface,
-            "request_payload_contract": child.as_record()[
-                "request_payload_contract"
-            ],
-            "result_payload_contract": child.as_record()[
-                "result_payload_contract"
-            ],
+            "request_payload_contract": record["request_payload_contract"],
+            "result_payload_contract": record["result_payload_contract"],
             "prepare_request": (
                 "parent-specific request projection producing exactly the "
                 "displayed child request payload contract"
@@ -883,8 +884,8 @@ def _plan_shape_for_children(
             "build_child": "child factory invocation specification",
             "basis": "matching finalized direct_children record",
         }
-        for index, child in enumerate(child_plans, start=1)
-    ]
+        child_slots.append(slot)
+    shape["child_slots"] = child_slots
     return shape
 
 
@@ -1083,12 +1084,6 @@ class EpisodeMaterializationPlanner:
                     "edge.S.prepare_request, and edge.S.receive_result."
                 ),
                 "additional_component_role_shape": "component.<binding_name>",
-                "root_request_admission_definition_id": (
-                    ADMIT_DUET_LAUNCH_REQUEST.definition_id
-                ),
-                "child_request_admission_definition_id": (
-                    ADMIT_PARENT_REQUEST.definition_id
-                ),
                 "required_request_admission_pointer": {
                     "source": "library",
                     "library": request_admission.library,
@@ -1502,8 +1497,8 @@ class EpisodeMaterializationPlanner:
                     prepare_request=str(raw["prepare_request"]),
                     receive_result=str(raw["receive_result"]),
                     build_child=str(raw["build_child"]),
-                    request_payload_contract=raw["request_payload_contract"],
-                    result_payload_contract=raw["result_payload_contract"],
+                    request_payload_contract=child.request_payload_contract,
+                    result_payload_contract=child.result_payload_contract,
                     derivation_basis={
                         "prepare_request": raw["prepare_request"],
                         "receive_result": raw["receive_result"],
