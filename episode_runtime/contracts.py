@@ -260,6 +260,7 @@ class RunEventKind(str, Enum):
     LEARNING_OPENED = "learning_opened"
     LEARNING_SELECTED = "learning_selected"
     LEARNING_ATTEMPT = "learning_attempt"
+    LEARNING_REPAIR_REQUESTED = "learning_repair_requested"
     LEARNING_COMMITTED = "learning_committed"
     RUN_SUCCEEDED = "run_succeeded"
     RUN_FAILED = "run_failed"

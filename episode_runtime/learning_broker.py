@@ -65,7 +65,8 @@ class LearningBroker:
         if operation == "submit":
             exact(
                 payload,
-                {"ordinal", "result", "producer_call_id"},
+                {"ordinal", "result", "producer_call_id"}
+                | ({"repair_of"} if "repair_of" in payload else set()),
                 "learning submission",
             )
             from collections.abc import Mapping
@@ -87,9 +88,14 @@ class LearningBroker:
                     and e.episode_id == episode_id
                     and e.payload.get("producer_call_id") == payload["producer_call_id"]
                 ]
-                if not producers or canonical(
-                    _parse_json(producers[-1].payload["response_text"])
-                ) != canonical(result):
+                if not producers:
+                    raise ValueError("unit result has no committed producing call")
+                text = producers[-1].payload["response_text"]
+                try:
+                    produced = _parse_json(text)
+                except (ValueError, TypeError):
+                    produced = text
+                if canonical(produced) != canonical(result):
                     raise ValueError(
                         "unit result is not the output of its committed producing call"
                     )

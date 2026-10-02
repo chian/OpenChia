@@ -24,6 +24,7 @@ from numeric_control_library.rarefaction import rarefaction_function_library
 
 from .contracts import RunEventKind, RunEventOrigin
 from .store import RunStore, RunStoreConflict
+from .learning_repair import audit_submission, pending_submission, replay_repair
 
 
 CREDIT_CHANNEL = identity("channel", {"schema": "epistemic-state-v1"})
@@ -150,6 +151,9 @@ class LearningLedger:
             state = self._state(events)
             records = [r for r in state["records"] if applicable(r, scope)]
             history = self._history(events, episode_id)
+            unit_id = identity(
+                "unit", {"episode_id": episode_id.value, "ordinal": len(history)}
+            )
             avoided = {
                 r["body"]["action_class"]
                 for r in records
@@ -164,7 +168,25 @@ class LearningLedger:
             }
             return {
                 "contract": contract.as_record(),
+                "result_shape": _thaw_json(
+                    resolve_component(
+                        "result_schema", contract.components["result_schema"]
+                    ).provenance["result_shape"]
+                ),
                 "next_ordinal": len(history),
+                "pending_submission": pending_submission(
+                    events, episode_id, unit_id, len(history)
+                ),
+                "selected_action": next(
+                    (
+                        _thaw_json(e.payload)
+                        for e in events
+                        if e.kind is RunEventKind.LEARNING_SELECTED
+                        and e.episode_id == episode_id
+                        and e.payload["ordinal"] == len(history)
+                    ),
+                    None,
+                ),
                 "applicable_lessons": [r for r in records if r["kind"] == "lesson"][
                     :128
                 ],
@@ -313,6 +335,7 @@ class LearningLedger:
         ordinal,
         result,
         producer_call_id,
+        repair_of=None,
     ):
         if type(ordinal) is not int or ordinal < 0:
             raise ValueError("unit ordinal must be a nonnegative integer")
@@ -325,11 +348,15 @@ class LearningLedger:
                 "producer_call_id": producer_call_id,
                 "contract": contract.as_record(),
                 "numeric_control": numerical_control.as_record(),
+                **({"repair_of": repair_of} if repair_of is not None else {}),
             },
         )
         with self._transaction() as (registration, events, publish):
             self._pin_policy(contract, numerical_control, episode_id, events, publish)
             history = self._history(events, episode_id)
+            repair = replay_repair(events, episode_id, request_hash)
+            if repair is not None:
+                return repair
             if ordinal < len(history):
                 old = history[ordinal].payload
                 if old["request_hash"] != request_hash:
@@ -351,40 +378,42 @@ class LearningLedger:
             unit_id = identity(
                 "unit", {"episode_id": episode_id.value, "ordinal": ordinal}
             )
-            audit = next(
-                (
-                    e
-                    for e in events
-                    if e.kind is RunEventKind.LEARNING_ATTEMPT
-                    and e.episode_id == episode_id
-                    and e.payload["unit_id"] == unit_id
-                ),
-                None,
+            audit = audit_submission(
+                events=events,
+                publish=publish,
+                episode_id=episode_id,
+                unit_id=unit_id,
+                request_hash=request_hash,
+                producer_call_id=producer_call_id,
+                result=result,
+                repair_of=repair_of,
             )
-            if audit is None:
-                audit = publish(
-                    RunEventKind.LEARNING_ATTEMPT,
-                    episode_id,
-                    {
-                        "unit_id": unit_id,
-                        "request_hash": request_hash,
-                        "producer_call_id": producer_call_id,
-                        "raw_result": result,
-                    },
-                )
-            elif audit.payload["request_hash"] != request_hash:
-                raise RunStoreConflict(
-                    "audited unit cannot be replaced after interruption"
-                )
             prior = self._state(events)
             functions = {
                 role: resolve_component(role, ref).load()
                 for role, ref in contract.components.items()
             }
+            try:
+                validated = functions["result_schema"](result)
+            except (ValueError, TypeError, KeyError) as exc:
+                # Representation repair is not a semantic observation. Do not
+                # invoke admission, yield, rarefaction or continuation yet.
+                repair = {
+                    "repair_required": True,
+                    "unit_id": unit_id,
+                    "ordinal": ordinal,
+                    "request_hash": request_hash,
+                    "audit_ref": audit.event_id.value,
+                    "result_schema": _thaw_json(contract.components["result_schema"]),
+                    "validation_error": str(exc),
+                    "rejected_result": _thaw_json(result),
+                }
+                repair["repair_id"] = identity("repair", repair)
+                publish(RunEventKind.LEARNING_REPAIR_REQUESTED, episode_id, repair)
+                return repair
             terminal = "continuing"
             result_artifact = None
             try:
-                validated = functions["result_schema"](result)
                 result_artifact = ArtifactEnvelope(
                     schema_id=contract.components["result_schema"]["function_id"],
                     schema_version=1,

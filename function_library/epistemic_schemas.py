@@ -11,6 +11,84 @@ from .epistemic_contract import exact, names
 from .models import _freeze_json, _thaw_json, _text
 
 
+def _closed_shape(**properties):
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+def _array_shape(items, *, nonempty=False, unique=False):
+    return {
+        "type": "array",
+        "items": items,
+        "minItems": int(nonempty),
+        "uniqueItems": unique,
+    }
+
+
+_TEXT = {"type": "string", "minLength": 1, "pattern": r"\S"}
+_NAMES = _array_shape(_TEXT, nonempty=True, unique=True)
+# Descriptive schema is part of the exact registered definition. The existing
+# validator below remains authoritative; no model-supplied schema is accepted.
+ATTEMPT_SHAPE = _freeze_json(
+    _closed_shape(
+        action_class=_TEXT,
+        action_inputs={"type": "object"},
+        status={"enum": ["succeeded", "failed", "inconclusive", "blocked"]},
+        expected_observation=_TEXT,
+        observed_outcome=_TEXT,
+        candidate_lessons=_array_shape(
+            _closed_shape(
+                claim=_TEXT,
+                scope_tier=_TEXT,
+                action_class=_TEXT,
+                reopening_conditions=_NAMES,
+                evidence_refs=_NAMES,
+            )
+        ),
+        entities=_array_shape(
+            _closed_shape(
+                key=_TEXT,
+                fields={
+                    "type": "object",
+                    "additionalProperties": _TEXT,
+                    "description": "Exactly contract.required_fields; every value is a string, including serialized structured answers.",
+                },
+                evidence=_array_shape(
+                    _closed_shape(kind=_TEXT, ref=_TEXT, quote=_TEXT)
+                ),
+                answer_contract=_closed_shape(
+                    answer_forms=_NAMES,
+                    acceptance_tests=_NAMES,
+                    falsification_tests=_NAMES,
+                ),
+                uncertainties=_array_shape(_TEXT, unique=True),
+            )
+        ),
+        revisions=_array_shape(
+            _closed_shape(
+                target_id=_TEXT,
+                kind={
+                    "enum": [
+                        "superseded",
+                        "narrowed",
+                        "contradicted_pending_resolution",
+                        "reopened",
+                        "invalidated",
+                    ]
+                },
+                evidence_refs=_NAMES,
+                reason=_TEXT,
+            )
+        ),
+    ),
+    "attempt_shape",
+)
+
+
 def canonical(value: object) -> bytes:
     return json.dumps(
         _thaw_json(_freeze_json(value, "artifact")),

@@ -127,6 +127,80 @@ def test_only_admitted_operative_learning_earns_yield_and_replay_cannot_earn_twi
     )
 
 
+@pytest.mark.parametrize("crash_stage", [None, "repair", "repair_audit", "commit"])
+def test_repairs_preserve_one_unit_and_normal_credit_across_recovery(
+    run_store, monkeypatch, crash_stage
+):
+    ledger, kwargs, ref = setup(run_store)
+    malformed = attempt(ref)
+    malformed["observed_outcome"] = {"result": "no records"}
+    original = ledger.store._publish_event
+    fired = False
+
+    def fail_once(event):
+        nonlocal fired
+        original(event)
+        matches = {
+            "repair": event.kind.value == "learning_repair_requested",
+            "repair_audit": event.kind is RunEventKind.LEARNING_ATTEMPT
+            and event.payload.get("repair_of") is not None,
+            "commit": event.kind is RunEventKind.LEARNING_COMMITTED,
+        }
+        if not fired and matches.get(crash_stage, False):
+            fired = True
+            raise OSError("interrupted after durable publication")
+
+    monkeypatch.setattr(ledger.store, "_publish_event", fail_once)
+    if crash_stage == "repair":
+        with pytest.raises(OSError):
+            commit(ledger, kwargs, 0, malformed)
+    repair = commit(ledger, kwargs, 0, malformed)
+    assert repair["repair_required"]
+    assert "measurement" not in repair and "numeric_step" not in repair
+    assert commit(ledger, kwargs, 0, malformed) == repair
+    restarted = LearningLedger(RunStore(ledger.store.root), ledger.run_id)
+    bundle = restarted.retrieve(**kwargs)
+    assert bundle["next_ordinal"] == 0 and bundle["last_receipt"] is None
+    assert not bundle["applicable_lessons"]
+    assert bundle["pending_submission"]["result"] == malformed
+    with pytest.raises(RunStoreConflict):
+        commit(ledger, kwargs, 0, attempt(ref))
+    repaired_request = dict(
+        **kwargs,
+        ordinal=0,
+        result=attempt(ref),
+        producer_call_id=oid("repair_call").value,
+        repair_of=repair["repair_id"],
+    )
+    with pytest.raises(RunStoreConflict):
+        ledger.commit(**{**repaired_request, "repair_of": oid("foreign_repair").value})
+    if crash_stage in {"repair_audit", "commit"}:
+        with pytest.raises(OSError):
+            ledger.commit(**repaired_request)
+    repaired = restarted.commit(**repaired_request)
+    assert repaired["ordinal"] == 0
+    assert repaired["measurement"]["realized_yield"] > 0
+    assert restarted.commit(**repaired_request) == repaired
+    assert restarted.retrieve(**kwargs)["next_ordinal"] == 1
+    assert restarted.retrieve(**kwargs)["pending_submission"] is None
+
+    # A clean first submission and a repaired first submission have identical
+    # numerical evidence for continuation; representation failures add none.
+    clean_kwargs = {**kwargs, "episode_id": oid("clean_episode")}
+    clean_ref = ledger.retrieve(**clean_kwargs)["evidence"][0]["artifact_id"]
+    clean = commit(ledger, clean_kwargs, 0, attempt(clean_ref))
+    assert (
+        clean["measurement"]["realized_yield"]
+        == repaired["measurement"]["realized_yield"]
+    )
+    assert (
+        clean["numeric_step"]["rarefaction"] == repaired["numeric_step"]["rarefaction"]
+    )
+    assert clean["stop"] == repaired["stop"]
+    duplicate = commit(restarted, kwargs, 1, attempt(ref, "A paraphrased lesson"))
+    assert duplicate["measurement"]["realized_yield"] == 0
+
+
 @pytest.mark.parametrize(
     "attack",
     [
@@ -164,6 +238,11 @@ def test_untrusted_claims_do_not_gain_authority_or_credit(run_store, attack):
         learned = receipt["result"]["durable_lessons"][0]
         assert "Delete" not in learned["body"]["claim"]
         assert learned["body"]["policy_effect"]["strength"] == "advisory"
+    elif attack in {"missing_reopening", "scalar_credit"}:
+        assert receipt["repair_required"]
+        assert "measurement" not in receipt
+        bundle = ledger.retrieve(**kwargs)
+        assert bundle["next_ordinal"] == 0 and not bundle["applicable_lessons"]
     else:
         assert receipt["measurement"]["realized_yield"] == 0
         assert receipt["admission"]["rejections"]

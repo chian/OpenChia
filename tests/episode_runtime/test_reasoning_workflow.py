@@ -291,6 +291,7 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
 
     chosen = []
     model_events = []
+    rejected_responses = []
 
     async def inquiry_model(request):
         prompt = json.loads(request.messages[-1]["content"])
@@ -348,7 +349,15 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
                         "uncertainties": ["reference corpus representativeness"],
                     }
                 ]
+        if ordinal == 1 and "selected_action" in prompt and not rejected_responses:
+            # Scripted wiring regression, not a live reasoning benchmark: make
+            # two representations invalid before returning the same valid lesson.
+            response["observed_outcome"] = {"result": "no records"}
+            rejected_responses.append(response)
         text = json.dumps(response)
+        if "repair_request" in prompt and len(rejected_responses) == 1:
+            text = "{{{{"  # Exercise invalid JSON provenance through the broker too.
+            rejected_responses.append(text)
         if not isolated:
             store.append_event(
                 run_id=registration.run_id,
@@ -410,6 +419,12 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
         ]
         assert units[0]["measurement"]["realized_yield"] == 0
         assert units[1]["measurement"]["realized_yield"] > 0
+        repairs = [
+            e for e in events if e.kind is RunEventKind.LEARNING_REPAIR_REQUESTED
+        ]
+        assert len(repairs) == len(rejected_responses) == 2
+        assert all(e.payload["ordinal"] == units[1]["ordinal"] for e in repairs)
+        assert len(chosen) == len(units)  # Repairs never select another action.
         assert all(u["measurement"]["realized_yield"] == 0 for u in units[3:])
         terminal = (
             evidence

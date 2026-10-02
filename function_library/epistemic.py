@@ -2,6 +2,7 @@
 
 from .models import FunctionImplementation, LibraryFunction
 from .registry import FunctionLibrary
+from .epistemic_schemas import ATTEMPT_SHAPE
 
 
 epistemic_function_library = FunctionLibrary()
@@ -23,6 +24,7 @@ def _register(role, symbol, module, description):
             failure_contract="Reject unknown fields, unsupported claims, scope escalation and uncommitted evidence.",
             provenance={
                 "schema_version": 1,
+                **({"result_shape": ATTEMPT_SHAPE} if role == "result_schema" else {}),
                 "parameter_schema": {
                     "type": "object",
                     "properties": {},

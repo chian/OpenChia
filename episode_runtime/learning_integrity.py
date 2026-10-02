@@ -50,6 +50,18 @@ def validate_learning_commit(*, events, origin, episode_id, payload):
     ]
     if len(audits) != 1 or audits[0].payload["request_hash"] != payload["request_hash"]:
         raise ValueError("learning requires the exact prior committed attempt audit")
+    repairs = [
+        e
+        for e in events
+        if e.kind is RunEventKind.LEARNING_REPAIR_REQUESTED
+        and e.episode_id == episode_id
+        and e.payload["unit_id"] == payload["unit_id"]
+    ]
+    if repairs and (
+        any(e.payload["audit_ref"] == receipt["audit_ref"] for e in repairs)
+        or audits[0].payload.get("repair_of") != repairs[-1].payload["repair_id"]
+    ):
+        raise ValueError("a rejected representation cannot become a measured unit")
     refs = {
         e.payload["artifact"]["artifact_id"]
         for e in events

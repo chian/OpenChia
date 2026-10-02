@@ -186,6 +186,16 @@ async def test_live_episode_solves_and_justifies_resource_schedule(
             assert int(fields["makespan"]) == actual == optimum
         report["passed"] = True
     finally:
+        # Keep the causal receipts after the runner removes its temporary home.
+        report["learning_events"] = [
+            {
+                "event_id": e.event_id.value,
+                "kind": e.kind.value,
+                "payload": _thaw_json(e.payload),
+            }
+            for e in broker._events()
+            if e.origin is RunEventOrigin.HOST_LEARNING
+        ]
         report["run_store"] = str(store.root)
         if report_path:
             Path(report_path).write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -194,7 +204,7 @@ async def test_live_episode_solves_and_justifies_resource_schedule(
                 {
                     k: v
                     for k, v in report.items()
-                    if k not in {"model_calls", "outcome"}
+                    if k not in {"model_calls", "outcome", "learning_events"}
                 },
                 indent=2,
             )

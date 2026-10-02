@@ -76,6 +76,21 @@ requires a deliberate explanation for advisory retries; an explicitly approved
 enforceable exclusion rejects matching actions. Different input conditions do
 not inherit that exclusion.
 
+Representation repair stays inside that selected unit. The host durably audits
+malformed output and returns a typed repair request without invoking admission,
+yield, rarefaction, or continuation. The model sees the exact frozen result
+shape and repairs the output for the same action and inputs. A schema-valid
+repaired result then enters **the ordinary admission and credit path**: there
+is no repair penalty or special credit gate. Repair itself earns nothing and
+adds no numerical observation. A schema-valid failed reasoning attempt still
+counts as a real zero-yield unit unless admitted durable learning changes state.
+
+Every repair links to its host-issued request and previous committed audit.
+Retries return the existing decision; interrupted submissions are replayed
+before another model call. There is no repair-count completion rule. Provider
+unavailability can block the unit and an external limit can interrupt it;
+neither is successful completion.
+
 ### Schema and storage
 
 Version 1 uses the existing `FunctionLibrary` with `epistemic.*_v1` identifiers
@@ -88,10 +103,15 @@ learning_opened   frozen policy and numerical selections
 learning_evidence   immutable human-approved evidence envelopes
 learning_selected   permitted/denied action and exact typed inputs
 learning_attempt   raw candidate, producing call and stable unit identity
+learning_repair_requested   structural rejection and audit-linked repair request
 learning_committed   admitted transitions + checkpoint + credit + decision
 ```
 
 The committed result envelope and admitted records carry content hashes.
+The result schema's registered definition includes its descriptive JSON shape,
+supplied through typed unit input. Version 1 still requires text-valued entity
+fields and string observations; exposing those types does not loosen validation
+or change the schema during a Run.
 Ordering and provenance use the existing hash-linked event sequence rather
 than adding nondeterministic timestamps to retry identities. Status changes
 are new transitions; previously published records are never overwritten.
