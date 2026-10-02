@@ -425,5 +425,6 @@ git show --diff-filter=A --name-only <sha> -- 'tests/'   # empty for both deleti
 ./scripts/run_tests.sh tests/openchia_cli/
 ```
 
+<!-- no-tmp: ok — historical log paths quoted from a review session, not guidance -->
 Raw logs: `/tmp/agent_full.log`, `/tmp/cli_full.log`.
 No source file, test file, or configuration was modified in the course of this review.

@@ -602,6 +602,7 @@ required owner/issue field, or demote 0001 to `Proposed`.
 Every claim above was verified against the filesystem or git history at
 `b56a3e4498`. Path existence was checked with a loop over the 20 `Source map`
 entries and the 14 `AGENTS.md`-referenced paths. Docstring coverage was measured
+<!-- no-tmp: ok — historical throwaway script path quoted from a review session, not guidance -->
 with a throwaway AST script at `/tmp/dsc.py` (not added to the repo). Deleted
 files were recovered via `git log --diff-filter=D` and sized with
 `git show <commit>^:<path>`. No source file was modified.

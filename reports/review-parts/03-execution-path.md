@@ -66,6 +66,7 @@ Both backends launch the same argv shape (`executor.py:1295-1342`,
 `container_executor.py:451-512`):
 
 ```
+<!-- no-tmp: ok — quoted worker argv; the path is inside the sandbox -->
 <python> -I -S -B -X pycache_prefix=/tmp/openchia-disabled-pycache -c <bootstrap source>
          --bootstrap-package <ro mount> --bootstrap-manifest-id … --bootstrap-manifest-hash …
          --run-id … --registration-hash … --manifest-id … --max-frame-bytes …

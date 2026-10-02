@@ -1310,6 +1310,7 @@ class SystemdRunExecutor(_RunExecutorBase):
         source_package: Path,
     ) -> tuple[ReadOnlyRuntimeMount, ...]:
         suffix = registration.run_id.value.rsplit("_", 1)[-1][:40]
+        # no-tmp: ok — path inside the systemd unit's PrivateTmp namespace, never host scratch
         base = PurePosixPath(f"/tmp/openchia-episode-inputs-{suffix}")
         mounts = [
             ReadOnlyRuntimeMount(
@@ -1384,6 +1385,7 @@ class SystemdRunExecutor(_RunExecutorBase):
                 "-S",
                 "-B",
                 "-X",
+                # no-tmp: ok — path inside the systemd unit's PrivateTmp namespace, never host scratch
                 "pycache_prefix=/tmp/openchia-disabled-pycache",
                 "-c",
                 bootstrap_program,

@@ -62,6 +62,7 @@ DEFAULT_CONTAINER_IMAGE = "python:3.14-slim"
 #: An unprivileged, nameless uid/gid (``nobody``) for the leader and every probe.
 CONTAINER_USER = "65534:65534"
 #: Writable scratch for the interpreter inside an otherwise read-only root.
+# no-tmp: ok — path inside the Linux container's own mount namespace, never host scratch
 _TMPFS_SPEC = "/tmp:rw,nosuid,nodev,size=256m"
 _DEFAULT_PIDS_MAX = 4096
 _CPU_PERIOD_MICROS = 100_000
@@ -433,6 +434,7 @@ class ContainerRunExecutor(_RunExecutorBase):
         source_package: Path,
     ) -> tuple[ReadOnlyRuntimeMount, ...]:
         suffix = registration.run_id.value.rsplit("_", 1)[-1][:40]
+        # no-tmp: ok — path inside the Linux container's own mount namespace, never host scratch
         base = PurePosixPath(f"/tmp/openchia-episode-inputs-{suffix}")
         return (
             ReadOnlyRuntimeMount(
@@ -464,6 +466,7 @@ class ContainerRunExecutor(_RunExecutorBase):
             "-S",
             "-B",
             "-X",
+            # no-tmp: ok — path inside the Linux container's own mount namespace, never host scratch
             "pycache_prefix=/tmp/openchia-disabled-pycache",
             "-c",
             bootstrap_program,
@@ -632,6 +635,7 @@ class ContainerRunExecutor(_RunExecutorBase):
             for mount in mounts
         )
         tmp_is_private = any(
+            # no-tmp: ok — path inside the Linux container's own mount namespace, never host scratch
             entry.get("fstype") == "tmpfs" for entry in mounts_table.get("/tmp", [])
         )
         security_options = run_config.get("SecurityOpt") or []
