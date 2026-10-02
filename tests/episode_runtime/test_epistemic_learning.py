@@ -341,6 +341,30 @@ def test_policy_is_frozen_and_shared_knowledge_is_not_fresh_credit(run_store):
     assert receipt["admission"]["rejections"]
 
 
+def test_a_failed_query_does_not_exclude_a_different_query(run_store):
+    from function_library.models import _thaw_json
+
+    evidence = _thaw_json(contract().evidence)
+    evidence[0]["observation"]["action_inputs"] = {"query": "route X"}
+    spec = replace(contract(), evidence=evidence, policy_strength="enforceable")
+    ledger, kwargs, ref = setup(run_store, spec)
+    result = attempt(ref)
+    result["action_inputs"] = {"query": "route X"}
+    commit(ledger, kwargs, 0, result)
+    bundle = ledger.retrieve(**kwargs)
+    assert bundle["applicable_lessons"][0]["body"]["action_inputs"] == {
+        "query": "route X"
+    }
+    selection = ledger.select(
+        **kwargs,
+        ordinal=1,
+        action_class="discover",
+        action_inputs={"query": "route Y"},
+        retry_reason="",
+    )
+    assert selection["permitted"]
+
+
 def test_enforceable_exclusion_blocks_selection_until_reopened(run_store):
     ledger, kwargs, ref = setup(
         run_store, replace(contract(), policy_strength="enforceable")

@@ -36,7 +36,10 @@ async def serve(path, request_timeout):
             print(f"Completed call {count}: {dict(response.route)}", flush=True)
         except Exception as exc:
             payload = {"error": type(exc).__name__}
-            print(f"Live transport failed: {type(exc).__name__}; cause={type(exc.__cause__).__name__}", flush=True)
+            print(
+                f"Live transport failed: {type(exc).__name__}; cause={type(exc.__cause__).__name__}",
+                flush=True,
+            )
         writer.write(json.dumps(payload).encode() + b"\n")
         await writer.drain()
         writer.close()
