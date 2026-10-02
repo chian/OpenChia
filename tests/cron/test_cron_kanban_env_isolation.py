@@ -228,7 +228,7 @@ class TestRunJobKanbanIsolation:
         fake_mod.AIAgent = agent_cls or FakeAgent
         monkeypatch.setitem(sys.modules, "run_agent", fake_mod)
 
-        from hermes_cli import runtime_provider as _rtp
+        from openchia_cli import runtime_provider as _rtp
 
         monkeypatch.setattr(
             _rtp, "resolve_runtime_provider",
@@ -357,9 +357,9 @@ def test_dispatcher_grants_only_the_assigned_worker_scope(tmp_path, monkeypatch)
     import json
     from pathlib import Path
     import sys
-    from hermes_cli import kanban_db as kb
-    from hermes_cli.kanban_db_connect import connect
-    from hermes_cli.kanban_db_dispatch import _default_spawn
+    from openchia_cli import kanban_db as kb
+    from openchia_cli.kanban_db_connect import connect
+    from openchia_cli.kanban_db_dispatch import _default_spawn
 
     monkeypatch.setenv("HOME", str(tmp_path))
     db = tmp_path / "board.db"

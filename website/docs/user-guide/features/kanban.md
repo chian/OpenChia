@@ -536,7 +536,7 @@ For engineering and review tasks, prefer this optional metadata shape:
 ```json
 {
   "changed_files": ["path/to/file.py"],
-  "verification": ["pytest tests/hermes_cli/test_kanban_db.py -q"],
+  "verification": ["pytest tests/openchia_cli/test_kanban_db.py -q"],
   "dependencies": ["parent task id or external issue, if any"],
   "blocked_reason": null,
   "retry_notes": "what failed before, if this was a retry",
@@ -1071,7 +1071,7 @@ The resulting graph is committed atomically: dispatchers and dashboard readers s
 
 ## `/kanban` slash command {#kanban-slash-command}
 
-Every `hermes kanban <action>` verb is also reachable as `/kanban <action>` — from inside an interactive `hermes chat` session **and** from any gateway platform (Telegram, Discord, Slack, WhatsApp, Signal, Matrix, Mattermost, email, SMS). Both surfaces call the exact same `hermes_cli.kanban.run_slash()` entry point that reuses the `hermes kanban` argparse tree, so the argument surface, flags, and output format are identical across CLI, `/kanban`, and `hermes kanban`. You don't have to leave the chat to drive the board.
+Every `hermes kanban <action>` verb is also reachable as `/kanban <action>` — from inside an interactive `hermes chat` session **and** from any gateway platform (Telegram, Discord, Slack, WhatsApp, Signal, Matrix, Mattermost, email, SMS). Both surfaces call the exact same `openchia_cli.kanban.run_slash()` entry point that reuses the `hermes kanban` argparse tree, so the argument surface, flags, and output format are identical across CLI, `/kanban`, and `hermes kanban`. You don't have to leave the chat to drive the board.
 
 ```
 /kanban list
@@ -1168,7 +1168,7 @@ A parent link is not just a scheduling gate — it is the context handoff channe
 ## Parent task results
 ### t_77c26979 (completed just now)
 Added exponential backoff with jitter to the retry helper.
-_metadata_: `{"changed_files": ["hermes_cli/retry.py", "tests/test_retry.py"], "decisions": ["capped backoff at 60s", "jitter = full"]}`
+_metadata_: `{"changed_files": ["openchia_cli/retry.py", "tests/test_retry.py"], "decisions": ["capped backoff at 60s", "jitter = full"]}`
 ```
 
 This is why the pattern for follow-up work on a finished card is **a new child card, not reopening the done card**. Completed cards are immutable history — their context flows forward through the parent link. Same-card rework (retry loops on a failing card) is a different mechanism: prior attempts on the *same* card surface as "prior attempts" in that card's own context.
@@ -1215,7 +1215,7 @@ comments — should not silently pile on. Instead it leaves a comment on its own
 card with a recognizable prefix:
 
 ```
-hotspot: hermes_cli/kanban_db.py — third conflicting edit to the dispatch loop this wave
+hotspot: openchia_cli/kanban_db.py — third conflicting edit to the dispatch loop this wave
 ```
 
 and repeats the flag in its completion `metadata`. Orchestrators (or humans

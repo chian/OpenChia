@@ -70,9 +70,9 @@ def get_conversation_context() -> Optional[str]:
     return _conversation_id.get()
 
 
-def hermes_client_tag() -> str:
+def openchia_client_tag() -> str:
     """``client=hermes-client-v<MAJOR>.<MINOR>.<PATCH>`` from canonical runtime identity."""
-    from hermes_cli.version_info import get_version_info
+    from openchia_cli.version_info import get_version_info
     return f"client=hermes-client-v{get_version_info().base_version}"
 
 
@@ -88,7 +88,7 @@ def nous_portal_tags(session_id: str | None = None) -> List[str]:
     The ambient conversation context (lineage ROOT id) wins over the explicit
     ``session_id``, a fallback for callers outside any agent turn.
     """
-    tags = ["product=hermes-agent", hermes_client_tag()]
+    tags = ["product=hermes-agent", openchia_client_tag()]
     effective = get_conversation_context() or session_id
     if effective:
         tags.append(conversation_tag(effective))

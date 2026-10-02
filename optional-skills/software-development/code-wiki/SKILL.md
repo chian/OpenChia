@@ -307,7 +307,7 @@ sequenceDiagram
 
 ### Walkthrough
 
-1. **User input** — [`cli.py:HermesCLI.run_session`](<link>)
+1. **User input** — [`cli.py:OpenChiaCLIBase.run_session`](<link>)
 2. **Message dispatch** — [`run_agent.py:AIAgent.chat`](<link>)
 ````
 

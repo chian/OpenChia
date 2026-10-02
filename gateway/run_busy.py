@@ -187,7 +187,7 @@ class GatewayBusySessionMixin:
         if not session_id:
             return False
         try:
-            from hermes_cli.goals import GoalManager
+            from openchia_cli.goals import GoalManager
             return GoalManager(session_id=session_id).is_active()
         except Exception as exc:
             logger.debug("goal continuation: active-state recheck failed: %s", exc)
@@ -196,7 +196,7 @@ class GatewayBusySessionMixin:
     def _get_max_concurrent_sessions(self) -> Optional[int]:
         """Return the configured active chat session cap, if enabled."""
         try:
-            from hermes_cli.active_sessions import resolve_max_concurrent_sessions
+            from openchia_cli.active_sessions import resolve_max_concurrent_sessions
             return resolve_max_concurrent_sessions(getattr(self, "config", None))
         except Exception:
             return None
@@ -209,7 +209,7 @@ class GatewayBusySessionMixin:
         active_count = self._running_agent_count()
         if active_count < max_sessions:
             return None
-        from hermes_cli.active_sessions import active_session_limit_message
+        from openchia_cli.active_sessions import active_session_limit_message
         return active_session_limit_message(active_count, max_sessions)
 
     def _claim_active_session_slot(
@@ -222,7 +222,7 @@ class GatewayBusySessionMixin:
         if limit_message is not None:
             return None, limit_message
         try:
-            from hermes_cli.active_sessions import try_acquire_active_session
+            from openchia_cli.active_sessions import try_acquire_active_session
             platform = source.platform.value if source and source.platform else "gateway"
             return try_acquire_active_session(
                 session_id=session_key,
@@ -923,7 +923,7 @@ class GatewayBusySessionMixin:
         """Slash handlers dispatched only on the idle path (busy dispatch has its own allowlist)."""
         return self._command_handler_table(self._IDLE_COMMANDS)
 
-    # busy_handler key (hermes_cli/commands.py CommandDef) → mid-run variant ``_busy_<key>_command``.
+    # busy_handler key (openchia_cli/commands.py CommandDef) → mid-run variant ``_busy_<key>_command``.
     _BUSY_SPECIAL_HANDLERS: Dict[str, str] = {
         k: f"_busy_{k}_command" for k in ("start", "stop", "new", "queue", "steer", "egress", "goal", "loop")
     }
@@ -993,7 +993,7 @@ class GatewayBusySessionMixin:
         return ""
 
     async def _busy_egress_command(self, event: MessageEvent, quick_key: str, source):
-        from hermes_cli.proxy_cli import format_status_text
+        from openchia_cli.proxy_cli import format_status_text
         return format_status_text()
 
     async def _busy_stop_command(self, event: MessageEvent, quick_key: str, source):
@@ -1081,7 +1081,7 @@ class GatewayBusySessionMixin:
     async def _busy_goal_command(self, event: MessageEvent, quick_key: str, source):
         # Control verbs are safe mid-run (state only); setting new goal text is rejected so we don't
         # race a second continuation against the current turn. wait/gate take an argument.
-        from hermes_cli.goal_command import is_goal_control
+        from openchia_cli.goal_command import is_goal_control
 
         if is_goal_control(event.get_command_args() or ""):
             return await self._handle_goal_command(event)
@@ -1245,7 +1245,7 @@ class GatewayBusySessionMixin:
         """/suggestions via the shared handler (origin = event source so jobs deliver back here)."""
         from gateway.run import _command_origin_for_source
         try:
-            from hermes_cli.suggestions_cmd import handle_suggestions_command
+            from openchia_cli.suggestions_cmd import handle_suggestions_command
             return handle_suggestions_command(
                 (event.get_command_args() or "").strip(),
                 origin=_command_origin_for_source(event.source), surface="gateway",
@@ -1258,14 +1258,14 @@ class GatewayBusySessionMixin:
         """/blueprint via the shared handler (origin = event source so jobs deliver back here)."""
         from gateway.run import _command_origin_for_source
         try:
-            from hermes_cli.blueprint_cmd import handle_blueprint_command
+            from openchia_cli.blueprint_cmd import handle_blueprint_command
             return handle_blueprint_command(
                 (event.get_command_args() or "").strip(),
                 origin=_command_origin_for_source(event.source), surface="gateway",
             )
         except Exception as e:
             logger.debug("blueprint command failed: %s", e)
-            from hermes_cli.blueprint_cmd import BlueprintCommandResult
+            from openchia_cli.blueprint_cmd import BlueprintCommandResult
             return BlueprintCommandResult(f"Cron blueprint command failed: {e}")
 
     async def _maybe_confirm_destructive_slash(
@@ -1414,7 +1414,7 @@ class GatewayBusySessionMixin:
     def _read_user_config(self) -> Dict[str, Any]:
         """Raw config.yaml for gate lookups that must see on-disk changes without a restart."""
         try:
-            from hermes_cli.config import load_config
+            from openchia_cli.config import load_config
             cfg = load_config()
         except Exception:
             return {}

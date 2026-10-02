@@ -135,7 +135,7 @@ def _main_api_key_literal(c: dict[str, Any], e: dict[str, str], f: Fleet) -> Non
 def _bare_custom(c: dict[str, Any], e: dict[str, str], _f: Fleet) -> None:
     c["model"] = {"provider": "custom", "default": "model-main", "context_length": 128000}
     # Bare custom + an OpenRouter key/mirror is a deliberate contract (it resolves to OpenRouter,
-    # tests/hermes_cli/test_runtime_provider_resolution.py); with neither, nothing may be reached
+    # tests/openchia_cli/test_runtime_provider_resolution.py); with neither, nothing may be reached
     # -- not the env OPENAI_BASE_URL decoy, not the real OpenRouter API (egress trap).
     e.pop("OPENROUTER_BASE_URL")
     e.pop("OPENROUTER_API_KEY")

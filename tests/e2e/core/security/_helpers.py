@@ -130,9 +130,9 @@ def kill_group(proc: subprocess.Popen, sig: int = signal.SIGKILL) -> None:
 
 def run_hermes(argv: list[str], home: Path, *, timeout: float = 120.0, cwd: Path | None = None,
                extra_env: dict[str, str] | None = None, stdin: str | None = None) -> subprocess.CompletedProcess:
-    """``python -m hermes_cli.main <argv>`` in its own process group; the group is always reaped."""
+    """``python -m openchia_cli.main <argv>`` in its own process group; the group is always reaped."""
     proc = subprocess.Popen(
-        [sys.executable, "-m", "hermes_cli.main", *argv], cwd=str(cwd or home), env=hermetic_env(home, extra_env),
+        [sys.executable, "-m", "openchia_cli.main", *argv], cwd=str(cwd or home), env=hermetic_env(home, extra_env),
         stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
     )

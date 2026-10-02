@@ -95,8 +95,8 @@ class TestMemoryFamily:
         multiplex_scope({})
         monkeypatch.delenv("SUPERMEMORY_API_KEY", raising=False)
 
-        import hermes_cli.config as cli_config
-        import hermes_cli.memory_setup as memory_setup
+        import openchia_cli.config as cli_config
+        import openchia_cli.memory_setup as memory_setup
         import plugins.memory.supermemory as sm
 
         monkeypatch.setattr(memory_setup, "_prompt", lambda *a, **k: "sm-fresh-key")
@@ -120,8 +120,8 @@ class TestMemoryFamily:
         set_multiplex_active(False)
         monkeypatch.delenv("SUPERMEMORY_API_KEY", raising=False)
 
-        import hermes_cli.config as cli_config
-        import hermes_cli.memory_setup as memory_setup
+        import openchia_cli.config as cli_config
+        import openchia_cli.memory_setup as memory_setup
         import plugins.memory.supermemory as sm
 
         monkeypatch.setattr(memory_setup, "_prompt", lambda *a, **k: "sm-fresh-key")

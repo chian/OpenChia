@@ -38,7 +38,7 @@ def captured_upload(monkeypatch, tmp_path):
             "expiresAt": "2026-09-05T00:00:00Z",
         }
 
-    import hermes_cli.diagnostics_upload as du
+    import openchia_cli.diagnostics_upload as du
 
     monkeypatch.setattr(du, "share_to_nous", _fake_share)
     return captured
@@ -100,7 +100,7 @@ def test_share_nous_client_text_gets_upload_safe_log_redaction(captured_upload):
 def test_share_nous_linkless_success_is_a_failure(monkeypatch):
     """ok:true with neither view_url nor id would strand the user with an
     unreferencable upload — surface it as a structured failure instead."""
-    import hermes_cli.diagnostics_upload as du
+    import openchia_cli.diagnostics_upload as du
 
     monkeypatch.setattr(du, "share_to_nous", lambda blob: {})
 
@@ -138,7 +138,7 @@ def test_share_nous_extra_files_sanitized_and_redacted(captured_upload):
 
 
 def test_share_nous_upload_failure_is_structured(monkeypatch):
-    import hermes_cli.diagnostics_upload as du
+    import openchia_cli.diagnostics_upload as du
 
     def _boom(blob: bytes) -> dict:
         raise RuntimeError("NAS unavailable")

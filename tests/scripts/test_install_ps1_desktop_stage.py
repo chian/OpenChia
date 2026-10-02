@@ -47,9 +47,9 @@ public static class FakePy {
         string log = Environment.GetEnvironmentVariable("FAKE_PY_LOG");
         File.AppendAllText(log, string.Join("\u0001", args) + Environment.NewLine);
         if (Array.IndexOf(args, "-c") >= 0) { return 0; }
-        // The shared completion tail (hermes_cli/source_completion.py --source <root> [--desktop])
+        // The shared completion tail (openchia_cli/source_completion.py --source <root> [--desktop])
         // builds the products; with --desktop it leaves the packaged app under release/.
-        if (Array.IndexOf(args, "hermes_cli/source_completion.py") >= 0
+        if (Array.IndexOf(args, "openchia_cli/source_completion.py") >= 0
                 && Array.IndexOf(args, "--desktop") >= 0) {
             string dir = Path.Combine(
                 Environment.GetEnvironmentVariable("FAKE_INSTALL_DIR"),
@@ -273,7 +273,7 @@ def test_desktop_stage_uses_pm_sync_and_product_cli(tmp_path: Path) -> None:
     # 1./2. one completion call with the desktop product selected (never a `build`
     #    subcommand, a deleted helper, or a separate extras sync — pm lazy-installs
     #    wake/voice at first use, #70509).
-    completion = [c for c in calls if "hermes_cli/source_completion.py" in c]
+    completion = [c for c in calls if "openchia_cli/source_completion.py" in c]
     assert len(completion) == 1 and "--desktop" in completion[0], calls
     assert not any(c[-2:] == ["desktop", "--build-only"] or "sync_venv" in " ".join(c) for c in calls), calls
     # 3. the stage probed the artifact the fake build produced.

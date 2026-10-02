@@ -62,7 +62,7 @@ def test_activation_real_setup_pm_lifecycle(tmp_path, served):
     }
     for name in ("activate", "setup-hermes.sh", "hermes_constants.py", "hermes_yaml.py", "utils.py"):
         shutil.copy2(REPO / name, core / name)
-    for name in ("pm", "hermes_cli"):
+    for name in ("pm", "openchia_cli"):
         shutil.copytree(REPO / name, core / name, ignore=shutil.ignore_patterns("__pycache__"))
     # Plugin selection imports the real CLI config reader even with no plugins.
     # Supply its installed YAML dependency, not a stub parser or config module.

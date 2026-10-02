@@ -14,8 +14,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from hermes_constants import reset_hermes_home_override, set_hermes_home_override
-from hermes_cli.active_sessions import active_session_registry_snapshot
-from hermes_cli.browser_connect import ChromeDebugLaunch
+from openchia_cli.active_sessions import active_session_registry_snapshot
+from openchia_cli.browser_connect import ChromeDebugLaunch
 from tools import async_delegation as ad
 from tui_gateway import server
 from tui_gateway.transport import bind_transport, reset_transport
@@ -425,7 +425,7 @@ def test_compute_host_turn_end_updates_metadata_mirror(monkeypatch):
     # background update-check thread happens to finish. This test compares two
     # snapshots taken at different times, so pin the value to keep it
     # deterministic regardless of how long the preceding tests ran.
-    import hermes_cli.banner as _banner
+    import openchia_cli.banner as _banner
 
     monkeypatch.setattr(_banner, "get_update_result", lambda timeout=0.5: None)
     session = _session(
@@ -775,7 +775,7 @@ def _write_profile_cfg(home: Path, cwd: str | None) -> Path:
 
 def test_profile_scoped_mcp_discovery_uses_target_home(monkeypatch, tmp_path):
     """MCP discovery must start under the selected profile's HERMES_HOME."""
-    from hermes_cli import mcp_startup
+    from openchia_cli import mcp_startup
     from hermes_constants import get_hermes_home
     from tui_gateway import entry
 
@@ -1806,7 +1806,7 @@ def test_voice_record_start_handles_non_dict_voice_cfg(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             start_continuous=fake_start_continuous, stop_continuous=lambda: None
         ),
@@ -1883,7 +1883,7 @@ def test_prompt_submit_typed_stop_phrase_ends_voice_chat(monkeypatch):
     )
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             stop_continuous=lambda force_transcribe=False: calls.__setitem__(
                 "stop_continuous", calls["stop_continuous"] + 1
@@ -2004,7 +2004,7 @@ def test_wake_owner_is_sticky_and_routes_detection_to_first_transport(monkeypatc
     )
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             start_continuous=start_continuous,
             stop_continuous=lambda **_kwargs: None,
@@ -2221,7 +2221,7 @@ def test_voice_record_start_forwards_max_recording_seconds(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             start_continuous=fake_start_continuous, stop_continuous=lambda: None
         ),
@@ -2272,7 +2272,7 @@ def test_voice_record_start_cuts_inflight_tts(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             start_continuous=fake_start_continuous, stop_continuous=lambda **_kwargs: None
         ),
@@ -2304,7 +2304,7 @@ def test_voice_record_stop_forces_transcription(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             start_continuous=lambda **_kwargs: None,
             stop_continuous=fake_stop_continuous,
@@ -2326,7 +2326,7 @@ def test_voice_record_stop_forces_transcription(monkeypatch):
 def test_voice_record_stop_updates_event_session_id(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             start_continuous=lambda **_kwargs: True,
             stop_continuous=lambda **_kwargs: None,
@@ -2349,7 +2349,7 @@ def test_voice_record_stop_updates_event_session_id(monkeypatch):
 def test_voice_record_start_reports_busy_when_stop_is_in_progress(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             start_continuous=lambda **_kwargs: False,
             stop_continuous=lambda **_kwargs: None,
@@ -2414,7 +2414,7 @@ def test_load_enabled_toolsets_filters_invalid_tui_env(monkeypatch, capsys):
     monkeypatch.setenv("HERMES_TUI_TOOLSETS", "web, nope")
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.plugins",
+        "openchia_cli.plugins",
         types.SimpleNamespace(discover_plugins=lambda: None),
     )
 
@@ -2436,7 +2436,7 @@ def test_load_enabled_toolsets_accepts_plugin_env_after_discovery(monkeypatch):
     monkeypatch.setattr(toolsets, "validate_toolset", fake_validate)
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.plugins",
+        "openchia_cli.plugins",
         types.SimpleNamespace(
             discover_plugins=lambda: discovered.update({"ready": True})
         ),
@@ -2479,7 +2479,7 @@ def test_load_enabled_toolsets_honors_disabled_project_on_configured_fallback(
     monkeypatch.delenv("HERMES_TUI_TOOLSETS", raising=False)
 
     import agent.coding_context as cc
-    import hermes_cli.tools_config as tools_config_mod
+    import openchia_cli.tools_config as tools_config_mod
 
     monkeypatch.setattr(cc, "coding_selection", lambda **_: None)
     monkeypatch.setattr(
@@ -2516,11 +2516,11 @@ def test_load_enabled_toolsets_rejects_disabled_mcp_env(monkeypatch, capsys):
     monkeypatch.setenv("HERMES_TUI_TOOLSETS", "mcp-off")
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.plugins",
+        "openchia_cli.plugins",
         types.SimpleNamespace(discover_plugins=lambda: None),
     )
 
-    import hermes_cli.config as config_mod
+    import openchia_cli.config as config_mod
 
     monkeypatch.setattr(
         config_mod,
@@ -2536,7 +2536,7 @@ def test_load_enabled_toolsets_rejects_disabled_mcp_env(monkeypatch, capsys):
     # _load_enabled_toolsets. Toolsets inside their first release
     # (_RECENTLY_SHIPPED_TOOLSETS) are back-filled onto saved lists that never
     # offered them — allow those too.
-    from hermes_cli.tools_config import _RECENTLY_SHIPPED_TOOLSETS
+    from openchia_cli.tools_config import _RECENTLY_SHIPPED_TOOLSETS
 
     result = server._load_enabled_toolsets()
     assert result is not None
@@ -2551,17 +2551,17 @@ def test_load_enabled_toolsets_falls_back_when_tui_env_invalid(monkeypatch, caps
     monkeypatch.setenv("HERMES_TUI_TOOLSETS", "nope")
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.plugins",
+        "openchia_cli.plugins",
         types.SimpleNamespace(discover_plugins=lambda: None),
     )
 
-    import hermes_cli.config as config_mod
+    import openchia_cli.config as config_mod
 
     monkeypatch.setattr(
         config_mod, "load_config", lambda: {"platform_toolsets": {"cli": ["memory"]}}
     )
 
-    from hermes_cli.tools_config import _RECENTLY_SHIPPED_TOOLSETS
+    from openchia_cli.tools_config import _RECENTLY_SHIPPED_TOOLSETS
 
     result = server._load_enabled_toolsets()
     assert result is not None
@@ -2575,11 +2575,11 @@ def test_load_enabled_toolsets_warns_when_config_fallback_fails(monkeypatch, cap
     monkeypatch.setenv("HERMES_TUI_TOOLSETS", "nope")
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.plugins",
+        "openchia_cli.plugins",
         types.SimpleNamespace(discover_plugins=lambda: None),
     )
 
-    import hermes_cli.config as config_mod
+    import openchia_cli.config as config_mod
 
     monkeypatch.setattr(
         config_mod, "load_config", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
@@ -2592,7 +2592,7 @@ def test_load_enabled_toolsets_warns_when_config_fallback_fails(monkeypatch, cap
 def test_load_enabled_toolsets_honors_builtin_env_if_config_fails(monkeypatch):
     monkeypatch.setenv("HERMES_TUI_TOOLSETS", "web")
 
-    import hermes_cli.config as config_mod
+    import openchia_cli.config as config_mod
 
     monkeypatch.setattr(
         config_mod, "load_config", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
@@ -2608,7 +2608,7 @@ def test_load_enabled_toolsets_all_env_means_all(monkeypatch):
 
 
 def test_load_disabled_toolsets_reads_agent_config(monkeypatch):
-    import hermes_cli.config as config_mod
+    import openchia_cli.config as config_mod
 
     monkeypatch.setattr(
         config_mod,
@@ -2620,7 +2620,7 @@ def test_load_disabled_toolsets_reads_agent_config(monkeypatch):
 
 
 def test_load_disabled_toolsets_none_when_unset_or_config_fails(monkeypatch):
-    import hermes_cli.config as config_mod
+    import openchia_cli.config as config_mod
 
     monkeypatch.setattr(config_mod, "load_config", lambda: {"agent": {"disabled_toolsets": []}})
     assert server._load_disabled_toolsets() is None
@@ -2640,11 +2640,11 @@ def test_load_enabled_toolsets_reports_disabled_mcp_separately(monkeypatch, caps
     monkeypatch.setenv("HERMES_TUI_TOOLSETS", "web,mcp-off,nope")
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.plugins",
+        "openchia_cli.plugins",
         types.SimpleNamespace(discover_plugins=lambda: None),
     )
 
-    import hermes_cli.config as config_mod
+    import openchia_cli.config as config_mod
 
     monkeypatch.setattr(
         config_mod,
@@ -4063,10 +4063,10 @@ def test_stored_session_runtime_overrides_skips_bare_billing_provider(monkeypatc
             }
         ]
     }
-    import hermes_cli.runtime_provider as rp
+    import openchia_cli.runtime_provider as rp
 
     monkeypatch.setattr(rp, "load_config", lambda: cfg)
-    monkeypatch.setattr("hermes_cli.config.load_config", lambda: cfg)
+    monkeypatch.setattr("openchia_cli.config.load_config", lambda: cfg)
     ov = server._stored_session_runtime_overrides(
         {"model": "m", "billing_provider": "custom", "model_config": {"provider": "custom:myendpoint"}}
     )
@@ -4424,18 +4424,18 @@ def test_apply_model_switch_persist_override_false_never_persists(monkeypatch):
         error_message="",
     )
     monkeypatch.setattr(
-        "hermes_cli.model_switch.switch_model", lambda **kw: result
+        "openchia_cli.model_switch.switch_model", lambda **kw: result
     )
     monkeypatch.setattr(
-        "hermes_cli.model_switch.resolve_persist_behavior",
+        "openchia_cli.model_switch.resolve_persist_behavior",
         lambda *a: pytest.fail("persist_override must bypass resolve_persist_behavior"),
     )
     monkeypatch.setattr(
-        "hermes_cli.model_switch.persist_model_selection",
+        "openchia_cli.model_switch.persist_model_selection",
         lambda _r: pytest.fail("persist_override=False must not persist"),
     )
     monkeypatch.setattr(
-        "hermes_cli.model_cost_guard.expensive_model_warning",
+        "openchia_cli.model_cost_guard.expensive_model_warning",
         lambda *a, **k: None,
     )
     session = {"agent": None}
@@ -4461,7 +4461,7 @@ def test_startup_runtime_does_not_treat_inference_provider_as_explicit(monkeypat
     monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
     monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "nous")
     monkeypatch.setattr(
-        "hermes_cli.models.detect_static_provider_for_model",
+        "openchia_cli.models.detect_static_provider_for_model",
         lambda model, provider: None,
     )
 
@@ -4471,7 +4471,7 @@ def test_startup_runtime_does_not_treat_inference_provider_as_explicit(monkeypat
 
 
 def test_load_fallback_model_merges_chain_providers_first(monkeypatch):
-    # Parity with HermesCLI / gateway: fallback_providers stays first and keeps
+    # Parity with OpenChiaCLIBase / gateway: fallback_providers stays first and keeps
     # its order, with any distinct legacy fallback_model entry merged in after
     # (deduped on provider/model/base_url).
     fallback_chain = [
@@ -4518,7 +4518,7 @@ def test_make_agent_passes_configured_fallback_chain(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         lambda requested=None, target_model=None: {
             "provider": "openai-codex",
             "base_url": "https://chatgpt.com/backend-api/codex",
@@ -4781,7 +4781,7 @@ def test_startup_runtime_resolves_short_alias_without_network(monkeypatch):
     monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
     monkeypatch.setattr(server, "_load_cfg", lambda: {"model": {"provider": "auto"}})
     monkeypatch.setattr(
-        "hermes_cli.models.fetch_openrouter_models",
+        "openchia_cli.models.fetch_openrouter_models",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("network lookup should not run")
         ),
@@ -4799,7 +4799,7 @@ def test_startup_runtime_does_not_call_network_detector(monkeypatch):
     monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
     monkeypatch.setattr(server, "_load_cfg", lambda: {"model": {"provider": "auto"}})
     monkeypatch.setattr(
-        "hermes_cli.models.detect_provider_for_model",
+        "openchia_cli.models.detect_provider_for_model",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("network detector called")
         ),
@@ -8527,7 +8527,7 @@ def test_config_get_approval_mode_fails_safe_to_manual_for_invalid_explicit_valu
 
     monkeypatch.setattr(server, "_hermes_home", tmp_path)
     # _load_approval_mode delegates to the canonical resolver in
-    # tools.approval, which reads via hermes_cli.config.load_config —
+    # tools.approval, which reads via openchia_cli.config.load_config —
     # that path resolves HERMES_HOME from the environment, not
     # server._hermes_home.
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -8725,7 +8725,7 @@ def test_config_set_fast_updates_live_agent_session_scoped(monkeypatch):
     monkeypatch.setattr(server, "_session_info", lambda _agent, *a: {"model": "x"})
     monkeypatch.setattr(server, "_emit", lambda *args: emits.append(args))
     monkeypatch.setattr(
-        "hermes_cli.models.resolve_fast_mode_overrides",
+        "openchia_cli.models.resolve_fast_mode_overrides",
         lambda _model_id, **_route: {"service_tier": "priority"},
     )
 
@@ -8804,7 +8804,7 @@ def test_config_set_fast_rejects_unsupported_model(monkeypatch):
         server, "_write_config_key", lambda path, value: writes.append((path, value))
     )
     monkeypatch.setattr(
-        "hermes_cli.models.resolve_fast_mode_overrides",
+        "openchia_cli.models.resolve_fast_mode_overrides",
         lambda _model_id, **_route: None,
     )
 
@@ -9129,9 +9129,9 @@ def test_setup_status_answers_from_the_bootstrap_record_once_it_exists(monkeypat
     its record (blocking for it while it is in flight) instead of re-probing, so a client's first poll
     sees the identity that exists rather than racing the mint."""
     import threading
-    from hermes_cli import free_tier_bootstrap as fb
+    from openchia_cli import free_tier_bootstrap as fb
     fb.reset_for_tests()
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured",
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured",
                         lambda **_kw: pytest.fail("setup.status must read the record, not re-probe"))
     release = threading.Event()
 
@@ -9180,10 +9180,10 @@ def test_probe_credentials_allows_keyless_custom_runtime():
 
 
 def test_setup_runtime_check_rejects_empty_runtime_key(monkeypatch):
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured", lambda **_kw: True)
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured", lambda **_kw: True)
     monkeypatch.setattr(server, "_resolve_startup_runtime", lambda: ("openrouter/test-model", None))
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         lambda requested=None, **_kw: {
             "provider": "openrouter",
             "api_key": "",
@@ -9202,9 +9202,9 @@ def test_setup_runtime_check_rejects_empty_runtime_key(monkeypatch):
 
 
 def test_setup_runtime_check_allows_no_key_custom_runtime(monkeypatch):
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured", lambda **_kw: True)
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured", lambda **_kw: True)
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         lambda requested=None, **_kw: {
             "provider": "custom",
             "api_key": "no-key-required",
@@ -9219,9 +9219,9 @@ def test_setup_runtime_check_allows_no_key_custom_runtime(monkeypatch):
 
 
 def test_setup_runtime_check_rejects_implicit_bedrock_when_unconfigured(monkeypatch):
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured", lambda **_kw: False)
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured", lambda **_kw: False)
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         lambda requested=None, **_kw: {
             "provider": "bedrock",
             "api_key": "aws-sdk",
@@ -9237,7 +9237,7 @@ def test_setup_runtime_check_rejects_implicit_bedrock_when_unconfigured(monkeypa
 
 def test_setup_runtime_check_honors_requested_provider(monkeypatch):
     """Onboarding must be able to validate the provider the user just connected."""
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured", lambda **_kw: True)
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured", lambda **_kw: True)
 
     def fake_resolve(requested=None, **kwargs):
         if requested == "nous":
@@ -9253,7 +9253,7 @@ def test_setup_runtime_check_honors_requested_provider(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         fake_resolve,
     )
 
@@ -9272,8 +9272,8 @@ def test_setup_runtime_check_agrees_with_session_fallback_chain(monkeypatch):
     """#111775: with the primary blocked and a complete fallback entry, the probe answers what
     ``_make_agent`` would build (fallback provider + model); an explicit ``provider`` stays strict
     so another provider's fallback cannot mask a failed connection."""
-    from hermes_cli.auth import AuthError
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured", lambda **_kw: True)
+    from openchia_cli.auth import AuthError
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured", lambda **_kw: True)
     monkeypatch.setattr(server, "_resolve_startup_runtime", lambda: ("claude-sonnet-4-5", None))
     monkeypatch.setattr(server, "_load_fallback_model",
                         lambda: [{"provider": "openrouter", "model": "openai/gpt-4.1-mini", "api_key": "sk-or-fb"}])
@@ -9283,7 +9283,7 @@ def test_setup_runtime_check_agrees_with_session_fallback_chain(monkeypatch):
             return {"provider": "openrouter", "api_key": explicit_api_key, "source": "explicit"}
         raise AuthError("No Anthropic credentials found.", provider="anthropic")
 
-    monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", fake_resolve)
+    monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", fake_resolve)
 
     default = server.handle_request({"id": "1", "method": "setup.runtime_check", "params": {}})
     assert default["result"]["ok"] is True
@@ -9297,10 +9297,10 @@ def test_setup_runtime_check_agrees_with_session_fallback_chain(monkeypatch):
 
 def test_setup_runtime_check_reports_target_model_on_credential_failure(monkeypatch):
     """#111775: the probe names the model session creation would use, never ``model: null``."""
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured", lambda **_kw: True)
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured", lambda **_kw: True)
     monkeypatch.setattr(server, "_resolve_startup_runtime", lambda: ("z-ai/glm-5.2", None))
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         lambda *, requested=None, target_model=None: {
             "provider": "zai", "api_key": "", "source": "env/config"
         },
@@ -9321,7 +9321,7 @@ def test_setup_runtime_check_scopes_launch_profile_in_multiplex_backend(monkeypa
     monkeypatch.setenv("HERMES_CODEX_BASE_URL", "https://codex.launch.test/v1")
     monkeypatch.setattr(server, "_hermes_home", launch_home)
     monkeypatch.setattr(launch_profile_policy, "_snapshot", None)
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured", lambda **_kw: True)
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured", lambda **_kw: True)
     monkeypatch.setattr(server, "_resolve_startup_runtime", lambda: ("gpt-5.3-codex", None))
 
     def resolve_codex(requested=None, **_kwargs):
@@ -9333,7 +9333,7 @@ def test_setup_runtime_check_scopes_launch_profile_in_multiplex_backend(monkeypa
             "source": "credential-pool",
         }
 
-    monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", resolve_codex)
+    monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", resolve_codex)
     secret_scope.set_multiplex_active(True)
     try:
         response = server.handle_request(
@@ -9362,7 +9362,7 @@ def test_setup_readiness_scopes_to_requested_profile(monkeypatch, tmp_path):
     bot_home = tmp_path / "profiles" / "bot"
     bot_home.mkdir(parents=True)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-launch-profile-secret-0000")
-    monkeypatch.setattr("hermes_cli.profiles.profile_exists", lambda name: name == "bot")
+    monkeypatch.setattr("openchia_cli.profiles.profile_exists", lambda name: name == "bot")
     monkeypatch.setattr(server, "_profile_home", lambda profile: bot_home if profile == "bot" else None)
     seen = {}
 
@@ -9371,7 +9371,7 @@ def test_setup_readiness_scopes_to_requested_profile(monkeypatch, tmp_path):
         seen["secret"] = secret_scope.get_secret("OPENROUTER_API_KEY")
         return {"provider": "openrouter", "api_key": seen["secret"] or "", "source": "env"}
 
-    monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", fake_resolve)
+    monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", fake_resolve)
 
     secret_scope.set_multiplex_active(True)
     try:
@@ -9398,12 +9398,12 @@ def test_setup_readiness_scopes_to_requested_profile(monkeypatch, tmp_path):
 
 
 def test_setup_readiness_unknown_profile_never_answers_for_launch_profile(monkeypatch):
-    monkeypatch.setattr("hermes_cli.main._has_any_provider_configured", lambda **_kw: True)
+    monkeypatch.setattr("openchia_cli.main._has_any_provider_configured", lambda **_kw: True)
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         lambda requested=None, **kw: {"provider": "openrouter", "api_key": "sk-or-launch-0000000000", "source": "env"},
     )
-    monkeypatch.setattr("hermes_cli.profiles.profile_exists", lambda name: False)
+    monkeypatch.setattr("openchia_cli.profiles.profile_exists", lambda name: False)
 
     for method in ("setup.status", "setup.runtime_check"):
         resp = server.handle_request({"id": "1", "method": method, "params": {"profile": "ghost"}})
@@ -9779,7 +9779,7 @@ def test_config_set_model_requires_confirmation_for_expensive_model(monkeypatch)
     agent = _Agent()
     server._sessions["sid"] = _session(agent=agent)
     monkeypatch.setattr(
-        "hermes_cli.model_switch.switch_model", lambda **_kwargs: result
+        "openchia_cli.model_switch.switch_model", lambda **_kwargs: result
     )
     monkeypatch.setattr(server, "_restart_slash_worker", lambda sid, session: None)
     monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
@@ -9844,7 +9844,7 @@ def test_config_set_model_global_persists(monkeypatch):
         return result
 
     server._sessions["sid"] = _session(agent=_Agent())
-    monkeypatch.setattr("hermes_cli.model_switch.switch_model", _switch_model)
+    monkeypatch.setattr("openchia_cli.model_switch.switch_model", _switch_model)
     monkeypatch.setattr(server, "_restart_slash_worker", lambda sid, session: None)
     monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
     # persist_model_selection uses targeted per-key writes (#48305) so it
@@ -9893,7 +9893,7 @@ def test_config_set_model_explicit_provider_skips_broken_default_init(monkeypatc
             }
         raise RuntimeError(f"unexpected provider {requested}")
 
-    monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", fake_runtime_provider)
+    monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", fake_runtime_provider)
 
     try:
         resp = server.handle_request(
@@ -10083,9 +10083,9 @@ def test_config_set_model_recovers_failed_profile_resume_after_build_completes(
             assert release_old_finally.wait(timeout=10)
         return real_transfer(agent, db)
 
-    monkeypatch.setattr("hermes_cli.model_switch.switch_model", fake_switch_model)
+    monkeypatch.setattr("openchia_cli.model_switch.switch_model", fake_switch_model)
     monkeypatch.setattr(
-        "hermes_cli.model_selection_guards.combined_selection_warning",
+        "openchia_cli.model_selection_guards.combined_selection_warning",
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr("hermes_state_registry.acquire", FakeDb)
@@ -10204,7 +10204,7 @@ def test_config_set_model_explicit_provider_surfaces_selected_provider_errors(mo
             raise RuntimeError("missing anthropic API key")
         raise RuntimeError(f"unexpected provider {requested}")
 
-    monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", fake_runtime_provider)
+    monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", fake_runtime_provider)
 
     try:
         resp = server.handle_request(
@@ -10262,7 +10262,7 @@ def test_config_set_model_does_not_leak_inference_provider_env(monkeypatch):
     server._sessions["sid"] = session
     monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "openrouter")
     monkeypatch.setattr(
-        "hermes_cli.model_switch.switch_model", lambda **_kwargs: result
+        "openchia_cli.model_switch.switch_model", lambda **_kwargs: result
     )
     monkeypatch.setattr(server, "_restart_slash_worker", lambda sid, session: None)
     monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
@@ -10323,7 +10323,7 @@ def test_config_set_model_records_per_session_override_not_env(monkeypatch):
     monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
     monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
     monkeypatch.setattr(
-        "hermes_cli.model_switch.switch_model", lambda **_kwargs: result
+        "openchia_cli.model_switch.switch_model", lambda **_kwargs: result
     )
     monkeypatch.setattr(server, "_restart_slash_worker", lambda sid, session: None)
     monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
@@ -10421,7 +10421,7 @@ def test_config_set_model_switches_agent_without_touching_env(monkeypatch):
             warning_message="",
         )
 
-    monkeypatch.setattr("hermes_cli.model_switch.switch_model", fake_switch_model)
+    monkeypatch.setattr("openchia_cli.model_switch.switch_model", fake_switch_model)
 
     try:
         resp = server.handle_request(
@@ -10497,7 +10497,7 @@ def test_config_set_model_once_keeps_env_and_records_restore(monkeypatch):
     monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "openrouter")
     monkeypatch.setenv("HERMES_MODEL", "old/model")
     monkeypatch.setattr(
-        "hermes_cli.model_switch.switch_model",
+        "openchia_cli.model_switch.switch_model",
         lambda **kwargs: seen.update(kwargs) or result,
     )
     monkeypatch.setattr(server, "_restart_slash_worker", lambda *args, **kwargs: None)
@@ -10528,7 +10528,7 @@ def test_config_set_model_once_keeps_env_and_records_restore(monkeypatch):
 
 def test_config_set_model_once_requires_live_session(monkeypatch):
     monkeypatch.setattr(
-        "hermes_cli.model_switch.switch_model",
+        "openchia_cli.model_switch.switch_model",
         lambda **_: (_ for _ in ()).throw(AssertionError("switch should not run")),
     )
 
@@ -10628,7 +10628,7 @@ def test_config_set_model_session_switch_clears_pending_once_restore(monkeypatch
     session = _session(agent=Agent())
     session["one_turn_model_restore"] = {"model": "old/model"}
     server._sessions["sid"] = session
-    monkeypatch.setattr("hermes_cli.model_switch.switch_model", lambda **_kwargs: result)
+    monkeypatch.setattr("openchia_cli.model_switch.switch_model", lambda **_kwargs: result)
     monkeypatch.setattr(server, "_restart_slash_worker", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
 
@@ -10723,9 +10723,9 @@ def test_config_set_personality_preserves_history_and_returns_info(monkeypatch):
         server, "_session_info", lambda agent, *a: {"model": getattr(agent, "model", "?")}
     )
     monkeypatch.setattr(server, "_emit", lambda *args: emits.append(args))
-    # Persistence now flows through the single owner (hermes_cli.personality),
+    # Persistence now flows through the single owner (openchia_cli.personality),
     # never _write_config_key / agent.system_prompt.
-    import hermes_cli.personality as personality_mod
+    import openchia_cli.personality as personality_mod
 
     monkeypatch.setattr(
         personality_mod,
@@ -11829,7 +11829,7 @@ def test_commands_catalog_includes_desktop_meta_without_skills():
 
 def test_commands_catalog_includes_plugin_commands(monkeypatch):
     monkeypatch.setattr(
-        "hermes_cli.plugins.get_plugin_commands",
+        "openchia_cli.plugins.get_plugin_commands",
         lambda: {
             "lcm": {
                 "description": "Latent consistency",
@@ -11867,7 +11867,7 @@ def test_plugin_slash_command_runs_under_the_session_env(monkeypatch):
         seen["key"] = get_session_env("HERMES_SESSION_KEY")
         return f"ok:{arg}"
 
-    monkeypatch.setattr("hermes_cli.plugins.get_plugin_command_handler",
+    monkeypatch.setattr("openchia_cli.plugins.get_plugin_command_handler",
                         lambda name: handler if name == "whoami" else None)
     monkeypatch.setattr(server, "_sessions", {"sid-p": {"session_key": "agent:tui:key-p", "cwd": ""}})
 
@@ -15652,7 +15652,7 @@ def test_session_list_honors_params_profile_opens_profile_db(monkeypatch, tmp_pa
     monkeypatch.setattr(server, "_profile_home", lambda p: profile_home if p == "mlperf" else None)
     monkeypatch.setattr(server, "_get_db", lambda: LaunchDB())
     monkeypatch.setattr(
-        "hermes_cli.web_server_sessions._open_session_db_at_path",
+        "openchia_cli.web_server_sessions._open_session_db_at_path",
         lambda db_path, *, read_only: ProfileDB(db_path=db_path),
     )
 
@@ -15696,7 +15696,7 @@ def test_session_most_recent_honors_params_profile(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "_profile_home", lambda p: profile_home if p == "mlperf" else None)
     monkeypatch.setattr(server, "_get_db", lambda: LaunchDB())
     monkeypatch.setattr(
-        "hermes_cli.web_server_sessions._open_session_db_at_path",
+        "openchia_cli.web_server_sessions._open_session_db_at_path",
         lambda db_path, *, read_only: ProfileDB2(db_path=db_path),
     )
 
@@ -15715,7 +15715,7 @@ def test_handoff_request_uses_session_profile_home(monkeypatch, tmp_path):
     import contextlib
 
     from gateway.config import GatewayConfig, HomeChannel, Platform, PlatformConfig
-    from hermes_cli.config import get_hermes_home
+    from openchia_cli.config import get_hermes_home
     from tui_gateway import methods_session
 
     methods_session.register(server)
@@ -16848,13 +16848,13 @@ def test_model_options_does_not_overwrite_curated_models(monkeypatch):
     )
 
     with patch(
-        "hermes_cli.model_switch.list_authenticated_providers",
+        "openchia_cli.model_switch.list_authenticated_providers",
         return_value=curated_providers,
     ):
         # If provider_model_ids gets called at all, the handler is still
         # overwriting curated with live — that's the regression we're
         # guarding against.
-        with patch("hermes_cli.models.provider_model_ids") as live_fetch:
+        with patch("openchia_cli.models.provider_model_ids") as live_fetch:
             resp = server._methods["model.options"](99, {"session_id": ""})
 
     assert "result" in resp, resp
@@ -16879,7 +16879,7 @@ def test_model_options_propagates_list_exception(monkeypatch):
         lambda: {"providers": {}, "custom_providers": []},
     )
     with patch(
-        "hermes_cli.model_switch.list_authenticated_providers",
+        "openchia_cli.model_switch.list_authenticated_providers",
         side_effect=RuntimeError("catalog blew up"),
     ):
         resp = server._methods["model.options"](77, {"session_id": ""})
@@ -16891,7 +16891,7 @@ def test_model_options_propagates_list_exception(monkeypatch):
 
 
 def test_model_options_preserves_canonical_custom_row_after_agent_init(monkeypatch):
-    from hermes_cli.inventory import ConfigContext
+    from openchia_cli.inventory import ConfigContext
 
     class _Agent:
         provider = "custom"
@@ -16901,7 +16901,7 @@ def test_model_options_preserves_canonical_custom_row_after_agent_init(monkeypat
     server._sessions["custom-session"] = _session(agent=_Agent())
     monkeypatch.setattr(server, "_resolve_model", lambda: "")
     monkeypatch.setattr(
-        "hermes_cli.inventory.load_picker_context",
+        "openchia_cli.inventory.load_picker_context",
         lambda: ConfigContext(
             current_provider="custom:local-ollama",
             current_model="qwen3.6:35b-65k",
@@ -16912,11 +16912,11 @@ def test_model_options_preserves_canonical_custom_row_after_agent_init(monkeypat
     )
     canonical = Mock(return_value="custom:local-ollama")
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.canonical_custom_identity",
+        "openchia_cli.runtime_provider.canonical_custom_identity",
         canonical,
     )
     monkeypatch.setattr(
-        "hermes_cli.model_switch.list_authenticated_providers",
+        "openchia_cli.model_switch.list_authenticated_providers",
         lambda **_kwargs: [
             {
                 "slug": "custom:local-ollama",
@@ -16937,13 +16937,13 @@ def test_model_options_preserves_canonical_custom_row_after_agent_init(monkeypat
         ],
     )
     monkeypatch.setattr(
-        "hermes_cli.auth.is_provider_explicitly_configured",
+        "openchia_cli.auth.is_provider_explicitly_configured",
         lambda _slug: False,
     )
     # A host signed in to Claude Code / Anthropic OAuth would otherwise keep the anthropic row.
-    monkeypatch.setattr("hermes_cli.inventory._anthropic_oauth_credentials_present", lambda: False)
-    monkeypatch.setattr("hermes_cli.inventory._apply_pricing", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("hermes_cli.inventory._apply_capabilities", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("openchia_cli.inventory._anthropic_oauth_credentials_present", lambda: False)
+    monkeypatch.setattr("openchia_cli.inventory._apply_pricing", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("openchia_cli.inventory._apply_capabilities", lambda *_args, **_kwargs: None)
 
     resp = server._methods["model.options"](
         102,
@@ -16969,7 +16969,7 @@ def test_model_save_key_uses_credential_lifecycle_and_picker_context(monkeypatch
     }
     server._sessions["save-key-session"] = _session(agent=agent)
     monkeypatch.setattr(
-        "hermes_cli.auth.PROVIDER_REGISTRY",
+        "openchia_cli.auth.PROVIDER_REGISTRY",
         {
             "test-provider": types.SimpleNamespace(
                 name="Test Provider",
@@ -16978,17 +16978,17 @@ def test_model_save_key_uses_credential_lifecycle_and_picker_context(monkeypatch
             )
         },
     )
-    monkeypatch.setattr("hermes_cli.config.is_managed", lambda: False)
+    monkeypatch.setattr("openchia_cli.config.is_managed", lambda: False)
     save_credential = Mock()
     monkeypatch.setattr(
-        "hermes_cli.credential_lifecycle.save_provider_env_credential",
+        "openchia_cli.credential_lifecycle.save_provider_env_credential",
         save_credential,
     )
     picker_context = Mock(return_value=picker_ctx)
     monkeypatch.setattr(server, "_model_picker_context", picker_context)
     build_payload = Mock(return_value={"providers": [provider]})
     monkeypatch.setattr(
-        "hermes_cli.inventory.build_models_payload",
+        "openchia_cli.inventory.build_models_payload",
         build_payload,
     )
     monkeypatch.setenv(env_var, "previous-value")
@@ -17012,13 +17012,13 @@ def test_model_save_key_reconciles_the_launch_profiles_stale_setup_record(monkey
     """The gated picker's own chat waits on ``setup.status``, which answers from the boot record:
     a key saved for the launch profile must flip a ``False`` record (+ ``setup.ready``) at once;
     a key saved for another profile (``profile`` param) must leave the launch record alone."""
-    from hermes_cli import free_tier_bootstrap as fb
+    from openchia_cli import free_tier_bootstrap as fb
 
-    monkeypatch.setattr("hermes_cli.auth.PROVIDER_REGISTRY", {"test-provider": types.SimpleNamespace(
+    monkeypatch.setattr("openchia_cli.auth.PROVIDER_REGISTRY", {"test-provider": types.SimpleNamespace(
         name="Test Provider", auth_type="api_key", api_key_env_vars=("TEST_PROVIDER_API_KEY",))})
-    monkeypatch.setattr("hermes_cli.config.is_managed", lambda: False)
-    monkeypatch.setattr("hermes_cli.credential_lifecycle.save_provider_env_credential", Mock())
-    monkeypatch.setattr("hermes_cli.inventory.build_models_payload", Mock(return_value={"providers": []}))
+    monkeypatch.setattr("openchia_cli.config.is_managed", lambda: False)
+    monkeypatch.setattr("openchia_cli.credential_lifecycle.save_provider_env_credential", Mock())
+    monkeypatch.setattr("openchia_cli.inventory.build_models_payload", Mock(return_value={"providers": []}))
     monkeypatch.setenv("TEST_PROVIDER_API_KEY", "previous-value")  # save_key exports the new key
     monkeypatch.setattr(fb, "_inventory_other_providers", lambda: True)
     monkeypatch.setattr(fb, "_resolve_inference", lambda: "test-provider")
@@ -17094,7 +17094,7 @@ def test_prompt_submit_releases_old_history_before_heap_trim(monkeypatch, tmp_pa
         monkeypatch.setattr(server, "set_hermes_home_override", lambda _home: object())
         monkeypatch.setattr(server, "reset_hermes_home_override", lambda _token: order.append("reset_home"))
         monkeypatch.setattr(server, "_session_profile_runtime_scope", lambda _session, **_kw: contextlib.nullcontext())
-        monkeypatch.setattr("hermes_cli.mem_trim.trim_memory", _trim)
+        monkeypatch.setattr("openchia_cli.mem_trim.trim_memory", _trim)
 
         resp = server.handle_request(
             {"id": "1", "method": "prompt.submit", "params": {"session_id": "sid_trim", "text": "hi"}})
@@ -17817,7 +17817,7 @@ def test_browser_manage_status_falls_back_to_config_cdp_url(monkeypatch):
     fake_cfg = types.SimpleNamespace(
         read_raw_config=lambda: {"browser": {"cdp_url": "http://lan:9222"}}
     )
-    with patch.dict(sys.modules, {"hermes_cli.config": fake_cfg}):
+    with patch.dict(sys.modules, {"openchia_cli.config": fake_cfg}):
         resp = server.handle_request(
             {"id": "1", "method": "browser.manage", "params": {"action": "status"}}
         )
@@ -17896,13 +17896,13 @@ def test_browser_manage_connect_default_local_reports_launch_hint(monkeypatch):
         _stub_urlopen(monkeypatch, ok=False)
         with (
             patch(
-                "hermes_cli.browser_connect.launch_chrome_debug",
+                "openchia_cli.browser_connect.launch_chrome_debug",
                 return_value=ChromeDebugLaunch(),
             ),
-            patch("hermes_cli.browser_connect.local_port_in_use", return_value=False),
-            patch("hermes_cli.browser_connect.manual_chrome_debug_command", return_value=None),
+            patch("openchia_cli.browser_connect.local_port_in_use", return_value=False),
+            patch("openchia_cli.browser_connect.manual_chrome_debug_command", return_value=None),
             patch(
-                "hermes_cli.browser_connect.get_chrome_debug_candidates",
+                "openchia_cli.browser_connect.get_chrome_debug_candidates",
                 return_value=[],
             ),
         ):
@@ -17945,12 +17945,12 @@ def test_browser_manage_connect_no_session_skips_progress_events(monkeypatch):
         _stub_urlopen(monkeypatch, ok=False)
         with (
             patch(
-                "hermes_cli.browser_connect.launch_chrome_debug",
+                "openchia_cli.browser_connect.launch_chrome_debug",
                 return_value=ChromeDebugLaunch(),
             ),
-            patch("hermes_cli.browser_connect.manual_chrome_debug_command", return_value=None),
+            patch("openchia_cli.browser_connect.manual_chrome_debug_command", return_value=None),
             patch(
-                "hermes_cli.browser_connect.get_chrome_debug_candidates",
+                "openchia_cli.browser_connect.get_chrome_debug_candidates",
                 return_value=[],
             ),
         ):
@@ -18040,10 +18040,10 @@ def test_browser_manage_connect_default_local_retries_after_launch(monkeypatch):
     with patch.dict(sys.modules, {"tools.browser_tool_lifecycle": fake}):
         with (
             patch(
-                "hermes_cli.browser_connect.launch_chrome_debug",
+                "openchia_cli.browser_connect.launch_chrome_debug",
                 return_value=launched,
             ),
-            patch("hermes_cli.browser_connect.local_port_in_use", return_value=False),
+            patch("openchia_cli.browser_connect.local_port_in_use", return_value=False),
         ):
             resp = server.handle_request(
                 {"id": "1", "method": "browser.manage", "params": {"action": "connect"}}
@@ -18127,9 +18127,9 @@ def test_browser_manage_connect_squatted_port_launches_on_alternate(monkeypatch)
 
     with patch.dict(sys.modules, {"tools.browser_tool_lifecycle": fake}):
         with (
-            patch("hermes_cli.browser_connect.launch_chrome_debug", side_effect=_launch),
-            patch("hermes_cli.browser_connect.local_port_in_use", return_value=True),
-            patch("hermes_cli.browser_connect.find_free_debug_port", return_value=9223),
+            patch("openchia_cli.browser_connect.launch_chrome_debug", side_effect=_launch),
+            patch("openchia_cli.browser_connect.local_port_in_use", return_value=True),
+            patch("openchia_cli.browser_connect.find_free_debug_port", return_value=9223),
         ):
             resp = server.handle_request(
                 {"id": "1", "method": "browser.manage", "params": {"action": "connect"}}
@@ -18474,7 +18474,7 @@ def test_reload_env_rpc_surfaces_errors(monkeypatch):
         raise RuntimeError("env path locked")
 
     fake = types.SimpleNamespace(reload_env=_broken)
-    with patch.dict(sys.modules, {"hermes_cli.config": fake}):
+    with patch.dict(sys.modules, {"openchia_cli.config": fake}):
         resp = server.handle_request({"id": "1", "method": "reload.env", "params": {}})
 
     assert "error" in resp
@@ -18490,7 +18490,7 @@ def _setup_make_agent_mocks(monkeypatch, cfg):
         server, "_resolve_startup_runtime", lambda: ("test-model", None)
     )
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         lambda requested=None, target_model=None: {
             "provider": None,
             "base_url": None,
@@ -18551,7 +18551,7 @@ def test_make_agent_uses_session_runtime_overrides(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "hermes_cli.runtime_provider.resolve_runtime_provider",
+        "openchia_cli.runtime_provider.resolve_runtime_provider",
         fake_resolve_runtime_provider,
     )
 
@@ -19654,7 +19654,7 @@ def test_reap_idle_sessions_closes_only_evictable(monkeypatch):
 
 def _periodic_trim_calls(monkeypatch):
     """Stub the reaper's side effects and capture trim_memory calls (delayed import → patch the module attr)."""
-    import hermes_cli.mem_trim as mem_trim
+    import openchia_cli.mem_trim as mem_trim
 
     calls = []
     monkeypatch.setattr(server, "_session_pending_kind", lambda sid: "")
@@ -19720,7 +19720,7 @@ def test_turn_completion_trim_skips_while_another_session_is_running(monkeypatch
 
 
 def test_reap_idle_sessions_logs_trim_failure(monkeypatch, caplog):
-    import hermes_cli.mem_trim as mem_trim
+    import openchia_cli.mem_trim as mem_trim
 
     _periodic_trim_calls(monkeypatch)
     monkeypatch.setattr(mem_trim, "trim_memory", lambda **_kw: (_ for _ in ()).throw(RuntimeError("boom")))
@@ -20090,7 +20090,7 @@ class _BillingHeaders:
 def test_billing_error_serialization_preserves_server_code(
     status, error, retry_after
 ):
-    import hermes_cli.nous_billing as nb
+    import openchia_cli.nous_billing as nb
 
     headers = _BillingHeaders({"Retry-After": str(retry_after)}) if retry_after else None
     with pytest.raises(nb.BillingTransient) as ei:
@@ -20104,7 +20104,7 @@ def test_billing_error_serialization_preserves_server_code(
 
 
 def test_billing_rate_limit_without_error_defaults_wire_code():
-    import hermes_cli.nous_billing as nb
+    import openchia_cli.nous_billing as nb
 
     exc = nb.BillingRateLimited("slow down", status=429, retry_after=10)
 
@@ -20123,7 +20123,7 @@ def _sub_rpc(method, params):
 
 
 def test_subscription_preview_serializes_quote(monkeypatch):
-    import hermes_cli.nous_billing as nb
+    import openchia_cli.nous_billing as nb
 
     monkeypatch.setattr(
         nb,
@@ -20155,7 +20155,7 @@ def test_subscription_preview_requires_tier():
 
 
 def test_subscription_preview_scope_error_maps_to_step_up(monkeypatch):
-    import hermes_cli.nous_billing as nb
+    import openchia_cli.nous_billing as nb
 
     def _raise(subscription_type_id):
         raise nb.BillingScopeRequired("billing:manage required")
@@ -20167,7 +20167,7 @@ def test_subscription_preview_scope_error_maps_to_step_up(monkeypatch):
 
 
 def test_subscription_change_cancellation(monkeypatch):
-    import hermes_cli.nous_billing as nb
+    import openchia_cli.nous_billing as nb
 
     seen = {}
 
@@ -20184,7 +20184,7 @@ def test_subscription_change_cancellation(monkeypatch):
 
 
 def test_subscription_change_tier_downgrade(monkeypatch):
-    import hermes_cli.nous_billing as nb
+    import openchia_cli.nous_billing as nb
 
     seen = {}
 
@@ -20208,7 +20208,7 @@ def test_subscription_change_requires_tier_or_cancel():
 
 
 def test_subscription_upgrade_echoes_status_and_idempotency(monkeypatch):
-    import hermes_cli.nous_billing as nb
+    import openchia_cli.nous_billing as nb
 
     seen = {}
 
@@ -20226,7 +20226,7 @@ def test_subscription_upgrade_echoes_status_and_idempotency(monkeypatch):
 
 
 def test_subscription_upgrade_requires_action_surfaces_recovery(monkeypatch):
-    import hermes_cli.nous_billing as nb
+    import openchia_cli.nous_billing as nb
 
     monkeypatch.setattr(
         nb,
@@ -20337,7 +20337,7 @@ class TestResolveRuntimeWithFallback:
         """When primary resolve succeeds, return its result directly."""
         expected = {"provider": "openai", "api_key": "tok"}
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             lambda **kw: expected,
         )
         resolution = server._resolve_runtime_with_fallback(
@@ -20349,7 +20349,7 @@ class TestResolveRuntimeWithFallback:
 
     def test_auth_error_tries_fallback_chain(self, monkeypatch):
         """On AuthError from primary, walk fallback_providers chain."""
-        from hermes_cli.auth import AuthError
+        from openchia_cli.auth import AuthError
 
         fallback_runtime = {"provider": "deepseek", "api_key": "fb-tok"}
 
@@ -20359,7 +20359,7 @@ class TestResolveRuntimeWithFallback:
             return fallback_runtime
 
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             fake_resolve,
         )
         monkeypatch.setattr(
@@ -20377,7 +20377,7 @@ class TestResolveRuntimeWithFallback:
 
     def test_auth_error_skips_provider_only_fallback(self, monkeypatch):
         """Auth fallback requires one complete provider/model pair."""
-        from hermes_cli.auth import AuthError
+        from openchia_cli.auth import AuthError
 
         requested = []
         fallback_runtime = {"provider": "openrouter", "api_key": "fb-tok"}
@@ -20389,7 +20389,7 @@ class TestResolveRuntimeWithFallback:
             return fallback_runtime
 
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             fake_resolve,
         )
         monkeypatch.setattr(
@@ -20413,7 +20413,7 @@ class TestResolveRuntimeWithFallback:
     def test_fallback_entry_key_env_resolves_api_key(self, monkeypatch):
         """A fallback entry naming its key via key_env passes the resolved
         env value as explicit_api_key (#43861, @VrtxOmega)."""
-        from hermes_cli.auth import AuthError
+        from openchia_cli.auth import AuthError
 
         monkeypatch.setenv("FB_TEST_KEY", "env-resolved-key")
         captured = {}
@@ -20426,7 +20426,7 @@ class TestResolveRuntimeWithFallback:
             return fallback_runtime
 
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             fake_resolve,
         )
         monkeypatch.setattr(
@@ -20448,13 +20448,13 @@ class TestResolveRuntimeWithFallback:
 
     def test_auth_error_all_fallbacks_fail_raises(self, monkeypatch):
         """When all fallbacks also fail, re-raise the original AuthError."""
-        from hermes_cli.auth import AuthError
+        from openchia_cli.auth import AuthError
 
         def fake_resolve(**kwargs):
             raise AuthError("No credentials for " + str(kwargs.get("requested")))
 
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             fake_resolve,
         )
         monkeypatch.setattr(
@@ -20471,7 +20471,7 @@ class TestResolveRuntimeWithFallback:
 
     def test_auth_error_skips_non_dict_entries(self, monkeypatch):
         """Fallback chain entries that are not dicts are skipped."""
-        from hermes_cli.auth import AuthError
+        from openchia_cli.auth import AuthError
 
         fallback_runtime = {"provider": "anthropic", "api_key": "ant-tok"}
 
@@ -20481,7 +20481,7 @@ class TestResolveRuntimeWithFallback:
             return fallback_runtime
 
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             fake_resolve,
         )
         monkeypatch.setattr(
@@ -20504,7 +20504,7 @@ class TestResolveRuntimeWithFallback:
         provider when the primary provider raises AuthError."""
         import types
 
-        from hermes_cli.auth import AuthError
+        from openchia_cli.auth import AuthError
 
         captured = {}
         fallback_runtime = {
@@ -20536,7 +20536,7 @@ class TestResolveRuntimeWithFallback:
             },
         )
         monkeypatch.setattr(
-            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            "openchia_cli.runtime_provider.resolve_runtime_provider",
             fake_resolve,
         )
         monkeypatch.setattr("run_agent.AIAgent", fake_agent)
@@ -20871,7 +20871,7 @@ def test_full_duplex_stop_phrase_mid_generation_ends_voice_chat(monkeypatch, tmp
     )
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(stop_continuous=lambda **_kw: None, speak_text=lambda *a, **k: None),
     )
 
@@ -20921,7 +20921,7 @@ def test_speak_text_with_barge_arms_monitor_and_cuts_playback(monkeypatch, tmp_p
 
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(speak_text=fake_speak_text),
     )
 
@@ -20968,7 +20968,7 @@ def test_speak_text_with_barge_no_monitor_when_voice_mode_off(monkeypatch):
     done_speaking = threading.Event()
     monkeypatch.setitem(
         sys.modules,
-        "hermes_cli.voice",
+        "openchia_cli.voice",
         types.SimpleNamespace(
             speak_text=lambda text, stop_event=None: done_speaking.set()
         ),

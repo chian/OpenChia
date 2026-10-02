@@ -25,7 +25,7 @@ from cron.scheduler_delivery import (
     parse_bot_chat_deliver_token,
 )
 from cron.scheduler_preflight import _preflight_check_delivery
-from hermes_cli.quiet_single_query import TURN_REPORT_FILE_ENV
+from openchia_cli.quiet_single_query import TURN_REPORT_FILE_ENV
 
 
 # ── token parsing ────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ def test_non_bot_chat_tokens_pass_through():
 
 
 def test_unknown_profile_resolves_to_none():
-    with mock.patch("hermes_cli.profiles.profile_exists", return_value=False):
+    with mock.patch("openchia_cli.profiles.profile_exists", return_value=False):
         assert _resolve_bot_chat_target({"id": "j1"}, "ghost") is None
 
 
@@ -92,7 +92,7 @@ def test_preflight_still_blocks_unknown_platforms():
 def test_create_validation_rejects_unknown_profile():
     from tools.cronjob_tools import _validate_bot_chat_deliver
 
-    with mock.patch("hermes_cli.profiles.profile_exists", return_value=False):
+    with mock.patch("openchia_cli.profiles.profile_exists", return_value=False):
         err = _validate_bot_chat_deliver("bot-chat:ghost")
     assert err is not None
 
@@ -103,7 +103,7 @@ def test_create_validation_accepts_bare_and_existing():
     assert _validate_bot_chat_deliver("bot-chat") is None
     assert _validate_bot_chat_deliver(None) is None
     assert _validate_bot_chat_deliver("telegram:-100") is None
-    with mock.patch("hermes_cli.profiles.profile_exists", return_value=True):
+    with mock.patch("openchia_cli.profiles.profile_exists", return_value=True):
         assert _validate_bot_chat_deliver("bot-chat:research") is None
 
 
@@ -129,7 +129,7 @@ def test_deliver_runs_canonical_bot_chat_lane():
     assert err is None
     argv = calls["argv"]
     # The running install's interpreter, not whatever `hermes` PATH names (same order as /update).
-    assert argv[:3] == [sys.executable, "-m", "hermes_cli.main"]
+    assert argv[:3] == [sys.executable, "-m", "openchia_cli.main"]
     assert argv[3:5] == ["-p", "default"]  # do not follow active_profile
     assert "chat" in argv
     assert "Bot Chat" in argv
@@ -224,7 +224,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(sched_delivery.__fi
 
 
 def _child_env() -> dict:
-    """The stand-in child imports ``hermes_cli`` from this checkout, like the real ``-m hermes_cli.main``."""
+    """The stand-in child imports ``openchia_cli`` from this checkout, like the real ``-m openchia_cli.main``."""
     return {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in (_REPO_ROOT, os.environ.get("PYTHONPATH")) if p)}
 
 
@@ -235,7 +235,7 @@ def test_turn_report_books_the_delivery_while_the_child_still_lingers(tmp_path):
     report = tmp_path / "turn.json"
     child = textwrap.dedent("""
         import os, time
-        from hermes_cli.quiet_single_query import TURN_REPORT_FILE_ENV, write_turn_report
+        from openchia_cli.quiet_single_query import TURN_REPORT_FILE_ENV, write_turn_report
         write_turn_report(os.environ.pop(TURN_REPORT_FILE_ENV), exit_code=0)
         time.sleep(30)
         """)
@@ -273,7 +273,7 @@ def test_delivery_child_runs_in_the_target_home_not_the_schedulers_cwd(tmp_path,
     gone.rmdir()
     child = textwrap.dedent("""
         import os, sys
-        from hermes_cli.quiet_single_query import TURN_REPORT_FILE_ENV, write_turn_report
+        from openchia_cli.quiet_single_query import TURN_REPORT_FILE_ENV, write_turn_report
         sys.stdout.write(os.getcwd())
         write_turn_report(os.environ.pop(TURN_REPORT_FILE_ENV), exit_code=0)
         """)
@@ -308,7 +308,7 @@ def test_bot_chat_turn_failure_tail_decodes_lossily(tmp_path):
 
 @pytest.mark.platforms("windows")
 def test_bot_chat_turn_roundtrips_accented_utf8_reply(tmp_path):
-    """The delivery child writes UTF-8 unconditionally — hermes_cli reconfigures its
+    """The delivery child writes UTF-8 unconditionally — openchia_cli reconfigures its
     own streams via hermes_bootstrap on Windows even under PYTHONIOENCODING=cp1252 —
     while the gateway parent there is NOT started in UTF-8 mode, so text=True alone
     decoded the pipes with the ANSI code page: the reply came back mojibake'd, or the
@@ -318,7 +318,7 @@ def test_bot_chat_turn_roundtrips_accented_utf8_reply(tmp_path):
     The gateway parent is a nested interpreter explicitly NOT in UTF-8 mode
     (``PYTHONUTF8=0`` / ``-X utf8=0``), so its Popen(text=True) decodes with the
     ANSI code page exactly like the production parent; the stand-in child writes
-    raw UTF-8 bytes through sys.stdout.buffer the way the bootstrapped hermes_cli
+    raw UTF-8 bytes through sys.stdout.buffer the way the bootstrapped openchia_cli
     child does, independent of any locale. On the pre-fix branch the decode dies
     on 0x8D (second byte of UTF-8 "Í", undefined in cp1252) inside the drain
     thread and stdout comes back empty — RED; with the win32 UTF-8 pin the text
@@ -349,7 +349,7 @@ def test_bot_chat_turn_roundtrips_accented_utf8_reply(tmp_path):
 # ── delivery-targets listing (UI pickers) ────────────────────────────────────
 
 def test_delivery_targets_include_local_profiles():
-    with mock.patch("hermes_cli.profiles.list_profile_names",
+    with mock.patch("openchia_cli.profiles.list_profile_names",
                     return_value=["default", "research"]):
         targets = sched_delivery.cron_delivery_targets()
     ids = [t["id"] for t in targets]

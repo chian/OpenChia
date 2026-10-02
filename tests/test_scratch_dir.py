@@ -212,7 +212,7 @@ class TestScratchDirPermissionPolicy:
 def test_secure_file_skips_chmod_on_canonical_container_signal(tmp_path, monkeypatch):
     """_secure_file skips on the same canonical container signal that apply_secure_dir_policy /
     get_scratch_dir already honor (one policy implementation in hermes_constants)."""
-    from hermes_cli import config
+    from openchia_cli import config
 
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
     for var in ("HERMES_MANAGED", "HERMES_CONTAINER", "HERMES_SKIP_CHMOD"):

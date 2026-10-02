@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import plugins.memory.openviking as openviking_module
-from hermes_cli.version_info import get_version_info
+from openchia_cli.version_info import get_version_info
 from plugins.memory.openviking import (
     OpenVikingMemoryProvider,
     _VikingClient,
@@ -248,7 +248,7 @@ def test_post_setup_existing_profile_picker_validates_and_links_saved_profile(
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.setattr(openviking_module.Path, "home", staticmethod(lambda: tmp_path))
 
-    from hermes_cli import memory_setup
+    from openchia_cli import memory_setup
 
     validate_calls = []
 

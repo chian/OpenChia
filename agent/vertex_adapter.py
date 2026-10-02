@@ -58,7 +58,7 @@ _creds_cache: dict = {}
 def _vertex_config() -> dict:
     """Return the ``vertex:`` section of config.yaml, or {} on any failure."""
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
 
         section = load_config().get("vertex")
         return section if isinstance(section, dict) else {}

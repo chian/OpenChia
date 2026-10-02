@@ -19,7 +19,7 @@ def test_early_platform_validator_ignores_retired_names(monkeypatch, caplog):
     that is only retired names must stay silent, and a mixed list must name only the typo."""
     import logging
 
-    from hermes_cli import tools_config
+    from openchia_cli import tools_config
 
     monkeypatch.setattr(tools_config, "_warned_invalid_platform_toolsets", set())
     with caplog.at_level(logging.WARNING, logger=tools_config.logger.name):

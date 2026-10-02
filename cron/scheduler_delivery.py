@@ -407,7 +407,7 @@ def _cron_job_origin_log_suffix(job: dict) -> str:
 def _plugin_cron_env_var(platform_name: str) -> str:
     """Cron home-channel env var registered by a plugin ``PlatformEntry.cron_deliver_env_var``."""
     with contextlib.suppress(Exception):
-        from hermes_cli.plugins import discover_plugins
+        from openchia_cli.plugins import discover_plugins
         discover_plugins()  # idempotent
         from gateway.platform_registry import platform_registry
         entry = platform_registry.get(platform_name.lower())
@@ -517,7 +517,7 @@ def _iter_home_target_platforms():
     """Iterate built-in + plugin platform names that expose a home channel."""
     yield from _HOME_TARGET_ENV_VARS
     with contextlib.suppress(Exception):
-        from hermes_cli.plugins import discover_plugins
+        from openchia_cli.plugins import discover_plugins
         discover_plugins()  # idempotent
         from gateway.platform_registry import platform_registry
         for entry in platform_registry.plugin_entries():
@@ -564,7 +564,7 @@ def cron_delivery_targets() -> list[dict]:
 
     # Bot Chat targets: one per local profile (machine-local; no gateway config or home channel).
     try:
-        from hermes_cli.profiles import list_profile_names
+        from openchia_cli.profiles import list_profile_names
         for profile_name in list_profile_names():
             targets.append({
                 "id": f"{BOT_CHAT_PLATFORM}:{profile_name}",
@@ -730,7 +730,7 @@ def _run_bot_chat_turn(argv: list, env: dict, report_path: str, timeout: float) 
     this lane needs only the outcome, so a child that reported its turn gets the exit grace and is
     then left to its linger; only a turn that never ends is killed.
     """
-    from hermes_cli.quiet_single_query import run_reported_turn
+    from openchia_cli.quiet_single_query import run_reported_turn
 
     # The scheduler may sit in a directory that no longer exists (a kanban worker whose
     # scratch workspace was reaped): a child inheriting that cwd dies at CLI startup
@@ -784,7 +784,7 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *, deferred: Opt
     import tempfile
     import uuid
     from hermes_constants import get_hermes_home
-    from hermes_cli.profiles import get_profile_dir
+    from openchia_cli.profiles import get_profile_dir
     from tools.bot_live_delivery import (
         deliver_to_live_owner, find_canonical_live_owner, read_delivery_result,
     )
@@ -809,7 +809,7 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *, deferred: Opt
                 get_profile_dir(profile) if profile else source_home).resolve()
         for_failure = for_failure or bool((deferred or {}).get("for_failure"))
         from gateway.warning_notifications import warning_notifications_enabled
-        from hermes_cli.config_effective import load_user_config_effective
+        from openchia_cli.config_effective import load_user_config_effective
         suppress_notification = for_failure and not warning_notifications_enabled(
             BOT_CHAT_POLICY_PLATFORM, load_user_config_effective(home / "config.yaml"))
         if deferred is not None and not (home / "state.db").is_file():
@@ -877,11 +877,11 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *, deferred: Opt
     # to whatever `hermes` PATH names — another install, or a planted one — instead of this one.
     try:
         import importlib.util as _ilu
-        found = _ilu.find_spec("hermes_cli") is not None
+        found = _ilu.find_spec("openchia_cli") is not None
     except Exception:
         found = False
     if found:
-        argv = [sys.executable, "-m", "hermes_cli.main"]
+        argv = [sys.executable, "-m", "openchia_cli.main"]
     else:
         hermes_bin = shutil.which("hermes")
         if not hermes_bin:
@@ -910,7 +910,7 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *, deferred: Opt
                      f"profile's environment ({type(exc).__name__}: {exc}); do not resend")
     if home.parent.name != "profiles":
         argv += ["-p", "default"]
-    if argv[1:3] == ["-m", "hermes_cli.main"]:
+    if argv[1:3] == ["-m", "openchia_cli.main"]:
         # served_profile_child_env strips Hermes-owned PYTHONPATH entries; under a store-python
         # shim the bare interpreter then cannot import the package find_spec just proved (#122487).
         from pathlib import Path
@@ -930,7 +930,7 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *, deferred: Opt
             "chat", "--in", "~", "-c", "Bot Chat", "--create-if-missing",
             "-Q", "--query-file", query_file,
         ]
-        from hermes_cli.quiet_single_query import TURN_REPORT_FILE_ENV
+        from openchia_cli.quiet_single_query import TURN_REPORT_FILE_ENV
         report_file = f"{query_file}.turn.json"
         env[TURN_REPORT_FILE_ENV] = report_file
         timeout_s = _get_bot_chat_delivery_timeout()
@@ -1039,7 +1039,7 @@ def _resolve_bot_chat_target(job: dict, profile_arg: str) -> Optional[dict]:
     if not profile_arg:
         return {"platform": BOT_CHAT_PLATFORM, "chat_id": "", "thread_id": None}
     try:
-        from hermes_cli.profiles import normalize_profile_name, profile_exists
+        from openchia_cli.profiles import normalize_profile_name, profile_exists
         canon = normalize_profile_name(profile_arg)
         if not profile_exists(canon):
             logger.warning(

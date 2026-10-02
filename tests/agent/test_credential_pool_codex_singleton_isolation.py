@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-import hermes_cli.auth as auth_mod
+import openchia_cli.auth as auth_mod
 from agent.credential_pool import load_pool
 
 

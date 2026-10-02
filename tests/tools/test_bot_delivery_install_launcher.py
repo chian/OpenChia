@@ -51,9 +51,9 @@ def test_path_then_bare_fallback_remain_available(launchers, monkeypatch):
     _, sibling = launchers
     sibling.unlink()
     monkeypatch.setattr(bot_relay.shutil, "which", lambda name: "external-hermes")
-    assert bot_relay._hermes_cli() == "external-hermes"
+    assert bot_relay._openchia_cli() == "external-hermes"
     monkeypatch.setattr(bot_relay.shutil, "which", lambda name: None)
-    assert bot_relay._hermes_cli() == "hermes"
+    assert bot_relay._openchia_cli() == "hermes"
 
 
 @pytest.mark.platforms("windows")
@@ -61,20 +61,20 @@ def test_real_delivery_launcher_imports_new_generation(tmp_path, monkeypatch):
     import json
     import os
     import subprocess
-    from hermes_cli import _launchers
+    from openchia_cli import _launchers
     from pm.environments import runtime_facts_path, site_packages
 
     real_python = Path(sys.executable)
     real_root = Path(bot_relay.__file__).resolve().parents[1]
     root = tmp_path / "install with spaces"
-    package = root / "hermes_cli"
+    package = root / "openchia_cli"
     package.mkdir(parents=True)
     # Load the checkout's constants before the launcher's bootstrap import;
     # an editable test interpreter may also expose an older installed checkout.
     import shutil
     shutil.copyfile(real_root / "hermes_constants.py", root / "hermes_constants.py")
     (package / "__init__.py").write_text(
-        f"__path__.append({str(real_root / 'hermes_cli')!r})\n", encoding="utf-8")
+        f"__path__.append({str(real_root / 'openchia_cli')!r})\n", encoding="utf-8")
     (package / "main.py").write_text(
         "import json, sys\n"
         "def main():\n"
@@ -97,7 +97,7 @@ def test_real_delivery_launcher_imports_new_generation(tmp_path, monkeypatch):
     old_bin = tmp_path / "old" / "Scripts"
     old_bin.mkdir(parents=True)
     # Both choices are executable: the old console script reports missing deps.
-    old_package = tmp_path / "old source" / "hermes_cli"
+    old_package = tmp_path / "old source" / "openchia_cli"
     old_package.mkdir(parents=True)
     (old_package / "__init__.py").write_text("", encoding="utf-8")
     (old_package / "main.py").write_text(

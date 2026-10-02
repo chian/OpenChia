@@ -35,9 +35,9 @@ export function sourceRuntimeSettleCommand(root, env, platform = process.platfor
   const generated = commandFile.match(/^\s*@?"([^"\r\n]+)"\s+-I(?:\s|$)/m);
   if (!generated) throw new Error(`Unrecognized source command launcher: ${launcher}`);
   const command = generated[1];
-  const prepareLaunch = path.join(root, 'hermes_cli', 'venv_sync.py');
+  const prepareLaunch = path.join(root, 'openchia_cli', 'venv_sync.py');
   if (!fs.existsSync(command)) throw new Error(`Source launcher Python does not exist: ${command}`);
   if (!fs.existsSync(prepareLaunch)) throw new Error(`Source update preparation does not exist: ${prepareLaunch}`);
-  const code = `import pathlib, sys; sys.path.insert(0, ${JSON.stringify(root)}); from hermes_cli.venv_sync import prepare_launch; prepare_launch(pathlib.Path(${JSON.stringify(root)}), ['status'])`;
+  const code = `import pathlib, sys; sys.path.insert(0, ${JSON.stringify(root)}); from openchia_cli.venv_sync import prepare_launch; prepare_launch(pathlib.Path(${JSON.stringify(root)}), ['status'])`;
   return { launcher, command, args: ['-I', '-B', '-c', code], windowsVerbatimArguments: false };
 }

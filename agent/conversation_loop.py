@@ -463,7 +463,7 @@ def _maybe_grow_local_window(agent: Any, compressor: Any,
     ):
         return None
     try:
-        from hermes_cli.local_runtime.growth import maybe_grow_window
+        from openchia_cli.local_runtime.growth import maybe_grow_window
         current_window = int(getattr(compressor, "context_length", 0) or 0)
         if current_window <= 0:
             return None
@@ -484,7 +484,7 @@ def _ra():
 
 def _nous_entitlement_message(capability: str) -> str:
     try:
-        from hermes_cli.nous_account import (
+        from openchia_cli.nous_account import (
             format_nous_portal_entitlement_message,
             get_nous_portal_account_info,
         )
@@ -856,7 +856,7 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
     # Persistence-disabled forks share their parent's session ID and are not real sessions.
     if not getattr(agent, "_persist_disabled", False):
         try:
-            from hermes_cli.lifecycle import invoke_hook as _invoke_hook
+            from openchia_cli.lifecycle import invoke_hook as _invoke_hook
             _invoke_hook(
                 "on_session_start", session_id=agent.session_id, model=agent.model,
                 platform=getattr(agent, "platform", None) or "",
@@ -1343,7 +1343,7 @@ def _decode_inline_moa_turn(user_message, persist_user_message):
     """Decode a MoA preset encoded into ``user_message``; returns ``(user_message,
     moa_config, persist_user_message)``, unchanged with ``moa_config=None`` otherwise."""
     try:
-        from hermes_cli.moa_config import decode_moa_turn
+        from openchia_cli.moa_config import decode_moa_turn
         _decoded_message, _decoded_moa_config = decode_moa_turn(user_message)
         if _decoded_moa_config is not None:
             if persist_user_message is None:

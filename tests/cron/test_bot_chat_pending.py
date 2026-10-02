@@ -8,7 +8,7 @@ import pytest
 
 from cron import bot_chat_delivery as queue
 from cron import scheduler_delivery as delivery
-from hermes_cli.active_sessions import try_acquire_active_session
+from openchia_cli.active_sessions import try_acquire_active_session
 from hermes_state import SessionDB
 
 
@@ -63,7 +63,7 @@ def test_delivery_exception_retains_attempt_and_continues_siblings(tmp_path, mon
     armed = False
 
     def resolve_cli(name, *args, **kwargs):
-        # Delivery resolves the CLI (the running install's ``hermes_cli``) right after discovery.
+        # Delivery resolves the CLI (the running install's ``openchia_cli``) right after discovery.
         nonlocal armed
         armed = True
         return object()

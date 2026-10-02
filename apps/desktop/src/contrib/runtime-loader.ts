@@ -25,7 +25,7 @@
  * listeners) — a plugin can't crash the app, but it can do anything the app
  * can. That's acceptable for local sources (disk files can already run code),
  * and for catalog installs the trust comes from admission (human review of
- * an exact pinned SHA + the static lint in hermes_cli/plugin_validate_desktop.py),
+ * an exact pinned SHA + the static lint in openchia_cli/plugin_validate_desktop.py),
  * not from this loader. The import allowlist below is the one runtime tripwire:
  * a plugin cannot pull a second stage from a URL. A remote source (https +
  * allowlist) must NOT reuse this pipeline as-is: it needs a real boundary

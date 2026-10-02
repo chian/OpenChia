@@ -53,7 +53,7 @@ This page is the top-level map of Hermes Agent internals. Use it to orient yours
 ```text
 hermes-agent/
 ├── run_agent.py              # AIAgent facade — loop lives in agent/conversation_loop.py + agent/turn_*.py
-├── cli.py                    # HermesCLI facade — mixins in hermes_cli/cli_*_mixin.py
+├── cli.py                    # OpenChiaCLIBase facade — mixins in openchia_cli/cli_*_mixin.py
 ├── model_tools.py            # Tool discovery, schema collection, dispatch
 ├── toolsets.py               # Tool groupings and platform presets
 ├── hermes_state.py           # SQLite session/state database facade (+ hermes_state_*.py siblings)
@@ -75,7 +75,7 @@ hermes-agent/
 │   ├── memory_provider.py   # Memory provider ABC
 │   └── trajectory.py         # Trajectory saving helpers
 │
-├── hermes_cli/               # CLI subcommands and setup
+├── openchia_cli/               # CLI subcommands and setup
 │   ├── main.py               # Entry point — `hermes` subcommands (parsers in subcommands/, main_*.py)
 │   ├── config.py             # DEFAULT_CONFIG, OPTIONAL_ENV_VARS, migration
 │   ├── commands.py           # COMMAND_REGISTRY — central slash command definitions
@@ -140,7 +140,7 @@ hermes-agent/
 ### CLI Session
 
 ```text
-User input → HermesCLI.process_input()
+User input → OpenChiaCLIBase.process_input()
   → AIAgent.run_conversation()
     → prompt_builder.build_system_prompt()
     → runtime_provider.resolve_runtime_provider()

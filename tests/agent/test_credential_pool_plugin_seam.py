@@ -19,9 +19,9 @@ from agent.credential_pool import (
     CredentialPool,
     PooledCredential,
 )
-from hermes_cli.auth import read_credential_pool
-from hermes_cli.auth_constants import AuthError
-from hermes_cli.auth_plugin_providers import is_refreshable_oauth_provider
+from openchia_cli.auth import read_credential_pool
+from openchia_cli.auth_constants import AuthError
+from openchia_cli.auth_plugin_providers import is_refreshable_oauth_provider
 
 
 def _entry(**over):

@@ -75,7 +75,7 @@ def test_repeated_setup_routes_records_once(hermes_home, mode, component, config
         assert hermes_logging.setup_logging(hermes_home=hermes_home, mode=mode, log_level=explicit) == hermes_home / "logs"
     hermes_logging.set_session_context("routing-session")
     sources = ["tools.terminal_tool", "agent.context_compressor", "gateway.run",
-               "plugins.platforms.telegram.adapter", "hermes_cli.web_server", "tui_gateway.ws"]
+               "plugins.platforms.telegram.adapter", "openchia_cli.web_server", "tui_gateway.ws"]
     for index, source in enumerate(sources):
         for level in (logging.DEBUG, logging.INFO, logging.WARNING):
             logging.getLogger(source).log(level, "routing-witness-%s-%s", index, level)
@@ -354,7 +354,7 @@ class TestAddRotatingHandler:
 
         old_umask = os.umask(0o022)
         try:
-            with patch("hermes_cli.config.is_managed", return_value=True):
+            with patch("openchia_cli.config.is_managed", return_value=True):
                 hermes_logging._add_rotating_handler(
                     log_path,
                     level=logging.INFO, max_bytes=1024, backup_count=1,

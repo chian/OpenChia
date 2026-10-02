@@ -16,9 +16,9 @@ Hermes has a shared provider runtime resolver used across:
 
 Primary implementation:
 
-- `hermes_cli/runtime_provider.py` — credential resolution, custom-endpoint runtime resolution
-- `hermes_cli/auth.py` — provider registry, `resolve_provider()`
-- `hermes_cli/model_switch.py` — shared `/model` switch pipeline (CLI + gateway)
+- `openchia_cli/runtime_provider.py` — credential resolution, custom-endpoint runtime resolution
+- `openchia_cli/auth.py` — provider registry, `resolve_provider()`
+- `openchia_cli/model_switch.py` — shared `/model` switch pipeline (CLI + gateway)
 - `agent/auxiliary_client.py` — auxiliary model routing
 - `providers/` — ABC + registry entry points (`ProviderProfile`, `register_provider`, `get_provider_profile`, `list_providers`)
 - `plugins/model-providers/<name>/` — per-provider plugins (bundled) that declare `api_mode`, `base_url`, `env_vars`, `fallback_models` and register themselves into the registry on first access. User plugins at `$HERMES_HOME/plugins/model-providers/<name>/` override bundled ones of the same name.
@@ -204,7 +204,7 @@ Hermes supports a configured fallback provider chain — a list of `(provider, m
    - Resets retry count to 0 and continues the loop
 
 4. **Config flow**:
-   - CLI: reads the fallback chain via `hermes_cli/fallback_config.get_fallback_chain()` → passes to `AIAgent(fallback_model=...)`
+   - CLI: reads the fallback chain via `openchia_cli/fallback_config.get_fallback_chain()` → passes to `AIAgent(fallback_model=...)`
    - Gateway: `gateway/run_config_loaders.py._load_fallback_model()` reads `config.yaml` → passes to `AIAgent`
    - Validation: both `provider` and `model` keys must be non-empty, or fallback is disabled
 
@@ -220,7 +220,7 @@ Unpinned cron jobs **do** support fallback: `run_job()` reads `fallback_provider
 Fallback behavior is exercised across several suites:
 
 - `tests/agent/test_fallback_credential_isolation.py` — credential isolation between primary and fallback
-- `tests/hermes_cli/test_fallback_cmd.py` — the `/fallback` CLI command
+- `tests/openchia_cli/test_fallback_cmd.py` — the `/fallback` CLI command
 
 ## Related docs
 

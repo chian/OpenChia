@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, NamedTuple, Optional
 
 from hermes_constants import _get_platform_default_hermes_home, get_hermes_home, get_process_hermes_home
-from hermes_cli._subprocess_compat import pid_exists_stdlib
+from openchia_cli._subprocess_compat import pid_exists_stdlib
 from utils import atomic_json_write
 
 if sys.platform == "win32":
@@ -265,7 +265,7 @@ def recorded_gateway_home_conflicts(
         return True
 
 
-# Mirrors hermes_cli.profiles._PROFILE_ID_RE -- duplicated so gateway identity code
+# Mirrors openchia_cli.profiles._PROFILE_ID_RE -- duplicated so gateway identity code
 # stays import-light (hermes_constants + stdlib only).
 _PROFILE_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -418,7 +418,7 @@ def terminate_pid(
         os.kill(pid, signal.SIGTERM if not force else getattr(signal, "SIGKILL", signal.SIGTERM))
         return
     # Hide flags: a bare taskkill spawn from windowless pythonw.exe would flash a conhost window.
-    from hermes_cli._subprocess_compat import windows_hide_flags
+    from openchia_cli._subprocess_compat import windows_hide_flags
 
     try:
         result = subprocess.run(
@@ -535,12 +535,12 @@ def inline_source_flag_index(tokens: list[str]) -> int | None:
 
     Everything after ``-c`` is data the inline program receives, not this process's own identity.
     The detached gateway restart watcher (``gateway._spawn_gateway_restart_watcher``) is spawned as
-    ``python -c <watcher source> <old_pid> <python> -m hermes_cli.main gateway run``: its trailing
+    ``python -c <watcher source> <old_pid> <python> -m openchia_cli.main gateway run``: its trailing
     argv is the command the watcher will LATER spawn, so every argv matcher used to read it as a
     live gateway. See #107002 and the "never infer process identity from argv substrings" rule.
 
     Only interpreter options may precede ``-c``; the first non-option token ends the option block
-    (``python -m hermes_cli.main …`` therefore never matches).
+    (``python -m openchia_cli.main …`` therefore never matches).
 
     The walk is VALUE-AWARE: ``-X``/``-W``/``-Q`` and ``--check-hash-based-pycs``/``--jit`` take a
     SEPARATE operand, so a naive "first non-option token ends the block" walk mistakes that operand
@@ -597,16 +597,16 @@ _Q = r"""['"]?"""
 _MAIN = rf"{_Q}__main__{_Q}"
 _RUN_MODULE = rf"runpy\.run_module\(\s*{_Q}(?P<target>[\w.]+){_Q}\s*,\s*run_name\s*=\s*{_MAIN}\s*,\s*alter_sys\s*=\s*True\s*\)"
 _BOOTSTRAPS = (
-    # hermes_cli._launchers.runtime_command (store launcher, the Windows updater's relaunch)
+    # openchia_cli._launchers.runtime_command (store launcher, the Windows updater's relaunch)
     ("module", re.compile(rf"import os, sys, runpy;.*\b{_RUN_MODULE}", re.S)),
-    # hermes_cli.venv_sync.relaunch_command: argv is assigned inside the source
+    # openchia_cli.venv_sync.relaunch_command: argv is assigned inside the source
     ("module", re.compile(rf"import sys, runpy; sys\.path\.insert\(.*\b{_RUN_MODULE}", re.S)),
     ("path", re.compile(
         rf"import sys, runpy; sys\.path\.insert\(.*\brunpy\.run_path\(\s*{_Q}(?P<target>[^'\"]+?){_Q}\s*,\s*run_name\s*=\s*{_MAIN}\s*\)",
         re.S)),
-    # hermes_cli._launchers._launcher_script (the published POSIX shell / Windows .cmd launcher)
+    # openchia_cli._launchers._launcher_script (the published POSIX shell / Windows .cmd launcher)
     ("entry", re.compile(r"import os, re, sys\s.*\bfrom\s+(?P<target>[\w.]+)\s+import\s+(?P<func>\w+)\b.*\bsys\.exit\(\s*(?P=func)\(\)\s*\)", re.S)),
-    # hermes_cli._launchers._write_cmd_launcher: the launcher script, base64-encoded
+    # openchia_cli._launchers._write_cmd_launcher: the launcher script, base64-encoded
     ("base64", re.compile(rf"import base64; exec\(base64\.b64decode\({_Q}(?P<target>[A-Za-z0-9+/=]+){_Q}\)\)")),
 )
 _ASSIGNED_ARGV = re.compile(r"\bsys\.argv\s*=\s*\[(.*?)\]\s*;")
@@ -670,7 +670,7 @@ def _gateway_command_subcommand(command: str | None) -> str | None:
     if not tokens:
         return None
     basenames = [t.rsplit("/", 1)[-1] for t in tokens]
-    # ``python -c <src> … -m hermes_cli.main gateway run``: the trailing argv belongs to the program
+    # ``python -c <src> … -m openchia_cli.main gateway run``: the trailing argv belongs to the program
     # the inline source will spawn later, not to this process (#107002). Case-preserving tokens:
     # the operand-taking ``-X``/``-W``/``-Q`` must not be conflated with ``-q``/``-b``.
     if command_line_runs_inline_source(cased_tokens):
@@ -697,7 +697,7 @@ def _gateway_command_subcommand(command: str | None) -> str | None:
     if any(b in ("hermes-gateway", "hermes-gateway.exe") for b in basenames):
         return "run"
     joined = " ".join(tokens)
-    if "hermes_cli.main" not in joined and "hermes_cli/main.py" not in joined and not any(
+    if "openchia_cli.main" not in joined and "openchia_cli/main.py" not in joined and not any(
         b in ("hermes", "hermes.exe") for b in basenames
     ):
         return None
@@ -725,7 +725,7 @@ def gateway_spawn_intent_subcommand(command: str | None) -> str | None:
     …``: the trailing argv is the inline program's data, not that process's own identity (#107002).
     Callers that inspect a command line as SPAWN INTENT — "if I launch this, does a gateway runtime
     eventually appear?" — need the opposite answer, because
-    ``gateway._spawn_gateway_restart_watcher`` hides a real ``… -m hermes_cli.main gateway run``
+    ``gateway._spawn_gateway_restart_watcher`` hides a real ``… -m openchia_cli.main gateway run``
     behind exactly that wrapper. ``tests/_fixtures/live_system_guard.py`` is the canonical caller.
 
     Still no substring matching: the wrapper is peeled token-wise and each remaining suffix is
@@ -824,7 +824,7 @@ def command_line_names_hermes_home(command_lc: str, home_lc: str) -> bool:
 
 def _command_line_belongs_to_profile(command: str, profile_home: Path) -> bool:
     """True when a gateway command line belongs to ``profile_home`` (mirrors
-    ``hermes_cli.gateway._matches_current_profile``): a stale state file can record a PID recycled
+    ``openchia_cli.gateway._matches_current_profile``): a stale state file can record a PID recycled
     onto ANOTHER profile's live gateway. Named profiles carry ``-p``/``--profile <name>`` or
     ``HERMES_HOME=`` on argv; the default gateway runs bare. Separators normalized."""
     command_lc = command.lower().replace("\\", "/")
@@ -883,13 +883,13 @@ def _record_argv() -> list[str]:
     """``sys.argv`` with the inline-source placeholder replaced by the entry point this process runs.
 
     The published launcher script (``_launchers._launcher_script``: the POSIX ``bin/hermes`` shell
-    launcher and the Windows ``.cmd``) imports ``hermes_cli.main`` inside ``python -I -c <script>``,
+    launcher and the Windows ``.cmd``) imports ``openchia_cli.main`` inside ``python -I -c <script>``,
     so ``sys.argv`` is ``["-c", "gateway", "run"]`` — a record the argv matcher can never accept
     once the live command line is unreadable (Windows/EACCES fallback in
     ``_record_matches_live_gateway_pid``). Recording the module path follows runpy's ``alter_sys``
     convention, which is what the ``--run-module`` and store-launcher forms already persist."""
     argv = list(sys.argv)
-    entry = sys.modules.get("hermes_cli.main")
+    entry = sys.modules.get("openchia_cli.main")
     if argv[:1] == ["-c"] and getattr(entry, "__file__", None):
         argv[0] = entry.__file__
     return argv
@@ -907,7 +907,7 @@ def _build_pid_record() -> dict:
 
 def _get_code_identity_fields() -> dict[str, Any]:
     """Code identity of THIS process for ``gateway_state.json`` (restart picked up new code?).
-    Lazy import keeps ``gateway.status`` free of ``hermes_cli`` at import time. Never raises.
+    Lazy import keeps ``gateway.status`` free of ``openchia_cli`` at import time. Never raises.
 
     A gateway keeps serving the module versions it imported at startup, so stamping the identity into
     ``gateway_state.json`` lets `hermes update` (and the dashboard) prove whether a running gateway actually
@@ -915,7 +915,7 @@ def _get_code_identity_fields() -> dict[str, Any]:
     degrades to absent fields.
     """
     try:
-        from hermes_cli.version_info import get_code_identity
+        from openchia_cli.version_info import get_code_identity
 
         identity = get_code_identity()
         return {"code_sha": identity.get("sha"), "code_version": identity.get("version")}
@@ -1440,8 +1440,8 @@ def multiplexer_liveness_for_profile(profile_dir: Path) -> Optional[tuple[int, d
     if not name:
         return None
     from gateway.host_topology import host_gateway_topology
-    from hermes_cli.gateway import named_profile_served_by_running_multiplexer
-    from hermes_cli.gateway_multiplex_served import live_default_gateway_pid
+    from openchia_cli.gateway import named_profile_served_by_running_multiplexer
+    from openchia_cli.gateway_multiplex_served import live_default_gateway_pid
     from hermes_constants import get_default_hermes_root
     # The roster is matched by NAME, and the multiplexer only serves ``<default root>/profiles/<name>``:
     # a profile directory copied to another root (sandbox, restore-from-backup) keeps the name but is

@@ -53,7 +53,7 @@ description: "Hermes Agent 内部结构——主要子系统、执行路径、�
 ```text
 hermes-agent/
 ├── run_agent.py              # AIAgent — 核心对话循环（大文件）
-├── cli.py                    # HermesCLI — 交互式终端 UI（大文件）
+├── cli.py                    # OpenChiaCLIBase — 交互式终端 UI（大文件）
 ├── model_tools.py            # 工具发现、schema 收集、分发
 ├── toolsets.py               # 工具分组与平台预设
 ├── hermes_state.py           # 带 FTS5 的 SQLite 会话/状态数据库
@@ -75,7 +75,7 @@ hermes-agent/
 │   ├── memory_provider.py   # 记忆提供者 ABC
 │   └── trajectory.py         # 轨迹保存辅助函数
 │
-├── hermes_cli/               # CLI 子命令与设置
+├── openchia_cli/               # CLI 子命令与设置
 │   ├── main.py               # 入口点——所有 `hermes` 子命令（大文件）
 │   ├── config.py             # DEFAULT_CONFIG、OPTIONAL_ENV_VARS、迁移
 │   ├── commands.py           # COMMAND_REGISTRY——斜杠命令中央定义
@@ -138,7 +138,7 @@ hermes-agent/
 ### CLI 会话
 
 ```text
-用户输入 → HermesCLI.process_input()
+用户输入 → OpenChiaCLIBase.process_input()
   → AIAgent.run_conversation()
     → prompt_builder.build_system_prompt()
     → runtime_provider.resolve_runtime_provider()

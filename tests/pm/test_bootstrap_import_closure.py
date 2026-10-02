@@ -14,9 +14,9 @@ def test_minimal_bootstrap_closure_reaches_pm_paths_and_locks(tmp_path):
     stage = tmp_path / "stage"
     shutil.copytree(repo / "pm", stage / "pm", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copy2(repo / "hermes_constants.py", stage / "hermes_constants.py")
-    (stage / "hermes_cli").mkdir()
+    (stage / "openchia_cli").mkdir()
     for name in ("__init__.py", "runtime_state.py"):
-        shutil.copy2(repo / "hermes_cli" / name, stage / "hermes_cli" / name)
+        shutil.copy2(repo / "openchia_cli" / name, stage / "openchia_cli" / name)
     store = stage / "tools"
     env = dict(os.environ, HERMES_HOME=str(tmp_path / "home"),
                HERMES_RUNTIME_DIR=str(store), PYTHONPATH=str(stage))
@@ -47,7 +47,7 @@ class NoApplication:
         if fullname == 'pm' or fullname == 'utils' or fullname.startswith(('pm.', 'agent.')):
             raise AssertionError('signing imported ' + fullname)
 sys.meta_path.insert(0, NoApplication())
-from hermes_cli.macos_signing import sign_managed_python
+from openchia_cli.macos_signing import sign_managed_python
 assert callable(sign_managed_python)
 """
     result = subprocess.run([sys.executable, "-S", "-c", script], cwd=repo,

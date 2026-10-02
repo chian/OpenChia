@@ -633,7 +633,7 @@ def _sent_tools(transport):
 
 
 def test_hook_rewrite_and_restored_vendor_slug_reach_the_gateway_request_body(monkeypatch):
-    import hermes_cli.plugins as plugins
+    import openchia_cli.plugins as plugins
 
     transport = _RecordingTransport()
     _connectors_on(monkeypatch, _recording_client_factory(transport))

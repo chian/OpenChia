@@ -28,7 +28,7 @@ def main():
         os.environ.update(HOME=home, HERMES_HOME=home)
         sys.path.insert(0, str(checkout))
         from cron import jobs, scheduler
-        from hermes_cli.cli_commands_mixin import CLICommandsMixin
+        from openchia_cli.cli_commands_mixin import CLICommandsMixin
         from openai import OpenAI
         from tools.cronjob_job_args import _format_job
 

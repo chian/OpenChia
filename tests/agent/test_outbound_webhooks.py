@@ -39,7 +39,7 @@ def _strip_outbound_callbacks():
     keeps previously-registered callbacks; without this, a target registered
     in one test would fire (real network!) in every later test in this file.
     """
-    from hermes_cli.plugins import get_plugin_manager
+    from openchia_cli.plugins import get_plugin_manager
 
     manager = get_plugin_manager()
     for event, callbacks in list(manager._hooks.items()):
@@ -369,7 +369,7 @@ class TestRegistration:
         cfg = _cfg({"url": _url(http_server), "events": ["pre_tool_call"]})
         outbound_webhooks.register_from_config(cfg)
 
-        from hermes_cli.plugins import get_plugin_manager
+        from openchia_cli.plugins import get_plugin_manager
 
         results = get_plugin_manager().invoke_hook(
             "pre_tool_call", tool_name="terminal", args={"command": "ls"},
@@ -391,10 +391,10 @@ class TestForceReloadHomeScoping:
     def test_force_reload_restores_webhook_and_fires_once(
         self, monkeypatch, http_server,
     ):
-        from hermes_cli import plugins
+        from openchia_cli import plugins
 
         cfg = _cfg({"url": _url(http_server), "events": ["on_session_end"]})
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: cfg)
+        monkeypatch.setattr("openchia_cli.config.load_config", lambda: cfg)
 
         monkeypatch.setenv("HERMES_HOME", "/tmp/profile-b-webhook")
         mgr_b = plugins.PluginManager()
@@ -437,7 +437,7 @@ class TestDelivery:
         registered = outbound_webhooks.register_from_config(cfg)
         assert len(registered) == 1
 
-        from hermes_cli.plugins import get_plugin_manager
+        from openchia_cli.plugins import get_plugin_manager
 
         get_plugin_manager().invoke_hook(
             "on_session_end",
@@ -469,7 +469,7 @@ class TestDelivery:
         cfg = _cfg({"url": _url(http_server), "events": ["on_session_end"]})
         outbound_webhooks.register_from_config(cfg)
 
-        from hermes_cli.plugins import get_plugin_manager
+        from openchia_cli.plugins import get_plugin_manager
 
         get_plugin_manager().invoke_hook("on_session_end", session_id="s")
         assert outbound_webhooks.flush()
@@ -487,7 +487,7 @@ class TestDelivery:
         )
         outbound_webhooks.register_from_config(cfg)
 
-        from hermes_cli.plugins import get_plugin_manager
+        from openchia_cli.plugins import get_plugin_manager
 
         manager = get_plugin_manager()
         manager.invoke_hook(
@@ -550,7 +550,7 @@ class TestDelivery:
         )
         outbound_webhooks.register_from_config(cfg)
 
-        from hermes_cli.plugins import get_plugin_manager
+        from openchia_cli.plugins import get_plugin_manager
 
         get_plugin_manager().invoke_hook("on_session_end", session_id="s1")
         assert outbound_webhooks.flush()
@@ -587,7 +587,7 @@ class TestDelivery:
             "import sys\n"
             f"sys.path.insert(0, {repr(str(Path(outbound_webhooks.__file__).resolve().parents[1]))})\n"
             "from agent import outbound_webhooks\n"
-            "from hermes_cli.plugins import get_plugin_manager\n"
+            "from openchia_cli.plugins import get_plugin_manager\n"
             f"cfg = {repr(cfg)}\n"
             "outbound_webhooks.register_from_config(cfg)\n"
             "get_plugin_manager().invoke_hook('on_session_end', session_id='exit_test')\n"

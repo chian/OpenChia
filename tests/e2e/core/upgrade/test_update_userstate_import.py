@@ -43,7 +43,7 @@ def _home(root: Path, name: str) -> dict:
 
 
 def _cli(root: Path, env: dict, *args: str):
-    return H.run([PY, "-m", "hermes_cli.main", *args], env=env, cwd=root, writable=[root], timeout=300)
+    return H.run([PY, "-m", "openchia_cli.main", *args], env=env, cwd=root, writable=[root], timeout=300)
 
 
 @pytest.fixture(scope="module")

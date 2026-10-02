@@ -44,7 +44,7 @@ class TestGetBrowserEngine:
         """Config browser.engine = 'lightpanda' is respected."""
         from tools.browser_tool_cloud import _get_browser_engine
         cfg = {"browser": {"engine": "lightpanda"}}
-        with patch("hermes_cli.config.read_raw_config", return_value=cfg):
+        with patch("openchia_cli.config.read_raw_config", return_value=cfg):
             assert _get_browser_engine() == "lightpanda"
 
 

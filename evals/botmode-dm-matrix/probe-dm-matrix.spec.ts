@@ -32,11 +32,11 @@ test.beforeAll(async () => {
     fs.symlinkSync(path.join(sourceVenv, 'lib'), path.join(runtime, 'lib'))
     fs.symlinkSync(python, path.join(runtime, 'bin', 'python'))
     python = path.join(runtime, 'bin', 'python')
-    fs.writeFileSync(path.join(runtime, 'bin', 'hermes'), `#!/bin/sh\ncd ${repo}\nexec ${python} -m hermes_cli.main "$@"\n`, { mode: 0o755 })
+    fs.writeFileSync(path.join(runtime, 'bin', 'hermes'), `#!/bin/sh\ncd ${repo}\nexec ${python} -m openchia_cli.main "$@"\n`, { mode: 0o755 })
   }
   const bin = path.join(sandbox.root, 'bin')
   fs.mkdirSync(bin)
-  fs.writeFileSync(path.join(bin, 'hermes'), `#!/bin/sh\ncd ${repo}\nexec ${python} -m hermes_cli.main "$@"\n`, { mode: 0o755 })
+  fs.writeFileSync(path.join(bin, 'hermes'), `#!/bin/sh\ncd ${repo}\nexec ${python} -m openchia_cli.main "$@"\n`, { mode: 0o755 })
   if (process.env.BOT_DM_SERVICE_PATH === '1') {
     fs.writeFileSync(path.join(bin, 'hermes'), `#!/bin/sh\nprintf 'WRONG_PATH_HERMES invoked: %s\\n' "$*" >> ${path.join(evidence, 'wrong-path.log')}\nprintf 'old launcher rejects --query-file\\n' >&2\nexit 2\n`, { mode: 0o755 })
   }
@@ -86,7 +86,7 @@ function home(name: string) {
   return name === 'default' ? fixture.sandbox.hermesHome : path.join(fixture.sandbox.hermesHome, 'profiles', name)
 }
 function snapshot(name: string) {
-  return py('import json,sqlite3,sys; from hermes_cli.active_sessions import active_session_registry_snapshot; c=sqlite3.connect(sys.argv[1]+"/state.db"); c.row_factory=sqlite3.Row; print(json.dumps(dict(sessions=[dict(x) for x in c.execute("select * from sessions")],messages=[dict(x) for x in c.execute("select * from messages")],owners=active_session_registry_snapshot(registry_home=sys.argv[1])),default=str))', [home(name)])
+  return py('import json,sqlite3,sys; from openchia_cli.active_sessions import active_session_registry_snapshot; c=sqlite3.connect(sys.argv[1]+"/state.db"); c.row_factory=sqlite3.Row; print(json.dumps(dict(sessions=[dict(x) for x in c.execute("select * from sessions")],messages=[dict(x) for x in c.execute("select * from messages")],owners=active_session_registry_snapshot(registry_home=sys.argv[1])),default=str))', [home(name)])
 }
 async function capture(label: string) {
   fs.writeFileSync(path.join(evidence, `${label}.json`), JSON.stringify({ default: snapshot('default'), alpha: snapshot('alpha'), beta: snapshot('beta'), gamma: snapshot('gamma'), processes: Object.fromEntries(['default', 'alpha', 'beta', 'gamma'].map(n => { const file = path.join(home(n), 'processes.json'); return [n, fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null] })), prompts: fixture.mock.receivedPrompts, dom: await fixture.page.locator('body').innerText() }, null, 2))
@@ -157,7 +157,7 @@ test('incoming live sender card is rendered before any reload', async () => {
   await expect(page.getByText(MOCK_REPLY).filter({ visible: true }).first()).toBeVisible({ timeout: 60_000 })
   expect(owner('alpha')).not.toBeNull()
   const output = fs.openSync(path.join(evidence, 'live-sender.log'), 'w')
-  const child = spawn(python, ['-m', 'hermes_cli.main', '-p', 'beta', 'chat', '--in', '~', '-c', 'Bot Chat', '--create-if-missing', '-Q', '-q', 'E2E_DM(alpha)[matrix-live-sender-card]'], { cwd: repo, env, stdio: ['ignore', output, output] })
+  const child = spawn(python, ['-m', 'openchia_cli.main', '-p', 'beta', 'chat', '--in', '~', '-c', 'Bot Chat', '--create-if-missing', '-Q', '-q', 'E2E_DM(alpha)[matrix-live-sender-card]'], { cwd: repo, env, stdio: ['ignore', output, output] })
   try {
     await expect.poll(() => dbMessages('alpha').filter(([r,t]) => r === 'user' && t.includes('matrix-live-sender-card')).length, { timeout: 100_000 }).toBe(1)
     await expect.poll(() => child.exitCode, { timeout: 100_000 }).toBe(0)

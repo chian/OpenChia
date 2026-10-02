@@ -349,7 +349,7 @@ def test_add_requires_transport(hermes_root):
 
 def _catalog_http_entry(*, auth: str | None = None):
     """A real HTTP catalog entry. Assertions compare the saved block to this manifest."""
-    from hermes_cli.mcp_catalog import list_catalog
+    from openchia_cli.mcp_catalog import list_catalog
 
     for entry in list_catalog():
         if entry.transport.type != "http" or not entry.transport.url:
@@ -459,8 +459,8 @@ def test_unknown_preset_returns_4063_and_writes_nothing(hermes_root):
 
 
 def test_cli_preset_still_fills_transport_when_not_in_catalog(hermes_root):
-    import hermes_cli.mcp_config as mcp_config
-    from hermes_cli.mcp_catalog import get_entry
+    import openchia_cli.mcp_config as mcp_config
+    from openchia_cli.mcp_catalog import get_entry
 
     preset_name = next(
         name for name in mcp_config._MCP_PRESETS if get_entry(name) is None
@@ -501,7 +501,7 @@ def test_test_resolves_env_refs_from_requested_profile_secret_scope(hermes_root,
     secret scope, not the launch process's ``os.environ`` (the default profile's value) — the
     Desktop MCP setup "Test connection" otherwise reports green against the wrong credential.
     ``os.environ`` is never mutated by the scope."""
-    import hermes_cli.mcp_config as mcp_config
+    import openchia_cli.mcp_config as mcp_config
 
     work = hermes_root / "profiles" / "work"
     (work / ".env").write_text("ALPHA_ONLY_TOKEN=work-token\n", encoding="utf-8")

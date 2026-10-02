@@ -77,7 +77,7 @@ def _get_dialog_policy_config() -> Tuple[str, float]:
     from tools.browser_supervisor_dialogs import DEFAULT_DIALOG_POLICY, DEFAULT_DIALOG_TIMEOUT_S, _VALID_POLICIES
     policy, timeout_s = DEFAULT_DIALOG_POLICY, DEFAULT_DIALOG_TIMEOUT_S
     try:
-        from hermes_cli.config import read_raw_config
+        from openchia_cli.config import read_raw_config
         cfg = read_raw_config()
         browser_cfg = cfg.get("browser", {}) if isinstance(cfg, dict) else {}
         if not isinstance(browser_cfg, dict):

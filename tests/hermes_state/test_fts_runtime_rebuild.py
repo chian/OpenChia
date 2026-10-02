@@ -94,7 +94,7 @@ class TestRuntimeFtsRebuild:
         assert _concrete_state_db_holder_pids(
             db_path,
             [
-                (222, "uninspectable holder: python -m hermes_cli.main serve --port 0"),
+                (222, "uninspectable holder: python -m openchia_cli.main serve --port 0"),
                 (-1, "open-file scan failed"),
             ],
         ) == []
@@ -143,16 +143,16 @@ class TestRuntimeFtsRebuild:
                 "/usr/sbin/tailscaled",
                 "be-child",
                 "ssh",
-                "--cmd=python -m hermes_cli.main gateway",
+                "--cmd=python -m openchia_cli.main gateway",
             ),
             ("tmux", "new-session", "/opt/hermes-agent/.venv/bin/hermes gateway"),
             ("python3", "/opt/hermes-agent/tools/check_state.py"),
             ("hermes-monitor", "gateway"),
             ("hermesctl", "serve"),
-            ("python3", "worker.py", "hermes_cli.main"),
-            ("python3", "-m", "other.module", "hermes_cli.main"),
-            ("python3", "-c", "hermes_cli.main"),
-            ("python3", "-Icprint('hermes_cli.main')", "hermes_cli/main.py"),
+            ("python3", "worker.py", "openchia_cli.main"),
+            ("python3", "-m", "other.module", "openchia_cli.main"),
+            ("python3", "-c", "openchia_cli.main"),
+            ("python3", "-Icprint('openchia_cli.main')", "openchia_cli/main.py"),
         ),
     )
     def test_uninspectable_non_hermes_process_is_not_a_holder(self, argv):
@@ -164,18 +164,18 @@ class TestRuntimeFtsRebuild:
             ("/usr/local/bin/hermes", "gateway"),
             ("/usr/local/bin/hermes-agent", "serve"),
             ("/usr/local/bin/hermes-acp", "--stdio"),
-            ("/usr/bin/python3", "-m", "hermes_cli.main", "gateway"),
+            ("/usr/bin/python3", "-m", "openchia_cli.main", "gateway"),
             ("/usr/bin/python3", "-m", "acp_adapter"),
-            ("/usr/bin/python3", "-Im", "hermes_cli.main", "gateway"),
-            ("/usr/bin/python3", "-mhermes_cli.main", "gateway"),
-            ("/usr/bin/python3", "-W", "ignore", "-m", "hermes_cli.main"),
-            ("/usr/bin/python3", "-Xdev", "-m", "hermes_cli.main"),
+            ("/usr/bin/python3", "-Im", "openchia_cli.main", "gateway"),
+            ("/usr/bin/python3", "-mopenchia_cli.main", "gateway"),
+            ("/usr/bin/python3", "-W", "ignore", "-m", "openchia_cli.main"),
+            ("/usr/bin/python3", "-Xdev", "-m", "openchia_cli.main"),
             (
                 "/opt/hermes-agent/.venv/bin/python",
-                "/opt/hermes-agent/hermes_cli/main.py",
+                "/opt/hermes-agent/openchia_cli/main.py",
                 "gateway",
             ),
-            ("python.exe", "--", "hermes_cli/main.py", "gateway"),
+            ("python.exe", "--", "openchia_cli/main.py", "gateway"),
             ("python3", "/opt/hermes-agent/run_agent.py", "--query", "hello"),
         ),
     )
@@ -253,7 +253,7 @@ class TestRuntimeFtsRebuild:
         # PID 222's cmdline is world-readable and looks like Hermes
         cmdline_path = proc_root / "222" / "cmdline"
         cmdline_path.write_bytes(
-            b"python3\x00-m\x00hermes_cli.main\x00chat\x00"
+            b"python3\x00-m\x00openchia_cli.main\x00chat\x00"
         )
 
         monkeypatch.setattr(hermes_state_holders.os, "getpid", lambda: 111)
@@ -283,7 +283,7 @@ class TestRuntimeFtsRebuild:
         # Should include PID 222 with the cmdline info
         assert len(holders) == 1
         assert holders[0][0] == 222
-        assert "hermes_cli.main" in holders[0][1]
+        assert "openchia_cli.main" in holders[0][1]
 
         # Cleanup
         os.chmod(proc_root / "222" / "fd", 0o755)
@@ -758,12 +758,12 @@ class TestRuntimeFtsRebuild:
             SessionDB, "_reap_inactive_orphan_desktop_holders", lambda self, holders, *, min_age_seconds: [],
         )
         monkeypatch.setattr(
-            hermes_state_schema, "_read_proc_argv", lambda pid: ["python", "-m", "hermes_cli.main", "serve"], raising=False,
+            hermes_state_schema, "_read_proc_argv", lambda pid: ["python", "-m", "openchia_cli.main", "serve"], raising=False,
         )
         clock = [1000.0]
         monkeypatch.setattr(hermes_state_schema.time, "time", lambda: clock[0])
 
-        from hermes_cli.doctor_state import _render_state_db_stats
+        from openchia_cli.doctor_state import _render_state_db_stats
         from hermes_state_dbfile import collect_state_db_stats
 
         def doctor_blob():
@@ -794,7 +794,7 @@ class TestRuntimeFtsRebuild:
             futile_lines = [r for r in caplog.records if "waiting is futile" in r.getMessage()]
             assert len(futile_lines) == 1 and futile_lines[0].levelno == logging.ERROR
             msg = futile_lines[0].getMessage()
-            assert "pid 4242: python -m hermes_cli.main serve" in msg
+            assert "pid 4242: python -m openchia_cli.main serve" in msg
             assert "Stop ONLY the other holder" in msg and "with the gateway stopped" not in msg
             blob = doctor_blob()
             assert "4242" in blob and "waiting is futile" in blob and "stop only" in blob

@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from hermes_cli.config import cfg_get
+from openchia_cli.config import cfg_get
 from tools.browser_tool_origin import origin as _bt
 from tools import browser_tool_cloud as _cloud
 from tools import browser_tool_lightpanda_fallback as _lp
@@ -108,7 +108,7 @@ def _analyze_screenshot_with_aux_llm(screenshot_path: Path, question: str) -> st
     vision_timeout = 120.0
     vision_temperature = 0.1
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         _vision_cfg = cfg_get(load_config(), "auxiliary", "vision", default={})
         if _vision_cfg.get("timeout") is not None:
             vision_timeout = float(_vision_cfg["timeout"])

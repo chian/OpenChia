@@ -1030,11 +1030,11 @@ const DESKTOP_MANAGED_SSH_RECOVERY_PATH = path.join(app.getPath('userData'), 'ma
 // active-profile.json records which Hermes profile the desktop launches its
 // local backend as. When set, startHermes() passes `hermes --profile <name>
 // dashboard …`, which deterministically pins HERMES_HOME (see
-// _apply_profile_override in hermes_cli/main.py) and bypasses the sticky
+// _apply_profile_override in openchia_cli/main.py) and bypasses the sticky
 // ~/.hermes/active_profile file. Unset (null) preserves the legacy behavior:
 // no --profile flag, so the backend honors active_profile / default.
 
-// Mirrors hermes_cli.profiles._PROFILE_ID_RE so we never hand the backend a
+// Mirrors openchia_cli.profiles._PROFILE_ID_RE so we never hand the backend a
 // value its profile resolver would reject and exit on.
 const PROFILE_NAME_RE = DESKTOP_PROFILE_NAME_RE
 // Branch we track for self-update. The GUI work has merged to main, so this
@@ -2886,7 +2886,7 @@ function looksLikeDesktopAppBinary(commandPath) {
 }
 
 function isHermesSourceRoot(root) {
-  return directoryExists(root) && fileExists(path.join(root, 'hermes_cli', 'main.py'))
+  return directoryExists(root) && fileExists(path.join(root, 'openchia_cli', 'main.py'))
 }
 
 async function findPythonForRoot(root: string): Promise<string | null> {
@@ -3622,7 +3622,7 @@ function resolveCheckoutUpdateStrategy(): UpdaterStrategy {
       preflightStateDb({
         python: managed ? null : await findPythonForRoot(root),
         launcher,
-        script: path.join(root, 'hermes_cli', 'backup_sqlite.py'),
+        script: path.join(root, 'openchia_cli', 'backup_sqlite.py'),
         home,
         log
       })
@@ -4324,7 +4324,7 @@ async function releaseBackendLock(updateRoot: string, tag: string): Promise<{ un
   // supervised primary backend and all pool backends. The gate waits for
   // these to actually LEAVE the process table, not just for the shim to
   // unlock — the shim probe only covers venv\Scripts\hermes.exe, but the
-  // backend is `python.exe -m hermes_cli.main serve`, which need not hold
+  // backend is `python.exe -m openchia_cli.main serve`, which need not hold
   // the shim at all (#74805 first-attempt race).
   const initialPids = []
 
@@ -4662,7 +4662,7 @@ function writeBootstrapMarker(payload) {
   writeFileAtomic(BOOTSTRAP_COMPLETE_MARKER, JSON.stringify(merged, null, 2) + '\n', 'utf8')
 
   // The checkout's own install stamp is written by the Python completion tail
-  // (hermes_cli/source_completion.py) during the products stage, from the
+  // (openchia_cli/source_completion.py) during the products stage, from the
   // checkout itself. The desktop never synthesizes it: the checkout is the
   // authority for its runtime identity, and a desktop-written copy would
   // clobber the completion tail's richer provenance.
@@ -7876,7 +7876,7 @@ function fetchJsonViaOauthSession(url, options: any = {}) {
 // involved. Tokens are persisted encrypted at rest via Electron ``safeStorage``
 // (OS keychain) keyed by gateway base URL, and refreshed via
 // ``/auth/native/refresh`` before expiry. This is the desktop half of the
-// feature; the server half lives in hermes_cli/dashboard_auth/native_flow.py.
+// feature; the server half lives in openchia_cli/dashboard_auth/native_flow.py.
 // ---------------------------------------------------------------------------
 
 // In-memory cache of decrypted native tokens, keyed by normalized base URL.
@@ -8157,7 +8157,7 @@ async function freshGatewayWsUrl(profile) {
 //     its own PKCE exchange; SSO removes the human click, not a security check.
 
 // Canonical Nous portal base URL, overridable for staging/dev. Mirrors the CLI
-// convention (hermes_cli/auth.py DEFAULT_NOUS_PORTAL_URL + the same env names)
+// convention (openchia_cli/auth.py DEFAULT_NOUS_PORTAL_URL + the same env names)
 // so a single override flips every Hermes surface to the same portal.
 const DEFAULT_NOUS_PORTAL_URL = 'https://portal.nousresearch.com'
 
@@ -12140,7 +12140,7 @@ async function runPoolBackendStart(
   profileDeletionGate.assertCanStart(profile)
 
   // --profile wins over the inherited HERMES_HOME env (see _apply_profile_override
-  // step 3 in hermes_cli/main.py), so the child re-homes to this profile.
+  // step 3 in openchia_cli/main.py), so the child re-homes to this profile.
   // --port 0: the OS assigns an ephemeral port; the child announces it on stdout.
   const backendArgs = ['--profile', profile, 'serve', '--host', '127.0.0.1', '--port', '0']
 
@@ -15432,7 +15432,7 @@ ipcMain.handle('hermes:window:openBrowser', async (_event, tabId) => {
 // to continue the chat in the terminal they already live in.
 //
 // The desktop's runtime is usually a venv Python invoked as
-// `python -m hermes_cli.main`, so we resolve the SAME backend the app itself
+// `python -m openchia_cli.main`, so we resolve the SAME backend the app itself
 // launches and carry its argv + PYTHONPATH into a launcher script rather than
 // hoping a `hermes` exists on the user's interactive PATH. Resolution only —
 // never ensureRuntime(), which would kick off a first-run install from a menu
@@ -18323,7 +18323,7 @@ function resolveHermesRuntime() {
 // CLI exactly: GUI only, Lite (keep user data), Full. We ask the agent to do
 // the actual removal via `hermes uninstall …` so the cross-platform PATH /
 // registry / service / node-symlink cleanup all lives in one place
-// (hermes_cli/uninstall.py + hermes_cli/gui_uninstall.py).
+// (openchia_cli/uninstall.py + openchia_cli/gui_uninstall.py).
 //
 // The IPC boundary applies the baked install policy before either callback.
 // Only self-managed installs use the Python summary or the cleanup script.
@@ -18370,7 +18370,7 @@ async function probeUninstallSummary(): Promise<UninstallSummaryDetails> {
     try {
       const child: ChildProcess = spawn(
         py,
-        ['-m', 'hermes_cli.main', 'uninstall', '--gui-summary'],
+        ['-m', 'openchia_cli.main', 'uninstall', '--gui-summary'],
         hiddenWindowsChildOptions({
           cwd: agentRoot,
           env: { ...process.env, HERMES_HOME, NO_COLOR: '1' },
@@ -18428,7 +18428,7 @@ async function runDesktopUninstall(mode: string): Promise<DesktopUninstallResult
   // Interpreter choice (Finding 3): lite/full rmtree the venv that holds the
   // running python.exe. On Windows a running .exe is mandatory-locked, so the
   // rmtree must NOT be driven by the venv's own interpreter — use a system
-  // Python with PYTHONPATH=<agentRoot> so `import hermes_cli` resolves from
+  // Python with PYTHONPATH=<agentRoot> so `import openchia_cli` resolves from
   // source while the venv is torn down. gui-only doesn't touch the venv, so the
   // venv python is fine there. If no system Python exists (the Windows edge
   // case), fall back to the venv python — gui-only is unaffected; lite/full may

@@ -360,7 +360,7 @@ _SID_RE = re.compile(r"^session_id:\s*(\S+)\s*$", re.M)
 def run_oneshot(env: dict[str, str], cwd: Path, prompt: str, spawned: Spawned, *,
                 resume: str | None = None, timeout: float = 180.0) -> tuple[str, str]:
     """``hermes chat -q PROMPT -Q [--resume SID]`` in a fresh process -> (stdout, durable sid)."""
-    cmd = [sys.executable, "-m", "hermes_cli.main", "chat", "-q", prompt, "-Q"]
+    cmd = [sys.executable, "-m", "openchia_cli.main", "chat", "-q", prompt, "-Q"]
     if resume:
         cmd += ["--resume", resume]
     p = spawned.add(subprocess.Popen(cmd, cwd=str(cwd), env={**env, "PWD": str(cwd)}, stdin=subprocess.DEVNULL,
@@ -575,8 +575,8 @@ class InProcessSession:
     owns ``history`` and hands it back each turn; ``/compress`` goes through ``compress_now``."""
 
     def __init__(self, base_url: str, hermes_home: Path, sid: str, *, platform: str = "cli") -> None:
-        from hermes_cli.config import load_config
-        from hermes_cli.tools_config import _get_platform_tools
+        from openchia_cli.config import load_config
+        from openchia_cli.tools_config import _get_platform_tools
         from hermes_state import SessionDB
         from run_agent import AIAgent
 
@@ -599,7 +599,7 @@ class InProcessSession:
         return result
 
     def compress(self, args: str = "") -> Any:
-        """Mirror ``hermes_cli.cli_session_mixin`` ``/compress``: install ``after_messages``, follow a
+        """Mirror ``openchia_cli.cli_session_mixin`` ``/compress``: install ``after_messages``, follow a
         rotated session id, re-flush the handoff on rotation, finalize the engine notification."""
         from agent.conversation_compression import finalize_context_engine_compression_notification
         from agent.conversation_compression_manual import compress_now, parse_compress_args

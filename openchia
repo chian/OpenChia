@@ -2,6 +2,6 @@
 """OpenChia interactive Duet launcher."""
 
 if __name__ == "__main__":
-    from hermes_cli.openchia_main import main
+    from openchia_cli.openchia_main import main
 
     main()

@@ -53,7 +53,7 @@ def _end_voice_chat(*, stop_loop: bool, stop_tts: bool) -> None:
     os.environ["HERMES_VOICE"] = os.environ["HERMES_VOICE_TTS"] = "0"
     if stop_loop:
         with contextlib.suppress(Exception):
-            from hermes_cli.voice import stop_continuous
+            from openchia_cli.voice import stop_continuous
             stop_continuous()
     if stop_tts:
         with contextlib.suppress(Exception):
@@ -261,7 +261,7 @@ def _deliver_fd_transcript(text: str) -> None:
 
 def _speak_text_with_barge(text: str) -> None:
     """speak_text registered in ``_fd_speak_pipelines`` so the listener can cut it / waits for it."""
-    from hermes_cli.voice import speak_text
+    from openchia_cli.voice import speak_text
     stop, done = threading.Event(), threading.Event()
     with _fd_listener_lock:
         _fd_speak_pipelines.add((stop, done))
@@ -435,7 +435,7 @@ def _wake_detect_handler(transport, sid: str, phrase: str, new_session: bool):
 def _(rid, params: dict) -> dict:
     """What THIS BUILD enforces (a client withholds unless advertised), sourced from the enforcing
     module, never config: a believed-but-absent capability is worse."""
-    from hermes_cli.active_sessions import PER_SESSION_EXCLUSIVE_SUBMIT
+    from openchia_cli.active_sessions import PER_SESSION_EXCLUSIVE_SUBMIT
     return _ok(rid, {"per_session_exclusive_submit": bool(PER_SESSION_EXCLUSIVE_SUBMIT)})
 
 
@@ -650,7 +650,7 @@ def _voice_toggle_mode(rid, params: dict) -> dict:
     else:
         # The continuous loop holds the microphone; tear it down with the mode.
         try:
-            from hermes_cli.voice import stop_continuous
+            from openchia_cli.voice import stop_continuous
             stop_continuous()
         except ImportError:
             pass
@@ -730,7 +730,7 @@ def _(rid, params: dict) -> dict:
         with _voice_sid_lock:
             _voice_event_sid = params.get("session_id") or _voice_event_sid
         if action == "stop":
-            from hermes_cli.voice import stop_continuous
+            from openchia_cli.voice import stop_continuous
             stop_continuous(force_transcribe=True)
             _resume_voice_wake()
             return _ok(rid, {"status": "stopped"})
@@ -739,11 +739,11 @@ def _(rid, params: dict) -> dict:
         # user_barge=True also marks the speech interrupted for the next turn's
         # model note, and stop_playback() releases the file player.
         _tts_stream_stop(user_barge=True)
-        from hermes_cli.voice import start_continuous
+        from openchia_cli.voice import start_continuous
         # Busy probe holds the no-speech counter during long agent turns; safe to re-register every
         # start (older wrappers lack the setter).
         with contextlib.suppress(Exception):
-            from hermes_cli.voice import set_voice_busy_probe
+            from openchia_cli.voice import set_voice_busy_probe
             set_voice_busy_probe(_any_session_running)
         # Shape-safe: malformed voice YAML falls back to documented defaults; an explicit numeric
         # max_recording_seconds <= 0 disables the cap (0.0).
@@ -784,7 +784,7 @@ def _(rid, params: dict) -> dict:
     if not text:
         return _err(rid, 4020, "text required")
     try:
-        import hermes_cli.voice  # noqa: F401  (a missing module must answer 5026, not die in a thread)
+        import openchia_cli.voice  # noqa: F401  (a missing module must answer 5026, not die in a thread)
     except Exception as e:
         return _err(rid, 5026, "voice module not available" if isinstance(e, ImportError) else str(e))
     threading.Thread(target=_speak_text_with_barge, args=(text,), daemon=True).start()

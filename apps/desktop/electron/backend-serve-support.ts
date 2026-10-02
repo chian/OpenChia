@@ -46,7 +46,7 @@ export function createBackendServeSupportResolver(hermesHome: string, rememberLo
       if (backend.root) {
         try {
           const src = await fs.promises.readFile(
-            path.join(backend.root, 'hermes_cli', 'subcommands', 'dashboard.py'),
+            path.join(backend.root, 'openchia_cli', 'subcommands', 'dashboard.py'),
             'utf8'
           )
 

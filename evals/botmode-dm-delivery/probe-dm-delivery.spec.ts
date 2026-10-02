@@ -26,7 +26,7 @@ test.beforeAll(async () => {
   }
   const bin = path.join(sandbox.root, 'bin')
   fs.mkdirSync(bin)
-  fs.writeFileSync(path.join(bin, 'hermes'), `#!/bin/sh\ncd ${repo}\nexec ${python} -m hermes_cli.main "$@"\n`, { mode: 0o755 })
+  fs.writeFileSync(path.join(bin, 'hermes'), `#!/bin/sh\ncd ${repo}\nexec ${python} -m openchia_cli.main "$@"\n`, { mode: 0o755 })
   env = buildAppEnv(sandbox, { HOME: sandbox.root, HERMES_DESKTOP_PYTHON: python,
     HERMES_DESKTOP_HERMES: path.join(bin, 'hermes'), PATH: `${bin}:${process.env.PATH}`,
     PYTHONPATH: repo, HERMES_SINGLE_QUERY_LINGER_SECONDS: '30' })
@@ -45,7 +45,7 @@ test.afterAll(async () => { await fixture?.cleanup() })
 test('cron output waits for a CLI-only owner and arrives after owner release', async () => {
   test.setTimeout(240_000)
   const output = fs.openSync(path.join(evidence, 'cli-owner.log'), 'w')
-  const child = spawn(python, ['-m', 'hermes_cli.main', '-p', 'beta', 'chat', '--in', '~', '-c', 'Bot Chat', '--create-if-missing', '-Q', '-q', 'CLI_OWNER_HOLD'], { cwd: repo, env, stdio: ['ignore', output, output] })
+  const child = spawn(python, ['-m', 'openchia_cli.main', '-p', 'beta', 'chat', '--in', '~', '-c', 'Bot Chat', '--create-if-missing', '-Q', '-q', 'CLI_OWNER_HOLD'], { cwd: repo, env, stdio: ['ignore', output, output] })
   const cronEnv = { ...env, HERMES_HOME: fixture.sandbox.hermesHome }
   try {
     await fixture.mock.waitForHeldCompletion()
@@ -102,7 +102,7 @@ test('named Bot Chat receives a nested one-shot message_agent delivery once', as
   await page.keyboard.press('Enter')
   await expect(page.getByText(MOCK_REPLY).filter({ visible: true }).first()).toBeVisible({ timeout: 60_000 })
   const output = fs.openSync(path.join(evidence, 'oneshot.log'), 'w')
-  const child = spawn(python, ['-m', 'hermes_cli.main', '-p', 'beta', 'chat', '--in', '~', '-c', 'Bot Chat', '--create-if-missing', '-Q', '-q', 'E2E_DM(alpha)[nested-one-shot-sentinel]'], { cwd: repo, env, stdio: ['ignore', output, output] })
+  const child = spawn(python, ['-m', 'openchia_cli.main', '-p', 'beta', 'chat', '--in', '~', '-c', 'Bot Chat', '--create-if-missing', '-Q', '-q', 'E2E_DM(alpha)[nested-one-shot-sentinel]'], { cwd: repo, env, stdio: ['ignore', output, output] })
   try {
     await expect.poll(() => dbMessages('alpha').filter(([role, text]) => role === 'user' && text.includes('nested-one-shot-sentinel')).length, { timeout: 120_000 }).toBe(1)
     console.log('ALPHA_ROWS', JSON.stringify(dbMessages('alpha')))

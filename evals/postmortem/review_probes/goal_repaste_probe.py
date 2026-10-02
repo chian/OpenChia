@@ -32,8 +32,8 @@ os.environ['NO_PROXY'] = '*'
 os.environ['TZ'] = 'UTC'
 # Fail closed: these probes must never invoke a provider or external network.
 socket.socket.connect = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('network prohibited in review probe'))
-from cli import HermesCLI
-from hermes_cli import cli_commands_mixin, goals
+from cli import OpenChiaCLIBase
+from openchia_cli import cli_commands_mixin, goals
 from gateway.slash_commands_goals import GatewayGoalCommandsMixin
 from gateway.config import Platform
 from gateway.platforms.event import MessageEvent, MessageType
@@ -55,7 +55,7 @@ history = [{'role': 'user', 'content': original}, {'role': 'assistant', 'content
 output = {'tag': tag, 'modules': [cli_commands_mixin.__file__, goals.__file__, server.__file__], 'source_equal': original == repeated, 'original_chars': len(original)}
 
 def make_cli(hist, sid):
-    c = HermesCLI.__new__(HermesCLI)
+    c = OpenChiaCLIBase.__new__(OpenChiaCLIBase)
     c.session_id = sid
     c.agent = None
     c.conversation_history = copy.deepcopy(hist)
@@ -86,7 +86,7 @@ output['selection_ui'] = cli_case(options, 'ship the UI', tag+'-ui')
 output['different_selected_goals_same_model_prompt'] = output['selection_api']['prompt'] == output['selection_ui']['prompt']
 # /goal draft invokes its only paid dependency as an explicit unavailable stub.
 c = make_cli(history, tag+'-draft')
-with patch('hermes_cli.goals.draft_contract', return_value=None), contextlib.redirect_stdout(io.StringIO()):
+with patch('openchia_cli.goals.draft_contract', return_value=None), contextlib.redirect_stdout(io.StringIO()):
     assert c.process_command('/goal draft ' + original)
 output['draft_fallback_prompt'] = c._pending_input.get_nowait()
 

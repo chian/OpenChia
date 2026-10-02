@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from hermes_constants import get_hermes_home
-from hermes_cli.relay_plugin_cutover import (RELAY_PLUGINS_CONFIG_ENV, configured_legacy_relay_env_vars)
+from openchia_cli.relay_plugin_cutover import (RELAY_PLUGINS_CONFIG_ENV, configured_legacy_relay_env_vars)
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +186,7 @@ def _load_segments_config() -> dict[str, Any]:
         # Never import gateway.run here: its import-time env setup (_HERMES_GATEWAY, HERMES_QUIET,
         # TERMINAL_CWD := home) rebinds a CLI/TUI/cron host — hung approvals (#87183), `hermes -z`
         # running in $HOME without the launch dir's AGENTS.md (#95577). Same reader it delegates to.
-        from hermes_cli.config_effective import load_user_config_effective
+        from openchia_cli.config_effective import load_user_config_effective
 
         telemetry = (load_user_config_effective().get("gateway") or {}).get("telemetry") or {}
         segments = telemetry.get("session_segments") or {}

@@ -824,7 +824,7 @@ def _load_config() -> dict:
     """Effective ``code_execution`` section (defaults + user file + managed overlay) — runs while the
     module-level schema is built at tool discovery, so it must not import ``cli``."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from openchia_cli.config import load_config_readonly
         cfg = load_config_readonly().get("code_execution", {})
         return cfg if isinstance(cfg, dict) else {}
     except Exception:

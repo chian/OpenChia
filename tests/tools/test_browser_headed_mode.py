@@ -39,7 +39,7 @@ class TestIsHeadedMode:
     def test_config_true(self):
         from tools.browser_tool_cloud import _is_headed_mode
         cfg = {"browser": {"headed": True}}
-        with patch("hermes_cli.config.read_raw_config", return_value=cfg):
+        with patch("openchia_cli.config.read_raw_config", return_value=cfg):
             assert _is_headed_mode() is True
 
 

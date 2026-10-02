@@ -2,7 +2,7 @@
 
 from typing import NoReturn
 
-from hermes_cli._old_updater import stop_for_relaunch
+from openchia_cli._old_updater import stop_for_relaunch
 
 
 def ensure(feature: str, *, prompt: bool = True) -> NoReturn:

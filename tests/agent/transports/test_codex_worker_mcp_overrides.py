@@ -12,7 +12,7 @@ import pytest
 
 from agent.delegation_context import DELEGATED_CHILD_ENV_MARKER, KANBAN_ENV_KEYS, non_dispatcher_owned_context
 from agent.transports import codex_app_server as cas
-from hermes_cli.codex_runtime_plugin_migration import migrate
+from openchia_cli.codex_runtime_plugin_migration import migrate
 
 
 class _RecordingPopen:

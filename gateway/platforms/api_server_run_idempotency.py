@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict
 
-from hermes_cli.sqlite_util import add_column_if_missing
+from openchia_cli.sqlite_util import add_column_if_missing
 
 
 # Keep the extracted store's log records on the API server logger.
@@ -65,7 +65,7 @@ class RunIdempotencyStore:
     def __init__(self, db_path: str = None):
         if db_path is None:
             try:
-                from hermes_cli.config import get_hermes_home
+                from openchia_cli.config import get_hermes_home
                 db_path = str(get_hermes_home() / "runs_idempotency.db")
             except Exception:
                 db_path = ":memory:"

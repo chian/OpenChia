@@ -8,7 +8,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 
-from hermes_cli.config import get_hermes_home
+from openchia_cli.config import get_hermes_home
 
 from .config import Platform, GatewayConfig, PlatformConfig
 from .session import SessionSource

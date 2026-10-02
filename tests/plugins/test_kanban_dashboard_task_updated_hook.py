@@ -17,9 +17,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hermes_cli import kanban_db as kb
-from hermes_cli import kanban_db_connect as kbc
-from hermes_cli.plugins import get_plugin_manager
+from openchia_cli import kanban_db as kb
+from openchia_cli import kanban_db_connect as kbc
+from openchia_cli.plugins import get_plugin_manager
 
 
 def _load_plugin_router():

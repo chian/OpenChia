@@ -27,7 +27,7 @@ OFFERABLE: frozenset[str] = frozenset({"available", "no_requirements"})
 
 
 class _HasRequirements(Protocol):
-    """The slice of a catalog entry `availability` reads; keeps this module free of `hermes_cli` imports."""
+    """The slice of a catalog entry `availability` reads; keeps this module free of `openchia_cli` imports."""
 
     @property
     def requires_app(self) -> bool: ...

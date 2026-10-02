@@ -178,7 +178,7 @@ def test_default_turn_lease_timeout_overrides_stale_env_when_key_is_omitted(
 
     env = _run_gateway_import(hermes_home, initial_env={})
 
-    from hermes_cli.config import DEFAULT_CONFIG
+    from openchia_cli.config import DEFAULT_CONFIG
 
     assert float(env.get("HERMES_TURN_LEASE_TIMEOUT")) == float(
         DEFAULT_CONFIG["agent"]["gateway_turn_lease_timeout"]
@@ -192,7 +192,7 @@ def test_default_turn_lease_timeout_matches_the_runtime_fallback() -> None:
     lease registry's DEFAULT_LEASE_WAIT must move together.
     """
     from gateway.turn_lease import DEFAULT_LEASE_WAIT
-    from hermes_cli.config import DEFAULT_CONFIG
+    from openchia_cli.config import DEFAULT_CONFIG
 
     assert (
         float(DEFAULT_CONFIG["agent"]["gateway_turn_lease_timeout"])

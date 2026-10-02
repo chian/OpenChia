@@ -50,7 +50,7 @@ def test_payload_sys_paths_order_repo_first(tmp_path):
     ns = _load()
     here = str(tmp_path / "bin")
     entries = ns["payload_sys_paths"](here)
-    # Repo first — its hermes_cli wins over anything stale in the venv
+    # Repo first — its openchia_cli wins over anything stale in the venv
     # (the sealed payload has no working editable install). Same order the
     # old rust shim composed PYTHONPATH in.
     assert entries == [
@@ -192,7 +192,7 @@ def test_configure_without_localappdata_leaves_pycache_alone(tmp_path):
 def _render(tmp_path: Path) -> Path:
     text = _WRAPPER.read_text(encoding="utf-8")
     for placeholder, value in {
-        "__HERMES_ENTRY_MODULE__": "hermes_cli.main",
+        "__HERMES_ENTRY_MODULE__": "openchia_cli.main",
         "__HERMES_ENTRY_FUNC__": "main",
         "__HERMES_REPO_REL__": "../repo",
         "__HERMES_SITE_REL__": "../venv/Lib/site-packages",
@@ -209,14 +209,14 @@ def _render(tmp_path: Path) -> Path:
 def test_rendered_wrapper_dispatches_to_the_entry_module(tmp_path):
     """The full wrapper contract without distlib: a rendered copy placed in
     bin/ next to a stub repo + venv resolves its own dir from sys.argv[0],
-    imports hermes_cli.main off the payload paths, and returns main()'s
+    imports openchia_cli.main off the payload paths, and returns main()'s
     exit code."""
     bin_dir = tmp_path / "bin"
-    (bin_dir / ".." / "repo" / "hermes_cli").mkdir(parents=True, exist_ok=True)
+    (bin_dir / ".." / "repo" / "openchia_cli").mkdir(parents=True, exist_ok=True)
     (bin_dir / ".." / "venv" / "Lib" / "site-packages").mkdir(parents=True, exist_ok=True)
-    (bin_dir / ".." / "repo" / "hermes_cli" / "__init__.py").write_text("")
+    (bin_dir / ".." / "repo" / "openchia_cli" / "__init__.py").write_text("")
     (bin_dir / ".." / "repo" / "hermes_bootstrap.py").write_text("READY = True\n")
-    (bin_dir / ".." / "repo" / "hermes_cli" / "main.py").write_text(
+    (bin_dir / ".." / "repo" / "openchia_cli" / "main.py").write_text(
         "import sys\n"
         "assert sys.modules['hermes_bootstrap'].READY\n"
         "def main():\n"

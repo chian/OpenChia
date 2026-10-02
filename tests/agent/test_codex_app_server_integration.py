@@ -359,7 +359,7 @@ class TestRunConversationCodexPath:
         monkeypatch.setattr(CodexAppServerSession, "run_turn", fake_run_turn)
 
         with patch(
-            "hermes_cli.config.load_config",
+            "openchia_cli.config.load_config",
             return_value={"model": {"codex_bin": configured}},
         ):
             agent = _make_codex_agent()
@@ -404,7 +404,7 @@ class TestRunConversationCodexPath:
         profile remains the filesystem boundary."""
         captured = self._capture_routing_agent(monkeypatch)
         with patch(
-            "hermes_cli.config.load_config_readonly",
+            "openchia_cli.config.load_config_readonly",
             return_value={"approvals": {"mode": "off"}},
         ):
             agent = _make_codex_agent()
@@ -423,7 +423,7 @@ class TestRunConversationCodexPath:
         subsystem's compatibility behavior for codex app-server routing too."""
         captured = self._capture_routing_agent(monkeypatch)
         with patch(
-            "hermes_cli.config.load_config_readonly",
+            "openchia_cli.config.load_config_readonly",
             return_value={"approvals": {"mode": False}},
         ):
             agent = _make_codex_agent()
@@ -442,7 +442,7 @@ class TestRunConversationCodexPath:
         this fix is a no-op for users who haven't opted out."""
         captured = self._capture_routing_agent(monkeypatch)
         with patch(
-            "hermes_cli.config.load_config",
+            "openchia_cli.config.load_config",
             return_value={"approvals": {"mode": "manual"}},
         ):
             agent = _make_codex_agent()
@@ -466,7 +466,7 @@ class TestRunConversationCodexPath:
         captured = self._capture_routing_agent(monkeypatch)
         monkeypatch.setattr(_approval, "_YOLO_MODE_FROZEN", True)
         with patch(
-            "hermes_cli.config.load_config",
+            "openchia_cli.config.load_config",
             return_value={"approvals": {"mode": "manual"}},
         ):
             agent = _make_codex_agent()
@@ -485,7 +485,7 @@ class TestRunConversationCodexPath:
         time, independent of the startup-time approvals config."""
         captured = self._capture_routing_agent(monkeypatch)
         with patch(
-            "hermes_cli.config.load_config",
+            "openchia_cli.config.load_config",
             return_value={"approvals": {"mode": "manual"}},
         ):
             agent = _make_codex_agent()

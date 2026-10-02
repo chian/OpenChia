@@ -390,7 +390,7 @@ async function listRemoteHermesProfiles(ssh) {
 }
 
 async function readRemoteInstallId(ssh) {
-  // The stable backend identity the roster collapses on (`hermes_cli/install_identity.py`:
+  // The stable backend identity the roster collapses on (`openchia_cli/install_identity.py`:
   // `<install root>/install_id`, opaque hex). Read from the INSTALL root, so an ssh connection
   // pinned to `<root>/profiles/<name>` reports the same id as one pointed at the root — they are
   // one backend. Read-only: a missing file is left missing (minting identity is the install's job,

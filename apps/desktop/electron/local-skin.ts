@@ -12,7 +12,7 @@ const SKIN_FILE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/
 const MAX_CONFIG_BYTES = 1_000_000
 const MAX_SKIN_BYTES = 256_000
 
-// Custom skin files are overlays in hermes_cli/skin_engine.py. Keep this in
+// Custom skin files are overlays in openchia_cli/skin_engine.py. Keep this in
 // step with its default `colors` block so a partial local skin paints exactly
 // like the resolved gateway payload when Desktop starts offline.
 const DEFAULT_SKIN_COLORS: SkinColors = {

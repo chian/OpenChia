@@ -255,7 +255,7 @@ def test_subprocess_pkill_hermes_blocked():
 
 
 def test_subprocess_pkill_python_dash_f_blocked():
-    """``pkill -f python`` matches the gateway's "python -m hermes_cli.main"."""
+    """``pkill -f python`` matches the gateway's "python -m openchia_cli.main"."""
     with pytest.raises(RuntimeError, match="live-system guard"):
         subprocess.run(["pkill", "-f", "python"])
 
@@ -286,13 +286,13 @@ def test_subprocess_killall_hermes_blocked():
 
 
 def test_subprocess_popen_real_gateway_restart_blocked():
-    """``python -m hermes_cli.main gateway restart`` is a detached child that
+    """``python -m openchia_cli.main gateway restart`` is a detached child that
     inherits the pytest-tmp HERMES_HOME, resolves the developer's real
     ``hermes-gateway`` unit, and outlives the test (39 six-day orphans squatted
     the webhook port, 2026-09-03). Blocked at the spawn primitive."""
     with pytest.raises(RuntimeError, match="live-system guard"):
         subprocess.Popen(
-            [sys.executable, "-m", "hermes_cli.main", "gateway", "restart"],
+            [sys.executable, "-m", "openchia_cli.main", "gateway", "restart"],
             start_new_session=True,
         )
 
@@ -305,7 +305,7 @@ def test_subprocess_popen_inline_source_restart_watcher_blocked():
     with pytest.raises(RuntimeError, match="live-system guard"):
         subprocess.Popen(
             [sys.executable, "-c", "import time; time.sleep(1)", "4242",
-             sys.executable, "-m", "hermes_cli.main", "gateway", "run"],
+             sys.executable, "-m", "openchia_cli.main", "gateway", "run"],
             start_new_session=True,
         )
 
@@ -315,7 +315,7 @@ def test_subprocess_run_gateway_status_passes_through():
     read-only subcommand) must still spawn — via the canonical matcher, not an
     argv substring."""
     result = subprocess.run(
-        [sys.executable, "-c", "import sys; print(sys.argv[1:])", "-m", "hermes_cli.main", "gateway", "status"],
+        [sys.executable, "-c", "import sys; print(sys.argv[1:])", "-m", "openchia_cli.main", "gateway", "status"],
         capture_output=True, text=True,
     )
     assert result.returncode == 0

@@ -24,7 +24,7 @@ import {
 
 // Resolve the host's own Node binary -- guaranteed to be on disk and
 // runnable. We use it as both a stand-in for "a python that doesn't
-// have hermes_cli" (since `node -c "import hermes_cli"` will exit
+// have openchia_cli" (since `node -c "import openchia_cli"` will exit
 // non-zero) and as a way to script verifyHermesCli's success path
 // (a tiny script we write to disk that exits 0 on --version).
 const NODE_BIN = process.execPath
@@ -83,7 +83,7 @@ test('canImportHermesCli returns false when path is falsy', async () => {
 })
 
 test('canImportHermesCli returns false when interpreter cannot run -c', async () => {
-  // node IS an interpreter, but `node -c "import hermes_cli"` is a
+  // node IS an interpreter, but `node -c "import openchia_cli"` is a
   // SyntaxError -- different exit reason from a real Python's
   // ModuleNotFoundError, but the predicate is "exit 0 or not" and
   // both land on "not", which is exactly what we want for the

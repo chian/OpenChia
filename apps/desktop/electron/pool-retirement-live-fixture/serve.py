@@ -38,7 +38,7 @@ if sys.argv[2] == "cron-busy":
         time.sleep(0.03)
     print("RETIREMENT_CRON_STARTED", flush=True)
 
-from hermes_cli.web_server import app, start_server
+from openchia_cli.web_server import app, start_server
 
 original_lifespan = app.router.lifespan_context
 

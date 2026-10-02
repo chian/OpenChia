@@ -18,7 +18,7 @@ import sys
 import pytest
 
 import pm
-from hermes_cli import venv_sync
+from openchia_cli import venv_sync
 from pm.environments import install_state_dir, runtime_facts_path, selected_venv, site_packages
 from pm import paths
 from pm.lock import Facts
@@ -62,10 +62,10 @@ def source_launch(tmp_path, monkeypatch, isolated_python):
         json.dumps({"updateMechanism": "self"}), encoding="utf-8",
     )
     # The startup heal hands the shared completion tail (launchers, products,
-    # maintenance) to the checkout's own hermes_cli/source_completion.py. This
+    # maintenance) to the checkout's own openchia_cli/source_completion.py. This
     # source slice has no products; record the hand-off instead of running it.
-    (root / "hermes_cli").mkdir()
-    (root / "hermes_cli" / "source_completion.py").write_text(
+    (root / "openchia_cli").mkdir()
+    (root / "openchia_cli" / "source_completion.py").write_text(
         "import json, sys\n"
         f"open({str(tmp_path / 'completion-calls')!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n",
         encoding="utf-8",
@@ -97,11 +97,11 @@ def source_launch(tmp_path, monkeypatch, isolated_python):
 @pytest.mark.platforms("posix")
 @pytest.mark.parametrize("update", ["launch", "sync", "pm-update"])
 def test_source_python_pin_update_survives_real_gc(source_launch, tmp_path, monkeypatch, update):
-    from hermes_cli import _launchers
+    from openchia_cli import _launchers
     from pm.cli import cmd_gc
     from pm.lock import Lockfile
     from pm.store import current_target, tree_digest
-    from tests.hermes_cli.test_source_launcher_publication import BOOT_FILES
+    from tests.openchia_cli.test_source_launcher_publication import BOOT_FILES
 
     root, old_python, _ = source_launch
     repository = Path(__file__).resolve().parents[2]
@@ -182,7 +182,7 @@ def test_source_python_pin_update_survives_real_gc(source_launch, tmp_path, monk
 
 @pytest.mark.platforms("posix")
 def test_launcher_publication_failure_retries_without_rebuilding_dependencies(source_launch, monkeypatch):
-    from hermes_cli import _launchers
+    from openchia_cli import _launchers
 
     root, store_python, _ = source_launch
     with monkeypatch.context() as failed_publication:
@@ -273,7 +273,7 @@ def test_process_spawned_by_the_update_commits_dependencies_but_not_the_tail(sou
     """A process an update spawns before its dependencies are current (its restarted gateway)
     must not boot on a tree built for another interpreter; it syncs, but leaves the tail alone."""
     import time
-    from hermes_cli.update_lock import update_marker_path
+    from openchia_cli.update_lock import update_marker_path
     from pm.environments import committed_venv
 
     root, store_python, _ = source_launch
@@ -386,7 +386,7 @@ def test_real_bootstrap_reexecs_before_app_imports(source_launch, tmp_path, isol
         "import json, sys\n"
         "from pathlib import Path\n"
         "from pm.environments import selected_venv, site_packages\n"
-        "from hermes_cli.venv_sync import prepare_launch\n"
+        "from openchia_cli.venv_sync import prepare_launch\n"
         "root = Path(__file__).parent\n"
         "selected = selected_venv(root)\n"
         "print(json.dumps({'executable': sys.executable, 'args': sys.argv[1:],\n"

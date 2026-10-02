@@ -282,8 +282,8 @@ def test_real_db_openers_honor_configured_delete(monkeypatch, tmp_path):
     from cron import executions
     from gateway import delivery_ledger
     from gateway.platforms.api_server import ResponseStore
-    from hermes_cli import projects_db
-    from hermes_cli import kanban_db_connect as kbc
+    from openchia_cli import projects_db
+    from openchia_cli import kanban_db_connect as kbc
     from hermes_state import SessionDB
     from plugins.memory.holographic.store import MemoryStore
     from plugins.platforms.discord.recovery import DiscordRecoveryStore

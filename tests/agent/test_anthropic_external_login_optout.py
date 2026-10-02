@@ -19,7 +19,7 @@ import urllib.request
 from agent import anthropic_credentials as ac
 from agent import credential_sources
 from agent.credential_pool import load_pool
-from hermes_cli.auth_commands import auth_list_command
+from openchia_cli.auth_commands import auth_list_command
 
 
 def _write_config(hermes_home, adopt):

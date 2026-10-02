@@ -1,6 +1,6 @@
 """Frozen historical updater function, executed by test_old_updater_shims.
 
-Verbatim extraction from hermes_cli/update_cmd.py at
+Verbatim extraction from openchia_cli/update_cmd.py at
 096826bf7ded2170eafe6a0781af22c807fba6c2 (_sync_python_dependencies_after_pull
 and _install_psutil_android_compat).
 Only the module scaffolding is supplied by the test. Lazy imports stay intact:
@@ -29,7 +29,7 @@ def _install_psutil_android_compat(
     """
     import tempfile
     import urllib.request
-    from hermes_cli.psutil_android import PSUTIL_URL, prepare_patched_psutil_sdist
+    from openchia_cli.psutil_android import PSUTIL_URL, prepare_patched_psutil_sdist
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -80,7 +80,7 @@ def _sync_python_dependencies_after_pull(
         print("→ Python dependencies unchanged — skipping reinstall")
     else:
         print("→ Updating Python dependencies...")
-    from hermes_cli.managed_uv import ensure_uv, update_managed_uv
+    from openchia_cli.managed_uv import ensure_uv, update_managed_uv
 
     # Keep managed uv current — runs `uv self update` if we already have one.
     update_managed_uv()
@@ -96,7 +96,7 @@ def _sync_python_dependencies_after_pull(
         # Use official managed_python_env() isolation so third-party
         # UV_PYTHON_INSTALL_DIR (e.g. WorkBuddy) cannot hijack uv; then
         # point VIRTUAL_ENV at this install's venv.
-        from hermes_cli.managed_uv import managed_python_env
+        from openchia_cli.managed_uv import managed_python_env
 
         uv_env = managed_python_env()
         uv_env["VIRTUAL_ENV"] = str(_m().PROJECT_ROOT / "venv")

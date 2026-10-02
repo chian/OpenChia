@@ -36,11 +36,11 @@ def _run_delivery(profile: str, tmp: str, env: dict | None = None, *,
     child that exits under the cap is booked from its streams as before; one still lingering at the
     cap is booked from its turn report — its answer and outcome, never a timeout — and left to finish
     the linger that protects its own handoff. Only a turn that never ends is a timeout."""
-    from hermes_cli.quiet_single_query import run_reported_turn
+    from openchia_cli.quiet_single_query import run_reported_turn
     from tools.bot_relay import local_delivery_command
     report = f"{tmp}.turn.json"
     try:
-        # The relay pins UTF-8 on every platform (#93590): its child is the bootstrapped hermes_cli
+        # The relay pins UTF-8 on every platform (#93590): its child is the bootstrapped openchia_cli
         # and its answer is relayed verbatim, unlike the cron lane's locale-decoded tails.
         return run_reported_turn(
             local_delivery_command(profile, tmp), env=os.environ if env is None else env,
@@ -121,7 +121,7 @@ def _(rid, params: dict, _root=_relay_root, _run=_run_delivery,
             # A logged-in client's sender fields are NOT trusted — but the delivery is not refused
             # either: the Desktop is itself a logged-in client on every gateway that requires sign-in
             # (it mints a ws-ticket carrying the signed-in {user_id, provider} —
-            # hermes_cli/dashboard_auth/routes.py), so refusing took cross-connection relay offline
+            # openchia_cli/dashboard_auth/routes.py), so refusing took cross-connection relay offline
             # for exactly the auth-gated gateways it serves; only ``?internal=`` callers are
             # identity-exempt and the Desktop cannot present one. Nor is the author dropped: an
             # unattributed turn is the HUMAN's to the recipient's memory (Honcho routes it into the

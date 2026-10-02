@@ -80,7 +80,7 @@ def tui_smoke(launcher: Path, env: dict[str, str], cwd: Path) -> None:
 
 
 def validate_update_refusal(project_root: Path, result: subprocess.CompletedProcess) -> None:
-    from hermes_cli.update_contract import COMMIT_BUILD_UPDATE_MESSAGE, is_commit_build
+    from openchia_cli.update_contract import COMMIT_BUILD_UPDATE_MESSAGE, is_commit_build
 
     # Commit artifacts have no update channel, even when installed through dpkg.
     commit_build = is_commit_build(project_root)
@@ -117,7 +117,7 @@ def main() -> None:
             str(python), "-c",
             "import ctypes, ssl, sqlite3, bz2, lzma, zlib, hashlib, readline; "
             "import cli, run_agent, tui_gateway.server; "
-            "from hermes_cli.config import detect_install_method; "
+            "from openchia_cli.config import detect_install_method; "
             "assert detect_install_method() == 'apt'; "
             "print('CLI_AND_STDLIB_IMPORTS_OK')",
         ], env, home)

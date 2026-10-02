@@ -71,10 +71,10 @@ def _run(job, tmp_path, *, current_provider="openrouter", current_model=None, cr
     with patch("cron.scheduler._hermes_home", tmp_path), \
          patch("cron.scheduler._get_hermes_home", return_value=tmp_path), \
          patch("cron.scheduler_delivery._resolve_origin", return_value=None), \
-         patch("hermes_cli.env_loader.load_hermes_dotenv"), \
-         patch("hermes_cli.env_loader.reset_secret_source_cache"), \
+         patch("openchia_cli.env_loader.load_hermes_dotenv"), \
+         patch("openchia_cli.env_loader.reset_secret_source_cache"), \
          patch("hermes_state_registry.acquire", return_value=fake_db), \
-         patch("hermes_cli.runtime_provider.resolve_runtime_provider", side_effect=_resolve), \
+         patch("openchia_cli.runtime_provider.resolve_runtime_provider", side_effect=_resolve), \
          patch("run_agent.AIAgent") as mock_agent_cls:
         mock_agent = MagicMock()
         mock_agent.run_conversation.return_value = {"final_response": "ok"}
@@ -136,7 +136,7 @@ class TestPinnedLocksTheMainModel:
         monkeypatch.setattr(jobs, "resolve_job_ref", lambda ref: next(
             (j for j in state["jobs"] if j["id"] == ref), None), raising=True)
         resolver = MagicMock(return_value={"provider": main_provider})
-        monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", resolver)
+        monkeypatch.setattr("openchia_cli.runtime_provider.resolve_runtime_provider", resolver)
         return jobs, resolver
 
     def test_pinned_true_locks_then_pinned_false_releases(self, monkeypatch, tmp_path):

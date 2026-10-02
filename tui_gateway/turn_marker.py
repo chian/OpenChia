@@ -43,7 +43,7 @@ def _writer_identity() -> dict:
     every failure degrades to a bare pid."""
     identity = {"writer_pid": os.getpid()}
     try:
-        from hermes_cli.active_sessions import _own_start_time
+        from openchia_cli.active_sessions import _own_start_time
         start = _own_start_time()
         if start is not None:
             identity["writer_start_time"] = float(start)
@@ -67,7 +67,7 @@ def marker_writer_state(entry: dict) -> str:
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return "unknown"
     try:
-        from hermes_cli.active_sessions import _pid_liveness
+        from openchia_cli.active_sessions import _pid_liveness
         live = _pid_liveness(pid, entry.get("writer_start_time"))
     except Exception:
         return "unknown"

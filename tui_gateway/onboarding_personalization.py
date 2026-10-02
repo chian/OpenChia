@@ -1,7 +1,7 @@
 import json
 
 from hermes_constants import reset_hermes_home_override, set_hermes_home_override
-from hermes_cli.profiles import get_profile_dir
+from openchia_cli.profiles import get_profile_dir
 from tools.memory_tool import load_on_disk_store, memory_tool
 
 

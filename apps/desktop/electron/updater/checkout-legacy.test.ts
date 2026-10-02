@@ -10,10 +10,10 @@ import { readSourceUpdate, type SourceUpdate } from './checkout-source'
 it('moves a checkout without a source probe to main, but surfaces a broken probe', async (): Promise<void> => {
   const root: string = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-channel-'))
   const home: string = path.join(root, 'profile')
-  const modulePath: string = path.join(root, 'hermes_cli', 'source_check.py')
+  const modulePath: string = path.join(root, 'openchia_cli', 'source_check.py')
   fs.mkdirSync(path.dirname(modulePath))
   fs.mkdirSync(home)
-  fs.writeFileSync(path.join(root, 'hermes_cli', '__init__.py'), '')
+  fs.writeFileSync(path.join(root, 'openchia_cli', '__init__.py'), '')
 
   const probe: () => Promise<SourceUpdate | null> = (): Promise<SourceUpdate | null> =>
     readSourceUpdate({
@@ -81,7 +81,7 @@ it.skipIf(process.platform === 'win32')(
     fs.mkdirSync(home)
     fs.writeFileSync(
       launcher,
-      '#!/bin/sh\n[ "$1" = --run-module ] && [ "$2" = hermes_cli.source_check ] || exit 5\nprintf \'%s\\n\' \'{"supported":true,"channel":"stable","behind":-1}\'\n',
+      '#!/bin/sh\n[ "$1" = --run-module ] && [ "$2" = openchia_cli.source_check ] || exit 5\nprintf \'%s\\n\' \'{"supported":true,"channel":"stable","behind":-1}\'\n',
       { mode: 0o755 }
     )
 
@@ -114,7 +114,7 @@ it.skipIf(process.platform !== 'win32')(
     fs.mkdirSync(home)
     fs.writeFileSync(
       launcher,
-      '@echo off\r\nif not "%~1"=="--run-module" exit /b 5\r\nif not "%~2"=="hermes_cli.source_check" exit /b 6\r\necho {"supported":true,"channel":"stable","behind":-1}\r\n'
+      '@echo off\r\nif not "%~1"=="--run-module" exit /b 5\r\nif not "%~2"=="openchia_cli.source_check" exit /b 6\r\necho {"supported":true,"channel":"stable","behind":-1}\r\n'
     )
 
     try {

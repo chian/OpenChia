@@ -1582,7 +1582,7 @@ class TestAuthorizationEmailMatch:
         from gateway.config import GatewayConfig
         from gateway.run import GatewayRunner
         from gateway.session import SessionSource
-        from hermes_cli.plugins import discover_plugins
+        from openchia_cli.plugins import discover_plugins
 
         monkeypatch.setenv("GOOGLE_CHAT_ALLOWED_USERS", "alice@example.com")
         # Plugin platforms become available during the normal gateway startup
@@ -1631,7 +1631,7 @@ class TestCronSchedulerRegistry:
             return
         # Discover first so the plugin is loaded at all.
         try:
-            from hermes_cli.plugins import discover_plugins
+            from openchia_cli.plugins import discover_plugins
             discover_plugins()
         except Exception:
             pass

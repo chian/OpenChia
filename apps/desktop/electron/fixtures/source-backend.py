@@ -23,7 +23,7 @@ def main() -> None:
     root = Path(os.environ["HERMES_HOME"]) / "hermes-agent"
     root.mkdir(parents=True)
     for name in (
-        "hermes_cli", "hermes_platform", "pm", "agent", "tools", "gateway", "tui_gateway", "cron", "plugins",
+        "openchia_cli", "hermes_platform", "pm", "agent", "tools", "gateway", "tui_gateway", "cron", "plugins",
     ):
         shutil.copytree(repository / name, root / name,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -60,7 +60,7 @@ def main() -> None:
     from pm.lock import Facts
     from pm.store import current_target, tree_digest
     from pm.environments import selected_venv
-    from hermes_cli._launchers import ensure_install_launchers
+    from openchia_cli._launchers import ensure_install_launchers
 
     # PM's worker runs on PM's own staged runtime (truststore, ruamel), never on
     # the application interpreter; only the tool acquisition is substituted.

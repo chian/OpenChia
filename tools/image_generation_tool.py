@@ -157,7 +157,7 @@ def _submit_fal_request(model: str, arguments: Dict[str, Any]):
 def _read_image_gen_key(key: str) -> Optional[str]:
     """Return the stripped ``image_gen.<key>`` string from config.yaml, or None."""
     try:
-        from hermes_cli.config import load_config
+        from openchia_cli.config import load_config
         cfg = load_config()
         section = cfg.get("image_gen") if isinstance(cfg, dict) else None
         value = section.get(key) if isinstance(section, dict) else None
@@ -522,7 +522,7 @@ def _build_no_backend_setup_message() -> str:
 def _get_plugin_provider(name: str, *, force: bool = False):
     """Discover plugins (local import: importing this module must not trigger discovery) and return the named provider."""
     from agent.image_gen_registry import get_provider
-    from hermes_cli.plugins import _ensure_plugins_discovered
+    from openchia_cli.plugins import _ensure_plugins_discovered
     if force:
         _ensure_plugins_discovered(force=True)
     else:

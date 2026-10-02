@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from hermes_cli.dashboard_auth import LoginStart, ProviderError, Session
+from openchia_cli.dashboard_auth import LoginStart, ProviderError, Session
 from plugins.dashboard_auth._shared import (
     JwtOAuthProvider,
     SkipRegistration,

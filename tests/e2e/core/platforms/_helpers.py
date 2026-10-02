@@ -1,6 +1,6 @@
 """Harness for the messaging-adapter contract suite.
 
-``GatewayUnderTest`` runs the REAL ``hermes gateway run`` (``python -m hermes_cli.main gateway run``)
+``GatewayUnderTest`` runs the REAL ``hermes gateway run`` (``python -m openchia_cli.main gateway run``)
 in a child process on a throwaway HOME/HERMES_HOME, with the real platform adapter plugin loaded and
 its SDK pointed at a local stand-in platform server (``tests/fakes/platforms``). The model is
 ``tests/fakes/fake_llm_provider.FakeLLMServer`` driven by a ``Director`` that answers per inbound
@@ -129,7 +129,7 @@ class GatewayUnderTest:
         assert self.proc is None or self.proc.poll() is not None
         log = open(self.log_path, "a", encoding="utf-8")  # noqa: SIM115 - handed to the child
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "hermes_cli.main", "gateway", "run"], cwd=str(self.home),
+            [sys.executable, "-m", "openchia_cli.main", "gateway", "run"], cwd=str(self.home),
             env=hermetic_env(self.home, dict(self._env)), stdin=subprocess.DEVNULL, stdout=log,
             stderr=subprocess.STDOUT, start_new_session=True)
         log.close()
@@ -159,7 +159,7 @@ class GatewayUnderTest:
         return proc.returncode
 
     def run_cli(self, *argv: str, timeout: float = 120.0) -> subprocess.CompletedProcess:
-        return subprocess.run([sys.executable, "-m", "hermes_cli.main", *argv], cwd=str(self.home),
+        return subprocess.run([sys.executable, "-m", "openchia_cli.main", *argv], cwd=str(self.home),
                               env=hermetic_env(self.home, dict(self._env)), stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, timeout=timeout)
 

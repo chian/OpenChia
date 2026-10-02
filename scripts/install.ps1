@@ -956,7 +956,7 @@ function Invoke-SourceCompletion([bool]$Desktop) {
     # arrive through pm as the build asks for them; the bootstrap interpreter
     # itself only re-enters the tree on PM's selected Python.
     $bootPy = Get-BootstrapPython
-    $completionArgs = @('-I', '-B', '-X', 'utf8', 'hermes_cli/source_completion.py', '--source', $InstallDir)
+    $completionArgs = @('-I', '-B', '-X', 'utf8', 'openchia_cli/source_completion.py', '--source', $InstallDir)
     if ($Desktop) { $completionArgs += '--desktop' }
     Push-Location $InstallDir
     try {
@@ -978,7 +978,7 @@ function Publish-UserCommand {
     $bootPy = Get-BootstrapPython
     Push-Location $InstallDir
     try {
-        Invoke-Logged "Publishing the hermes command" { & $bootPy -I -X utf8 hermes_cli/_launchers.py $binDir }
+        Invoke-Logged "Publishing the hermes command" { & $bootPy -I -X utf8 openchia_cli/_launchers.py $binDir }
         $code = $LASTEXITCODE
     } finally {
         Pop-Location
@@ -1091,7 +1091,7 @@ function Stage-Desktop {
 
 function Confirm-DesktopArtifact {
     # Probe the packaged artifact the completion just built -- the same
-    # candidates hermes_cli/main_desktop._desktop_packaged_executable resolves.
+    # candidates openchia_cli/main_desktop._desktop_packaged_executable resolves.
     Push-Location $InstallDir
     try {
         $desktopDir = Join-Path $InstallDir "apps\desktop"

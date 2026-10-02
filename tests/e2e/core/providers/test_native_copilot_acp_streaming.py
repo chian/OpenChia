@@ -175,7 +175,7 @@ def _nested_acp(root: Path) -> Observed:
         assert result.get("stopReason") == "end_turn", result
         return "".join(_chunk_text(m) for _, m in rpc.obs.received)
 
-    return _run_child([sys.executable, "-m", "hermes_cli.main", "acp"], nh, fake, drive)
+    return _run_child([sys.executable, "-m", "openchia_cli.main", "acp"], nh, fake, drive)
 
 
 def _chunk_text(msg: dict[str, Any]) -> str:

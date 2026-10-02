@@ -28,7 +28,7 @@ describe('readPreUpdateBackupEnabled', () => {
 
     const runtime = {
       command: '/runtime/python',
-      args: ['-m', 'hermes_cli.main', 'config', 'get', 'updates.pre_update_backup', '--json'],
+      args: ['-m', 'openchia_cli.main', 'config', 'get', 'updates.pre_update_backup', '--json'],
       env: { PYTHONPATH: '/runtime/hermes' }
     }
 

@@ -9,8 +9,8 @@ from gateway.platforms.event import MessageEvent, MessageType
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource
 from gateway.wake import deliver_wake
-from hermes_cli import kanban_db as kb
-from hermes_cli import kanban_db_connect as kbc
+from openchia_cli import kanban_db as kb
+from openchia_cli import kanban_db_connect as kbc
 
 
 class WakeAdapter(BasePlatformAdapter):

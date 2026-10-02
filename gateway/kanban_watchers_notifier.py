@@ -22,12 +22,12 @@ from gateway.wake import session_owned_by_profile
 
 
 def _kbc():
-    from hermes_cli import kanban_db_connect
+    from openchia_cli import kanban_db_connect
     return kanban_db_connect
 
 
 def _kbn():
-    from hermes_cli import kanban_db_notify
+    from openchia_cli import kanban_db_notify
     return kanban_db_notify
 
 # "status" covers dashboard drag-drop and `_set_status_direct()`.
@@ -650,7 +650,7 @@ class _KanbanNotification:
         _source._transport_adapter_ref = weakref.ref(self.adapter)
         from gateway.run import _async_profile_runtime_scope
         if self.sub_profile and getattr(getattr(self.runner, "config", None), "multiplex_profiles", False):
-            from hermes_cli.profiles import profile_exists
+            from openchia_cli.profiles import profile_exists
             if not profile_exists(self.sub_profile):
                 raise RuntimeError(f"Kanban wake profile {self.sub_profile!r} no longer exists")
         async with _async_profile_runtime_scope(self.runner._resolve_profile_home_for_source(_source)):

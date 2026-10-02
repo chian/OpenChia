@@ -113,7 +113,7 @@ class Rig:
 
 
 def hermes_argv(*args: str) -> list[str]:
-    return [sys.executable, "-m", "hermes_cli.main", *args]
+    return [sys.executable, "-m", "openchia_cli.main", *args]
 
 
 _PR_SET_CHILD_SUBREAPER = 36

@@ -76,19 +76,19 @@ def _fake_cli(tmp_path, body):
 class TestModeDetection:
     def test_default_on_when_cli_available(self, monkeypatch):
         """Backend unset: Browser Use mode is the default when the CLI runs."""
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: {})
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: {})
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: ["/usr/bin/browser-use"])
         assert bu_cli.is_browser_use_cli_mode() is True
 
     def test_default_off_when_cli_unavailable(self, monkeypatch):
         """Backend unset + no runnable CLI: keep the built-in browser tools."""
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: {})
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: {})
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: None)
         assert bu_cli.is_browser_use_cli_mode() is False
 
     def test_explicit_off_wins_over_default(self, monkeypatch):
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"backend": bu_cli.BACKEND_DISABLED}},
         )
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: ["/usr/bin/browser-use"])
@@ -97,7 +97,7 @@ class TestModeDetection:
     def test_yaml_bool_off_means_disabled(self, monkeypatch):
         """YAML 1.1 parses unquoted `off` as False — must mean disabled."""
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"backend": False}},
         )
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: ["/usr/bin/browser-use"])
@@ -105,14 +105,14 @@ class TestModeDetection:
 
     def test_config_opt_in(self, monkeypatch):
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"backend": "browser-use"}},
         )
         assert bu_cli.is_browser_use_cli_mode() is True
 
     def test_other_backend_value_is_not_cli_mode(self, monkeypatch):
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"backend": "something-else"}},
         )
         assert bu_cli.is_browser_use_cli_mode() is False
@@ -121,7 +121,7 @@ class TestModeDetection:
         def boom():
             raise RuntimeError("config unreadable")
 
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", boom)
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", boom)
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: None)
         assert bu_cli.is_browser_use_cli_mode() is False
 
@@ -240,7 +240,7 @@ class TestVaultSupervisorAttach:
     def test_exec_attaches_supervisor_to_the_browser_it_drives(self, tmp_path, monkeypatch, _fake_supervisor_registry):
         """browser_vault_fill injects secrets only over the supervisor's CDP WebSocket. Without this attach the
         default (Browser Use) backend had no supervisor at all and every fill failed with supervisor_required."""
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: {"browser": {"backend": "browser-use"}})
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: {"browser": {"backend": "browser-use"}})
         cli = _fake_cli(tmp_path, 'cat > /dev/null\necho ok\n')
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: [cli])
         monkeypatch.setattr("tools.browser_tool_cdp._resolve_cdp_override", lambda url: url)
@@ -279,13 +279,13 @@ class TestLegacyCloudMigration:
     _LEGACY = {"browser": {"cloud_provider": "browser-use"}}
 
     def test_direct_api_config_migrates(self, monkeypatch):
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: self._LEGACY)
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: self._LEGACY)
         monkeypatch.setenv("BROWSER_USE_API_KEY", "bu-key")
         assert bu_cli.is_browser_use_cli_mode() is True
 
     def test_gateway_config_stays_on_legacy_path(self, monkeypatch):
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "browser-use", "use_gateway": True}},
         )
         monkeypatch.setenv("BROWSER_USE_API_KEY", "bu-key")
@@ -293,7 +293,7 @@ class TestLegacyCloudMigration:
         assert bu_cli.is_browser_use_cli_mode() is False
 
     def test_no_api_key_stays_on_legacy_path(self, monkeypatch):
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: self._LEGACY)
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: self._LEGACY)
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: None)
         assert bu_cli.is_browser_use_cli_mode() is False
 
@@ -301,7 +301,7 @@ class TestLegacyCloudMigration:
         """A Camofox user (env-var selected, cloud_provider unset) with a
         stray BROWSER_USE_API_KEY keeps Camofox — no silent mode flip."""
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config", lambda: {"browser": {}}
+            "openchia_cli.config.read_raw_config", lambda: {"browser": {}}
         )
         monkeypatch.setenv("BROWSER_USE_API_KEY", "bu-key")
         import tools.browser_camofox as camofox
@@ -313,7 +313,7 @@ class TestLegacyCloudMigration:
         """Even with browser.backend: browser-use, an active Camofox setup
         falls back to the built-in tools (no CDP surface to drive)."""
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"backend": "browser-use"}},
         )
         import tools.browser_camofox as camofox
@@ -324,7 +324,7 @@ class TestLegacyCloudMigration:
 
     def test_explicit_other_backend_wins(self, monkeypatch):
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "browser-use", "backend": "something-else"}},
         )
         monkeypatch.setenv("BROWSER_USE_API_KEY", "bu-key")
@@ -332,7 +332,7 @@ class TestLegacyCloudMigration:
 
     def test_other_cloud_provider_does_not_migrate(self, monkeypatch):
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"cloud_provider": "browserbase"}},
         )
         monkeypatch.setenv("BROWSER_USE_API_KEY", "bu-key")
@@ -344,7 +344,7 @@ class TestLegacyCloudMigration:
         """No cloud_provider configured + BROWSER_USE_API_KEY set: credential
         auto-detection prefers Browser Use (even when Browserbase creds are
         also present), which now means Browser Use mode."""
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: {})
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: {})
         monkeypatch.setenv("BROWSER_USE_API_KEY", "bu-key")
         monkeypatch.setenv("BROWSERBASE_API_KEY", "bb-key")
         monkeypatch.setenv("BROWSERBASE_PROJECT_ID", "bb-project")
@@ -352,7 +352,7 @@ class TestLegacyCloudMigration:
 
 
     def test_migrated_config_gets_bu_autospawn(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: self._LEGACY)
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: self._LEGACY)
         monkeypatch.setenv("BROWSER_USE_API_KEY", "bu-key")
         cli = _fake_cli(tmp_path, 'cat > /dev/null\necho "autospawn:$BU_AUTOSPAWN"\n')
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: [cli])
@@ -361,7 +361,7 @@ class TestLegacyCloudMigration:
 
     def test_explicit_backend_does_not_set_bu_autospawn(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"backend": "browser-use"}},
         )
         cli = _fake_cli(tmp_path, 'cat > /dev/null\necho "autospawn:[$BU_AUTOSPAWN]"\n')
@@ -370,7 +370,7 @@ class TestLegacyCloudMigration:
         assert "autospawn:[]" in result["output"]
 
     def test_picker_highlights_cli_row_for_migrated_config(self, monkeypatch):
-        from hermes_cli.tools_config import TOOL_CATEGORIES, _is_provider_active
+        from openchia_cli.tools_config import TOOL_CATEGORIES, _is_provider_active
 
         cli_row = next(
             r for r in TOOL_CATEGORIES["browser"]["providers"] if r.get("browser_backend")
@@ -630,7 +630,7 @@ class TestProviderPickerIntegration:
     marker) must enter/leave CLI mode cleanly and highlight correctly."""
 
     def _rows(self):
-        from hermes_cli.tools_config import TOOL_CATEGORIES
+        from openchia_cli.tools_config import TOOL_CATEGORIES
 
         return TOOL_CATEGORIES["browser"]["providers"]
 
@@ -638,14 +638,14 @@ class TestProviderPickerIntegration:
     def test_picker_row_names_stay_unique(self):
         """The CLI row is named "Browser Use"; the legacy plugin API row must
         keep a distinct name — apply_provider_selection matches by name."""
-        from hermes_cli.tools_config import TOOL_CATEGORIES, _plugin_browser_providers
+        from openchia_cli.tools_config import TOOL_CATEGORIES, _plugin_browser_providers
 
         names = [r["name"] for r in TOOL_CATEGORIES["browser"]["providers"]]
         names += [r["name"] for r in _plugin_browser_providers()]
         assert len(names) == len(set(names))
 
     def test_selecting_cli_row_writes_backend_and_keeps_cloud_provider(self):
-        from hermes_cli.tools_config import _write_provider_config
+        from openchia_cli.tools_config import _write_provider_config
 
         row = next(r for r in self._rows() if r.get("browser_backend"))
         config = {"browser": {"cloud_provider": "browserbase"}}
@@ -656,7 +656,7 @@ class TestProviderPickerIntegration:
     def test_selecting_provider_row_keeps_cli_mode(self):
         """Backend composes with the provider: switching browser source
         (local/Browserbase/Firecrawl/gateway) keeps the driver choice."""
-        from hermes_cli.tools_config import _write_provider_config
+        from openchia_cli.tools_config import _write_provider_config
 
         local_row = next(
             r for r in self._rows() if r.get("browser_provider") == "local"
@@ -667,7 +667,7 @@ class TestProviderPickerIntegration:
         assert config["browser"]["cloud_provider"] == "local"
 
     def test_provider_row_stays_active_alongside_cli_mode(self, monkeypatch):
-        from hermes_cli.tools_config import _is_provider_active
+        from openchia_cli.tools_config import _is_provider_active
 
         cli_row = next(r for r in self._rows() if r.get("browser_backend"))
         local_row = next(
@@ -707,8 +707,8 @@ class TestBrowserUseSlashCommand:
             self.session_resets += 1
 
     def _run(self, cmd, config, monkeypatch):
-        import hermes_cli.config as hc
-        from hermes_cli.cli_commands_mixin import CLICommandsMixin
+        import openchia_cli.config as hc
+        from openchia_cli.cli_commands_mixin import CLICommandsMixin
 
         saved = {}
         monkeypatch.setattr(hc, "load_config", lambda: config)
@@ -747,7 +747,7 @@ class TestBrowserSlashDispatch:
         import contextlib
         import io
 
-        import hermes_cli.cli_commands_mixin as mod
+        import openchia_cli.cli_commands_mixin as mod
 
         calls = []
         monkeypatch.setattr(mod, "_browser_connect", lambda cli, url: calls.append(("connect", url)))
@@ -759,7 +759,7 @@ class TestBrowserSlashDispatch:
         return calls, buf.getvalue()
 
     def test_connect_keeps_url_case_and_defaults_to_status(self, monkeypatch):
-        from hermes_cli.browser_connect import DEFAULT_BROWSER_CDP_URL
+        from openchia_cli.browser_connect import DEFAULT_BROWSER_CDP_URL
 
         assert self._run("/browser CONNECT ws://127.0.0.1:9222/devtools/browser/AbC", monkeypatch)[0] == [
             ("connect", "ws://127.0.0.1:9222/devtools/browser/AbC")]
@@ -951,7 +951,7 @@ class TestBrowserExec:
 class TestDefaultDowngradeNotice:
     def _isolate(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: {})
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: {})
 
     def test_notice_when_default_and_cli_missing(self, tmp_path, monkeypatch):
         self._isolate(tmp_path, monkeypatch)
@@ -972,7 +972,7 @@ class TestDefaultDowngradeNotice:
     def test_no_notice_on_explicit_backend(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
         monkeypatch.setattr(
-            "hermes_cli.config.read_raw_config",
+            "openchia_cli.config.read_raw_config",
             lambda: {"browser": {"backend": bu_cli.BACKEND_DISABLED}},
         )
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: None)
@@ -1110,7 +1110,7 @@ class TestLightpandaHeader:
 
 class TestLightpandaPickerRow:
     def _rows(self):
-        from hermes_cli.tools_config import TOOL_CATEGORIES
+        from openchia_cli.tools_config import TOOL_CATEGORIES
 
         return TOOL_CATEGORIES["browser"]["providers"]
 
@@ -1119,7 +1119,7 @@ class TestLightpandaPickerRow:
 
 
     def test_selecting_lightpanda_writes_engine_and_local_keeps_backend(self):
-        from hermes_cli.tools_config import _write_provider_config
+        from openchia_cli.tools_config import _write_provider_config
 
         config = {"browser": {"backend": "browser-use", "cloud_provider": "browserbase"}}
         _write_provider_config(self._row("Lightpanda"), config, managed_feature=None)
@@ -1128,14 +1128,14 @@ class TestLightpandaPickerRow:
         assert config["browser"]["backend"] == "browser-use"
 
     def test_selecting_local_browser_resets_engine(self):
-        from hermes_cli.tools_config import _write_provider_config
+        from openchia_cli.tools_config import _write_provider_config
 
         config = {"browser": {"cloud_provider": "local", "engine": "lightpanda"}}
         _write_provider_config(self._row("Local Browser"), config, managed_feature=None)
         assert config["browser"]["engine"] == "auto"
 
     def test_active_row_follows_engine(self):
-        from hermes_cli.tools_config import _is_provider_active
+        from openchia_cli.tools_config import _is_provider_active
 
         lp_row, local_row = self._row("Lightpanda"), self._row("Local Browser")
         lp_cfg = {"browser": {"cloud_provider": "local", "engine": "lightpanda"}}
@@ -1161,7 +1161,7 @@ class TestTimeoutProcessGroupKill:
         """A grandchild that outlives the direct child and holds the inherited stdout
         pipe must not keep browser_exec blocked past the timeout (it wedged permanently
         before the group kill)."""
-        monkeypatch.setattr("hermes_cli.config.read_raw_config", lambda: {})
+        monkeypatch.setattr("openchia_cli.config.read_raw_config", lambda: {})
         pid_file = tmp_path / "grandchild.pid"
         cli = _fake_cli(tmp_path, (
             "cat > /dev/null\n"

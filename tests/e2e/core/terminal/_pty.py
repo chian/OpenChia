@@ -128,7 +128,7 @@ class PtyHermes:
         self.master = master
         self.pts = os.ttyname(slave)
         self.proc = subprocess.Popen(
-            [sys.executable, "-c", _SESSION_LEADER, sys.executable, "-m", "hermes_cli.main", *argv_tail],
+            [sys.executable, "-c", _SESSION_LEADER, sys.executable, "-m", "openchia_cli.main", *argv_tail],
             stdin=slave, stdout=slave, stderr=slave, cwd=str(root / "work"), env=env,
             start_new_session=True, close_fds=True)
         os.close(slave)
