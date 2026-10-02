@@ -298,6 +298,124 @@ def _scope_goal_state_error(function: ast.FunctionDef) -> str | None:
     return None
 
 
+def constructor_signatures() -> dict[str, dict[str, list[str]]]:
+    """Constructor fields of every library class a generated module builds.
+
+    Read from the dataclasses themselves so the emitter's contract and the
+    admission check below can never disagree with the runtime.
+    """
+    import dataclasses
+
+    import episode_library.models
+    import function_library.models
+    import handoff_library
+    import method_loop
+    import numeric_control_library
+
+    classes = {
+        "episode_library.models.EpisodeLibraryDesign": episode_library.models.EpisodeLibraryDesign,
+        "method_loop.EpisodeBindingDeclaration": method_loop.EpisodeBindingDeclaration,
+        "method_loop.EpisodeControllerBinding": method_loop.EpisodeControllerBinding,
+        "method_loop.EpisodeFunctionBinding": method_loop.EpisodeFunctionBinding,
+        "method_loop.EpisodeChildSlot": method_loop.EpisodeChildSlot,
+        "function_library.models.LibraryFunction": function_library.models.LibraryFunction,
+        "function_library.models.FunctionImplementation": function_library.models.FunctionImplementation,
+        "handoff_library.HandoffPayloadContract": handoff_library.HandoffPayloadContract,
+        "numeric_control_library.ResultColumnSchema": numeric_control_library.ResultColumnSchema,
+    }
+    signatures: dict[str, dict[str, list[str]]] = {}
+    for qualified, cls in classes.items():
+        init_fields = [field for field in dataclasses.fields(cls) if field.init]
+        required = [
+            field.name
+            for field in init_fields
+            if field.default is dataclasses.MISSING
+            and field.default_factory is dataclasses.MISSING
+        ]
+        signatures[qualified] = {
+            "required": required,
+            "optional": [field.name for field in init_fields if field.name not in required],
+            "derived": [field.name for field in dataclasses.fields(cls) if not field.init],
+        }
+    signatures["method_loop.EpisodeTopologyRole"] = {
+        "required": [],
+        "optional": [],
+        "derived": [],
+        "members": [member.name for member in method_loop.EpisodeTopologyRole],
+    }
+    return signatures
+
+
+def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
+    """Check keyword/positional arguments of library class constructions statically.
+
+    A call that unpacks ``*args``/``**kwargs`` cannot be checked and is skipped;
+    everything else must name only real fields and supply every required one.
+    """
+    signatures = {
+        qualified: spec
+        for qualified, spec in constructor_signatures().items()
+        if "members" not in spec
+    }
+    by_module: dict[str, dict[str, str]] = {}
+    for qualified in signatures:
+        module_name, _, class_name = qualified.rpartition(".")
+        by_module.setdefault(module_name, {})[class_name] = qualified
+    local_names: dict[str, str] = {}
+    module_aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in by_module and not node.level:
+            for alias in node.names:
+                qualified = by_module[node.module].get(alias.name)
+                if qualified is not None:
+                    local_names[alias.asname or alias.name] = qualified
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in by_module:
+                    module_aliases[alias.asname or alias.name] = alias.name
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        qualified = None
+        if isinstance(node.func, ast.Name):
+            qualified = local_names.get(node.func.id)
+        elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            module_name = module_aliases.get(node.func.value.id)
+            if module_name is not None:
+                qualified = by_module[module_name].get(node.func.attr)
+        if qualified is None:
+            continue
+        if any(isinstance(item, ast.Starred) for item in node.args) or any(
+            keyword.arg is None for keyword in node.keywords
+        ):
+            continue
+        spec = signatures[qualified]
+        fields = spec["required"] + spec["optional"]
+        supplied = set(fields[: len(node.args)])
+        unknown = sorted(
+            keyword.arg for keyword in node.keywords if keyword.arg not in fields
+        )
+        supplied.update(keyword.arg for keyword in node.keywords if keyword.arg in fields)
+        missing = [name for name in spec["required"] if name not in supplied]
+        if len(node.args) > len(fields):
+            found.append(
+                f"{qualified} at line {node.lineno} takes at most {len(fields)} "
+                f"positional arguments; received {len(node.args)}"
+            )
+        if unknown or missing:
+            parts = []
+            if unknown:
+                parts.append(f"unknown keyword(s) {unknown!r}")
+            if missing:
+                parts.append(f"missing required field(s) {missing!r}")
+            found.append(
+                f"{qualified} at line {node.lineno}: {'; '.join(parts)}; its fields are "
+                f"{fields!r}"
+            )
+    return tuple(found)
+
+
 def _imported_modules(tree: ast.Module) -> tuple[str, ...]:
     modules: list[str] = []
     for node in ast.walk(tree):
@@ -594,6 +712,9 @@ def _inspect_source(
                 "module_source",
                 f"generated Episode import {imported!r} bypasses runtime tree linking",
             )
+
+    for detail in _constructor_argument_deficits(tree):
+        add("constructor_arguments_invalid", "module_source", detail)
 
     for item in ast.walk(tree):
         if isinstance(item, ast.Attribute) and item.attr in _FORBIDDEN_ATTRIBUTES:
