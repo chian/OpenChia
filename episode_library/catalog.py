@@ -10,6 +10,8 @@ from .registry import EpisodeLibrary
 from .search_strategy import DESIGN as SEARCH_STRATEGY
 from .source_table import DESIGN as SOURCE_TABLE
 from .web_search import DESIGN as WEB_SEARCH
+from .reasoning import DESIGN as REASONING
+from .inquiry import DESIGN as INQUIRY
 
 
 episode_library = EpisodeLibrary()
@@ -21,6 +23,8 @@ for _design in (
     SOURCE_TABLE,
     REPORT,
     LEXICAL_PROBE,
+    REASONING,
+    INQUIRY,
 ):
     episode_library.register(_design)
 episode_library.validate_topology()
