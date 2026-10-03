@@ -140,8 +140,9 @@ The existing Duet event store records `launch_configuration_selected`,
 `model_launch_resolved`, and `model_launch_call`. Each resolved launch binds a
 build-request ID or Run ID to a content-addressed configuration blob in the
 Builder's blob store. Its receipt includes source paths, requested and resolved
-settings, inheritance policy, credential references, and host/adapter source
-hashes. These records survive reopening the same Duet.
+settings, inheritance policy, credential references, host/adapter source
+hashes, checkout commit/dirty state, and SDK package versions. These records
+survive reopening the same Duet.
 
 Every physical model attempt records launch ID, configuration hash, call ID,
 Episode local ID, call role, provider, model, endpoint, credential source,
@@ -159,3 +160,7 @@ there is no old-frame compatibility path.
 This feature concerns Builder and Run model calls. Duet conversation routing,
 external acquisition-tool credentials, and Refiner design/credit logic retain
 their own existing ownership.
+
+The native Messages wire requires the repository's optional `anthropic` extra.
+A missing SDK is recorded as a failed attempt; it never switches to another
+wire or account implicitly.

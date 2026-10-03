@@ -109,6 +109,8 @@ def _codex_response(client, real, kwargs, progress):
             close()
     if final is None:
         raise RuntimeError("Responses stream ended without a final response")
+    if getattr(final, "status", "completed") != "completed":
+        raise RuntimeError("Responses stream did not complete successfully")
     text, _, usage = _parse_codex_final_response(final)
     return SimpleNamespace(model=getattr(final, "model", None) or payload["model"], usage=usage,
                            choices=[SimpleNamespace(message=SimpleNamespace(content="".join(text)))])

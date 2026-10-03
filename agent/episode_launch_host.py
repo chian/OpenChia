@@ -79,11 +79,22 @@ class EpisodeLaunchHostMixin:
         source_root = Path(__file__).resolve().parents[1]
         paths = ("agent/episode_launch.py", "agent/episode_launch_host.py", "agent/episode_launch_transport.py",
                  "agent/auxiliary_client.py", "agent/codex_responses_adapter.py", "agent/anthropic_adapter.py")
+        from openchia_cli.version_info import get_version_info
+        from importlib.metadata import PackageNotFoundError, version
+        code = get_version_info()
+        packages = {}
+        for package in ("openai", "anthropic", "httpx"):
+            try:
+                packages[package] = version(package)
+            except PackageNotFoundError:
+                packages[package] = None
         self._launch_event("model_launch_resolved", {
             "launch_id": launch_id, "kind": kind, "subject_id": subject_id,
             "configuration_hash": digest.value, "mode": selection["mode"],
             "reused_launch_id": selection.get("reused_launch_id"),
             "configuration": launch.record,
+            "code": {"commit": code.commit, "branch": code.branch, "dirty": code.dirty},
+            "client_packages": packages,
             "code_hashes": {path: Sha256Digest.of_bytes((source_root / path).read_bytes()).value for path in paths},
         })
         return launch_id, launch
