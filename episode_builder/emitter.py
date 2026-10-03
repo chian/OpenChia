@@ -29,6 +29,7 @@ from ._contract_plan import (
     NodeMaterializationPlan,
 )
 from .declaration import DECLARATION_EXPORT, build_module_declaration
+from .evidence import ModelCallObserver, observe_model_call
 from .reference import EpisodeReferenceContext
 from .admission import constructor_signatures
 from .planner import materializer_function_catalog
@@ -928,6 +929,7 @@ class EpisodeModuleEmitter:
         forbidden_module_names: tuple[str, ...] = (),
         approved_refinement_evidence: Mapping[str, object] | None = None,
         predecessor_module: EmittedEpisodeModule | None = None,
+        model_call_observer: ModelCallObserver | None = None,
     ) -> EmittedEpisodeModule:
         """Make one model call, compile its source, and return its immutable blob."""
 
@@ -996,6 +998,21 @@ class EpisodeModuleEmitter:
                     options=self.call_options,
                 )
             )
+        )
+        observe_model_call(
+            model_call_observer,
+            stage="emission",
+            local_id=plan.local_id,
+            system_prompt=_EMITTER_SYSTEM_PROMPT,
+            prompt=prompt,
+            prompt_record=json.loads(prompt),
+            result=result,
+            module_source=(
+                result.value[0]
+                if result.succeeded and result.value is not None
+                else None
+            ),
+        )
         if not result.succeeded or result.value is None:
             failure = result.failure
             detail = (

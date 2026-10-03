@@ -81,6 +81,8 @@ class BuildStore:
             self._records_root / "admission_reports",
             self._records_root / "manifests",
             self._records_root / "receipts",
+            self._records_root / "model_calls",
+            self._records_root / "materialization_handoffs",
             self._objects_root,
             self._packages_root,
         ):
@@ -832,6 +834,18 @@ class BuildStore:
             value.receipt_id,
             value.as_record(),
         )
+
+    def publish_materialization_handoff(self, receipt_id: OpaqueId | str) -> dict:
+        """Persist exact initial candidate, rejected outputs, checks, and progress."""
+        from .handoff import publish_materialization_handoff
+
+        return publish_materialization_handoff(self, receipt_id)
+
+    def read_materialization_handoff(self, receipt_id: OpaqueId | str) -> dict:
+        """Read the checks recorded at publication, without evaluating new code."""
+        from .handoff import read_materialization_handoff
+
+        return read_materialization_handoff(self, receipt_id)
 
     def read_receipt(self, receipt_id: OpaqueId | str) -> BuildReceipt:
         result = self._read_record(
