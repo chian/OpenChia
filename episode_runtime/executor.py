@@ -757,6 +757,7 @@ class RunExecutor(Protocol):
         source_package_path: str | Path,
         model_broker: ScopedModelBroker,
         http_broker: ScopedHttpBroker,
+        refinement_session=None,
     ) -> RunEvidence: ...
 
 
@@ -884,6 +885,7 @@ class _RunExecutorBase:
         source_package_path: str | Path,
         model_broker: ScopedModelBroker,
         http_broker: ScopedHttpBroker,
+        refinement_session=None,
     ) -> RunEvidence:
         """Execute one fresh registration; cancellation persists cancellation."""
 
@@ -893,6 +895,8 @@ class _RunExecutorBase:
             raise TypeError("model_broker must be a ScopedModelBroker")
         if not isinstance(http_broker, ScopedHttpBroker):
             raise TypeError("http_broker must be a ScopedHttpBroker")
+        if refinement_session is not None:
+            await asyncio.to_thread(refinement_session.validate_registration, registration)
         runtime_source_package = (
             self.run_store.runtime_sources_root
             / registration.runtime_identity.runtime_source_manifest_id.value
@@ -1057,6 +1061,19 @@ class _RunExecutorBase:
             }
             while True:
                 frame = await channel.receive()
+                if frame.frame_type == WorkerFrameType.REFINEMENT_REQUEST.value:
+                    if refinement_session is None:
+                        raise ProtocolError("this Run has no admitted refinement session")
+                    response = await refinement_session.exchange(
+                        episode_id=OpaqueId(frame.body["episode_id"]),
+                        episode_path=frame.body["episode_path"],
+                        operation=frame.body["operation"],
+                        payload=frame.body["payload"],
+                    )
+                    await channel.send(HostFrameType.REFINEMENT_RESPONSE.value, {
+                        "request_id": frame.body["request_id"], "response": response,
+                    })
+                    continue
                 if frame.frame_type == WorkerFrameType.LEARNING_REQUEST.value:
                     response = await learning_broker(frame.body["episode_id"], frame.body["operation"], frame.body["payload"])
                     await channel.send(HostFrameType.LEARNING_RESPONSE.value,
@@ -1139,6 +1156,15 @@ class _RunExecutorBase:
                         learning_broker.validate_completion, frame.body["typed_status"]
                     )
                 terminal_status = RunTerminalStatus(frame.body["terminal_status"])
+                if refinement_session is not None and terminal_status in {
+                    RunTerminalStatus.SUCCEEDED,
+                    RunTerminalStatus.BLOCKED,
+                }:
+                    await asyncio.to_thread(
+                        refinement_session.validate_return,
+                        terminal_status.value,
+                        frame.body["typed_status"],
+                    )
                 evidence = self.run_store.finalize_run(
                     run_id=registration.run_id,
                     origin=RunEventOrigin.WORKER,

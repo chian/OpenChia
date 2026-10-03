@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "goal_id": "openchia.iterative_episode_refiner.structure_design",
+  "objective": "come up with a complete design for the episode structure for bulding episodes. Use conversation history to put together a permanent goal object for you to iterate towards and then review. show me the final plan.",
+  "status": "complete",
+  "authority": "User-requested design work; not workflow approval or permission to implement, execute tests, commit, or publish.",
+  "scope": {
+    "deliverable": "Complete high-level Episode structure and lifecycle design, reviewed against the conversation and repository boundaries.",
+    "product_goal": "An actively used IterativeEpisodeRefiner, also an Episode-library reference, that finishes and verifies every materialization-spec'd nested Episode build through goal-directed reasoning and coding.",
+    "not_a_completion_claim": "This goal does not claim that the proposed refiner has been implemented or empirically validated.",
+    "priority": "Outcome ownership, real decision points, nested design/implementation/evaluation loops and information boundaries first; exact schemas, numerical calibration, examples and coding later."
+  },
+  "artifacts": {
+    "principles": "iterative_episode_refiner_principles.md",
+    "plan": "iterative_episode_refiner_episodes.md",
+    "review": "iterative_episode_refiner_review.md",
+    "implementation_goals": "iterative_episode_refiner_implementation_goals.md"
+  },
+  "requirements": [
+    {"id": "R01", "requirement": "Persist the full objective, its constraints, acceptance requirements, iteration history and review evidence."},
+    {"id": "R02", "requirement": "Define the whole path from initial Builder output and boundary findings to an active refiner and a verified build or an honest unresolved result."},
+    {"id": "R03", "requirement": "Accept all materialization-spec'd builds, including broken and novel nested designs; do not restrict refinement to a domain-specific example catalog."},
+    {"id": "R04", "requirement": "Define root and scoped outcome ownership, with refinement nesting independent of the target Episode architecture."},
+    {"id": "R05", "requirement": "Make design itself a nested Episode workflow with independently judged parts and a parent responsible for the combined design."},
+    {"id": "R06", "requirement": "Identify RefineImplementation as the actual coding Episode, with its own iterative local measurement and credit."},
+    {"id": "R07", "requirement": "Keep VerifyBehavior as independent parent acceptance, not the coding Episode's internal measurement mechanism."},
+    {"id": "R08", "requirement": "Explain how target-specific behavior, evidence, decomposition and measurement grounding produce faithful assignments, including the limits of automatic semantic judgment."},
+    {"id": "R09", "requirement": "Define every Episode role's goal, inputs, repeated unit, allowed children, outputs, authority and basis of local progress."},
+    {"id": "R10", "requirement": "Preserve host-owned admission, evidence-based yield, credit, rarefaction and registered continuation at every Episode level."},
+    {"id": "R11", "requirement": "Separate goal satisfaction, numerical return, incomplete yield exhaustion, blocking and external termination; already-correct work returns without invented repairs."},
+    {"id": "R12", "requirement": "Provide one editable shared specification/code workspace, compact review state, immutable evaluation snapshots and evidence invalidation."},
+    {"id": "R13", "requirement": "Let authorized refinement Episodes request real host-mediated validation Runs using existing executors, with distinct lineage and preserved isolation."},
+    {"id": "R14", "requirement": "Preserve zero yield for failure alone, admitted durable learning, replay safety, duplicate-credit prevention and ordinary credit admission for repaired representations."},
+    {"id": "R15", "requirement": "State the proposed designer authority extension explicitly; freeze active contracts, retain human authority over semantic changes, and do not widen ordinary task Episode authority."},
+    {"id": "R16", "requirement": "Specify feedback destinations, recursion, scope escalation, dependency cycles and the difference between child return and ending refinement."},
+    {"id": "R17", "requirement": "Review the structure against success, failure, bad design, nested prerequisites, conflicting changes, missing evidence and interrupted execution."},
+    {"id": "R18", "requirement": "Map the design to inspected repository components and distinguish existing foundations from required extensions."},
+    {"id": "R19", "requirement": "Complete a requirement-by-requirement review, resolve structural contradictions, and present the final proposed plan to the user."},
+    {"id": "R20", "requirement": "Keep example collection, detailed score formulas and implementation later; run no further product tests and make no production changes for this design goal."},
+    {"id": "R21", "requirement": "Nest the implementer inside the actual Designer, whose goal includes realizing and evaluating its design rather than returning a paper work order."},
+    {"id": "R22", "requirement": "Place parts-making and selection above the Designer, judging each selected part by its contribution to the enclosing whole."},
+    {"id": "R23", "requirement": "Review every nesting as a genuine choice, a required prerequisite, or a required evaluation on return; do not turn a serial dependency into an arbitrary menu of sibling activities. Support nested resolution of design decisions where that is a real subproblem."},
+    {"id": "R24", "requirement": "Design each Episode as an information boundary: distinguish durable audit, child-local iteration state, and bounded parent-specific reports; preserve evidence lineage and applicable attempt history against circular reasoning, repeat errors and stale conclusions; share only relevant dependency projections between siblings, without relying on free-form LLM summaries."},
+    {"id": "R25", "requirement": "Use a reusable Designer specialized through prepared instructions and examples, with optional library support search and a general route for unfamiliar tasks."},
+    {"id": "R26", "requirement": "Treat numerical-controller design, including credit, rarefaction and continuation, as one coupled design assignment."},
+    {"id": "R27", "requirement": "Only Parts owners create Designer assignments or nested Parts scopes. Specialists cannot create designers directly or indirectly; new design subproblems return to the owner with their evidence."},
+    {"id": "R28", "requirement": "Expose candidate/check changes and regressions during child iteration, detect possible repair cycles across levels, preserve shared history, and route coupled failures to a joint assignment without repeated credit for restoring an old state."},
+    {"id": "R29", "requirement": "Confirm the evidence-based implementation boundary: concentrated refiner/library code with explicitly identified shared integration changes, staged activation, compatibility verification and a reviewable merge plan; do not guarantee zero breakage."},
+    {"id": "R30", "requirement": "Finalize the editable design and provide concrete copyable implementation goal statements with completion evidence, while keeping implementation and test execution unauthorized until separately requested."}
+  ],
+  "completion_rule": "The authoritative plan covers every requirement without contradictory ownership or undefined feedback paths; the review records evidence for every requirement and no unresolved structural findings; the final plan is presented. User approval and implementation remain distinct later actions.",
+  "iteration_history": [
+    {
+      "iteration": 0,
+      "classification": "no_progress",
+      "evidence": "At goal resumption the saved v0 plan still used RefineObligation and placed VerifyBehavior inside its local coding loop; recent conversational refinements had not been reconciled into the permanent design.",
+      "next_action": "Replace the stale draft with the complete ownership and nested-design architecture, then audit it."
+    },
+    {
+      "iteration": 1,
+      "classification": "progress",
+      "evidence": "The v1 draft established Parts -> Designer -> Implementer ownership and distinguished local measurement from parent acceptance. Subsequent conversation exposed two incomplete areas: permitted-child lists did not specify prerequisite/return control, and typed handoffs did not yet specify local memory versus parent steering information.",
+      "next_action": "Reconcile the actual control flow and information contracts before completing the structural review; v1 is not the final plan."
+    },
+    {
+      "iteration": 2,
+      "classification": "progress",
+      "evidence": "Design v2 defines decision-driven nesting, residual-design recursion, explicit prerequisite/return continuations, coding and measurement authority, and local-state versus parent-report contracts. The review maps all 24 requirements, walks successful and adverse paths, and checks report sufficiency against parent decisions. No unresolved structural contradiction was found in this self-review; no production tests or implementation were performed.",
+      "next_action": "Present the high-level proposal for discussion. Approval, exact executable contracts, numerical calibration, implementation and empirical validation remain separate later work."
+    },
+    {
+      "iteration": 3,
+      "classification": "progress",
+      "evidence": "The user refined the design after v2: specialization can be supplied as instructions/examples, numerical control stays together, and repair cycles make autonomous designer recursion unsafe. Final design v3 removes that recursion, assigns all new design work to Parts owners, requires in-loop shared regression reporting, identifies the code/integration boundary, and adds seven copyable implementation goals. The v3 review supersedes v2 where those decisions differ. Only documentation changed; no product tests ran.",
+      "next_action": "Hand off the finalized design and implementation goals. Begin Goal 1 only when the user assigns it; do not infer implementation, testing or publication authority from this design finalization."
+    }
+  ],
+  "review_status": "complete_high_level_self_review",
+  "design_version": 3,
+  "completion_scope": "Finalized high-level design, code/integration boundary, seven future implementation goals and a requirement-by-requirement self-review. Not executable workflow approval, implementation completion, or evidence of runtime success."
+}

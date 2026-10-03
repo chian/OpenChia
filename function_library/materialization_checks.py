@@ -90,7 +90,9 @@ def node_plan_consistency(
     """
     from agent.episode_contracts import Sha256Digest
     from episode_builder._contract_chain import ApprovedBuildRequest, WorkflowMaterializationPlan
-    from episode_builder.planner import _architecture_numeric_bindings, _planning_deficits
+    from episode_builder.call_plan import validate_functions, validate_planned_calls
+    from episode_builder.plan_choices import node_choices
+    from episode_builder.planner import _admit_plan_payload, _architecture_numeric_bindings, _library_functions, _planning_deficits
     from episode_builder.reference import EpisodeReferenceContext
 
     if not isinstance(request, ApprovedBuildRequest) or not isinstance(plan, WorkflowMaterializationPlan):
@@ -108,7 +110,15 @@ def node_plan_consistency(
     children = tuple(item for item in request.frozen_workflow.workflow.episodes if item.workflow_parent_local_id == local_id)
     missing_children = sorted(item.local_id for item in children if item.local_id not in nodes)
     edges = tuple(edge for edge in plan.edges if edge.parent_local_id == local_id)
-    missing_slots = sorted(set(node.child_slot_names) - {edge.slot_name for edge in edges})
+    calls = tuple(edge for edge in plan.repeatable_calls if edge.parent_local_id == local_id)
+    approved_calls = tuple(
+        call for call in request.frozen_workflow.workflow.repeatable_calls
+        if call.caller_local_id == local_id
+    )
+    missing_slots = sorted(
+        (set(node.child_slot_names) | {call.slot_name for call in approved_calls})
+        - {edge.slot_name for edge in (*edges, *calls)}
+    )
     if missing_children or missing_slots:
         return _result(local_diagnostics + [_diagnostic("child_plan_unavailable", "child_slots", f"unavailable child plans: {missing_children!r}; unavailable parent-owned slots: {missing_slots!r}", local_id)], status="blocked")
     requires_reference = any(binding["source"] == "reference" for binding in node.selected_function_bindings)
@@ -120,11 +130,16 @@ def node_plan_consistency(
     ):
         return _result([_diagnostic("reference_mismatch", "episode_reference", "reference context differs from the node's pinned evidence", local_id)])
     try:
+        validate_planned_calls(plan.nodes, calls, approved_calls, ready=True)
+        for call in approved_calls:
+            validate_functions(call, _library_functions())
         numeric_bindings, numeric_failure = _architecture_numeric_bindings(design)
         if numeric_failure is not None:
             return _result(local_diagnostics + [numeric_failure.as_record()])
-        payload = node.as_record()
-        payload["child_slots"] = [edge.as_record() for edge in edges]
+        # The planner checks the concrete tree before the host installs exact
+        # repeatable slots. Validate those slots above, then reconstruct that
+        # same input instead of mistaking a declared call for an invented child.
+        payload = _admit_plan_payload(node_choices(node, edges, calls=approved_calls))
         findings = _planning_deficits(
             node=design,
             payload=payload,
@@ -162,7 +177,7 @@ def module_admission(
         return _result([_diagnostic("module_without_plan", "modules", "module has no typed node plan", local_id)], status="blocked")
     if module.module_name != node.module_name:
         return _result([_diagnostic("module_name_mismatch", "module_name", f"expected {node.module_name!r}, got {module.module_name!r}", local_id)])
-    edges = tuple(edge for edge in plan.edges if edge.parent_local_id == local_id)
+    edges = tuple(edge for edge in plan.all_edges if edge.parent_local_id == local_id)
     if {edge.slot_name for edge in edges} != set(node.child_slot_names):
         return _result([_diagnostic("edge_unplanned", "child_slots", "parent-owned edges do not yet cover every planned slot", local_id)], status="blocked")
     try:

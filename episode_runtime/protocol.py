@@ -11,6 +11,7 @@ from typing import Any, BinaryIO, Mapping
 
 from agent.episode_contracts import OpaqueId, Sha256Digest
 from method_loop.identities import EpisodeRef
+from function_library.refinement_contract import OPERATIONS as REFINEMENT_OPERATIONS
 
 from .contracts import (
     DEFAULT_MAX_FRAME_BYTES,
@@ -48,6 +49,7 @@ class HostFrameType(str, Enum):
     MODEL_RESPONSE = "model_response"
     HTTP_RESPONSE = "http_response"
     LEARNING_RESPONSE = "learning_response"
+    REFINEMENT_RESPONSE = "refinement_response"
     TERMINAL_ACK = "terminal_ack"
     CANCEL = "cancel"
 
@@ -57,6 +59,7 @@ class WorkerFrameType(str, Enum):
     MODEL_REQUEST = "model_request"
     HTTP_REQUEST = "http_request"
     LEARNING_REQUEST = "learning_request"
+    REFINEMENT_REQUEST = "refinement_request"
     RUN_EVENT = "run_event"
     TERMINAL = "terminal"
 
@@ -256,6 +259,30 @@ def _validate_body(
     body: object,
     binding: ProtocolBinding,
 ) -> Mapping[str, object]:
+    if sender is FrameSender.HOST and frame_type == HostFrameType.REFINEMENT_RESPONSE.value:
+        record = _record(body, "refinement response", {"request_id", "response"})
+        return MappingProxyType({
+            "request_id": OpaqueId(record["request_id"]).value,
+            "response": _json_mapping(record["response"], "refinement response"),
+        })
+    if sender is FrameSender.WORKER and frame_type == WorkerFrameType.REFINEMENT_REQUEST.value:
+        record = _record(body, "refinement request", {
+            "request_id", "episode_id", "episode_path", "operation", "payload",
+        })
+        operation = record["operation"]
+        if not isinstance(operation, str) or operation not in REFINEMENT_OPERATIONS:
+            raise ProtocolError("unknown refinement operation")
+        path = _episode_path(record["episode_path"])
+        episode_id = episode_id_for_path(binding.run_id, path)
+        if episode_id.value != record["episode_id"]:
+            raise ProtocolError("refinement caller differs from its runtime path")
+        return MappingProxyType({
+            "request_id": OpaqueId(record["request_id"]).value,
+            "episode_id": episode_id.value,
+            "episode_path": path,
+            "operation": operation,
+            "payload": _json_mapping(record["payload"], "refinement payload"),
+        })
     if sender is FrameSender.HOST and frame_type == HostFrameType.LEARNING_RESPONSE.value:
         record = _record(body, "learning response", {"request_id", "response"})
         return MappingProxyType({"request_id": OpaqueId(record["request_id"]).value,

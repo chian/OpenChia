@@ -1,0 +1,957 @@
+"""Immutable campaign records. Stored proposals are not operative state.
+
+The envelope is shared with no authority implied by its presence in DuetStore.
+Only the campaign publication boundary may install its typed projections.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import PurePosixPath
+from typing import Mapping
+
+from agent.duet_contracts import canonical_json, content_id, digest_record
+from agent.episode_contracts import OpaqueId, Sha256Digest
+from function_library.epistemic_contract import exact, names
+from function_library.models import _freeze_json, _thaw_json
+from function_library.refinement_contract import CHILDREN as ROLES
+
+
+# These closed record shapes are schema version 1, not inline model schemas.
+RECORD_FIELDS = {
+    "campaign": {
+        "duet_id",
+        "target_approval_ref",
+        "target_workflow_ref",
+        "initial_build_receipt_ref",
+        "initial_materialization_ref",
+        "refiner_workflow_approval_ref",
+        "refiner_manifest_ref",
+        "requirement_catalog_ref",
+        "authority_ref",
+        "policy_bundle_ref",
+        "environment_ref",
+        "guidance_catalog_ref",
+        "final_projection_ref",
+        "instrument_builds_ref",
+    },
+    "candidate": {
+        "parent_candidate_ref",
+        "target_approval_ref",
+        "materialization_ref",
+        "files",
+        "implementation_directive_refs",
+        "change_set_ref",
+        "source_admission_ref",
+    },
+    "materialization": {"baseline_ref", "plan", "changed_targets", "instrument_plans"},
+    "assignment": {
+        "parent_assignment_ref",
+        "owning_parts_invocation_id",
+        "role",
+        "scope_requirement_keys",
+        "contribution_requirement_keys",
+        "scope_partition_ref",
+        "owned_slice_keys",
+        "baseline_candidate_ref",
+        "goal_record_ref",
+        "authority_ref",
+        "input_refs",
+        "preservation_requirement_keys",
+        "dependency_refs",
+        "local_measure_ref",
+        "acceptance_measure_ref",
+        "progress_manifest_ref",
+        "allowed_action_classes",
+        "allowed_child_bindings",
+        "instruction_refs",
+        "history_query_ref",
+        "return_projection_ref",
+        "control_bundle_ref",
+        "supersedes_assignment_refs",
+        "writable_paths",
+        "protected_paths",
+        "judgment_lineage",
+    },
+    "change": {
+        "assignment_ref",
+        "design_plan_ref",
+        "expected_head_ref",
+        "file_operations",
+        "implementation_detail_operations",
+        "rationale_claim_refs",
+    },
+    "design_plan": {
+        "assignment_ref",
+        "approach_key",
+        "requirement_mapping",
+        "assumption_refs",
+        "proposed_component_refs",
+        "intended_change_scope",
+        "dependency_effects",
+        "local_measure_ref",
+        "acceptance_measure_ref",
+        "preservation_measure_refs",
+        "expected_observation_refs",
+        "falsifying_observation_refs",
+        "open_need_refs",
+    },
+    "check": {
+        "requirement_key",
+        "evidence_kind",
+        "origin_refs",
+        "measure_ref",
+        "purpose",
+        "predicate_ref",
+        "expected",
+        "dependency_paths",
+        "environment_ref",
+        "mandatory",
+        "guard_keys",
+        "grounding_refs",
+        "observation_path",
+        "execution_binding",
+    },
+    "measure_proposal": {
+        "assignment_ref",
+        "owner_assignment_ref",
+        "requirement_keys",
+        "purpose",
+        "oracle_kind",
+        "oracle_ref",
+        "input_domain_ref",
+        "case_manifest_ref",
+        "observation_schema_ref",
+        "decision_function_ref",
+        "positive_control_refs",
+        "negative_control_refs",
+        "grounding_refs",
+        "independence_policy_ref",
+        "uncertainty_policy_ref",
+        "limitation_refs",
+        "instrument_return_ref",
+        "grounding_acquisition_refs",
+    },
+    "measure_prerequisite": {"assignment_ref", "owner_assignment_ref", "need"},
+    "measure_admission": {
+        "proposal_ref",
+        "owner_assignment_ref",
+        "measure_ref",
+        "check_refs",
+        "evaluation_binding",
+        "evaluation_bindings",
+        "control_results",
+        "grounding_refs",
+        "status",
+        "reason",
+        "fact_keys",
+        "control_run_refs",
+    },
+    "measure_control_run": {
+        "proposal_ref",
+        "grounding_ref",
+        "control_ref",
+        "registration",
+        "gap",
+    },
+    "measure_control_observation": {
+        "control_run_ref",
+        "execution_ref",
+        "observed_value",
+        "outcome",
+        "error",
+    },
+    "evaluation": {
+        "candidate_ref",
+        "measure_ref",
+        "check_keys",
+        "input_refs",
+        "environment_ref",
+        "harness_ref",
+        "purpose",
+        "parent_operation_id",
+        "capability_ref",
+        "availability",
+        "selection_check_keys",
+    },
+    "evaluation_source": {
+        "request_ref",
+        "candidate_ref",
+        "build_receipt_ref",
+        "admitted",
+    },
+    "evaluation_run": {
+        "request_ref",
+        "candidate_ref",
+        "registration",
+        "build_receipt_ref",
+        "target_run_ref",
+        "target_execution_ref",
+        "checking_gap",
+    },
+    "observation": {
+        "request_ref",
+        "execution_ref",
+        "checked_dependency_hashes",
+        "check_key",
+        "observed_value",
+        "outcome",
+        "counterexample_refs",
+        "limitation_refs",
+    },
+    "parent_assessment": {
+        "assignment_ref",
+        "check_key",
+        "candidate_ref",
+        "checked_dependency_hashes",
+        "source_report_refs",
+        "source_observation_refs",
+        "outcome",
+    },
+    "prerequisite_assessment": {
+        "assignment_ref",
+        "source_report_ref",
+        "source_record_ref",
+        "decision",
+        "fact_keys",
+    },
+    "lesson": {
+        "requirement_keys",
+        "action_class",
+        "action_inputs",
+        "environment_ref",
+        "supporting_observation_refs",
+        "policy_effect",
+        "reopening_conditions",
+        "equivalence_key",
+        "fact_keys",
+    },
+    "conflict": {
+        "requirement_keys",
+        "observation_refs",
+        "transition_refs",
+        "kind",
+        "scope_owner_invocation_id",
+        "involved_assignment_refs",
+        "applicability_ref",
+        "state",
+        "resolution_ref",
+    },
+    "coordination": {
+        "conflict_ref",
+        "joint_assignment_ref",
+        "original_assignment_refs",
+        "required_check_keys",
+    },
+    "conflict_resolution": {
+        "conflict_ref",
+        "coordination_ref",
+        "candidate_ref",
+        "observation_refs",
+        "required_check_keys",
+    },
+    "attempt": {
+        "operation_id",
+        "invocation_id",
+        "logical_unit_id",
+        "action",
+        "payload",
+    },
+    "selection": {
+        "action_class",
+        "action_inputs",
+        "candidate_ref",
+        "considered_lesson_refs",
+        "retry_justification_ref",
+    },
+    "continuation": {
+        "numeric_step",
+        "remaining_opportunities",
+        "attained",
+        "observation_keys",
+        "usable_observation",
+        "stop",
+        "numeric_control",
+        "opportunity_function",
+    },
+    "local_context": {
+        "assignment_ref",
+        "invocation_id",
+        "current_candidate_ref",
+        "local_measure_ref",
+        "check_states",
+        "assessment_refs",
+        "prerequisite_assessment_refs",
+        "eligible_actions",
+        "applicable_lesson_refs",
+        "reopened_lesson_refs",
+        "conflict_refs",
+        "recent_unit_refs",
+        "history_cursor",
+        "complete_index_ref",
+    },
+    "commit": {"previous_commit_ref", "sequence", "attempt_ref", "deltas"},
+    "unit_receipt": {
+        "assignment_ref",
+        "invocation_id",
+        "logical_unit_id",
+        "ordinal",
+        "stage_receipt_refs",
+        "candidate_before_ref",
+        "candidate_after_ref",
+        "evaluation_refs",
+        "assessment_refs",
+        "prerequisite_assessment_refs",
+        "invalidated_check_keys",
+        "conflict_refs",
+        "lesson_refs",
+        "semantic_fact_keys",
+        "credit_before",
+        "credit_after",
+        "realized_yield",
+        "continuation_ref",
+        "disposition",
+        "decision_request_ref",
+    },
+    "parent_report": {
+        "assignment_ref",
+        "invocation_id",
+        "role",
+        "scope_requirement_keys",
+        "selected_candidate_ref",
+        "examined_candidate_refs",
+        "measure_refs",
+        "measure_proposal_refs",
+        "measure_admission_refs",
+        "source_admission_refs",
+        "determinations",
+        "investigation_findings",
+        "assessment_refs",
+        "prerequisite_assessment_refs",
+        "preservation_findings",
+        "relevant_attempt_refs",
+        "lesson_refs",
+        "unresolved_requirement_keys",
+        "decision_request_refs",
+        "child_report_refs",
+        "conflict_refs",
+        "termination",
+        "continuation_ref",
+        "complete_index_ref",
+    },
+    "verified_build": {
+        "campaign_ref",
+        "target_approval_ref",
+        "candidate_ref",
+        "candidate_materialization_ref",
+        "source_admission_ref",
+        "build_receipt_ref",
+        "build_manifest_ref",
+        "materialized_specification_ref",
+        "requirement_catalog_ref",
+        "mandatory_requirement_keys",
+        "check_refs",
+        "measure_refs",
+        "measure_admission_refs",
+        "observation_refs",
+        "validation_run_refs",
+        "evaluation_run_refs",
+        "grounding_refs",
+        "limitation_refs",
+        "retained_warning_refs",
+        "environment_ref",
+        "root_report_ref",
+        "root_unit_ref",
+        "continuation_ref",
+        "refiner_run_ref",
+        "complete_index_ref",
+    },
+    "review_handoff": {
+        "campaign_ref",
+        "baseline_ref",
+        "target_approval_ref",
+        "candidate_ref",
+        "root_report_ref",
+        "refiner_run_ref",
+        "has_terminal_report",
+        "disposition",
+        "decision_refs",
+        "source_admission_refs",
+        "verified_build_ref",
+        "verification_gaps",
+        "complete_index_ref",
+    },
+}
+
+# Earlier v1 receipts/projections have no parent-assessment links. Keep their
+# exact bodies and hashes readable; new producers always emit this field.
+_OPTIONAL_FIELDS = {
+    kind: {"assessment_refs", "prerequisite_assessment_refs"}
+    for kind in ("unit_receipt", "parent_report", "local_context")
+}
+_OPTIONAL_FIELDS["parent_report"].add("measure_admission_refs")
+_OPTIONAL_FIELDS["parent_report"].add("investigation_findings")
+_OPTIONAL_FIELDS["parent_report"].add("child_report_refs")
+_OPTIONAL_FIELDS["evaluation"] = {"availability", "selection_check_keys"}
+_OPTIONAL_FIELDS["check"] = {"execution_binding"}
+_OPTIONAL_FIELDS["measure_admission"] = {"evaluation_bindings", "control_run_refs"}
+_OPTIONAL_FIELDS["evaluation_run"] = {
+    "target_run_ref",
+    "target_execution_ref",
+    "checking_gap",
+}
+_OPTIONAL_FIELDS["verified_build"] = {"measure_admission_refs"}
+_OPTIONAL_FIELDS["campaign"] = {"instrument_builds_ref"}
+_OPTIONAL_FIELDS["materialization"] = {"instrument_plans"}
+_OPTIONAL_FIELDS["measure_proposal"] = {
+    "instrument_return_ref",
+    "grounding_acquisition_refs",
+}
+
+
+@dataclass(frozen=True)
+class Ref:
+    artifact_id: OpaqueId
+    content_hash: Sha256Digest
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.artifact_id, OpaqueId) or not isinstance(
+            self.content_hash, Sha256Digest
+        ):
+            raise ValueError("references require an opaque ID and exact digest")
+
+    def as_record(self) -> dict:
+        return {
+            "artifact_id": self.artifact_id.value,
+            "content_hash": self.content_hash.value,
+        }
+
+    @classmethod
+    def from_record(cls, value: object) -> Ref:
+        row = exact(value, {"artifact_id", "content_hash"}, "artifact reference")
+        return cls(OpaqueId(row["artifact_id"]), Sha256Digest(row["content_hash"]))
+
+
+@dataclass(frozen=True)
+class EvidenceRef:
+    store_kind: str
+    owner_id: OpaqueId
+    record_id: OpaqueId
+    content_hash: Sha256Digest
+    observation_path: str
+
+    def __post_init__(self) -> None:
+        if self.store_kind not in {"duet_artifact", "build_artifact", "run_audit"}:
+            raise ValueError("unknown evidence store")
+        Ref(self.record_id, self.content_hash)
+        if not isinstance(self.owner_id, OpaqueId):
+            raise ValueError("evidence needs an owner identity")
+        pointer_parts(self.observation_path)
+
+    def as_record(self) -> dict:
+        return {
+            "store_kind": self.store_kind,
+            "owner_id": self.owner_id.value,
+            "record_id": self.record_id.value,
+            "content_hash": self.content_hash.value,
+            "observation_path": self.observation_path,
+        }
+
+    @classmethod
+    def from_record(cls, value: object) -> EvidenceRef:
+        row = exact(value, set(cls.__dataclass_fields__), "evidence reference")
+        return cls(
+            row["store_kind"],
+            OpaqueId(row["owner_id"]),
+            OpaqueId(row["record_id"]),
+            Sha256Digest(row["content_hash"]),
+            row["observation_path"],
+        )
+
+
+def pointer_parts(pointer: str) -> tuple[str, ...]:
+    if not isinstance(pointer, str) or "\x00" in pointer or len(pointer) > 2048:
+        raise ValueError("invalid observation pointer")
+    if not pointer:
+        return ()
+    if not pointer.startswith("/"):
+        raise ValueError("observation pointer must start with /")
+    result = []
+    for part in pointer[1:].split("/"):
+        # An escaped tilde is decoded only once (RFC 6901).
+        remaining = part.replace("~0", "").replace("~1", "")
+        if "~" in remaining:
+            raise ValueError("invalid JSON pointer escape")
+        result.append(part.replace("~1", "/").replace("~0", "~"))
+    return tuple(result)
+
+
+def project(value: object, pointer: str) -> object:
+    for part in pointer_parts(pointer):
+        if isinstance(value, Mapping):
+            value = value[part]
+        elif isinstance(value, (tuple, list)) and (
+            part == "0" or (part.isdecimal() and not part.startswith("0"))
+        ):
+            value = value[int(part)]
+        else:
+            raise ValueError("observation pointer does not resolve")
+    return value
+
+
+def logical_path(value: object) -> str:
+    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
+        raise ValueError("candidate paths must be relative POSIX paths")
+    path = PurePosixPath(value)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
+        raise ValueError("candidate path escapes or aliases its namespace")
+    return value
+
+
+def _execution_binding(value):
+    binding = exact(
+        value,
+        {"harness_ref", "capability_ref", "input_refs"},
+        "check execution binding",
+    )
+    Ref.from_record(binding["harness_ref"])
+    Ref.from_record(binding["capability_ref"])
+    if not isinstance(binding["input_refs"], (list, tuple)):
+        raise ValueError("check input references must be an array")
+    for ref in binding["input_refs"]:
+        Ref.from_record(ref)
+
+
+def _validate_control_record(kind, body):
+    if kind == "measure_control_observation":
+        if body["outcome"] not in {"pass", "fail", "inconclusive", "error"}:
+            raise ValueError("invalid executable-control outcome")
+        if body["error"] is not None and not isinstance(body["error"], str):
+            raise ValueError("control error must be text data or null")
+        if (body["outcome"] == "error") != (body["error"] is not None):
+            raise ValueError(
+                "control errors cannot masquerade as pass/fail observations"
+            )
+        return
+    if (body["registration"] is None) == (body["gap"] is None):
+        raise ValueError(
+            "a control requires either a Run registration or a prerequisite gap"
+        )
+    if body["gap"] is not None:
+        gap = exact(body["gap"], {"kind", "detail"}, "control prerequisite gap")
+        if gap["kind"] not in {
+            "checker_source_unavailable",
+            "checker_source_invalid",
+            "checker_input_invalid",
+        }:
+            raise ValueError("unregistered executable-control gap")
+        if not isinstance(gap["detail"], str):
+            raise ValueError("control prerequisite detail must be text data")
+
+
+def _validate_measure_need(need):
+    exact(
+        need,
+        {
+            "need_key",
+            "kind",
+            "purpose",
+            "requirement_keys",
+            "basis_refs",
+            "instrument_build_ref",
+        },
+        "measurement prerequisite need",
+    )
+    OpaqueId(need["need_key"])
+    names(need["requirement_keys"], "measurement need requirements", nonempty=True)
+    if need["kind"] not in {
+        "measure_authority_required",
+        "grounding_required",
+        "instrument_build_required",
+    } or need["purpose"] not in {"local", "acceptance", "composition", "adequacy"}:
+        raise ValueError("measurement prerequisite kind or purpose is invalid")
+    if not isinstance(need["basis_refs"], (list, tuple)) or not need["basis_refs"]:
+        raise ValueError("measurement prerequisite needs committed basis references")
+    for reference in need["basis_refs"]:
+        Ref.from_record(reference)
+    if (need["instrument_build_ref"] is not None) != (
+        need["kind"] == "instrument_build_required"
+    ):
+        raise ValueError("instrument-building request needs its exact specification")
+    if need["instrument_build_ref"] is not None:
+        Ref.from_record(need["instrument_build_ref"])
+
+
+def _validate_body(kind: str, body: Mapping) -> None:
+    if kind not in RECORD_FIELDS:
+        raise ValueError("unregistered refinement record kind")
+    optional = _OPTIONAL_FIELDS.get(kind, set())
+    exact(body, (RECORD_FIELDS[kind] - optional) | (set(body) & optional), f"{kind} v1")
+    for key, value in body.items():
+        if key.endswith("_refs"):
+            if not isinstance(value, (tuple, list)):
+                raise ValueError(f"{key} must be an array")
+            for ref in value:
+                Ref.from_record(ref)
+        elif key.endswith("_ref") and value is not None:
+            Ref.from_record(value)
+    if kind in {"measure_control_run", "measure_control_observation"}:
+        _validate_control_record(kind, body)
+    if kind == "measure_prerequisite":
+        _validate_measure_need(body["need"])
+    if kind == "measure_proposal" and "instrument_return_ref" in body:
+        Ref.from_record(body["instrument_return_ref"])
+    if kind == "review_handoff":
+        if type(body["has_terminal_report"]) is not bool:
+            raise ValueError(
+                "review must distinguish a terminal report from a last-known snapshot"
+            )
+        if not isinstance(body["disposition"], str) or not isinstance(
+            body["verification_gaps"], (tuple, list)
+        ):
+            raise ValueError(
+                "review requires an explicit disposition and typed verification gaps"
+            )
+        if body["verified_build_ref"] is not None and (
+            not body["has_terminal_report"]
+            or body["disposition"] != "attained"
+            or body["verification_gaps"]
+        ):
+            raise ValueError(
+                "an unresolved or external return cannot carry verified readiness"
+            )
+    if kind == "evaluation_run" and (
+        ("target_run_ref" in body) != ("target_execution_ref" in body)
+        or (
+            "target_run_ref" in body
+            and (body["target_run_ref"] is None or body["target_execution_ref"] is None)
+        )
+    ):
+        raise ValueError(
+            "checking Run needs both its target binding and execution evidence"
+        )
+    if kind == "evaluation_run" and "checking_gap" in body:
+        if "target_run_ref" in body:
+            raise ValueError("an unavailable checker cannot have a checker Run binding")
+        gap = exact(
+            body["checking_gap"],
+            {"kind", "detail", "target_run_ref", "target_execution_ref"},
+            "checking prerequisite gap",
+        )
+        if gap["kind"] not in {
+            "checker_source_unavailable",
+            "checker_source_invalid",
+            "checker_input_invalid",
+        }:
+            raise ValueError("unregistered checking prerequisite gap")
+        if not isinstance(gap["detail"], str):
+            raise ValueError("checking gap detail must be text data")
+        for field in ("target_run_ref", "target_execution_ref"):
+            Ref.from_record(gap[field])
+    if kind == "verified_build":
+        names(
+            body["mandatory_requirement_keys"], "verified requirements", nonempty=True
+        )
+        if not body["check_refs"] or len(body["check_refs"]) != len(
+            body["observation_refs"]
+        ):
+            raise ValueError("verified build needs one observation per required check")
+    if kind == "candidate":
+        if not isinstance(body["files"], Mapping):
+            raise ValueError("candidate files must be a path to digest mapping")
+        for path, digest in body["files"].items():
+            logical_path(path)
+            Sha256Digest(digest)
+    if kind == "materialization" and "instrument_plans" in body:
+        if not isinstance(body["instrument_plans"], Mapping):
+            raise ValueError("instrument plans require exact build identities")
+        for key, revision in body["instrument_plans"].items():
+            OpaqueId(key)
+            exact(revision, {"baseline_ref", "plan"}, "instrument plan revision")
+            Ref.from_record(revision["baseline_ref"])
+            if not isinstance(revision["plan"], Mapping):
+                raise ValueError("instrument revision requires a typed plan body")
+    if kind == "assignment":
+        if body["role"] not in ROLES:
+            raise ValueError("unregistered refinement role")
+        OpaqueId(body["owning_parts_invocation_id"])
+        OpaqueId(body["judgment_lineage"])
+        for key in (
+            "scope_requirement_keys",
+            "contribution_requirement_keys",
+            "owned_slice_keys",
+            "allowed_action_classes",
+        ):
+            names(body[key], key, nonempty=True)
+        scope = set(body["scope_requirement_keys"])
+        if not set(body["contribution_requirement_keys"]).issubset(scope):
+            raise ValueError(
+                "contribution requirements must be inside the assigned scope"
+            )
+        if not set(
+            names(body["preservation_requirement_keys"], "preservation requirements")
+        ).issubset(scope):
+            raise ValueError(
+                "preservation requirements must be inside the assigned scope"
+            )
+        for key in ("writable_paths", "protected_paths"):
+            for path in names(body[key], key):
+                logical_path(path)
+    if kind == "check":
+        names((body["requirement_key"],), "requirement key", nonempty=True)
+        if body["evidence_kind"] not in {"execution", "materialization"}:
+            raise ValueError("check must distinguish runtime from static evidence")
+        if type(body["mandatory"]) is not bool or not body["grounding_refs"]:
+            raise ValueError("check requires explicit mandatory status and grounding")
+        pointer_parts(body["observation_path"])
+        if "execution_binding" in body:
+            _execution_binding(body["execution_binding"])
+        if body["dependency_paths"] is not None:
+            for path in names(body["dependency_paths"], "dependency paths"):
+                logical_path(path)
+    if kind == "measure_admission" and "evaluation_bindings" in body:
+        bindings = body["evaluation_bindings"]
+        if (
+            body["evaluation_binding"] is not None
+            or not isinstance(bindings, (list, tuple))
+            or len(bindings) < 2
+        ):
+            raise ValueError(
+                "multi-context admission must use only its explicit binding set"
+            )
+        if len({canonical_json(binding) for binding in bindings}) != len(bindings):
+            raise ValueError("measure instrument bindings must be unique")
+        for binding in bindings:
+            exact(
+                binding,
+                {
+                    "measure_ref",
+                    "purpose",
+                    "harness_ref",
+                    "capability_ref",
+                    "input_refs",
+                },
+                "measure execution binding",
+            )
+            if binding["measure_ref"] != body["measure_ref"]:
+                raise ValueError("instrument binding belongs to another measure")
+            names((binding["purpose"],), "instrument purpose", nonempty=True)
+            _execution_binding({
+                field: binding[field]
+                for field in ("harness_ref", "capability_ref", "input_refs")
+            })
+    if kind == "evaluation" and "availability" in body:
+        availability = exact(
+            body["availability"], {"executable", "gaps"}, "evaluation availability"
+        )
+        if type(availability["executable"]) is not bool:
+            raise ValueError(
+                "evaluation availability needs an explicit execution decision"
+            )
+        if not isinstance(availability["gaps"], (list, tuple)):
+            raise ValueError("evaluation gaps must be an array")
+        for gap in availability["gaps"]:
+            exact(
+                gap,
+                {"kind", "detail", "requirement_keys", "check_keys"},
+                "evaluation gap",
+            )
+            if gap["kind"] not in {
+                "coverage_missing",
+                "checks_unavailable",
+                "guards_unavailable",
+                "environment_mismatch",
+                "instrument_missing",
+                "instrument_ambiguous",
+                "instrument_route_unavailable",
+                "launch_input_invalid",
+            }:
+                raise ValueError("unknown evaluation gap")
+            names((gap["detail"],), "evaluation gap detail", nonempty=True)
+            names(gap["requirement_keys"], "evaluation gap requirements")
+            names(gap["check_keys"], "evaluation gap checks")
+    if kind == "evaluation" and "selection_check_keys" in body:
+        names(body["selection_check_keys"], "investigation selection", nonempty=True)
+    if kind == "parent_assessment":
+        if body["outcome"] not in {"pass", "fail", "inconclusive"}:
+            raise ValueError("parent assessment requires a measured determination")
+        if not body["source_report_refs"] or not body["source_observation_refs"]:
+            raise ValueError(
+                "parent assessment must retain the returned original evidence"
+            )
+    if kind == "prerequisite_assessment":
+        decision = body["decision"]
+        if not isinstance(decision, Mapping):
+            raise ValueError("prerequisite decision must be a typed object")
+        decision_kind = decision.get("kind")
+        common = {"kind", "requirement_keys", "limitation_refs"}
+        if decision_kind == "measure_available":
+            exact(
+                decision,
+                common | {"measure_ref", "purpose"},
+                "available measure decision",
+            )
+            if decision["purpose"] not in {
+                "local",
+                "acceptance",
+                "composition",
+                "adequacy",
+            }:
+                raise ValueError("unknown prerequisite measure purpose")
+        elif decision_kind in {"question_resolved", "support_available"}:
+            exact(
+                decision,
+                common
+                | {
+                    "need_ref",
+                    "decision_ref",
+                    "target_ref",
+                    "state",
+                    "policy_strength",
+                    "applicability_ref",
+                },
+                "investigation decision",
+            )
+            states = (
+                {"supported", "refuted"}
+                if decision_kind == "question_resolved"
+                else {"applicable"}
+            )
+            if (
+                decision["state"] not in states
+                or decision["policy_strength"] != "advisory"
+            ):
+                raise ValueError(
+                    "prerequisite finding must retain its limited advisory meaning"
+                )
+        else:
+            raise ValueError("unknown prerequisite decision kind")
+        names(decision["requirement_keys"], "prerequisite requirements", nonempty=True)
+        names(body["fact_keys"], "prerequisite facts", nonempty=True)
+        for name, value in decision.items():
+            if name.endswith("_ref"):
+                Ref.from_record(value)
+        for ref in decision["limitation_refs"]:
+            Ref.from_record(ref)
+    if kind == "measure_proposal":
+        names(body["requirement_keys"], "measured requirements", nonempty=True)
+        if body["purpose"] not in {"local", "acceptance", "composition", "adequacy"}:
+            raise ValueError("unknown measure purpose")
+        if body["oracle_kind"] not in {
+            "registered_predicate",
+            "independent_execution",
+            "approved_review",
+        }:
+            raise ValueError("measure requires an explicit grounding route")
+        for name in (
+            "grounding_refs",
+            "positive_control_refs",
+            "negative_control_refs",
+        ):
+            if not body[name]:
+                raise ValueError(
+                    "measure proposal must identify grounding and discriminating controls"
+                )
+
+
+@dataclass(frozen=True)
+class RefinementRecord:
+    kind: str
+    campaign_id: OpaqueId
+    body: Mapping[str, object]
+    producer_ref: Ref
+    evidence_refs: tuple[EvidenceRef, ...] = ()
+    predecessor_refs: tuple[Ref, ...] = ()
+    invocation_id: OpaqueId | None = None
+    logical_unit_id: OpaqueId | None = None
+    artifact_id: OpaqueId = field(init=False)
+    content_hash: Sha256Digest = field(init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.campaign_id, OpaqueId) or not isinstance(
+            self.producer_ref, Ref
+        ):
+            raise ValueError("record requires campaign and producer identities")
+        for name in ("invocation_id", "logical_unit_id"):
+            if getattr(self, name) is not None and not isinstance(
+                getattr(self, name), OpaqueId
+            ):
+                raise ValueError(f"{name} must be an opaque identity")
+        for name, kind in (("evidence_refs", EvidenceRef), ("predecessor_refs", Ref)):
+            if not isinstance(getattr(self, name), tuple) or any(
+                not isinstance(item, kind) for item in getattr(self, name)
+            ):
+                raise ValueError(f"{name} must be a typed tuple")
+        _validate_body(self.kind, self.body)
+        object.__setattr__(self, "body", _freeze_json(self.body, "refinement body"))
+        semantic = self.semantic_record()
+        object.__setattr__(self, "artifact_id", content_id("refinement", semantic))
+        object.__setattr__(self, "content_hash", digest_record(semantic))
+
+    @property
+    def ref(self) -> Ref:
+        return Ref(self.artifact_id, self.content_hash)
+
+    def semantic_record(self) -> dict:
+        return {
+            "schema_id": f"openchia.refinement.{self.kind}",
+            "schema_version": 1,
+            "campaign_id": self.campaign_id.value,
+            "invocation_id": self.invocation_id.value if self.invocation_id else None,
+            "logical_unit_id": self.logical_unit_id.value
+            if self.logical_unit_id
+            else None,
+            "producer_ref": self.producer_ref.as_record(),
+            "evidence_refs": [ref.as_record() for ref in self.evidence_refs],
+            "predecessor_refs": [ref.as_record() for ref in self.predecessor_refs],
+            "body": _thaw_json(self.body),
+        }
+
+    def as_record(self) -> dict:
+        return {**self.ref.as_record(), **self.semantic_record()}
+
+    @classmethod
+    def from_record(cls, value: object) -> RefinementRecord:
+        row = exact(
+            value,
+            {
+                "schema_id",
+                "schema_version",
+                "artifact_id",
+                "content_hash",
+                "campaign_id",
+                "invocation_id",
+                "logical_unit_id",
+                "producer_ref",
+                "evidence_refs",
+                "predecessor_refs",
+                "body",
+            },
+            "refinement envelope",
+        )
+        if type(row["schema_version"]) is not int or row["schema_version"] != 1:
+            raise ValueError("unsupported refinement schema version")
+        prefix = "openchia.refinement."
+        if not isinstance(row["schema_id"], str) or not row["schema_id"].startswith(
+            prefix
+        ):
+            raise ValueError("unregistered refinement schema")
+        result = cls(
+            row["schema_id"][len(prefix) :],
+            OpaqueId(row["campaign_id"]),
+            row["body"],
+            Ref.from_record(row["producer_ref"]),
+            tuple(EvidenceRef.from_record(ref) for ref in row["evidence_refs"]),
+            tuple(Ref.from_record(ref) for ref in row["predecessor_refs"]),
+            OpaqueId(row["invocation_id"])
+            if row["invocation_id"] is not None
+            else None,
+            OpaqueId(row["logical_unit_id"])
+            if row["logical_unit_id"] is not None
+            else None,
+        )
+        if result.ref != Ref.from_record({
+            key: row[key] for key in ("artifact_id", "content_hash")
+        }):
+            raise ValueError("refinement record content identity mismatch")
+        return result

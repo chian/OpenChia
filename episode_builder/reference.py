@@ -17,9 +17,14 @@ from typing import Mapping
 
 from episode_library import episode_library
 from episode_library.models import EpisodeLibraryDesign, EpisodeReference
+from episode_library.refinement import DESIGNS as REFINEMENT_DESIGNS
 
 
 _BUILTIN_REFERENCE_MODULES = {
+    **{
+        design.qualified_name: "episode_library.refinement"
+        for design in REFINEMENT_DESIGNS
+    },
     "reasoning.generic": "episode_library.reasoning",
     "reasoning.inquiry": "episode_library.inquiry",
     "question_pipeline.run": "episode_library.question_run",

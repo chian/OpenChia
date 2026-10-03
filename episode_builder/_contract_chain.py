@@ -518,6 +518,7 @@ class WorkflowMaterializationPlan:
     predecessor_plan_id: Optional[OpaqueId]
     node_dispositions: Mapping[str, str]
     deficits: tuple[BuildDeficit, ...] = ()
+    repeatable_calls: tuple[EdgeMaterializationPlan, ...] = ()
     plan_id: OpaqueId = field(init=False)
 
     def __post_init__(self) -> None:
@@ -549,6 +550,13 @@ class WorkflowMaterializationPlan:
             not isinstance(edge, EdgeMaterializationPlan) for edge in self.edges
         ):
             raise TypeError("edges must contain EdgeMaterializationPlan values")
+        if any(edge.repeatable_call is not None for edge in self.edges):
+            raise ValueError("concrete edges cannot contain repeatable calls")
+        if not isinstance(self.repeatable_calls, tuple) or any(
+            not isinstance(edge, EdgeMaterializationPlan) or edge.repeatable_call is None
+            for edge in self.repeatable_calls
+        ):
+            raise TypeError("repeatable_calls must contain exact repeatable edges")
         if not isinstance(self.deficits, tuple) or any(
             not isinstance(deficit, BuildDeficit) for deficit in self.deficits
         ):
@@ -620,6 +628,19 @@ class WorkflowMaterializationPlan:
         expected_children = set(node_by_id) - {self.root_local_id}
         if not blocked and child_ids != expected_children:
             raise ValueError("every non-root materialization node needs one edge")
+        calls = tuple(sorted(self.repeatable_calls, key=lambda edge: (edge.parent_local_id, edge.slot_name)))
+        for edge in calls:
+            caller = node_by_id.get(edge.parent_local_id)
+            callee = node_by_id.get(edge.child_local_id)
+            if caller is None or callee is None:
+                raise ValueError("repeatable call names an unknown template")
+            if edge.child_interface != callee.interface or edge.request_payload_contract != callee.request_payload_contract or edge.result_payload_contract != callee.result_payload_contract:
+                raise ValueError("repeatable call changes its callee's interface or payload")
+            key = (edge.parent_local_id, edge.slot_name)
+            if key in used_slots or edge.slot_name not in caller.child_slot_names:
+                raise ValueError("repeatable call must have its own declared caller slot")
+            used_slots.add(key)
+            slots_by_parent.setdefault(edge.parent_local_id, set()).add(edge.slot_name)
         for node in nodes:
             if not blocked and set(node.child_slot_names) != slots_by_parent.get(
                 node.local_id,
@@ -644,6 +665,7 @@ class WorkflowMaterializationPlan:
                 raise ValueError("a successor plan must apply an approved directive")
         object.__setattr__(self, "nodes", nodes)
         object.__setattr__(self, "edges", edges)
+        object.__setattr__(self, "repeatable_calls", calls)
         object.__setattr__(self, "node_dispositions", dispositions)
         object.__setattr__(
             self,
@@ -660,7 +682,13 @@ class WorkflowMaterializationPlan:
     def ready(self) -> bool:
         return not any(deficit.blocking for deficit in self.deficits)
 
+    @property
+    def all_edges(self) -> tuple[EdgeMaterializationPlan, ...]:
+        return (*self.edges, *self.repeatable_calls)
+
     def semantic_record(self) -> dict[str, Any]:
+        from .call_plan import calls_record
+
         return {
             "build_request_id": self.build_request_id.value,
             "build_attempt_id": self.build_attempt_id.value,
@@ -675,6 +703,7 @@ class WorkflowMaterializationPlan:
             ),
             "node_dispositions": dict(self.node_dispositions),
             "deficits": [deficit.as_record() for deficit in self.deficits],
+            **calls_record(self.repeatable_calls),
         }
 
     def as_record(self) -> dict[str, Any]:
@@ -696,6 +725,9 @@ class WorkflowMaterializationPlan:
         ):
             raise ValueError("materialization plan names another request or attempt")
         workflow = build_request.frozen_workflow.workflow
+        from .call_plan import validate_planned_calls
+
+        validate_planned_calls(self.nodes, self.repeatable_calls, workflow.repeatable_calls, ready=self.ready)
         if self.workflow_hash != workflow.workflow_hash:
             raise ValueError("materialization plan names a different workflow hash")
         preserving = bool(
@@ -774,6 +806,8 @@ class WorkflowMaterializationPlan:
 
     @classmethod
     def from_record(cls, value: object) -> "WorkflowMaterializationPlan":
+        from .call_plan import call_extension_keys, calls_from_record
+
         record = _record(
             value,
             "workflow materialization plan",
@@ -788,6 +822,7 @@ class WorkflowMaterializationPlan:
                 "predecessor_plan_id",
                 "node_dispositions",
                 "deficits",
+                *call_extension_keys(value),
             },
         )
         if not all(
@@ -808,6 +843,7 @@ class WorkflowMaterializationPlan:
             ),
             node_dispositions=record["node_dispositions"],
             deficits=tuple(BuildDeficit.from_record(item) for item in record["deficits"]),
+            repeatable_calls=calls_from_record(record),
         )
         if result.plan_id.value != record["plan_id"]:
             raise ValueError("workflow materialization plan identity is stale")

@@ -53,7 +53,7 @@ from handoff_library import (
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
 from numeric_control_library import MARGINAL_DOMINATED_HYPERVOLUME
 
-from conftest import claim_store, numerical_control, oid
+from .conftest import claim_store, numerical_control, oid
 
 
 def _binding(role, function, arguments=None):
@@ -116,11 +116,20 @@ def _module_response(prompt):
     components = ",".join(
         selected(role) for role in bindings if role.startswith("component.")
     )
+    slots = ",".join(
+        f"EpisodeChildSlot(name={edge['slot_name']!r}, accepted_interfaces=({edge['child_interface']!r},), "
+        f"build_child={selected('edge.' + edge['slot_name'] + '.build_child')}, "
+        f"prepare_request={selected('edge.' + edge['slot_name'] + '.prepare_request')}, "
+        f"receive_result={selected('edge.' + edge['slot_name'] + '.receive_result')})"
+        for edge in prompt.get("direct_edges", [])
+    )
+    call_definitions = ", ADMIT_PARENT_REQUEST, ADMIT_CHILD_RESULT, BUILD_REPEATABLE_CHILD" if slots else ""
     source = f"""
 from types import MappingProxyType
 from episode_library.models import EpisodeLibraryDesign
-from method_loop import Episode, EpisodeBindingDeclaration, EpisodeControllerBinding, EpisodeFunctionBinding, EpisodeTopologyRole
-from handoff_library import HandoffPayloadContract, ADMIT_DUET_LAUNCH_REQUEST
+from method_loop import Episode, EpisodeBindingDeclaration, EpisodeChildSlot, EpisodeControllerBinding, EpisodeFunctionBinding, EpisodeTopologyRole
+from handoff_library import HandoffPayloadContract, ADMIT_DUET_LAUNCH_REQUEST, ADMIT_PARENT_REQUEST, ADMIT_CHILD_RESULT
+from function_library.episode_calls import BUILD_REPEATABLE_CHILD
 from function_library.reasoning import OPEN_SOURCE, BUILD_RESULT, CONTROLLER, SCHEMA, ReasoningSource, ReasoningGoalState, build_reasoning_result, build_controller_factory as host_controller_factory
 from function_library.epistemic import epistemic_function_library
 from numeric_control_library import MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND
@@ -131,16 +140,16 @@ EXECUTION_CAPABILITY_NAMES = ()
 RESULT_CHANNEL_NAMES = {tuple(plan["result_channel_names"])!r}
 RESULT_CHANNEL_IDS = {tuple(plan["result_channel_ids"])!r}
 BINDING = EpisodeBindingDeclaration(
-    grain_name={plan["grain_name"]!r}, interface={plan["interface"]!r}, topology_role=EpisodeTopologyRole.LEAF,
+    grain_name={plan["grain_name"]!r}, interface={plan["interface"]!r}, topology_role=EpisodeTopologyRole.{plan["topology_role"].upper()},
     goal={contract["goal"]!r}, unit={contract["unit"]!r}, result={contract["result"]!r},
     progress={contract["progress"]!r}, stopping={contract["stopping"]!r},
     admit_request={selected("admit_request")}, open_source={selected("open_source")},
     controller=EpisodeControllerBinding(schema={selected("controller.schema")}, composer={selected("controller.composer")},
         credit={selected("controller.credit")}, rarefaction={selected("controller.rarefaction")}, continuation={selected("controller.continuation")}),
-    build_result={selected("build_result")}, components=({components},))
+    build_result={selected("build_result")}, components=({components},), child_slots=({slots}{',' if slots else ''}))
 DESIGN = EpisodeLibraryDesign(qualified_name={plan["interface"]!r}, title='Task inquiry', binding=BINDING,
     function_definitions=(ADMIT_DUET_LAUNCH_REQUEST, OPEN_SOURCE, BUILD_RESULT, CONTROLLER, SCHEMA,
-        MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND, *epistemic_function_library.functions()), source_symbols=())
+        MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND{call_definitions}, *epistemic_function_library.functions()), source_symbols=())
 def build_controller_factory(goal_view, collaborators):
     return host_controller_factory(goal_view, collaborators)
 def build_goal_state(request, collaborators):
@@ -158,7 +167,7 @@ def build_episode(grain, key, request, goal_view, collaborators, child_builders)
     }
 
 
-def _approved_request(tmp_path, *, spec=None, reference=DESIGN):
+def _approved_request(tmp_path, *, spec=None, reference=DESIGN, repeatable_calls=()):
     evidence = (
         {
             "kind": "support",
@@ -201,7 +210,7 @@ def _approved_request(tmp_path, *, spec=None, reference=DESIGN):
         EpisodeDesignSpec(
             "inquiry", None, spec, EpisodeReference(reference.episode_id)
         ),
-    ))
+    ), repeatable_calls=repeatable_calls)
     with DuetStore(tmp_path / "duet.db") as store:
         service = DuetService(store, allowed_episode_capabilities=())
         policy = DuetPolicy(oid("policy"))

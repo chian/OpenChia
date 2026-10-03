@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from function_library.reasoning_transport import reasoning_transport_scope
+from function_library.refinement_transport import refinement_transport_scope
 
 import argparse
 import asyncio
@@ -96,6 +97,8 @@ class _ProtocolChannel:
         self._pending_http: dict[str, asyncio.Future[HttpTransportResponse]] = {}
         self._pending_learning: dict[str, asyncio.Future] = {}
         self._learning_ordinal = 0
+        self._pending_refinement: dict[str, asyncio.Future] = {}
+        self._refinement_ordinal = 0
         self.cancelled: asyncio.Future[CancelKind] = (
             asyncio.get_running_loop().create_future()
         )
@@ -246,6 +249,12 @@ class _ProtocolChannel:
     async def receive_loop(self) -> None:
         while True:
             frame = await self.receive()
+            if frame.frame_type == HostFrameType.REFINEMENT_RESPONSE.value:
+                future = self._pending_refinement.get(frame.body["request_id"])
+                if future is None or future.done():
+                    raise ProtocolError("refinement response has no outstanding request")
+                future.set_result(frame.body["response"])
+                continue
             if frame.frame_type == HostFrameType.LEARNING_RESPONSE.value:
                 future = self._pending_learning.get(frame.body["request_id"])
                 if future is None or future.done():
@@ -299,6 +308,28 @@ class _ProtocolChannel:
             return await future
         finally:
             self._pending_learning.pop(request_id.value, None)
+
+    async def request_refinement(self, operation, payload):
+        episode_id = current_runtime_episode_id()
+        request_id = content_id("refinement_request", {
+            "run_id": self.binding.run_id.value,
+            "episode_id": episode_id.value,
+            "ordinal": self._refinement_ordinal,
+        })
+        self._refinement_ordinal += 1
+        future = asyncio.get_running_loop().create_future()
+        self._pending_refinement[request_id.value] = future
+        try:
+            await self.send(WorkerFrameType.REFINEMENT_REQUEST.value, {
+                "request_id": request_id.value,
+                "episode_id": episode_id.value,
+                "episode_path": current_runtime_episode_path(),
+                "operation": operation,
+                "payload": payload,
+            })
+            return await future
+        finally:
+            self._pending_refinement.pop(request_id.value, None)
 
 
 class _WorkerModelTransport:
@@ -409,7 +440,7 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
     receiver = asyncio.create_task(channel.receive_loop())
     with model_transport_scope(model_transport), http_transport_scope(
         http_transport
-    ), reasoning_transport_scope(channel.request_learning):
+    ), reasoning_transport_scope(channel.request_learning), refinement_transport_scope(channel.request_refinement):
         run_task = asyncio.create_task(linked.run())
         done, _ = await asyncio.wait(
             {run_task, receiver, channel.cancelled},

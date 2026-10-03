@@ -36,7 +36,9 @@ from episode_builder.declaration import (
     build_module_declaration,
 )
 from episode_library.models import EpisodeLibraryDesign
+from episode_library.refinement import execution_bindings, resolve_reference
 from function_library.reasoning import HostReceipt
+from function_library.refinement import RefinementReceipt
 from handoff_library import HandoffPayloadContract
 from method_loop import (
     ClosedRecord,
@@ -46,7 +48,6 @@ from method_loop import (
     EpisodeCompletion,
     EpisodeGoal,
     EpisodeRequest,
-    EpisodeTree,
     GoalState,
     Grain,
     Path as EpisodePath,
@@ -54,6 +55,7 @@ from method_loop import (
 from method_loop.identities import EpisodeRef, normalize_structural_path
 
 from .contracts import RunEventKind, RunRegistration
+from .repeatable import admitted_builder, build_declared_tree, declared_call_selections
 
 
 _METADATA_FILES = MappingProxyType(
@@ -519,6 +521,11 @@ def _validate_activated_module(
         ("controller.rarefaction", binding.controller.rarefaction),
         ("controller.continuation", binding.controller.continuation),
     )
+    if resolve_reference(frozen.episode_reference) is not None:
+        try:
+            numeric_bindings += execution_bindings(binding)
+        except KeyError as exc:
+            raise RuntimeLinkError("BINDING omits a fixed refinement adapter") from exc
     if frozen.contract.epistemic is not None:
         components = {item.name: item for item in binding.components}
         for role in frozen.contract.epistemic.components:
@@ -526,6 +533,12 @@ def _validate_activated_module(
             if name not in components:
                 raise RuntimeLinkError(f"BINDING omits frozen epistemic component {role}")
             numeric_bindings += ((f"component.{name}", components[name]),)
+    try:
+        numeric_bindings += declared_call_selections(
+            binding, tuple(edge for edge in plan.repeatable_calls if edge.parent_local_id == node.local_id),
+        )
+    except (TypeError, ValueError) as exc:
+        raise RuntimeLinkError("BINDING changes an approved repeatable call") from exc
     semantic_fields = (
         "library",
         "function_id",
@@ -575,7 +588,7 @@ def _validate_activated_module(
         != _json_value(node.result_payload_contract)
     ):
         raise RuntimeLinkError("payload contracts differ from the admitted plan")
-    edges = tuple(edge for edge in plan.edges if edge.parent_local_id == node.local_id)
+    edges = tuple(edge for edge in plan.all_edges if edge.parent_local_id == node.local_id)
     expected_declaration = build_module_declaration(frozen.contract, node, edges)
     if getattr(module, DECLARATION_EXPORT) != expected_declaration:
         raise RuntimeLinkError("host declaration differs from the admitted plan")
@@ -810,6 +823,9 @@ class LinkedEpisodeRun:
         if isinstance(record.controller_state, HostReceipt):
             outcome = record.controller_state.record["terminal_state"]
             outcome = "succeeded" if outcome == "completed" else "blocked"
+        if isinstance(record.controller_state, RefinementReceipt):
+            # Yield exhaustion is a valid return, not proof that the build works.
+            outcome = "succeeded" if record.controller_state.record["disposition"] == "attained" else "blocked"
         return MappingProxyType(
             {
                 "outcome": outcome,
@@ -888,22 +904,14 @@ class ActivatedSourcePackage:
                 controller=controller_factory,
             )
 
-        children: dict[Grain, tuple[Grain, ...]] = {}
         edges_by_parent: dict[str, dict[str, str]] = {}
-        for edge in self.plan.edges:
+        edge_by_slot = {}
+        for edge in self.plan.all_edges:
             edges_by_parent.setdefault(edge.parent_local_id, {})[
                 edge.slot_name
             ] = edge.child_local_id
-        for node in self.plan.nodes:
-            child_ids = tuple(
-                edges_by_parent.get(node.local_id, {})[slot]
-                for slot in node.child_slot_names
-            )
-            if child_ids:
-                children[grains[node.local_id]] = tuple(
-                    grains[child_id] for child_id in child_ids
-                )
-        tree = EpisodeTree(root=grains[root_node.local_id], children=children)
+            edge_by_slot[(edge.parent_local_id, edge.slot_name)] = edge
+        tree = build_declared_tree(self.plan, grains)
 
         goal_state = root_module.build_goal_state(
             self.registration.launch_request,
@@ -952,6 +960,8 @@ class ActivatedSourcePackage:
                 raise RuntimeLinkError("child builder collaborators changed")
             node = node_by_id[local_id]
             activated = self.modules[local_id]
+            current_path = tuple(context_holder["context"].path)
+            path = current_path + ((grains[local_id].name, key),) if current_path else root_path
             child_builders: dict[str, Callable[..., Episode]] = {}
             for slot_name, child_id in edges_by_parent.get(local_id, {}).items():
 
@@ -964,9 +974,9 @@ class ActivatedSourcePackage:
                     child_id: str = child_id,
                 ) -> Episode:
                     current = context_holder["context"].path
-                    if not current:
+                    if tuple(current) != path:
                         raise RuntimeLinkError(
-                            "child builder was called outside its parent Context"
+                            "child builder was called outside its owning parent Context"
                         )
                     child_node = node_by_id[child_id]
                     recomputed = root_module.scope_goal_state(
@@ -989,7 +999,16 @@ class ActivatedSourcePackage:
                         child_collaborators,
                     )
 
-                child_builders[slot_name] = child_builder
+                edge = edge_by_slot[(local_id, slot_name)]
+                child_builders[slot_name] = (
+                    child_builder if edge.repeatable_call is None else admitted_builder(
+                        edge=edge, parent_path=path, parent_request=request,
+                        run_id=self.registration.run_id.value, child_grain=grains[child_id],
+                        definitions=activated.design.function_definitions,
+                        current_path=lambda: context_holder["context"].path,
+                        construct=child_builder,
+                    )
+                )
 
             episode = activated.module.build_episode(
                 grains[local_id],
@@ -1012,12 +1031,6 @@ class ActivatedSourcePackage:
             expected_slots = set(node.child_slot_names)
             if set(child_builders) != expected_slots:
                 raise RuntimeLinkError("runtime child builders differ from the plan")
-            path = (
-                root_path
-                if local_id == root_node.local_id
-                else tuple(context_holder["context"].path)
-                + ((grains[local_id].name, key),)
-            )
             runtime_ref = EpisodeRef(
                 run_id=self.registration.run_id.value,
                 path=path,

@@ -12,6 +12,7 @@ from .source_table import DESIGN as SOURCE_TABLE
 from .web_search import DESIGN as WEB_SEARCH
 from .reasoning import DESIGN as REASONING
 from .inquiry import DESIGN as INQUIRY
+from .refinement import DESIGNS as REFINEMENT_DESIGNS
 
 
 episode_library = EpisodeLibrary()
@@ -25,6 +26,7 @@ for _design in (
     LEXICAL_PROBE,
     REASONING,
     INQUIRY,
+    *REFINEMENT_DESIGNS,
 ):
     episode_library.register(_design)
 episode_library.validate_topology()

@@ -29,7 +29,7 @@ def build_module_declaration(
         raise TypeError("direct_edges must contain EdgeMaterializationPlan values")
     if any(edge.parent_local_id != plan.local_id for edge in direct_edges):
         raise ValueError("direct edge belongs to another parent Episode")
-    if {edge.slot_name for edge in direct_edges} != set(plan.child_slot_names):
+    if len(direct_edges) != len(plan.child_slot_names) or {edge.slot_name for edge in direct_edges} != set(plan.child_slot_names):
         raise ValueError("direct edges do not exactly cover the node child slots")
     return {
         "episode_local_id": plan.local_id,

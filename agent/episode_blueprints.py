@@ -263,7 +263,8 @@ def workflow_blueprint_from_spec(workflow: EpisodeWorkflowSpec) -> dict[str, Any
                 ),
             }
             for item in workflow.episodes
-        ]
+        ],
+        **({"repeatable_calls": workflow.as_record()["repeatable_calls"]} if workflow.repeatable_calls else {}),
     }
 
 
@@ -273,7 +274,7 @@ def workflow_spec_from_blueprint(
     """Translate one complete Duet workflow blueprint."""
 
     record = _object(value, "Episode workflow blueprint")
-    _exact_fields(record, {"episodes"}, "Episode workflow blueprint")
+    _exact_fields(record, {"episodes"} | ({"repeatable_calls"} if "repeatable_calls" in record else set()), "Episode workflow blueprint")
     raw_episodes = record["episodes"]
     if not isinstance(raw_episodes, list) or not raw_episodes:
         raise ValueError("workflow blueprint episodes must be a non-empty array")
@@ -305,6 +306,7 @@ def workflow_spec_from_blueprint(
     return EpisodeWorkflowSpec.from_record(
         {
             "episodes": episodes,
+            **({"repeatable_calls": record["repeatable_calls"]} if "repeatable_calls" in record else {}),
         }
     )
 

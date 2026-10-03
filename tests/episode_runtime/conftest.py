@@ -9,6 +9,7 @@ from agent.episode_contracts import (
     Sha256Digest,
 )
 from episode_runtime.contracts import (
+    ExecutorKind,
     InspectedExecutorAttestation,
     ReadOnlyRuntimeMount,
     RunRegistration,
@@ -99,13 +100,15 @@ def claim_store(root, registration=None):
     nonce = "a" * 32
     unit_name = f"openchia-episode-{registration.run_id.value.rsplit('_', 1)[-1][:32]}-{nonce}.service"
     topology = dict(
-        systemd_unit_name=unit_name,
         boot_id="12345678-1234-1234-1234-123456789abc",
         leader_pid=123,
         leader_start_time_ticks=100,
         cgroup_path=f"/test/{unit_name}",
     )
-    executor_id = derive_executor_instance_id(**topology)
+    executor_id = derive_executor_instance_id(
+        executor_kind=ExecutorKind.SYSTEMD, unit_name=unit_name,
+        invocation_id=nonce, **topology,
+    )
     mounts = tuple(
         ReadOnlyRuntimeMount(
             kind, str(root / "source" / name), str(root / "target" / name)
@@ -134,7 +137,9 @@ def claim_store(root, registration=None):
             seccomp_policy_record()["machine"],
             seccomp_policy_hash(),
         ),
-        systemd_invocation_id=nonce,
+        executor_kind=ExecutorKind.SYSTEMD,
+        executor_unit_name=unit_name,
+        executor_invocation_id=nonce,
         launch_description=f"openchia-episode-launch:{registration.run_id.value}:{nonce}",
         read_only_runtime_mounts=mounts,
         memory_max_bytes=None,

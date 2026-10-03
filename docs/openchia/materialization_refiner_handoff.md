@@ -29,12 +29,14 @@ handoff = store.publish_materialization_handoff(build_receipt_id)
 Old responses that were discarded before this change cannot be recovered.
 Missing source/check prerequisites remain explicitly blocked.
 
-The separate Refiner worktree's current `EvidenceReader` accepts a BuildReceipt
-for `store_kind="build_artifact"`; it does not resolve this handoff yet. That
-session should add a resolver for this exact immutable artifact, or import its
-verified record into its Duet artifact store. Treat these observations as
-**initial static evidence**, not as terminal Run evidence or newly earned
-refinement credit.
+The separate Refiner worktree's `preparation.prepare_refinement` imports this
+verified record into its existing Duet artifact store. Its `EvidenceReader`
+checks the imported record against the exact BuildStore handoff during campaign
+admission. The `build_artifact` evidence route remains receipt-only; the imported
+handoff uses the ordinary `duet_artifact` route. These observations are
+**initial static evidence**, not terminal Run evidence or newly earned refinement
+credit. This input connection does not establish a working repair loop; see
+[Refiner implementation status](iterative_episode_refiner_implementation_status.md).
 
 ## What is preserved
 
