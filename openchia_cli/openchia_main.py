@@ -12,7 +12,7 @@ nested Episode workflows. An explicit build materializes an approved design
 without executing it; /run separately launches the admitted materialization.
 
 options:
-  -m, --model MODEL       model for the Duet and Episode conversations
+  -m, --model MODEL       model for the Duet conversation (Episodes use /launch)
   --provider PROVIDER     inference provider
   --resume SESSION        resume a named OpenChia conversation
   --reasoning LEVEL       reasoning effort

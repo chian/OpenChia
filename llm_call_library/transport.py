@@ -39,6 +39,7 @@ class ModelTransportRequest:
     """Provider-neutral request crossing the one model transport boundary."""
 
     task: str
+    model_type: str
     messages: tuple[Mapping[str, str], ...]
     temperature: float | None
     max_tokens: int | None
@@ -51,6 +52,8 @@ class ModelTransportRequest:
     def __post_init__(self) -> None:
         if not isinstance(self.task, str) or not self.task.strip():
             raise ValueError("model transport task must be non-empty text")
+        if not isinstance(self.model_type, str) or not self.model_type.strip() or "\x00" in self.model_type:
+            raise ValueError("model_type must name a launch slot")
         object.__setattr__(self, "messages", _messages(self.messages))
         if self.reasoning_config is not None:
             if not isinstance(self.reasoning_config, Mapping):

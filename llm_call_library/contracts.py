@@ -63,6 +63,7 @@ def _text(value: object, name: str) -> str:
 class CallOptions:
     """Provider-neutral controls shared by all three call shapes."""
 
+    model_type: str
     tier: ModelTier = ModelTier.REASONING
     temperature: float | None = None
     max_tokens: int | None = None
@@ -73,6 +74,7 @@ class CallOptions:
     def __post_init__(self) -> None:
         if not isinstance(self.tier, ModelTier):
             raise TypeError("tier must be a ModelTier")
+        _text(self.model_type, "model_type")
         if self.launch_configuration_hash is not None:
             _text(self.launch_configuration_hash, "launch_configuration_hash")
         if self.max_tokens is not None and (
@@ -98,7 +100,7 @@ class StructuredJSONRequest(Generic[T]):
     system_prompt: str
     prompt: str
     admit: ResponseAdmission[T]
-    options: CallOptions = CallOptions()
+    options: CallOptions
 
     def __post_init__(self) -> None:
         _text(self.system_prompt, "system_prompt")
@@ -114,7 +116,7 @@ class ProbabilityJudgmentRequest:
     system_prompt: str
     prompt: str
     admit: ProbabilityAdmission
-    options: CallOptions = CallOptions()
+    options: CallOptions
 
     def __post_init__(self) -> None:
         _text(self.system_prompt, "system_prompt")
@@ -130,7 +132,7 @@ class ProbabilityVectorJudgmentRequest:
     system_prompt: str
     prompt: str
     admit: ProbabilityVectorAdmission
-    options: CallOptions = CallOptions()
+    options: CallOptions
 
     def __post_init__(self) -> None:
         _text(self.system_prompt, "system_prompt")

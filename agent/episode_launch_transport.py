@@ -149,7 +149,8 @@ class LaunchModelTransport:
         record = self._record
         spec = record["resolved_spec"]
         role = request.call_role or "run"
-        names = self.launch.route_names(request.episode_local_id, role, request.task)
+        model_type = request.model_type
+        names = self.launch.route_names(model_type)
         call_id = uuid.uuid4().hex
         last_receipt = {}
         for index, name in enumerate(names):
@@ -160,6 +161,7 @@ class LaunchModelTransport:
                 "launch_id": self.launch_id, "configuration_hash": self.launch.configuration_hash,
                 "project": spec["project"], "call_id": call_id, "attempt": str(index + 1),
                 "route_name": name, "provider": route["provider"], "model": route["model"],
+                "model_type": model_type,
                 "base_url": route["base_url"], "api_mode": route["api_mode"],
                 "account": route["auth"].get("account", "no_auth"),
                 "credential_source": record["sources"][f"routes.{name}.auth"],

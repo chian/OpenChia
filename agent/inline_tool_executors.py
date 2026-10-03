@@ -259,9 +259,24 @@ def _openchia_scope(agent, args: dict, ctx: InlineToolContext) -> Any:
 def _duet_status(agent, args: dict, ctx: InlineToolContext) -> Any:
     try:
         service, identity = _duet_context(agent)
-        return json.dumps(service.duet_status(identity.duet_id), sort_keys=True)
+        status = service.duet_status(identity.duet_id)
+        reader = getattr(agent, "_duet_launch_reader", None)
+        if callable(reader):
+            status["launch"] = reader()
+        return json.dumps(status, sort_keys=True)
     except Exception as exc:
         return json.dumps({"accepted": False, "reason": type(exc).__name__}, sort_keys=True)
+
+
+def _duet_launch_propose(agent, args: dict, ctx: InlineToolContext) -> Any:
+    try:
+        _duet_context(agent)
+        proposer = getattr(agent, "_duet_launch_proposer", None)
+        if not callable(proposer):
+            raise RuntimeError("no host-bound launch configuration proposer")
+        return json.dumps(proposer(args["configuration"]), sort_keys=True)
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        return json.dumps({"accepted": False, "reason": type(exc).__name__, "detail": str(exc)}, sort_keys=True)
 
 
 _ABSENT_DRAFT_SPELLINGS = frozenset({"", "null", "none"})
@@ -556,6 +571,7 @@ INLINE_TOOL_EXECUTORS: Dict[str, InlineToolExecutor] = {
     "setup_mcp": _setup_mcp_shim,
     "openchia_scope": _openchia_scope,
     "duet_status": _duet_status,
+    "duet_launch_propose": _duet_launch_propose,
     "episode_architecture_submit": _episode_architecture_submit,
     "episode_workspace_read": _episode_workspace_read,
     "episode_refinement_request": _episode_refinement_request,

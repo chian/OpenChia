@@ -206,6 +206,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             run_store=self.run_store,
         )
         self._architecture_lock = threading.RLock()
+        self._launch_lock = threading.RLock()
         self._build_lock = threading.RLock()
         self._build_thread: Optional[threading.Thread] = None
         self._build_cancel_event: Optional[threading.Event] = None
@@ -274,6 +275,8 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         bound._episode_architecture_submitter = self.submit_episode_architecture
         bound._episode_workspace_reader = self.read_episode_workspace
         bound._episode_refinement_requester = self.request_episode_refinement
+        bound._duet_launch_reader = self.launch_design_context
+        bound._duet_launch_proposer = self.propose_launch
         self._duet_agent = bound
         return bound
 
@@ -648,13 +651,19 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             predecessor_manifest=manifest,
         )
 
-    def _builder_for(self, request: ApprovedBuildRequest, launch_configuration_hash: str) -> EpisodeBuilder:
+    def _builder_for(self, request: ApprovedBuildRequest, launch) -> EpisodeBuilder:
+        def options(stage):
+            return CallOptions(
+                model_type=launch.builder_model_type(stage),
+                tier=ModelTier.REASONING,
+                launch_configuration_hash=launch.configuration_hash,
+            )
+
         return EpisodeBuilder(
             store=self.build_store,
-            call_options=CallOptions(
-                tier=ModelTier.REASONING,
-                launch_configuration_hash=launch_configuration_hash,
-            ),
+            planning_options=options("planning"),
+            emission_options=options("emission"),
+            model_slot_catalog=launch.model_slot_catalog(),
         )
 
     def _begin_build_model_call(self, task: str) -> object:
@@ -895,9 +904,8 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             if self._build_thread is not None and self._build_thread.is_alive():
                 raise OpenChiaHostError("an Episode build is already active")
             request = self._approved_build_request()
-            launch_id, launch = self._prepare_model_launch("build", request.build_request_id.value,
-                {node.local_id for node in request.frozen_workflow.workflow.episodes})
-            builder = self._builder_for(request, launch.configuration_hash)
+            launch_id, launch = self._prepare_model_launch("build", request.build_request_id.value)
+            builder = self._builder_for(request, launch)
             cancel_event = threading.Event()
             launch_transport = self._model_launch_transport(launch_id, launch, cancel_event=cancel_event)
             self.build_store.put_build_request(request)
@@ -1437,6 +1445,14 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     source_package,
                 ) = self._runnable_build_context()
                 launch_request = self._root_launch_request(request, plan)
+                from episode_builder.planner import required_model_types
+                model_types = set()
+                for node in plan.nodes:
+                    try:
+                        model_types.update(required_model_types(node.prompt_specs, node.selected_function_bindings))
+                    except ValueError as exc:
+                        raise OpenChiaHostError(f"Episode {node.local_id}: {exc}") from None
+                self._require_approved_launch(model_types=model_types)
                 executor = self._runtime_executor()
                 runtime_identity = executor.inspect_runtime_identity(
                     destination_root=self.run_store.runtime_sources_root,
@@ -1451,7 +1467,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     runtime_policy=RuntimePolicy(),
                 )
                 launch_id, launch = self._prepare_model_launch("run", registration.run_id.value,
-                    {node.local_id for node in plan.nodes})
+                    model_types=model_types)
                 broker = ScopedModelBroker(self._model_launch_transport(launch_id, launch),
                     episode_paths={self._model_node_path(node.local_id, plan): node.local_id for node in plan.nodes})
                 http_broker = ScopedHttpBroker(
@@ -1830,6 +1846,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         status["episode_architecture"] = architecture
         status["build"] = self.build_status()
         status["run"] = self.run_status()
+        status["launch"] = self.launch_design_context()
         return status
 
     def has_active_work(self) -> bool:

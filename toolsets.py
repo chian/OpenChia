@@ -161,7 +161,7 @@ TOOLSETS = {
     "duet": _ts(
         "Restricted human--LLM Duet for designing Episode workflows",
         [
-            "web_search", "web_extract", "openchia_scope", "duet_status",
+            "web_search", "web_extract", "openchia_scope", "duet_status", "duet_launch_propose",
             "episode_architecture_submit", "episode_workspace_read",
             "episode_refinement_request",
         ],

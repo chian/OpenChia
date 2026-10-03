@@ -51,6 +51,7 @@ from handoff_library import (
     HandoffPayloadContract,
 )
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
+from llm_call_library import CallOptions
 from numeric_control_library import MARGINAL_DOMINATED_HYPERVOLUME
 
 from .conftest import claim_store, numerical_control, oid
@@ -73,7 +74,9 @@ def _plan_response(prompt):
         _binding(
             "admit_request", ADMIT_DUET_LAUNCH_REQUEST, {"payload_contract": payload}
         ),
-        _binding("open_source", OPEN_SOURCE),
+        _binding("open_source", OPEN_SOURCE, {
+            "selection_model_type": "selector", "execution_model_type": "executor",
+        }),
         _binding("controller.schema", SCHEMA),
         _binding("controller.composer", CONTROLLER),
         _binding("controller.credit", MARGINAL_DOMINATED_HYPERVOLUME),
@@ -157,7 +160,7 @@ def build_goal_state(request, collaborators):
 def scope_goal_state(goal_state, goal):
     return MappingProxyType({{"goal": goal.objective}})
 def build_episode(grain, key, request, goal_view, collaborators, child_builders):
-    return Episode(grain=grain, key=key, request=request, source=ReasoningSource(goal_view["goal"]), build_result=build_reasoning_result)
+    return Episode(grain=grain, key=key, request=request, source=ReasoningSource(goal_view["goal"], **dict(BINDING.open_source.arguments)), build_result=build_reasoning_result)
 """
     return {
         "module_source": source,
@@ -252,7 +255,11 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
         return ModelTransportResponse(text=json.dumps(response), route={})
 
     with model_transport_scope(builder_model):
-        receipt = await EpisodeBuilder(store=builder_store).build(request)
+        receipt = await EpisodeBuilder(store=builder_store,
+            planning_options=CallOptions(model_type="planner"),
+            emission_options=CallOptions(model_type="writer"),
+            model_slot_catalog={"selector": {}, "executor": {}},
+        ).build(request)
     assert receipt.status == "materialized", [d.as_record() for d in receipt.deficits]
     manifest = builder_store.read_manifest(receipt.manifest_id)
     runtime_identity = run_store[1].runtime_identity
