@@ -12,6 +12,7 @@ from episode_runtime import broker, executor, protocol
 
 REQUEST = {
     "task": "episode_structured_json_fast",
+    "model_type": "reasoning",
     "messages": [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "usr"},
