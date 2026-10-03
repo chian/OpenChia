@@ -27,6 +27,7 @@ from function_library.models import _thaw_json
 from function_library.reasoning_transport import reasoning_transport_scope
 from handoff_library import DuetLaunchRequest
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
+from llm_call_library import CallOptions
 
 from conftest import claim_store, numerical_control, oid
 from scheduling_benchmark import JOBS, PROBLEM, optimal_schedule, violations
@@ -86,7 +87,11 @@ async def test_live_episode_solves_and_justifies_resource_schedule(
         return ModelTransportResponse(json.dumps(value), {})
 
     with model_transport_scope(materialization_fixture):
-        built = await EpisodeBuilder(store=build_store).build(approved)
+        built = await EpisodeBuilder(store=build_store,
+            planning_options=CallOptions(model_type="planner"),
+            emission_options=CallOptions(model_type="writer"),
+            model_slot_catalog={"selector": {}, "executor": {}},
+        ).build(approved)
     assert built.status == "materialized", [d.as_record() for d in built.deficits]
     manifest = build_store.read_manifest(built.manifest_id)
     registration = RunRegistration.from_admitted_build(

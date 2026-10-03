@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 import uuid
 
-from agent.duet_contracts import DuetProvenance
+from agent.duet_contracts import DuetProvenance, canonical_json
 from agent.episode_contracts import Sha256Digest
-from agent.episode_launch import LaunchConfigurationError, read_launch_spec, resolve_launch
+from agent.episode_launch import LaunchConfigurationError, read_launch_spec, resolve_launch, validate_launch_spec
 from agent.episode_launch_transport import LaunchModelTransport
 
 
@@ -25,16 +25,66 @@ class EpisodeLaunchHostMixin:
 
     def configure_launch(self, path: str) -> dict:
         spec = read_launch_spec(path)
-        self._launch_event("launch_configuration_selected", {"spec": spec, "mode": "resolve"}, human=True)
+        with self._launch_lock:
+            self._launch_event("launch_configuration_selected", {
+                "spec": spec, "mode": "resolve", "selection_id": uuid.uuid4().hex,
+            }, human=True)
         return self.launch_status()
 
     def reuse_launch(self, launch_id: str) -> dict:
         launch = self.launch_details(launch_id)
         snapshot = launch["configuration"]
-        self._launch_event("launch_configuration_selected", {
-            "spec": snapshot["resolved_spec"], "mode": "reuse", "reused_launch_id": launch_id,
-        }, human=True)
+        with self._launch_lock:
+            self._launch_event("launch_configuration_selected", {
+                "spec": snapshot["resolved_spec"], "mode": "reuse", "reused_launch_id": launch_id,
+                "selection_id": uuid.uuid4().hex,
+            }, human=True)
         return self.launch_status()
+
+    def propose_launch(self, configuration: dict) -> dict:
+        """Save a nonsecret model proposal; only human CLI actions select or approve it."""
+        spec = validate_launch_spec(configuration)
+        spec.pop("source_file", None)
+        proposal_id = Sha256Digest.of_bytes(canonical_json(spec).encode()).value
+        self.store.append_event(
+            duet_id=self.identity.duet_id.value, event_type="launch_configuration_proposed",
+            provenance=DuetProvenance.LLM_PROPOSAL.value,
+            record={"proposal_id": proposal_id, "configuration": spec},
+        )
+        return {"proposal_id": proposal_id, "configuration": spec,
+                "next_action": f"Human: /launch apply {proposal_id} FILE, then /launch preview and /launch approve HASH"}
+
+    def apply_launch_proposal(self, proposal_id: str, path: str, *, replace_existing: bool = False) -> dict:
+        from utils import atomic_write_text
+
+        with self._launch_lock:
+            proposals = self._launch_events("launch_configuration_proposed")
+            matches = [item for item in proposals if item["proposal_id"] == proposal_id]
+            if not matches:
+                raise LaunchConfigurationError("Launch proposal ID is not recorded for this Duet")
+            target = Path(path).expanduser().resolve()
+            if target.suffix != ".json":
+                raise LaunchConfigurationError("Choose a .json launch file")
+            previous_hash = None
+            if target.exists():
+                previous_hash = Sha256Digest.of_bytes(target.read_bytes()).value
+                if not replace_existing:
+                    try:
+                        read_launch_spec(target)
+                    except (ValueError, OSError):
+                        raise LaunchConfigurationError(
+                            "The destination is not a valid current launch file. "
+                            "To replace that exact file, repeat /launch apply PROPOSAL_ID FILE --replace. "
+                            "Replacement does not archive its contents."
+                        ) from None
+            spec = matches[-1]["configuration"]
+            atomic_write_text(target, json.dumps(spec, indent=2) + "\n")
+            # Record identity, not arbitrary prior text that might contain secrets.
+            self._launch_event("launch_proposal_applied", {
+                "proposal_id": proposal_id, "path": str(target),
+                "previous_content_hash": previous_hash, "replace_existing": replace_existing,
+            }, human=True)
+            return self.configure_launch(str(target))
 
     def launch_details(self, launch_id: str) -> dict:
         launches = [row for row in self._launch_events("model_launch_resolved") if row["launch_id"] == launch_id]
@@ -60,36 +110,105 @@ class EpisodeLaunchHostMixin:
             "source_file": selected[-1]["spec"].get("source_file"),
             "reused_launch_id": selected[-1].get("reused_launch_id"),
         }
-        return {"selected": selection, "launches": [
-            {key: row[key] for key in ("launch_id", "kind", "subject_id", "configuration_hash", "mode")}
-            for row in launches
-        ]}
+        context = self.launch_design_context()
+        spec = context.get("configuration", {})
+        return {key: value for key, value in {
+            "state": context["state"], "selected": selection,
+            "configuration_hash": context.get("configuration_hash"),
+            "approved": context.get("approved", False),
+            "model_slots": context.get("model_slots"),
+            "builder_slots": spec.get("builder_slots"),
+            "env_files": spec.get("env_files"),
+            "issue": context.get("issue"), "next_action": context.get("next_action"),
+            "latest_proposal_id": (context["latest_proposal"] or {}).get("proposal_id"),
+            "launches": [
+                {key: row[key] for key in ("launch_id", "kind", "subject_id", "configuration_hash", "mode")}
+                for row in launches
+            ],
+        }.items() if value is not None}
 
     def launch_calls(self) -> list[dict]:
         return self._launch_events("model_launch_call")
 
     def preview_launch(self) -> dict:
+        with self._launch_lock:
+            selection, launch = self._resolve_selected_launch()
+            return {"configuration_hash": launch.configuration_hash, "configuration": launch.record,
+                    "approved": self._launch_is_approved(selection, launch),
+                    "next_action": f"/launch approve {launch.configuration_hash}"}
+
+    def _resolve_selected_launch(self):
         selected = self._launch_events("launch_configuration_selected")
         if not selected:
             raise LaunchConfigurationError("Select a launch file with /launch load FILE")
-        spec = selected[-1]["spec"]
-        wants_session = any(route["auth"]["kind"] == "session" for route in spec["routes"].values())
-        runtime = self._role_agent_kwargs("model_launch", "preview") if wants_session else None
-        launch = resolve_launch(spec, session_runtime=runtime)
-        return {"configuration_hash": launch.configuration_hash, "configuration": launch.record}
-
-    def _prepare_model_launch(self, kind: str, subject_id: str, local_ids: set[str]):
-        selected = self._launch_events("launch_configuration_selected")
-        if not selected:
-            raise LaunchConfigurationError("Select the project's model configuration with /launch load FILE before /build or /run")
         selection = selected[-1]
         spec = selection["spec"]
-        unknown = set(spec["bindings"].get("episodes", {})) - local_ids
-        if unknown:
-            raise LaunchConfigurationError(f"model bindings name unknown Episode IDs: {sorted(unknown)}")
-        wants_session = any(route["auth"]["kind"] == "session" for route in spec["routes"].values())
-        runtime = self._role_agent_kwargs("model_launch", subject_id) if wants_session else None
-        launch = resolve_launch(spec, session_runtime=runtime)
+        if selection["mode"] == "resolve":
+            spec = read_launch_spec(spec["source_file"])
+        return selection, resolve_launch(spec)
+
+    def _launch_is_approved(self, selection, launch) -> bool:
+        approvals = self._launch_events("launch_configuration_approved")
+        return bool(approvals and approvals[-1]["selection_id"] == selection["selection_id"]
+                    and approvals[-1]["configuration_hash"] == launch.configuration_hash)
+
+    def approve_launch(self, configuration_hash: str) -> dict:
+        """Human-only approval of the resolved settings reviewed with /launch preview."""
+        with self._launch_lock:
+            selection, launch = self._resolve_selected_launch()
+            if configuration_hash != launch.configuration_hash:
+                raise LaunchConfigurationError("Launch settings changed. Review /launch preview and approve its exact hash.")
+            self.build_store.put_blob(launch.public_json.encode())
+            self.store.append_event(
+                duet_id=self.identity.duet_id.value, event_type="launch_configuration_approved",
+                provenance=DuetProvenance.HUMAN_APPROVAL.value,
+                record={"selection_id": selection["selection_id"], "configuration_hash": launch.configuration_hash},
+            )
+            return {"approved": True, "configuration_hash": launch.configuration_hash}
+
+    def _require_approved_launch(self, *, model_types=()):
+        with self._launch_lock:
+            selection, launch = self._resolve_selected_launch()
+            if not self._launch_is_approved(selection, launch):
+                raise LaunchConfigurationError("Human launch approval required. Review /launch preview, then /launch approve HASH.")
+            unknown = set(model_types) - launch.record["resolved_spec"]["model_slots"].keys()
+            if unknown:
+                raise LaunchConfigurationError(f"Materialized functions require missing model slots: {sorted(unknown)}")
+            return selection, launch
+
+    def launch_design_context(self) -> dict:
+        """Current nonsecret setup returned through duet_status, not the cached prompt."""
+        proposals = self._launch_events("launch_configuration_proposed")
+        context = {
+            "state": "needs_launch_file",
+            "suggested_slot_names": ["reasoning", "fast"],
+            "setup_questions": [
+                "Which project directory and existing launch file should this workflow use, or shall we prepare one?",
+                "Which models, endpoints, reasoning settings and credential references should fill the shared model slots?",
+                "Which project .env files hold those credential references?",
+            ],
+            "latest_proposal": proposals[-1] if proposals else None,
+            "external_services": {"allowed_hosts": sorted(self.egress_hosts),
+                                  "credential_names": sorted(self.egress_credentials)},
+        }
+        if not self._launch_events("launch_configuration_selected"):
+            return context
+        try:
+            preview = self.preview_launch()
+        except (ValueError, OSError) as exc:
+            return {**context, "state": "needs_configuration", "issue": str(exc),
+                    "next_action": "Correct the selected launch file or its explicit credential references, then /launch preview"}
+        spec = preview["configuration"]["resolved_spec"]
+        return {**context,
+                "latest_proposal": {"proposal_id": proposals[-1]["proposal_id"]} if proposals else None,
+                "configuration": spec, "configuration_hash": preview["configuration_hash"],
+                "approved": preview["approved"], "next_action": preview["next_action"],
+                "state": "approved" if preview["approved"] else "needs_human_approval",
+                "model_slots": {slot: {"route": route, **spec["routes"][route]}
+                                for slot, route in spec["model_slots"].items()}}
+
+    def _prepare_model_launch(self, kind: str, subject_id: str, *, model_types=()):
+        selection, launch = self._require_approved_launch(model_types=model_types)
         digest = self.build_store.put_blob(launch.public_json.encode())
         launch_id = f"model_launch_{uuid.uuid4().hex}"
         source_root = Path(__file__).resolve().parents[1]

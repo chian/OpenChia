@@ -144,14 +144,14 @@ def _model_config(options: CallOptions) -> Mapping[str, object]:
     )
     return {
         "transport_boundary": "llm_call_library.call_model_transport",
-        "planner_auxiliary_task": auxiliary_task,
-        "emitter_auxiliary_task": auxiliary_task,
+        "auxiliary_task": auxiliary_task,
         "route_mode": (
             "explicit_launch" if options.launch_configuration_hash is not None
             else "host_default" if options.main_runtime is None else "main_runtime"
         ),
         "launch_configuration_hash": options.launch_configuration_hash,
         "tier": options.tier.value,
+        "model_type": options.model_type,
         "temperature": options.temperature,
         "max_tokens": options.max_tokens,
         "timeout": options.timeout,
@@ -163,7 +163,7 @@ def _model_config(options: CallOptions) -> Mapping[str, object]:
     }
 
 
-def _materializer_identity(options: CallOptions) -> MaterializerIdentity:
+def _materializer_identity(planning_options: CallOptions, emission_options: CallOptions) -> MaterializerIdentity:
     package = Path(__file__).resolve().parent
     sources = {
         f"episode_builder/{path.name}": Sha256Digest.of_bytes(path.read_bytes())
@@ -173,7 +173,10 @@ def _materializer_identity(options: CallOptions) -> MaterializerIdentity:
     return MaterializerIdentity(
         builder_source_hashes=sources,
         function_catalog=materializer_function_catalog(),
-        planner_model_config=_model_config(options),
+        planner_model_config={
+            "planning": _model_config(planning_options),
+            "emission": _model_config(emission_options),
+        },
     )
 
 
@@ -324,16 +327,18 @@ class EpisodeBuilder:
         self,
         *,
         store: BuildStore,
-        call_options: CallOptions | None = None,
+        planning_options: CallOptions,
+        emission_options: CallOptions,
         reference_resolver: EpisodeReferenceResolver | None = None,
         planner: EpisodeMaterializationPlanner | None = None,
         emitter: EpisodeModuleEmitter | None = None,
         admission: EpisodeBuildAdmission | None = None,
+        model_slot_catalog: Mapping[str, object] | None = None,
     ) -> None:
         if not isinstance(store, BuildStore):
             raise TypeError("EpisodeBuilder requires a BuildStore")
-        if call_options is not None and not isinstance(call_options, CallOptions):
-            raise TypeError("call_options must be CallOptions")
+        if not isinstance(planning_options, CallOptions) or not isinstance(emission_options, CallOptions):
+            raise TypeError("Builder requires explicit planning_options and emission_options")
         resolver = reference_resolver
         if resolver is None and planner is not None:
             resolver = planner.reference_resolver
@@ -349,28 +354,22 @@ class EpisodeBuilder:
             raise TypeError("emitter must be an EpisodeModuleEmitter")
         if admission is not None and not isinstance(admission, EpisodeBuildAdmission):
             raise TypeError("admission must be an EpisodeBuildAdmission")
-        effective_options = (
-            call_options
-            or (planner.call_options if planner is not None else None)
-            or (emitter.call_options if emitter is not None else None)
-            or CallOptions(tier=ModelTier.REASONING)
-        )
-        if planner is not None and planner.call_options != effective_options:
+        if planner is not None and planner.call_options != planning_options:
             raise ValueError("injected planner uses different model routing")
-        if emitter is not None and emitter.call_options != effective_options:
+        if emitter is not None and emitter.call_options != emission_options:
             raise ValueError("injected emitter uses different model routing")
         if planner is not None and planner.reference_resolver is not resolver:
             raise ValueError(
                 "planner and EpisodeBuilder must share one reference resolver"
             )
         self.store = store
-        self.call_options = effective_options
         self.reference_resolver = resolver
         self.planner = planner or EpisodeMaterializationPlanner(
             reference_resolver=resolver,
-            call_options=effective_options,
+            call_options=planning_options,
+            model_slot_catalog=model_slot_catalog,
         )
-        self.emitter = emitter or EpisodeModuleEmitter(call_options=effective_options)
+        self.emitter = emitter or EpisodeModuleEmitter(call_options=emission_options)
         self.admission = admission or EpisodeBuildAdmission()
 
     @staticmethod
@@ -542,7 +541,7 @@ class EpisodeBuilder:
         self.store.put_build_request(build_request)
         build_attempt = BuildAttempt(
             build_request_id=build_request.build_request_id,
-            materializer=_materializer_identity(self.call_options),
+            materializer=_materializer_identity(self.planner.call_options, self.emitter.call_options),
             nonce=secrets.token_hex(32),
         )
         self.store.put_build_attempt(build_attempt)

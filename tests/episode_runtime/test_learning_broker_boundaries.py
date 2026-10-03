@@ -21,6 +21,7 @@ from function_library.epistemic_schemas import identity, model_call_id
 from function_library.reasoning import ReasoningSource
 from handoff_library import DuetLaunchRequest
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
+from llm_call_library import CallOptions
 
 from conftest import claim_store, oid
 from test_reasoning_workflow import _approved_request, _module_response, _plan_response
@@ -38,7 +39,11 @@ async def _broker(tmp_path, run_store):
         return ModelTransportResponse(json.dumps(value), {})
 
     with model_transport_scope(materialization):
-        built = await EpisodeBuilder(store=builder).build(request)
+        built = await EpisodeBuilder(store=builder,
+            planning_options=CallOptions(model_type="planner"),
+            emission_options=CallOptions(model_type="writer"),
+            model_slot_catalog={"selector": {}, "executor": {}},
+        ).build(request)
     assert built.status == "materialized"
     manifest = builder.read_manifest(built.manifest_id)
     registration = RunRegistration.from_admitted_build(

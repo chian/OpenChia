@@ -41,6 +41,7 @@ def model_request_record(request: ModelTransportRequest) -> dict[str, object]:
         raise TypeError("request must be a ModelTransportRequest")
     return {
         "task": request.task,
+        "model_type": request.model_type,
         "messages": [dict(item) for item in request.messages],
         "temperature": request.temperature,
         "max_tokens": request.max_tokens,
@@ -62,6 +63,7 @@ def admit_model_request(value: object) -> ModelTransportRequest:
         "model request",
         {
             "task",
+            "model_type",
             "messages",
             "temperature",
             "max_tokens",
@@ -118,6 +120,7 @@ def admit_model_request(value: object) -> ModelTransportRequest:
         raise ModelBrokerError("worker cannot supply host runtime routing state")
     return ModelTransportRequest(
         task=task,
+        model_type=record["model_type"],
         messages=tuple(normalized_messages),
         temperature=(None if temperature is None else float(temperature)),
         max_tokens=max_tokens,

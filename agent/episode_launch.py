@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-import os
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -62,12 +61,12 @@ def read_launch_spec(path: str | Path) -> dict[str, Any]:
 
 
 def validate_launch_spec(value: object) -> dict[str, Any]:
-    spec = _fields(value, {"project", "project_root", "env_files", "inherit_env", "routes", "bindings"}, {"source_file"}, "launch")
+    spec = _fields(value, {"project", "project_root", "env_files", "routes", "model_slots", "builder_slots"}, {"source_file"}, "launch")
     for name in ("project", "project_root"):
         _text(spec[name], name)
     if "source_file" in spec:
         _text(spec["source_file"], "source_file")
-    for name in ("env_files", "inherit_env"):
+    for name in ("env_files",):
         if not isinstance(spec[name], list) or any(not isinstance(x, str) or not x for x in spec[name]):
             raise LaunchConfigurationError(f"{name} must be a list of names")
         if len(spec[name]) != len(set(spec[name])):
@@ -79,17 +78,12 @@ def validate_launch_spec(value: object) -> dict[str, Any]:
         _text(name, "route name")
         route = _fields(raw, {"provider", "model", "base_url", "api_mode", "auth"}, {"reasoning", "fallbacks"}, f"route {name}")
         for key in ("provider", "model", "base_url", "api_mode"):
-            val = route[key]
-            if isinstance(val, Mapping):
-                ref = _fields(val, {"env"}, set(), key)
-                _text(ref["env"], key)
-            else:
-                _text(val, key)
+            _text(route[key], f"route {name}.{key} (literal launch setting)")
         auth = _fields(route["auth"], {"kind"}, {"env", "account"}, "auth")
-        if auth["kind"] not in {"env", "session", "none"}:
-            raise LaunchConfigurationError("auth.kind must be env, session, or none")
+        if auth["kind"] not in {"env", "codex_login", "none"}:
+            raise LaunchConfigurationError("auth.kind must be env, codex_login, or none")
         expected = {"kind"} if auth["kind"] == "none" else {"kind", "account"}
-        if auth["kind"] == "env":
+        if auth["kind"] in {"env", "codex_login"}:
             expected.add("env")
         if set(auth) != expected:
             raise LaunchConfigurationError(f"{auth['kind']} auth requires {sorted(expected)}")
@@ -106,23 +100,16 @@ def validate_launch_spec(value: object) -> dict[str, Any]:
             raise LaunchConfigurationError(f"route {name} has invalid fallbacks")
         if len(fallbacks) != len(set(fallbacks)):
             raise LaunchConfigurationError("fallbacks must name distinct routes in attempt order")
-    bindings = _fields(spec["bindings"], {"default"}, {"roles", "episodes"}, "bindings")
-    refs = [bindings["default"]]
-    for group in ("roles", "episodes"):
-        overrides = bindings.get(group, {})
-        if not isinstance(overrides, dict):
-            raise LaunchConfigurationError(f"bindings.{group} must be an object")
-        for name, ref in overrides.items():
-            _text(name, f"bindings.{group} name")
-            if group == "roles" and name not in {
-                "builder.planning", "builder.emission", "run",
-                "episode_structured_json_reasoning", "episode_structured_json_fast",
-                "episode_probability_reasoning", "episode_probability_fast",
-            }:
-                raise LaunchConfigurationError(f"unknown model call role {name}")
-            refs.append(ref)
-    if any(not isinstance(ref, str) or ref not in routes for ref in refs):
-        raise LaunchConfigurationError("every binding must name a declared route")
+    slots = spec["model_slots"]
+    if not isinstance(slots, dict) or not slots:
+        raise LaunchConfigurationError("model_slots must map call-site model types to routes")
+    for name, route in slots.items():
+        _text(name, "model slot")
+        if not isinstance(route, str) or route not in routes:
+            raise LaunchConfigurationError(f"model slot {name} must name a declared route")
+    builder = _fields(spec["builder_slots"], {"planning", "emission"}, set(), "builder_slots")
+    if any(not isinstance(slot, str) or slot not in slots for slot in builder.values()):
+        raise LaunchConfigurationError("each Builder stage must name a declared model slot")
     return json.loads(canonical_json(spec))
 
 
@@ -133,18 +120,16 @@ class ResolvedLaunch:
     public_json: str
     credentials: Mapping[str, str | None] = field(repr=False, compare=False)
     configuration_hash: str = field(init=False)
-    _bindings: Mapping = field(init=False, repr=False, compare=False)
+    _model_slots: Mapping = field(init=False, repr=False, compare=False)
+    _builder_slots: Mapping = field(init=False, repr=False, compare=False)
     _route_chains: Mapping = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "credentials", MappingProxyType(dict(self.credentials)))
         object.__setattr__(self, "configuration_hash", Sha256Digest.of_bytes(self.public_json.encode()).value)
         spec = self.record["resolved_spec"]
-        object.__setattr__(self, "_bindings", MappingProxyType({
-            "default": spec["bindings"]["default"],
-            "roles": MappingProxyType(spec["bindings"].get("roles", {})),
-            "episodes": MappingProxyType(spec["bindings"].get("episodes", {})),
-        }))
+        object.__setattr__(self, "_model_slots", MappingProxyType(spec["model_slots"]))
+        object.__setattr__(self, "_builder_slots", MappingProxyType(spec["builder_slots"]))
         object.__setattr__(self, "_route_chains", MappingProxyType({
             name: (name, *route.get("fallbacks", [])) for name, route in spec["routes"].items()
         }))
@@ -153,16 +138,43 @@ class ResolvedLaunch:
     def record(self) -> dict[str, Any]:
         return json.loads(self.public_json)
 
-    def route_names(self, episode_local_id: str | None, role: str, task: str) -> tuple[str, ...]:
-        bindings = self._bindings
-        roles = bindings.get("roles", {})
-        name = roles.get(role, roles.get(task, bindings["default"]))
-        if role == "run":
-            name = bindings.get("episodes", {}).get(episode_local_id, name)
-        return self._route_chains[name]
+    def builder_model_type(self, stage: str) -> str:
+        return self._builder_slots[stage]
+
+    def route_names(self, model_type: str) -> tuple[str, ...]:
+        if model_type not in self._model_slots:
+            raise LaunchConfigurationError(f"model_type {model_type!r} is not in the approved launch slots")
+        return self._route_chains[self._model_slots[model_type]]
+
+    def model_slot_catalog(self) -> dict[str, dict]:
+        spec = self.record["resolved_spec"]
+        return {slot: {"route": name, **{key: spec["routes"][name].get(key)
+                    for key in ("provider", "model", "base_url", "reasoning")}}
+                for slot, name in spec["model_slots"].items()}
 
 
-def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any] | None = None) -> ResolvedLaunch:
+def _codex_login_token(path: Path) -> str:
+    """Read the operator-selected Codex login; Codex alone owns token rotation."""
+    from openchia_cli.auth_codex import _codex_access_token_is_expiring
+
+    try:
+        record = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise LaunchConfigurationError(f"Cannot read Codex login file {path} ({type(exc).__name__})") from None
+    if not isinstance(record, dict) or record.get("auth_mode") != "chatgpt":
+        raise LaunchConfigurationError(f"Codex login file {path} must use ChatGPT authentication")
+    tokens = record.get("tokens")
+    token = tokens.get("access_token") if isinstance(tokens, dict) else None
+    if not isinstance(token, str) or not token.strip():
+        raise LaunchConfigurationError(f"Codex login file {path} has no access token")
+    if _codex_access_token_is_expiring(token, 0):
+        raise LaunchConfigurationError(
+            f"Codex access token in {path} has expired. Refresh that login in Codex, then start a new launch."
+        )
+    return token.strip()
+
+
+def resolve_launch(spec: Mapping[str, Any]) -> ResolvedLaunch:
     """Snapshot explicit file/env inputs. No provider discovery or network calls."""
     spec = validate_launch_spec(spec)
     root = Path(spec["project_root"]).expanduser().resolve(strict=True)
@@ -170,10 +182,6 @@ def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any
         raise LaunchConfigurationError("project_root must be a directory")
     values: dict[str, str] = {}
     sources: dict[str, str] = {}
-    for name in spec["inherit_env"]:
-        if name in os.environ:
-            values[name] = os.environ[name]
-            sources[name] = f"process_env:{name}"
     paths = []
     for raw in spec["env_files"]:
         path = (root / Path(raw).expanduser()).resolve(strict=True)
@@ -189,17 +197,10 @@ def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any
     resolved["env_files"] = paths
     provenance: dict[str, str] = {}
     credentials: dict[str, str | None] = {}
+    codex_tokens: dict[Path, str] = {}
     for name, route in resolved["routes"].items():
         for key in ("provider", "model", "base_url", "api_mode"):
-            val = route[key]
-            if isinstance(val, dict):
-                variable = val["env"]
-                if variable not in values or not values[variable]:
-                    raise LaunchConfigurationError(f"route {name}.{key}: explicit variable {variable} is unavailable")
-                route[key] = values[variable]
-                provenance[f"routes.{name}.{key}"] = sources[variable]
-            else:
-                provenance[f"routes.{name}.{key}"] = spec.get("source_file", "selected_launch")
+            provenance[f"routes.{name}.{key}"] = spec.get("source_file", "selected_launch")
         route["base_url"] = _endpoint(route["base_url"])
         if route["provider"] == "auto":
             raise LaunchConfigurationError("launch routes require a concrete provider")
@@ -214,18 +215,22 @@ def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any
             if not key:
                 raise LaunchConfigurationError(f"route {name}: credential reference {variable} is unavailable")
             source = sources[variable]
-        elif auth["kind"] == "session":
-            runtime = session_runtime or {}
-            for setting in ("provider", "base_url", "api_mode"):
-                actual = runtime.get(setting)
-                if setting == "base_url" and actual:
-                    actual = _endpoint(actual)
-                if actual != route[setting]:
-                    raise LaunchConfigurationError(f"route {name}: session {setting} differs from selected route")
-            key = runtime.get("api_key")
-            if not isinstance(key, str) or not key:
-                raise LaunchConfigurationError(f"route {name}: current session has no concrete credential")
-            source = f"explicit_session_credential:{runtime.get('parent_session_id') or runtime.get('session_id') or 'unspecified'}"
+        elif auth["kind"] == "codex_login":
+            from agent.codex_headers import is_official_codex_base_url
+
+            if (route["provider"] != "openai-codex" or route["api_mode"] != "codex_responses"
+                    or not is_official_codex_base_url(route["base_url"])):
+                raise LaunchConfigurationError("codex_login requires the official Codex Responses endpoint")
+            variable = auth["env"]
+            if not values.get(variable) or not sources.get(variable, "").startswith("env_file:"):
+                raise LaunchConfigurationError(
+                    f"route {name}: {variable} must name a Codex login file in the workflow's explicit .env file"
+                )
+            path = (root / Path(values[variable]).expanduser()).resolve()
+            if path not in codex_tokens:
+                codex_tokens[path] = _codex_login_token(path)
+            key = codex_tokens[path]
+            source = f"{sources[variable]} -> codex_login:{path}"
         credentials[name] = key
         provenance[f"routes.{name}.auth"] = source
         provenance[f"routes.{name}.reasoning"] = (
