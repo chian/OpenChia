@@ -1,7 +1,7 @@
 {
-  "project": "scheduling-reasoning-benchmark",
+  "project": "openchia-default",
   "project_root": ".",
-  "env_files": [".env.scheduling-benchmark"],
+  "env_files": [".env.launch_default"],
   "inherit_env": [],
   "routes": {
     "sol_medium": {
@@ -9,7 +9,7 @@
       "model": "gpt-5.6-sol",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "api_mode": "codex_responses",
-      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "auth": {"kind": "codex_login", "env": "WORKFLOW_CODEX_AUTH_FILE", "account": "chia-codex-login"},
       "reasoning": {"enabled": true, "effort": "medium"},
       "fallbacks": []
     },
@@ -18,7 +18,7 @@
       "model": "gpt-5.6-sol",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "api_mode": "codex_responses",
-      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "auth": {"kind": "codex_login", "env": "WORKFLOW_CODEX_AUTH_FILE", "account": "chia-codex-login"},
       "reasoning": {"enabled": false, "effort": "none"},
       "fallbacks": []
     },
@@ -27,7 +27,7 @@
       "model": "gpt-5.6-terra",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "api_mode": "codex_responses",
-      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "auth": {"kind": "codex_login", "env": "WORKFLOW_CODEX_AUTH_FILE", "account": "chia-codex-login"},
       "reasoning": {"enabled": true, "effort": "medium"},
       "fallbacks": []
     },
@@ -36,7 +36,7 @@
       "model": "gpt-5.6-terra",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "api_mode": "codex_responses",
-      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "auth": {"kind": "codex_login", "env": "WORKFLOW_CODEX_AUTH_FILE", "account": "chia-codex-login"},
       "reasoning": {"enabled": false, "effort": "none"},
       "fallbacks": []
     },
@@ -45,7 +45,7 @@
       "model": "gpt-5.6-luna",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "api_mode": "codex_responses",
-      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "auth": {"kind": "codex_login", "env": "WORKFLOW_CODEX_AUTH_FILE", "account": "chia-codex-login"},
       "reasoning": {"enabled": true, "effort": "medium"},
       "fallbacks": []
     },
@@ -54,7 +54,7 @@
       "model": "gpt-5.6-luna",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "api_mode": "codex_responses",
-      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "auth": {"kind": "codex_login", "env": "WORKFLOW_CODEX_AUTH_FILE", "account": "chia-codex-login"},
       "reasoning": {"enabled": false, "effort": "none"},
       "fallbacks": []
     }
