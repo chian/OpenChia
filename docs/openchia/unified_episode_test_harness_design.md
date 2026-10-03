@@ -124,7 +124,12 @@ retained for tracking. Task 4's eventual result must be added to the same receip
   Native single-Episode continuation also passes. The container backend still
   has no installed runtime on this host.
 - **Task 4: Demonstrate the complete system on a real reasoning problem.** Live model-directed,
-  independently checked acceptance remains open.
+  independently checked acceptance remains open. The human approved the scheduling
+  target and launch. Its first real Builder call completed, but the plan was
+  blocked by an invalid generated-function identifier and unresolved credit
+  channels. The saved prompt confirms missing reference implementation context.
+  The failed materialization handoff is retained; no Target Workflow Run or
+  autonomous repair has occurred. See the latest receipt and setup record.
 - **Task 5: Check compatibility and finish documentation — checkpoint complete.**
   PR #34 is merged and its explicit approved model-slot APIs are integrated.
   The latest 64-file check returned 343 passed, one test-specific timeout and
@@ -1412,14 +1417,15 @@ verify the binding and direct/checker/control integration, not live reasoning
 or native confinement. Preserve those evidence limits until the corresponding
 whole-system acceptance demonstrations pass.
 
-The unapproved [scheduling acceptance draft](acceptance/README.md) provides the
-editable target blueprint and explicit unresolved setup references. It uses the
-real `reasoning` model slot and shipped `0.01` continuation threshold. Its measure
-checks schedule feasibility and independently enumerated optimality. The draft
-has only been structurally validated; no host approval, build or live Run was
-created. Target and tester need separate approved workflows, exact admitted
-builds and launch approvals. The tester's access contract cannot be finalized
-until those real target and criterion references exist.
+The [scheduling acceptance setup](acceptance/README.md) records the approved
+target blueprint, real blocked-build receipt and unresolved tester references.
+It uses the real `reasoning` model slot and shipped `0.01` continuation threshold.
+Its measure checks schedule feasibility and independently enumerated optimality.
+Target workflow and launch approvals are recorded; the first live Builder attempt
+was blocked before emission. No Target Workflow Run was created. The target
+still needs an admitted build, and the tester needs its own approved workflow,
+build and launch. Its access contract cannot be finalized until the real target
+and criterion references exist.
 
 Development results and their evidence limits are kept in the
 [verification receipts](unified_episode_test_harness_receipts.md), separate from

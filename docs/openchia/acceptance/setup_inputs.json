@@ -1,5 +1,9 @@
 {
-  "status": "unapproved_setup_checklist_not_an_experiment_or_testing_contract",
+  "status": "target_and_launch_approved_initial_build_blocked_tester_unapproved",
+  "workspace": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH",
+  "target_session_id": "schedule-acceptance-20261003-target",
+  "approved_workflow_hash": "sha256:943d549e9c1ac27d016a1f51018aa7156e420558562ab59021111122356e4ee8",
+  "approved_launch_configuration_hash": "sha256:bf78eb6a086f548162461ad984798746b9fa3d66f3643a3b374230af745d16ac",
   "target_architecture_file": "schedule_target.blueprint.json",
   "launch_file": "/home/chia/repos/OpenChia-iterative-refiner/launch_default.json",
   "available_model_slots": [
@@ -14,17 +18,28 @@
     "action_execution": "reasoning"
   },
   "stores": {
-    "duet_store": null,
-    "build_store": null,
-    "run_store": null
+    "duet_store": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH/home/openchia/authority.sqlite3",
+    "build_store": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH/home/openchia/episode_builder",
+    "run_store": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH/home/openchia/episode_runs"
   },
   "target": {
-    "duet_id": null,
-    "workflow_approval_id": null,
+    "duet_id": "duet_22df0a845acc970447f313fd30a9d22d400ebbbf8f05d4b5aa9a260b501670b1",
+    "workflow_approval_id": "approval_fabb8d6c437b115d7c24a08384a3e27bb16c9b78fd19a8e6e674d25958c6e40e",
     "candidate_ref": null,
-    "build_receipt_ref": null,
-    "environment_ref": null,
-    "launch_ref": null,
+    "build_receipt_ref": {
+      "artifact_id": "build_receipt_2edf155b421f3efcb8e6dd3f181a023b39534f803143284a1bb77dc2986ce8ea",
+      "content_hash": "sha256:2edf155b421f3efcb8e6dd3f181a023b39534f803143284a1bb77dc2986ce8ea"
+    },
+    "build_status": "blocked",
+    "materialized": false,
+    "environment_ref": {
+      "artifact_id": "experiment_data_2eee8d769598e40a4a790ea7f49fd46343a71738f45442f31a770fa5c1854828",
+      "content_hash": "sha256:74b5d2d3abc55ba3f4aebf2951e6bd2ed3c2fbe37d46fed04ff7f45b93ad390e"
+    },
+    "launch_ref": {
+      "artifact_id": "experiment_data_4f611b46421cb65341a216be858a3df0085ae50a89c70a756ecf8a8d38c9f49a",
+      "content_hash": "sha256:bf78eb6a086f548162461ad984798746b9fa3d66f3643a3b374230af745d16ac"
+    },
     "campaign_ref": null
   },
   "criterion": {
@@ -54,7 +69,10 @@
       "live_fresh"
     ],
     "input_payload": {},
-    "grounding_refs": null,
+    "grounding_refs": [{
+      "artifact_id": "experiment_data_b74a8cdceb52515b28f5af97b1eb86b5f1d9d01941023ee1edf757f9b5ed00bc",
+      "content_hash": "sha256:26bc0d5cee151521989fdb9744edea821a5bd9f8da9631434823d5aaccf56bec"
+    }],
     "positive_controls": null,
     "negative_controls": null,
     "requirement_ref": null,

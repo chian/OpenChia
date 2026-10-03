@@ -1,8 +1,18 @@
-# Scheduling acceptance draft — unapproved
+# Scheduling acceptance — target approved; testing Episode pending
 
-These are editable preparation files, **not human approvals or a runnable build**.
-No user store was changed, no proposal or approval was recorded, and no model or
-Episode was launched to prepare them.
+The human approved the exact scheduling Target Workflow and designated launch
+configuration on 2026-10-03. Their hashes and actual approval/store references
+are recorded in [setup_inputs.json](setup_inputs.json). The ordinary host recorded
+the approvals in a separate workspace and started real Builder calls. The testing
+Episode is not yet approved. These files describe setup; the authority store,
+Builder receipts and Run records are the authoritative evidence. The first build
+is now terminal **blocked**, with no emitted module and no Target Workflow Run.
+See the [live-build receipt](../unified_episode_test_harness_receipts.md#approved-live-build-first-attempt-blocked-2026-10-03).
+
+The acceptance workspace is `/home/chia/repos/OpenChia-acceptance-0RN3r9BH`.
+It is a private record directory, not another code checkout or a custom runner.
+Existing user Duets and the secondary checkout are unchanged. The target blueprint
+is now approved and must not be silently edited; a changed design needs new approval.
 
 The **Target Workflow** here is the scheduling workflow, not the testing Episode
 or IterativeEpisodeRefiner. Each acceptance Run explicitly selects and records
@@ -71,12 +81,13 @@ path = Path("docs/openchia/acceptance/schedule_target.blueprint.json")
 workflow = workflow_spec_from_blueprint(json.loads(path.read_text(encoding="utf-8")))
 for node in workflow.episodes:
     episode_library.resolve(node.episode_reference.episode_id)
-print({"structurally_valid": True, "approved": False,
+print({"structurally_valid": True, "approval_checked": False,
        "workflow_hash": workflow.workflow_hash.value})
 PY
 ```
 
-Validation is not approval, Builder admission, correct reasoning or a live test.
+This validation does not query approval. It is not Builder admission, correct
+reasoning or a live test.
 If registered definitions change, resolve and review the draft again; do not
 silently substitute new IDs.
 
@@ -169,7 +180,10 @@ continuation pass with supplied model replies. No alternate executor was
 substituted; the container backend still has no installed runtime. See the [setup guide](../systemd_setup.md)
 and [dated receipts](../unified_episode_test_harness_receipts.md).
 
-The actual store, target, tester and approval references in `setup_inputs.json`
-remain unset. The next live work therefore needs the human setup/approval
-sequence above. A supported systemd environment is now available. These missing inputs
-must not be filled with fixture approvals or invented receipts.
+The store, target approval, launch, environment and failed-build references in
+`setup_inputs.json` are now real. The blocked BuildReceipt is not a runnable
+candidate. The independent solver grounding is persisted, but criterion
+registration requires an admitted build and has not occurred. Remaining nulls
+are unresolved, not invented receipts.
+A supported systemd environment is available. The testing Episode still needs
+the separate exact Architecture and launch approval described above.

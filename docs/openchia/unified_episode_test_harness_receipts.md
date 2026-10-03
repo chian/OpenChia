@@ -13,6 +13,54 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Approved live build: first attempt blocked, 2026-10-03
+
+The human approved the exact scheduling Target Workflow and designated launch
+configuration. The ordinary `OpenChiaHost`/`DuetService` APIs recorded the draft,
+workflow approval, launch selection and launch approval in a new private workspace
+at `/home/chia/repos/OpenChia-acceptance-0RN3r9BH`. No fixture approvals, supplied
+model responses or replacement Builder were used. The shared `register-launch`
+CLI verified the existing approval and stored its public configuration reference.
+Exact IDs are in [the setup record](acceptance/setup_inputs.json).
+
+`OpenChiaHost.start_build` invoked the real model on the approved `reasoning`
+slot: `sol_medium`, `gpt-5.6-sol`, medium effort. Its single planning call
+succeeded in **168.578 seconds**. The Builder then returned a **blocked** receipt,
+with zero planned nodes and zero emitted modules:
+
+- A generated component used an invented `function_...` identifier rather than
+  the required pre-emission literal `generated`.
+- The model left `result_channel_names` unresolved because the reference did
+  not expose its credit schema's exact channels.
+- No module was emitted, so whole-build admission also reported `missing_module`.
+
+The saved prompt confirms a concrete context gap: the reference contained its
+design module and function metadata, but `pinned_source_files` was empty and
+the implementation of `reasoning_credit_schema` was absent. That registered
+function actually returns one column; the model proposed four category names.
+This is not a missing user choice about the scheduling problem. The separate
+invented binding identifier also violated an explicit planning rule. Neither
+finding has been silently repaired or waived.
+
+The failed receipt is
+`build_receipt_2edf155b421f3efcb8e6dd3f181a023b39534f803143284a1bb77dc2986ce8ea`;
+the corresponding model evidence is
+`build_model_call_bc445ccfbd1e441d4140a9fe0619a12ca855bddd02843f66a1ebfdd2573b3f6b`.
+The ordinary Builder also published its immutable materialization handoff and
+refinement baseline. These preserve the failure for subsequent refinement.
+The build launched from commit `4213967c09` with a clean checkout; subsequent
+changes in this step are setup/receipt documentation only.
+
+The independent solver separately derived optimum 14 and a feasible witness.
+Its checker accepted that control and rejected an infeasible schedule claiming
+14 and a feasible delayed schedule completing at 15. This prepares measurement
+grounding; no criterion was registered against the unadmitted build. These are
+not candidate executions or evidence of successful reasoning/repair.
+
+**Task 4 remains open.** No Target Workflow worker or testing Episode has run,
+and no repaired build exists. No frozen design, threshold, production source or
+admission rule was changed to turn this failure into a pass.
+
 ### Native nested continuation: passing shared-service comparison, 2026-10-03
 
 The final canonical run of
