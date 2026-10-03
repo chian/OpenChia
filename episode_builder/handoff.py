@@ -8,6 +8,8 @@ an extra unit of progress. Generated source is always inspected as inert data.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import cache
+from importlib.util import find_spec
 from pathlib import Path
 import sys
 
@@ -86,23 +88,48 @@ def _diagnostic_index(specification):
     return [indexed[key] for key in sorted(indexed)]
 
 
-def _checker_source_hashes():
+@cache
+def _checker_provenance():
+    """Snapshot trusted code once per checking process, including import roots."""
     from .admission import ADMITTED_IMPORT_ROOTS
 
     root = Path(__file__).resolve().parent.parent
     # Static admission inspects trusted exports and constructor signatures;
     # those library bytes can change its answer just as the validator can.
-    packages = {"episode_builder", *ADMITTED_IMPORT_ROOTS}
-    paths = {
-        path for package in packages
-        for path in (root / package).rglob("*.py")
-        if (root / package).is_dir()
-    }
-    paths.update((root / "agent").glob("*contract*.py"))
-    paths.add(root / "agent" / "episode_blueprints.py")
+    hashes, resolutions = {}, {}
+
+    def record_file(path, external_key):
+        path = path.resolve()
+        key = path.relative_to(root).as_posix() if path.is_relative_to(root) else external_key
+        hashes[key] = Sha256Digest.of_bytes(path.read_bytes()).value
+        return key
+
+    for package in sorted({"episode_builder", *ADMITTED_IMPORT_ROOTS}):
+        spec = find_spec(package)
+        if spec is None:
+            resolutions[package] = {"status": "unresolved", "origin": None, "hash_keys": []}
+            continue
+        keys = set()
+        for index, location in enumerate(spec.submodule_search_locations or ()):
+            directory = Path(location)
+            for path in sorted(directory.rglob("*.py")):
+                keys.add(record_file(path, f"import:{package}/{index}/{path.relative_to(directory).as_posix()}"))
+        if spec.origin not in {None, "built-in", "frozen"} and Path(spec.origin).is_file():
+            keys.add(record_file(Path(spec.origin), f"import:{package}/{Path(spec.origin).name}"))
+        status = "hashed" if keys else (
+            spec.origin if spec.origin in {"built-in", "frozen"} else "unresolved"
+        )
+        resolutions[package] = {"status": status, "origin": spec.origin, "hash_keys": sorted(keys)}
+    for path in sorted((root / "agent").glob("*contract*.py")):
+        record_file(path, path.name)
+    record_file(root / "agent" / "episode_blueprints.py", "agent/episode_blueprints.py")
+    # Built-in/frozen roots have no standalone source file. Pin their interpreter
+    # as well as the Python release, instead of pretending they were hashed.
+    interpreter = Path(sys.executable).resolve()
     return {
-        path.relative_to(root).as_posix(): Sha256Digest.of_bytes(path.read_bytes()).value
-        for path in sorted(paths)
+        "checker_source_hashes": dict(sorted(hashes.items())),
+        "checker_import_roots": resolutions,
+        "checker_interpreter_hash": Sha256Digest.of_bytes(interpreter.read_bytes()).value,
     }
 
 
@@ -178,7 +205,7 @@ def materialization_handoff(store: BuildStore, receipt_id: OpaqueId | str) -> di
         # Emitter shape checks run before the host appends its declaration;
         # full module admission below checks the final post-attachment bytes.
         shape_outcome = _blocked("No unambiguous pre-declaration model source was captured")
-        if source is not None:
+        if source is not None and node is not None:
             shape_outcome = SOURCE_SHAPE.load()(
                 source=store.read_blob(source).decode("utf-8"),
                 local_id=local_id, target_module_name=node.module_name,
@@ -244,8 +271,8 @@ def materialization_handoff(store: BuildStore, receipt_id: OpaqueId | str) -> di
         "progress": baseline,
         "check_definitions": [definition.as_record() for definition in materialization_check_library.functions()],
         "progress_definition": REQUIREMENT_SATISFACTION.as_record(),
-        "checker_source_hashes": _checker_source_hashes(),
-        "checker_python": sys.version,
+        **_checker_provenance(),
+        "checker_python": list(sys.version_info[:3]),
         "limitations": [
             "Static materialization evidence does not establish runtime or scientific correctness.",
             "Missing source and blocked checks grant no requirement satisfaction.",

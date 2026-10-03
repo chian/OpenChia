@@ -703,9 +703,28 @@ class EpisodeBuilder:
             actual_children = {
                 edge.child_local_id for edge in edges_by_parent.get(node.local_id, ())
             }
-            if local_blockers or expected_children != actual_children:
+            disposition = plan.node_dispositions.get(node.local_id)
+            skip_reasons = []
+            if local_blockers:
+                skip_reasons.append(
+                    "blocking plan findings: "
+                    + ", ".join(sorted({item.code for item in local_blockers}))
+                )
+            if expected_children != actual_children:
+                skip_reasons.append(
+                    f"missing child interfaces: {sorted(expected_children - actual_children)!r}; "
+                    f"unexpected child interfaces: {sorted(actual_children - expected_children)!r}"
+                )
+            if disposition is None:
+                skip_reasons.append("node disposition is absent from the materialization plan")
+            if skip_reasons:
+                emission_deficits.append(BuildDeficit(
+                    code="node_emission_skipped",
+                    field_path="build.emission",
+                    detail="; ".join(skip_reasons),
+                    episode_local_id=node.local_id,
+                ))
                 continue
-            disposition = plan.node_dispositions.get(node.local_id, "full")
             if disposition == "unchanged":
                 module = predecessor_modules.get(node.local_id)
                 if module is None or module.module_name != node.module_name:

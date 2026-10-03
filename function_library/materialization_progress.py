@@ -204,11 +204,6 @@ REQUIREMENT_SATISFACTION = materialization_progress_library.register(
                 "Seed credited_requirement_ids from the imported baseline's satisfied "
                 "requirements before crediting refinement work."
             ),
-            "parameter_schema": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": False,
-            },
         },
     )
 )

@@ -18,8 +18,9 @@ Pass **the BuildStore root and exact receipt ID**, then pin the returned
 `artifact_id` and `content_hash`. The immutable record is at
 `builds/records/materialization_handoffs/<receipt_id>.json`.
 Repeated reads return the recorded observations, not results recomputed by a
-newer checker. Explicitly publishing a handoff for an older receipt evaluates
-the persisted artifacts with the current checks and records those code hashes:
+newer checker. Publishing is also idempotent: an existing handoff is returned
+unchanged. Publishing for a receipt **without a handoff** evaluates its persisted
+artifacts with the current checks and records those code hashes:
 
 ```python
 handoff = store.publish_materialization_handoff(build_receipt_id)
@@ -72,6 +73,11 @@ response have no response to capture. If planning is interrupted partway
 through, earlier call evidence remains available even when a complete typed
 plan was never constructed. These records are independently discoverable with
 `episode_builder.evidence.model_call_evidence_for_attempt(store, attempt_id)`.
+New call records live under
+`builds/records/model_calls/<attempt_id>/<evidence_id>.json`; an attempt reads
+and validates only its own directory. Older flat-directory call records are
+not imported by this reader; already published handoffs retain their embedded
+call records and blob references.
 
 ## Requirements and callable checks
 
@@ -93,6 +99,17 @@ Each definition exposes its callable, input contract, underlying existing
 Builder validator, and source provenance. The handoff embeds the definitions
 and actual checking-code hashes. The wrappers call those real validators;
 they do not maintain a second implementation of the acceptance rules.
+
+`input_type` documents the callable's runtime inputs. These checks accept typed
+build artifacts; their empty binding-parameter schema has been removed rather
+than misrepresenting those inputs as a zero-argument JSON call. The callable
+validates its inputs. Validator locations identify local symbols, while
+`checker_source_hashes` identifies the implementation actually used, not a
+hard-coded historical commit. `checker_import_roots` records resolution of
+every trusted import root, including installed libraries, built-in/frozen
+modules, and unresolved roots. File hashes, interpreter hash, and the Python
+major/minor/patch release are snapshotted once per checking process. Start a
+new process after changing checking code to obtain a new code snapshot.
 
 `source_shape` consumes **pre-declaration raw model source**.
 `module_admission` consumes the completed emitted module, including the
@@ -148,7 +165,8 @@ requirements, callable checks, and baseline without changing that loop.
 
 The Builder continues across independent valid nodes and keeps successful
 module records even if another emission fails. A node with its own blocking
-plan finding or incomplete direct child interfaces remains blocked. An emitted
+plan finding, missing disposition, or incomplete direct child interfaces gets
+an explicit `node_emission_skipped` diagnostic naming the reason. An emitted
 parent can be retained while a child's implementation is unfinished because
 materialization consumes the child's interface, not a running child.
 The final workflow gate still requires the complete admitted package.

@@ -92,7 +92,7 @@ class BuildCallEvidenceRecorder:
                 }
             ).encode("utf-8")
         )
-        raw_hash = self.store.put_blob(call["raw_response"].encode("utf-8"))
+        raw_hash = self.store.put_blob((call["raw_response"] or "").encode("utf-8"))
         source = call["module_source"]
         source_hash = (
             None if source is None else self.store.put_blob(source.encode("utf-8")).value
@@ -111,7 +111,7 @@ class BuildCallEvidenceRecorder:
         }
         evidence_id = content_id("build_model_call", semantic_record)
         self.store._put_record(
-            "model_calls",
+            f"model_calls/{self.build_attempt.build_attempt_id.value}",
             evidence_id,
             {
                 "evidence_id": evidence_id.value,
@@ -162,15 +162,17 @@ def model_call_evidence_for_attempt(
     request = store.read_build_request(build_attempt.build_request_id)
     local_ids = {node.local_id for node in request.frozen_workflow.workflow.episodes}
     records: list[dict[str, object]] = []
-    directory = store.builds_root / "records" / "model_calls"
+    # Attempt-owned directories make unrelated corrupt calls irrelevant and
+    # bound this read to the calls belonging to the requested attempt.
+    category = f"model_calls/{build_attempt.build_attempt_id.value}"
+    directory = store.builds_root / "records" / category
     for path in sorted(directory.glob("*.json")):
-        record = store._read_record("model_calls", path.stem, _admit_evidence_record)
+        record = store._read_record(category, path.stem, _admit_evidence_record)
         if record["evidence_id"] != path.stem:
             raise BuildStoreCorruptionError("model-call evidence filename differs from its identity")
-        if record["build_attempt_id"] != build_attempt.build_attempt_id.value:
-            continue
         if (
-            record["build_request_id"] != build_attempt.build_request_id.value
+            record["build_attempt_id"] != build_attempt.build_attempt_id.value
+            or record["build_request_id"] != build_attempt.build_request_id.value
             or record["local_id"] not in local_ids
         ):
             raise BuildStoreCorruptionError("model-call evidence belongs to another workflow")

@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .models import FunctionImplementation, LibraryFunction, SourceSymbolReference
+from .models import FunctionImplementation, LibraryFunction
 from .registry import FunctionLibrary
 
 if TYPE_CHECKING:
@@ -224,7 +224,6 @@ def receipt_materialized(receipt: BuildReceipt) -> dict[str, object]:
 
 
 materialization_check_library = FunctionLibrary()
-_SOURCE_REVISION = "697d440a169204a20f8c951648c040304e9e2857"
 
 
 def _register(name, description, input_type, source_path, source_symbol):
@@ -241,14 +240,9 @@ def _register(name, description, input_type, source_path, source_symbol):
             failure_contract="Return checker errors separately from candidate failures; missing prerequisite artifacts are blocked, not passing evidence.",
             provenance={
                 "scope": "static_materialization",
-                "parameter_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+                "validator": {"path": source_path, "symbol": source_symbol},
+                "implementation_identity": "The handoff records the checking process's source hashes.",
             },
-            source_symbols=(SourceSymbolReference(
-                repository="https://github.com/chian/OpenChia",
-                revision=_SOURCE_REVISION,
-                path=source_path,
-                symbol=source_symbol,
-            ),),
         )
     )
 
