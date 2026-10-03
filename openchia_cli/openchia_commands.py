@@ -28,6 +28,12 @@ _HELP_TEXT = (
     "  /decline          reject the pending refinement and keep the baseline\n"
     "  /build            start a fresh materialization attempt\n"
     "  /build status     inspect the current materialization attempt\n"
+    "  /launch load FILE select project/model configuration for future launches\n"
+    "  /launch [status|calls] inspect selected settings and actual routing receipts\n"
+    "  /launch preview   resolve and display settings before launching (no model call)\n"
+    "  /launch reload    reread the selected file for future launches\n"
+    "  /launch reuse ID  reuse a recorded launch's resolved model settings\n"
+    "  /bg DUET_ID launch ... configure that background Duet independently\n"
     "  /run              explicitly run the admitted materialization\n"
     "  /run status       inspect the current Run state\n"
     "  /run evidence [ID] inspect validated terminal Run evidence\n"
@@ -143,6 +149,7 @@ class OpenChiaCommandMixin:
         "/episode": "_handle_openchia_episode",
         "/duet": "_handle_openchia_duet",
         "/build": "_handle_openchia_build",
+        "/launch": "_handle_openchia_launch",
         "/run": "_handle_openchia_run",
         "/logs": "_handle_openchia_logs",
         "/approve": "_handle_openchia_approve",
@@ -231,6 +238,15 @@ class OpenChiaCommandMixin:
         except Exception as exc:
             self._print_openchia(f"EpisodeBuilder did not start: {exc}")
         self._refresh_openchia()
+        return True
+
+    def _handle_openchia_launch(self, stripped: str) -> bool:
+        from openchia_cli.episode_launch_command import launch_command
+        try:
+            result = launch_command(self._episode_host(), self._command_arguments(stripped))
+            self._print_openchia(json.dumps(result, indent=2, ensure_ascii=False))
+        except Exception as exc:
+            self._print_openchia(f"Launch configuration: {exc}")
         return True
 
     def _run_start(self, parts: tuple[str, ...]) -> None:

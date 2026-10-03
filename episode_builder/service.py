@@ -145,8 +145,10 @@ def _model_config(options: CallOptions) -> Mapping[str, object]:
         "planner_auxiliary_task": auxiliary_task,
         "emitter_auxiliary_task": auxiliary_task,
         "route_mode": (
-            "host_default" if options.main_runtime is None else "main_runtime"
+            "explicit_launch" if options.launch_configuration_hash is not None
+            else "host_default" if options.main_runtime is None else "main_runtime"
         ),
+        "launch_configuration_hash": options.launch_configuration_hash,
         "tier": options.tier.value,
         "temperature": options.temperature,
         "max_tokens": options.max_tokens,

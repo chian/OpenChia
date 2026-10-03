@@ -177,6 +177,7 @@ class _ProtocolChannel:
         request: ModelTransportRequest,
         *,
         episode_id: OpaqueId,
+        episode_path: list[dict[str, str]],
     ) -> ModelTransportResponse:
         request_record = model_request_record(request)
         request_id = content_id(
@@ -200,6 +201,7 @@ class _ProtocolChannel:
                 {
                     "model_request_id": request_id.value,
                     "episode_id": episode_id.value,
+                    "episode_path": episode_path,
                     "request": request_record,
                 },
             )
@@ -316,6 +318,7 @@ class _WorkerModelTransport:
         return await self.channel.request_model(
             request,
             episode_id=current_runtime_episode_id(),
+            episode_path=current_runtime_episode_path(),
         )
 
 

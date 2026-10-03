@@ -68,10 +68,13 @@ class CallOptions:
     max_tokens: int | None = None
     timeout: float | None = None
     main_runtime: Mapping[str, Any] | None = None
+    launch_configuration_hash: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.tier, ModelTier):
             raise TypeError("tier must be a ModelTier")
+        if self.launch_configuration_hash is not None:
+            _text(self.launch_configuration_hash, "launch_configuration_hash")
         if self.max_tokens is not None and (
             isinstance(self.max_tokens, bool)
             or not isinstance(self.max_tokens, int)

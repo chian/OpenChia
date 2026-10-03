@@ -45,6 +45,8 @@ class ModelTransportRequest:
     timeout: float | None
     reasoning_config: Mapping[str, object] | None
     main_runtime: Mapping[str, Any] | None
+    episode_local_id: str | None = None
+    call_role: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.task, str) or not self.task.strip():
@@ -106,6 +108,18 @@ _SCOPED_TRANSPORT: ContextVar[ModelTransport | None] = ContextVar(
     default=None,
 )
 
+_CALL_IDENTITY: ContextVar[tuple[str, str] | None] = ContextVar("episode_model_call_identity", default=None)
+
+
+@contextmanager
+def model_call_scope(episode_local_id: str, role: str) -> Iterator[None]:
+    """Host-authored Builder call identity, independent of provider selection."""
+    token = _CALL_IDENTITY.set((episode_local_id, role))
+    try:
+        yield
+    finally:
+        _CALL_IDENTITY.reset(token)
+
 
 @contextmanager
 def model_transport_scope(transport: ModelTransport) -> Iterator[None]:
@@ -160,6 +174,10 @@ async def call_model_transport(
 
     if not isinstance(request, ModelTransportRequest):
         raise TypeError("request must be a ModelTransportRequest")
+    identity = _CALL_IDENTITY.get()
+    if identity is not None:
+        from dataclasses import replace
+        request = replace(request, episode_local_id=identity[0], call_role=identity[1])
     transport = _SCOPED_TRANSPORT.get()
     return await (transport or _host_transport)(request)
 
@@ -169,5 +187,6 @@ __all__ = [
     "ModelTransportRequest",
     "ModelTransportResponse",
     "call_model_transport",
+    "model_call_scope",
     "model_transport_scope",
 ]

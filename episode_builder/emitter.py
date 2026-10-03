@@ -986,14 +986,16 @@ class EpisodeModuleEmitter:
                 },
             }
         )
-        result = await structured_json_completion(
-            StructuredJSONRequest(
-                system_prompt=_EMITTER_SYSTEM_PROMPT,
-                prompt=prompt,
-                admit=_admit_emission,
-                options=self.call_options,
+        from llm_call_library.transport import model_call_scope
+        with model_call_scope(plan.local_id, "builder.emission"):
+            result = await structured_json_completion(
+                StructuredJSONRequest(
+                    system_prompt=_EMITTER_SYSTEM_PROMPT,
+                    prompt=prompt,
+                    admit=_admit_emission,
+                    options=self.call_options,
+                )
             )
-        )
         if not result.succeeded or result.value is None:
             failure = result.failure
             detail = (
