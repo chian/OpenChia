@@ -15,7 +15,7 @@ act/
 .venv
 .vscode/
 .env
-.env.scheduling-benchmark
+.env.launch_default
 .op.env
 .env.local
 .env.development.local

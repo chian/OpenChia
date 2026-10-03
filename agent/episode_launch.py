@@ -86,10 +86,10 @@ def validate_launch_spec(value: object) -> dict[str, Any]:
             else:
                 _text(val, key)
         auth = _fields(route["auth"], {"kind"}, {"env", "account"}, "auth")
-        if auth["kind"] not in {"env", "session", "none"}:
-            raise LaunchConfigurationError("auth.kind must be env, session, or none")
+        if auth["kind"] not in {"env", "codex_login", "session", "none"}:
+            raise LaunchConfigurationError("auth.kind must be env, codex_login, session, or none")
         expected = {"kind"} if auth["kind"] == "none" else {"kind", "account"}
-        if auth["kind"] == "env":
+        if auth["kind"] in {"env", "codex_login"}:
             expected.add("env")
         if set(auth) != expected:
             raise LaunchConfigurationError(f"{auth['kind']} auth requires {sorted(expected)}")
@@ -162,6 +162,27 @@ class ResolvedLaunch:
         return self._route_chains[name]
 
 
+def _codex_login_token(path: Path) -> str:
+    """Read the operator-selected Codex login; Codex alone owns token rotation."""
+    from openchia_cli.auth_codex import _codex_access_token_is_expiring
+
+    try:
+        record = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise LaunchConfigurationError(f"Cannot read Codex login file {path} ({type(exc).__name__})") from None
+    if not isinstance(record, dict) or record.get("auth_mode") != "chatgpt":
+        raise LaunchConfigurationError(f"Codex login file {path} must use ChatGPT authentication")
+    tokens = record.get("tokens")
+    token = tokens.get("access_token") if isinstance(tokens, dict) else None
+    if not isinstance(token, str) or not token.strip():
+        raise LaunchConfigurationError(f"Codex login file {path} has no access token")
+    if _codex_access_token_is_expiring(token, 0):
+        raise LaunchConfigurationError(
+            f"Codex access token in {path} has expired. Refresh that login in Codex, then start a new launch."
+        )
+    return token.strip()
+
+
 def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any] | None = None) -> ResolvedLaunch:
     """Snapshot explicit file/env inputs. No provider discovery or network calls."""
     spec = validate_launch_spec(spec)
@@ -189,6 +210,7 @@ def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any
     resolved["env_files"] = paths
     provenance: dict[str, str] = {}
     credentials: dict[str, str | None] = {}
+    codex_tokens: dict[Path, str] = {}
     for name, route in resolved["routes"].items():
         for key in ("provider", "model", "base_url", "api_mode"):
             val = route[key]
@@ -214,6 +236,22 @@ def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any
             if not key:
                 raise LaunchConfigurationError(f"route {name}: credential reference {variable} is unavailable")
             source = sources[variable]
+        elif auth["kind"] == "codex_login":
+            from agent.codex_headers import is_official_codex_base_url
+
+            if (route["provider"] != "openai-codex" or route["api_mode"] != "codex_responses"
+                    or not is_official_codex_base_url(route["base_url"])):
+                raise LaunchConfigurationError("codex_login requires the official Codex Responses endpoint")
+            variable = auth["env"]
+            if not values.get(variable) or not sources.get(variable, "").startswith("env_file:"):
+                raise LaunchConfigurationError(
+                    f"route {name}: {variable} must name a Codex login file in the workflow's explicit .env file"
+                )
+            path = (root / Path(values[variable]).expanduser()).resolve()
+            if path not in codex_tokens:
+                codex_tokens[path] = _codex_login_token(path)
+            key = codex_tokens[path]
+            source = f"{sources[variable]} -> codex_login:{path}"
         elif auth["kind"] == "session":
             runtime = session_runtime or {}
             for setting in ("provider", "base_url", "api_mode"):

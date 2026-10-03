@@ -111,6 +111,33 @@ its value is held only by the host for that launch.
 `auth.kind: none` sends no Authorization or API-key header. It is appropriate
 for a local unauthenticated shim.
 
+`auth.kind: codex_login` uses an explicitly selected Codex ChatGPT login:
+
+```json
+"auth": {"kind": "codex_login", "env": "WORKFLOW_CODEX_AUTH_FILE", "account": "my-codex-login"}
+```
+
+In the workflow's named `.env` file, set:
+
+```dotenv
+WORKFLOW_CODEX_AUTH_FILE=/absolute/path/to/.codex/auth.json
+```
+
+The reference must come from a declared workflow `.env`, not `inherit_env`.
+Each new launch reads that exact file once and snapshots its access token for
+all routes sharing it. The route must use `openai-codex`, `codex_responses`, and
+the official Codex endpoint. The file must contain `auth_mode: chatgpt` and a
+non-expired access token. It never selects a Platform API key or another login.
+The receipt records the `.env` variable and resolved login-file path; token
+values stay in host memory. Resolution makes no network request and does not
+verify quota or model entitlement.
+
+Codex owns refresh of its login file. OpenChia reads the access token without
+using or copying its rotating refresh token or changing the login file. A
+running launch keeps its snapshot; a new launch picks up Codex's latest token.
+If it expires, refresh that login in Codex and start a new launch. See
+[Codex authentication](https://learn.chatgpt.com/docs/auth#login-caching).
+
 `auth.kind: session` explicitly borrows the current Duet session's concrete
 credential. Supply an `account` label and literal/resolved provider, endpoint
 and API mode matching that session. A mismatch fails before dispatch. This
