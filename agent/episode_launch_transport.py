@@ -24,7 +24,7 @@ class LaunchModelError(RuntimeError):
 def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
             cancel: threading.Event, progress: Callable[[], None]):
     import httpx
-    from openai import OpenAI
+    from openai import OpenAI, Omit
     from agent.auxiliary_client import (
         AnthropicAuxiliaryClient, CodexAuxiliaryClient,
         _apply_required_codex_headers, _run_protected_sync_provider_call,
@@ -44,13 +44,27 @@ def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
                         event_hooks={"request": [strip_auth]})
     mode = route["api_mode"]
     if mode == "anthropic_messages":
-        from anthropic import Anthropic
-        real = Anthropic(api_key=key or "no-auth", auth_token="", base_url=route["base_url"],
+        from anthropic import Anthropic, Omit as AnthropicOmit
+        from agent.anthropic_credentials import anthropic_route_is_oauth
+        from agent.anthropic_adapter import (
+            _beta_header, _common_betas_for_base_url, _get_claude_code_version,
+            _OAUTH_ONLY_BETAS,
+        )
+        is_oauth = anthropic_route_is_oauth(route["base_url"], key, provider=route["provider"])
+        headers = _beta_header(_common_betas_for_base_url(route["base_url"]) + (_OAUTH_ONLY_BETAS if is_oauth else []))
+        headers["X-Api-Key" if is_oauth else "Authorization"] = AnthropicOmit()
+        if is_oauth:
+            headers.update({"user-agent": f"claude-code/{_get_claude_code_version()} (external, cli)", "x-app": "cli"})
+        real = Anthropic(api_key="" if is_oauth else key or "no-auth",
+                         auth_token=key if is_oauth else "", default_headers=headers, base_url=route["base_url"],
                          http_client=http, max_retries=0, timeout=None)
-        client = AnthropicAuxiliaryClient(real, route["model"], key or "", route["base_url"])
+        client = AnthropicAuxiliaryClient(real, route["model"], key or "", route["base_url"], is_oauth=is_oauth)
     else:
+        # Empty constructor values prevent SDK environment lookup; Omit keeps
+        # those values off the wire (None alone would inherit another project).
         extras = {"http_client": http, "max_retries": 0, "timeout": None,
-                  "organization": "", "project": ""}
+                  "organization": "", "project": "",
+                  "default_headers": {"OpenAI-Organization": Omit(), "OpenAI-Project": Omit()}}
         if mode == "codex_responses":
             _apply_required_codex_headers(extras, access_token=key or "", base_url=route["base_url"])
         real = OpenAI(api_key=key or "no-auth", base_url=route["base_url"], **extras)
@@ -97,6 +111,8 @@ def _codex_response(client, real, kwargs, progress):
     from agent.auxiliary_client import _parse_codex_final_response
     from agent.codex_runtime import _consume_codex_event_stream
 
+    # The converter includes timeout in payload, including an explicit None.
+    # Its third return value is for the auxiliary watchdog we intentionally omit.
     payload, model, _ = client.chat.completions._build_responses_kwargs(kwargs)
     payload.pop("_wire_aliases", None)
     stream = real.responses.create(**payload, stream=True)
@@ -125,11 +141,12 @@ class LaunchModelTransport:
         self.record_attempt = record_attempt
         self.cancel = cancel_event or threading.Event()
         self.progress = progress
+        self._record = launch.record
 
     async def __call__(self, request: ModelTransportRequest) -> ModelTransportResponse:
         from agent.auxiliary_client import AuxiliaryExplicitCancellation
 
-        record = self.launch.record
+        record = self._record
         spec = record["resolved_spec"]
         role = request.call_role or "run"
         names = self.launch.route_names(request.episode_local_id, role, request.task)

@@ -98,7 +98,7 @@ async def test_invalid_package_cannot_leave_an_unclaimed_registration(
         await executor.execute(
             registration=registration,
             source_package_path=package,
-            model_broker=ScopedModelBroker(no_model),
+            model_broker=ScopedModelBroker(no_model, episode_paths={}),
         )
     with pytest.raises(RunStoreNotFound):
         store.read_registration(registration.run_id)

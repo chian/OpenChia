@@ -31,8 +31,12 @@ def _text(value: object, name: str) -> str:
 
 
 def _fields(value: object, required: set[str], optional: set[str], name: str) -> dict:
-    if not isinstance(value, Mapping) or required - value.keys() or value.keys() - required - optional:
-        raise LaunchConfigurationError(f"{name} requires {sorted(required)}; optional {sorted(optional)}")
+    if not isinstance(value, Mapping):
+        raise LaunchConfigurationError(f"{name} must be an object")
+    missing = required - value.keys()
+    unexpected = value.keys() - required - optional
+    if missing or unexpected:
+        raise LaunchConfigurationError(f"{name}: missing fields {sorted(missing)}; unexpected fields {sorted(unexpected)}")
     return dict(value)
 
 
@@ -128,26 +132,34 @@ class ResolvedLaunch:
 
     public_json: str
     credentials: Mapping[str, str | None] = field(repr=False, compare=False)
+    configuration_hash: str = field(init=False)
+    _bindings: Mapping = field(init=False, repr=False, compare=False)
+    _route_chains: Mapping = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "credentials", MappingProxyType(dict(self.credentials)))
+        object.__setattr__(self, "configuration_hash", Sha256Digest.of_bytes(self.public_json.encode()).value)
+        spec = self.record["resolved_spec"]
+        object.__setattr__(self, "_bindings", MappingProxyType({
+            "default": spec["bindings"]["default"],
+            "roles": MappingProxyType(spec["bindings"].get("roles", {})),
+            "episodes": MappingProxyType(spec["bindings"].get("episodes", {})),
+        }))
+        object.__setattr__(self, "_route_chains", MappingProxyType({
+            name: (name, *route.get("fallbacks", [])) for name, route in spec["routes"].items()
+        }))
 
     @property
     def record(self) -> dict[str, Any]:
         return json.loads(self.public_json)
 
-    @property
-    def configuration_hash(self) -> str:
-        return Sha256Digest.of_bytes(self.public_json.encode()).value
-
     def route_names(self, episode_local_id: str | None, role: str, task: str) -> tuple[str, ...]:
-        spec = self.record["resolved_spec"]
-        bindings = spec["bindings"]
+        bindings = self._bindings
         roles = bindings.get("roles", {})
         name = roles.get(role, roles.get(task, bindings["default"]))
         if role == "run":
             name = bindings.get("episodes", {}).get(episode_local_id, name)
-        return (name, *spec["routes"][name].get("fallbacks", []))
+        return self._route_chains[name]
 
 
 def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any] | None = None) -> ResolvedLaunch:

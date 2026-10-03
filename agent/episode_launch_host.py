@@ -29,25 +29,41 @@ class EpisodeLaunchHostMixin:
         return self.launch_status()
 
     def reuse_launch(self, launch_id: str) -> dict:
-        launches = [row for row in self._launch_events("model_launch_resolved") if row["launch_id"] == launch_id]
-        if len(launches) != 1:
-            raise LaunchConfigurationError("launch ID is not recorded for this Duet")
-        snapshot = json.loads(self.build_store.read_blob(launches[0]["configuration_hash"]))
+        launch = self.launch_details(launch_id)
+        snapshot = launch["configuration"]
         self._launch_event("launch_configuration_selected", {
             "spec": snapshot["resolved_spec"], "mode": "reuse", "reused_launch_id": launch_id,
         }, human=True)
         return self.launch_status()
 
+    def launch_details(self, launch_id: str) -> dict:
+        launches = [row for row in self._launch_events("model_launch_resolved") if row["launch_id"] == launch_id]
+        if len(launches) != 1:
+            raise LaunchConfigurationError("launch ID is not recorded for this Duet")
+        snapshot = json.loads(self.build_store.read_blob(launches[0]["configuration_hash"]))
+        return {**launches[0], "configuration": snapshot}
+
     def reload_launch(self) -> dict:
         selected = self._launch_events("launch_configuration_selected")
         if not selected or not selected[-1]["spec"].get("source_file"):
             raise LaunchConfigurationError("Select a launch file with /launch load FILE")
+        if selected[-1]["mode"] == "reuse":
+            raise LaunchConfigurationError("A frozen launch is selected. Use /launch load FILE to switch back to file settings.")
         return self.configure_launch(selected[-1]["spec"]["source_file"])
 
     def launch_status(self) -> dict:
         selected = self._launch_events("launch_configuration_selected")
         launches = self._launch_events("model_launch_resolved")
-        return {"selected": selected[-1] if selected else None, "launches": launches}
+        selection = None if not selected else {
+            "mode": selected[-1]["mode"],
+            "project": selected[-1]["spec"]["project"],
+            "source_file": selected[-1]["spec"].get("source_file"),
+            "reused_launch_id": selected[-1].get("reused_launch_id"),
+        }
+        return {"selected": selection, "launches": [
+            {key: row[key] for key in ("launch_id", "kind", "subject_id", "configuration_hash", "mode")}
+            for row in launches
+        ]}
 
     def launch_calls(self) -> list[dict]:
         return self._launch_events("model_launch_call")

@@ -13,9 +13,11 @@ their own launch selection.
 /run
 ```
 
-`/launch` displays the selected specification and recorded launches. `/launch
-preview` resolves sources without a model request or an auth refresh. `/launch
-calls` shows started, successful, failed and cancelled attempts. Background
+`/launch` displays the selected project/mode and compact recorded-launch summaries.
+`/launch show LAUNCH_ID` reads that launch's full persisted configuration and
+provenance. `/launch preview` resolves the selected sources without a model
+request or an auth refresh. `/launch calls` shows started, successful, failed
+and cancelled attempts. Background
 Duets use `/bg DUET_ID launch ...` with the same commands.
 
 ## Launch file
@@ -69,6 +71,11 @@ winning. Missing or unreadable declared files fail resolution. Missing
 referenced variables fail rather than invoking account/provider discovery.
 No `.env` file is written into the process environment.
 
+Resolution is eager: every declared route, including unused routes and
+fallbacks, must have resolvable settings and credentials. A launch file declares
+one complete configuration to freeze, rather than a menu with unavailable
+accounts. Keep a project-specific set of routes in each file.
+
 Provider, model, base URL, and API mode can be literal strings or explicit
 `{"env": "VARIABLE_NAME"}` references. Other fields live in the launch file.
 Each resolved field records its source. Project root is an attribution and
@@ -89,6 +96,10 @@ adapter strips the local `-900k` model suffix and omits unsupported sampling
 fields). The provider response's model identity is also recorded when exposed
 by that adapter. An adapter's model field is not proof of a provider's immutable
 backend revision.
+
+An explicit timeout applies to SDK transport I/O, including receiving Responses
+stream events. `timeout: None` in call options keeps the request unbounded and
+cancellable. No auxiliary task-default or no-progress watchdog is added.
 
 ### Credentials
 
@@ -111,8 +122,11 @@ account isolation must be independent of the conversational session.
 Supported wires are `chat_completions`, `codex_responses`, and
 `anthropic_messages`. The existing provider wire adapters perform serialization;
 the ambient auxiliary routing/fallback machinery does not select the route.
+Native Anthropic OAuth credentials use bearer authentication and the adapter's
+OAuth request/response handling; API keys use the API-key header. Inactive
+authentication and OpenAI organization/project headers are explicitly omitted.
 HTTP clients use direct networking with normal TLS verification and no ambient
-proxy inheritance or cross-host redirects. Transport settings such as proxies
+proxy inheritance or redirects. Transport settings such as proxies
 and provider-specific arbitrary headers are not supported in this launch format.
 
 ### Stable launches, new launches and repeating settings
@@ -128,6 +142,8 @@ that launch's resolved nonsecret settings, so model/endpoint variables no longer
 follow the environment. Credential references are still read anew: secret
 values are never persisted, and rotation is possible. Reuse therefore repeats
 routing settings, not exact credentials, provider internals or model output.
+While reuse mode is selected, `/launch reload` asks you to select a file with
+`/launch load FILE`; it keeps the frozen selection intact.
 
 `fallbacks` is an ordered list of route names. After an attempt fails, only the
 listed routes are attempted, once each. Fallback lists on those entries are not
