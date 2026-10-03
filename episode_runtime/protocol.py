@@ -429,15 +429,19 @@ def _validate_body(
             record = _record(
                 body,
                 "model_request body",
-                {"model_request_id", "episode_id", "request"},
+                {"model_request_id", "episode_id", "episode_path", "request"},
             )
             request_id = OpaqueId(record["model_request_id"])
             episode_id = OpaqueId(record["episode_id"])
+            episode_path = _episode_path(record["episode_path"])
+            if episode_id_for_path(binding.run_id, episode_path) != episode_id:
+                raise ProtocolError("model request path does not identify its Episode")
             request = _json_mapping(record["request"], "model request")
             return MappingProxyType(
                 {
                     "model_request_id": request_id.value,
                     "episode_id": episode_id.value,
+                    "episode_path": episode_path,
                     "request": request,
                 }
             )

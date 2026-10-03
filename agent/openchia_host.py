@@ -29,6 +29,7 @@ from agent.duet_service import DuetService
 from agent.duet_store import DuetConflictError, DuetStore
 from agent.episode_contracts import OpaqueId, Sha256Digest
 from agent.openchia_agents import bind_duet_agent
+from agent.episode_launch_host import EpisodeLaunchHostMixin
 from iterative_episode_refiner.workspace import RefinementWorkspace
 from iterative_episode_refiner.contracts import (
     DuetWorkspaceNote,
@@ -75,7 +76,6 @@ from llm_call_library import (
     ModelTier,
     ModelTransportRequest,
     ModelTransportResponse,
-    call_model_transport,
     model_transport_scope,
 )
 
@@ -132,7 +132,7 @@ class HumanActionReceipt:
     approval_id: OpaqueId
 
 
-class OpenChiaHost:
+class OpenChiaHost(EpisodeLaunchHostMixin):
     """Persistent authority, materialization, and Run host for one Duet."""
 
     def __init__(
@@ -648,16 +648,12 @@ class OpenChiaHost:
             predecessor_manifest=manifest,
         )
 
-    def _builder_for(self, request: ApprovedBuildRequest) -> EpisodeBuilder:
-        runtime = self._role_agent_kwargs(
-            "episode_builder",
-            request.build_request_id.value,
-        )
+    def _builder_for(self, request: ApprovedBuildRequest, launch_configuration_hash: str) -> EpisodeBuilder:
         return EpisodeBuilder(
             store=self.build_store,
             call_options=CallOptions(
                 tier=ModelTier.REASONING,
-                main_runtime=runtime,
+                launch_configuration_hash=launch_configuration_hash,
             ),
         )
 
@@ -706,59 +702,18 @@ class OpenChiaHost:
         self,
         request: ModelTransportRequest,
         cancel_event: threading.Event,
+        transport: Any,
     ) -> ModelTransportResponse:
         """Wait for a Builder model response until the human cancels the build."""
 
-        from agent.auxiliary_client import (
-            AuxiliaryExplicitCancellation,
-            aux_interrupt_protection,
-            aux_progress_hook,
-            call_llm,
-            extract_content_or_reasoning,
-        )
-
         model_call_token = self._begin_build_model_call(request.task)
-        route: dict[str, str] = {}
-
-        def invoke() -> Any:
-            with (
-                aux_interrupt_protection(cancel_event=cancel_event),
-                aux_progress_hook(
-                    lambda: self._record_build_model_response(
-                        model_call_token
-                    )
-                ),
-            ):
-                return call_llm(
-                    task=request.task,
-                    messages=[dict(item) for item in request.messages],
-                    temperature=request.temperature,
-                    max_tokens=request.max_tokens,
-                    timeout=request.timeout,
-                    main_runtime=(
-                        None
-                        if request.main_runtime is None
-                        else dict(request.main_runtime)
-                    ),
-                    reasoning_config=(
-                        None
-                        if request.reasoning_config is None
-                        else dict(request.reasoning_config)
-                    ),
-                    route_info=route,
-                    wait_for_host_cancellation=True,
-                )
-
+        transport.progress = lambda: self._record_build_model_response(model_call_token)
         try:
-            try:
-                response = await asyncio.to_thread(invoke)
-            except AuxiliaryExplicitCancellation:
-                raise asyncio.CancelledError from None
+            if cancel_event.is_set():
+                raise asyncio.CancelledError
+            response = await transport(request)
             self._record_build_model_response(model_call_token)
-            return ModelTransportResponse(
-                text=extract_content_or_reasoning(response) or "",
-                route=route,
-            )
+            return response
         finally:
             self._finish_build_model_call(model_call_token)
 
@@ -940,8 +895,11 @@ class OpenChiaHost:
             if self._build_thread is not None and self._build_thread.is_alive():
                 raise OpenChiaHostError("an Episode build is already active")
             request = self._approved_build_request()
-            builder = self._builder_for(request)
+            launch_id, launch = self._prepare_model_launch("build", request.build_request_id.value,
+                {node.local_id for node in request.frozen_workflow.workflow.episodes})
+            builder = self._builder_for(request, launch.configuration_hash)
             cancel_event = threading.Event()
+            launch_transport = self._model_launch_transport(launch_id, launch, cancel_event=cancel_event)
             self.build_store.put_build_request(request)
             self._build_request = request
             self._build_attempt_id = None
@@ -969,6 +927,7 @@ class OpenChiaHost:
                         return await self._builder_model_transport(
                             model_request,
                             cancel_event,
+                            launch_transport,
                         )
 
                     async def materialize() -> BuildReceipt:
@@ -1491,7 +1450,10 @@ class OpenChiaHost:
                     runtime_identity=runtime_identity,
                     runtime_policy=RuntimePolicy(),
                 )
-                broker = ScopedModelBroker(call_model_transport)
+                launch_id, launch = self._prepare_model_launch("run", registration.run_id.value,
+                    {node.local_id for node in plan.nodes})
+                broker = ScopedModelBroker(self._model_launch_transport(launch_id, launch),
+                    episode_paths={self._model_node_path(node.local_id, plan): node.local_id for node in plan.nodes})
                 http_broker = ScopedHttpBroker(
                     policy=registration.egress_policy,
                     credentials=self.egress_credentials,

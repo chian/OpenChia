@@ -1099,7 +1099,7 @@ class _RunExecutorBase:
                             "task": request.task,
                         },
                     )
-                    response = await model_broker(request_record)
+                    response = await model_broker(request_record, episode_path=frame.body["episode_path"])
                     from function_library.epistemic_schemas import model_call_id
                     response_frame = await channel.send(
                         HostFrameType.MODEL_RESPONSE.value,

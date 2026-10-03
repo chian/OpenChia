@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from types import MappingProxyType
 from typing import Mapping
@@ -167,13 +167,25 @@ class ScopedModelBroker:
     """Invoke exactly one configured host transport for admitted requests."""
 
     transport: ModelTransport
+    episode_paths: Mapping[tuple[str, ...], str]
 
     def __post_init__(self) -> None:
         if not isinstance(self.transport, ModelTransport):
             raise TypeError("transport must implement ModelTransport")
+        object.__setattr__(self, "episode_paths", MappingProxyType(dict(self.episode_paths)))
 
-    async def __call__(self, value: object) -> ModelTransportResponse:
+    async def __call__(self, value: object, *, episode_path: object) -> ModelTransportResponse:
+        from .protocol import ProtocolError, _episode_path
+
         request = admit_model_request(value)
+        try:
+            grains = tuple(part["grain"] for part in _episode_path(episode_path))
+        except ProtocolError as exc:
+            raise ModelBrokerError(str(exc)) from exc
+        local_id = self.episode_paths.get(grains)
+        if local_id is None:
+            raise ModelBrokerError("model call path is outside the admitted workflow")
+        request = replace(request, episode_local_id=local_id, call_role="run")
         response = await self.transport(request)
         if not isinstance(response, ModelTransportResponse):
             raise ModelBrokerError("host model transport returned another type")

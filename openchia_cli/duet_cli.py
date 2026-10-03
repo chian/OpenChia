@@ -78,6 +78,7 @@ class OpenChiaCLI(
         "/approve": "Approve the exact current Architecture or refinement",
         "/decline": "Decline the pending refinement proposal",
         "/build": "Materialize the approved workflow or inspect build status",
+        "/launch": "Select and inspect explicit project/model launch configuration",
         "/run": "Run the admitted materialization or inspect Run evidence",
         "/logs": "Inspect one validated terminal Run audit log",
         "/stop": "Cancel every OpenChia-owned turn, build, and Run",

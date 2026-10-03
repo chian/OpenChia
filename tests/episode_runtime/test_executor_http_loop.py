@@ -286,7 +286,7 @@ def test_one_http_round_trip_is_brokered_and_recorded(tmp_path, monkeypatch):
             _PipeExecutor(store, worker_script).execute(
                 registration=registration,
                 source_package_path=source_package,
-                model_broker=ScopedModelBroker(_unused_model_transport),
+                model_broker=ScopedModelBroker(_unused_model_transport, episode_paths={}),
                 http_broker=http_broker,
             ),
             timeout=60,
