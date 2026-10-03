@@ -31,7 +31,7 @@ The same design must be available in the Episode library and used in OpenChia's
 normal build-finalization path. A library example alone is not completion.
 
 ~~~text
-approved target Architecture
+approved Target Workflow Architecture
   -> initial one-shot Builder output, materialization and boundary findings
   -> IterativeEpisodeRefiner
        <-> candidate revisions, build admission and isolated validation Runs
@@ -47,6 +47,13 @@ The refiner's admitted implementation is independent of the candidate being
 repaired. A candidate does not need to import, compile or run before it can be
 examined and edited as data. Execution still requires source admission.
 
+The refiner and its reasoning children use the Duet's model/provider
+configuration. Target Workflow test Runs use the Target Workflow's selected launch
+configuration through the shared harness; they do not change the refiner's
+model. No separate refiner launch file is required. This configuration boundary
+is distinct from the approved Episode nesting and capability boundaries; see
+the [routing contract](episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
+
 ## 2. Episode ownership and nesting
 
 ### RefineParts: choose work and make the whole scope work
@@ -56,7 +63,7 @@ has the same responsibilities for a smaller scope.
 
 It owns the requirements for that scope, decomposition, dependencies, selection
 of the next problem, and assessment of each result's contribution to the whole.
-A part is a behavioral problem, not necessarily a file or target Episode node.
+A part is a behavioral problem, not necessarily a file or Target Workflow Episode node.
 
 Only this role may create a DesignPart assignment or authorize a nested
 RefineParts. It can choose a separate problem, a prerequisite, or a joint problem
@@ -370,7 +377,7 @@ never double credit. Recover pending child/measurement/parent-decision stages
 explicitly; current one-shot worker execution is not arbitrary process resumption.
 Cancellation must leave a consistent candidate and honest terminal state.
 
-The target Architecture and the refiner's approved role graph are different
+The Target Workflow Architecture and the refiner's approved role graph are different
 artifacts. The refiner adds scoped edit/evaluation authority and Parts-owned
 recursive invocation; it does not grant arbitrary spawning to ordinary Episodes.
 Concrete assignments, source identities and active control components stay fixed.

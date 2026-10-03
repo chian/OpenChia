@@ -40,7 +40,7 @@ Section references below refer to design v3.
 | R01 Permanent objective and review | Goal JSON retains the original objective, requirements and iteration history; this review records the v3 changes | Covered |
 | R02 Complete build-finalization lifecycle | §1 initial Builder output -> active refiner -> exact verified build or explicit unresolved result | Covered |
 | R03 All materialized builds | §1 includes broken, unfamiliar and nested targets; repair is not gated on executable source admission | Covered, not universal solvability |
-| R04 Outcome ownership independent of target tree | §2 behavioral parts, Designer ownership and Parts-owned recursion | Covered |
+| R04 Outcome ownership independent of Target Workflow tree | §2 behavioral parts, Designer ownership and Parts-owned recursion | Covered |
 | R05 Nested design workflow | §§2–4 measured design/support/implementation children and coordinated Parts sub-scopes; no autonomous Designer recursion | Covered under the user's later restriction |
 | R06 Actual coding and its own metric | §§2, 4–5 RefineImplementation edits source and performs local measurement | Covered |
 | R07 Independent parent acceptance | §§4–5 VerifyBehavior is parent acceptance, distinct from the coding metric | Covered |

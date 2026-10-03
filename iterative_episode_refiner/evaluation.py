@@ -8,16 +8,13 @@ specific runners.
 """
 
 import asyncio
-import secrets
 
 from agent.duet_contracts import content_id
 from agent.episode_contracts import OpaqueId
-from episode_runtime.contracts import RunRegistration, RuntimePolicy
+from episode_runtime.contracts import RuntimePolicy
 from function_library.epistemic_contract import exact
 
 from .candidate_source import admit_candidate
-from .checking import prepare_checking
-from .evaluation_inputs import native_launch
 from .records import EvidenceRef, Ref
 
 
@@ -27,15 +24,15 @@ class RefinementEvaluations:
         *,
         builder,
         executor,
-        model_broker,
-        http_broker_factory,
         runtime_policy=None,
+        target_launch_ref=None,
+        http_credentials=None,
     ):
         self.builder = builder
         self.executor = executor
-        self.model_broker = model_broker
-        self.http_broker_factory = http_broker_factory
         self.runtime_policy = runtime_policy or RuntimePolicy()
+        self.target_launch_ref = target_launch_ref
+        self.http_credentials = http_credentials
 
     def _requests(self, session, call, payload):
         from .evaluation_plan import resolve_evaluations
@@ -128,38 +125,6 @@ class RefinementEvaluations:
         session.commit(call, "record_evaluation_source", {"source": source.as_record()})
         return receipt_ref
 
-    def _registration(self, session, request, receipt):
-        inputs = self.builder.store.inspection_inputs_for_receipt(receipt.receipt_id)
-        root = next(
-            node
-            for node in inputs.plan.nodes
-            if node.local_id == inputs.plan.root_local_id
-        )
-        with session.view() as view:
-            launch = native_launch(
-                view,
-                request.body,
-                root.request_payload_contract,
-                request_id=content_id(
-                    "launch_request", {"nonce": secrets.token_hex(32)}
-                ).value,
-            )
-        return self._register(inputs, launch)
-
-    def _register(self, inputs, launch):
-        registration = RunRegistration.from_admitted_build(
-            build_request=inputs.build_request,
-            build_attempt=inputs.build_attempt,
-            build_receipt=inputs.receipt,
-            build_manifest=inputs.manifest,
-            launch_request=launch,
-            runtime_identity=self.executor.inspect_runtime_identity(
-                destination_root=self.executor.run_store.runtime_sources_root
-            ),
-            runtime_policy=self.runtime_policy,
-        )
-        return registration, self.builder.store.verify_source_package(inputs.manifest)
-
     def _bind(
         self,
         session,
@@ -250,6 +215,10 @@ class RefinementEvaluations:
     async def evaluate(self, session, call, payload):
         if self.executor.run_store is not session.store.evidence.runs:
             raise ValueError("validation must use the campaign's existing RunStore")
+        if "experiment_proposal_ref" in payload:
+            from .evaluation_experiments import execute_experiment
+
+            return await execute_experiment(self, session, call, payload)
         if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:
             return await self._evaluate_measure(session, call, payload)
         candidate, requests = await asyncio.to_thread(
@@ -270,6 +239,7 @@ class RefinementEvaluations:
         receipts = {}
         evaluated = True
         admitted = True
+        experiment_targets = []
         for request, checks in available:
             key = await asyncio.to_thread(self._source_key, session, request)
             if key not in receipts:
@@ -284,6 +254,9 @@ class RefinementEvaluations:
             ready = await self._evaluate_request(
                 session, call, request, candidate, checks, receipt
             )
+            if isinstance(ready, dict):
+                experiment_targets.append(ready)
+                ready = False
             evaluated = evaluated and ready
             admitted = admitted and (
                 receipt.materialized
@@ -296,6 +269,7 @@ class RefinementEvaluations:
             call,
             proceed=evaluated and len(available) == len(requests) and admitted,
             source_admitted=all(receipt.materialized for receipt in receipts.values()),
+            experiment_targets=experiment_targets,
         )
 
     async def _evaluate_request(
@@ -324,77 +298,10 @@ class RefinementEvaluations:
             return True
         if not receipt.materialized:
             return False
-        registration, package = await asyncio.to_thread(
-            self._registration, session, request, receipt
-        )
-        target_binding = await asyncio.to_thread(
-            self._bind, session, call, request, candidate, receipt_ref, registration
-        )
-        evidence = await self._execute(registration, package)
-        if evidence.terminal_status.value == "succeeded":
-            checking = await asyncio.to_thread(
-                prepare_checking,
-                session.store.evidence,
-                session.contract.campaign_id,
-                request.ref,
-                target_binding,
-                Ref(evidence.evidence_id, evidence.content_hash),
-                request_id=content_id(
-                    "launch_request", {"nonce": secrets.token_hex(32)}
-                ).value,
-            )
-            if checking is not None:
-                if checking.gap is not None:
-                    await asyncio.to_thread(
-                        self._bind,
-                        session,
-                        call,
-                        request,
-                        candidate,
-                        receipt_ref,
-                        registration,
-                        stage={"checking_gap": checking.gap},
-                    )
-                    return False
-                target = {
-                    "target_run_ref": target_binding.ref.as_record(),
-                    "target_execution_ref": Ref(
-                        evidence.evidence_id, evidence.content_hash
-                    ).as_record(),
-                }
-                registration, package = await asyncio.to_thread(
-                    self._register, checking.inputs, checking.launch
-                )
-                await asyncio.to_thread(
-                    self._bind,
-                    session,
-                    call,
-                    request,
-                    candidate,
-                    receipt_ref,
-                    registration,
-                    stage=target,
-                )
-                evidence = await self._execute(registration, package)
-        await asyncio.to_thread(
-            self._observe,
-            session,
-            call,
-            request,
-            registration,
-            evidence,
-            runtime_checks,
-        )
-        return True
+        from .evaluation_experiments import experiment_target
 
-    async def _execute(self, registration, package):
-        # Neither target nor checker receives refinement privileges. Each gets
-        # its own admitted capabilities, HTTP policy, audit and Run identity.
-        return await self.executor.execute(
-            registration=registration,
-            source_package_path=package,
-            model_broker=self.model_broker,
-            http_broker=self.http_broker_factory(registration),
+        return await asyncio.to_thread(
+            experiment_target, self, session, call, request, receipt, runtime_checks
         )
 
     def _measure_jobs(self, session, call, payload):
@@ -419,7 +326,7 @@ class RefinementEvaluations:
                 for control_ref in grounding[field]
             ]
 
-    def _bind_measure_control(self, session, call, job, registration, gap):
+    def _bind_measure_control(self, session, call, job, registration, gap, *, experiment_ref=None):
         proposal_ref, grounding_ref, control_ref = job
         binding = session.record(
             call,
@@ -430,6 +337,7 @@ class RefinementEvaluations:
                 "control_ref": control_ref.as_record(),
                 "registration": registration.as_record() if registration else None,
                 "gap": gap,
+                **({"experiment_ref": experiment_ref} if experiment_ref is not None else {}),
             },
         )
         session.commit(call, "bind_measure_control", {"binding": binding.as_record()})
@@ -468,7 +376,7 @@ class RefinementEvaluations:
         )
 
     async def _evaluate_measure(self, session, call, payload):
-        from .measure_controls import prepare_control
+        from .measure_experiments import targets
 
         try:
             jobs = await asyncio.to_thread(self._measure_jobs, session, call, payload)
@@ -476,39 +384,9 @@ class RefinementEvaluations:
             # The ordinary admission path records the exact unsupported proposal
             # as a rejection. No malformed proposal is executed as a control.
             return await asyncio.to_thread(self._admit_measure, session, call, payload)
-        for job in jobs:
-            prepared = await asyncio.to_thread(
-                prepare_control,
-                session.store.evidence,
-                session.campaign_id,
-                *job,
-                request_id=content_id(
-                    "launch_request", {"nonce": secrets.token_hex(32)}
-                ).value,
-            )
-            registration, package = None, None
-            if prepared.gap is None:
-                registration, package = await asyncio.to_thread(
-                    self._register, prepared.inputs, prepared.launch
-                )
-            binding = await asyncio.to_thread(
-                self._bind_measure_control,
-                session,
-                call,
-                job,
-                registration,
-                prepared.gap,
-            )
-            if prepared.gap is None:
-                evidence = await self._execute(registration, package)
-                await asyncio.to_thread(
-                    self._observe_measure_control,
-                    session,
-                    call,
-                    binding,
-                    registration,
-                    evidence,
-                )
+        choices, gaps = await asyncio.to_thread(targets, self, session, call, jobs)
+        if choices:
+            return await asyncio.to_thread(session.reply, call, experiment_targets=choices, evaluation_gaps=gaps)
         return await asyncio.to_thread(self._admit_measure, session, call, payload)
 
     def _admit_measure(self, session, call, payload):

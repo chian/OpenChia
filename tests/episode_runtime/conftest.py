@@ -65,7 +65,7 @@ def numerical_control(threshold=0.01):
     )
 
 
-def claim_store(root, registration=None):
+def claim_store(root, registration=None, *, store=None):
     digest = Sha256Digest.of_bytes(b"inert fixture identity")
     runtime = RuntimeIdentity(
         "episode_runtime.worker.main",
@@ -154,7 +154,7 @@ def claim_store(root, registration=None):
         no_new_privs=True,
         **topology,
     )
-    store = RunStore(root / "runs")
+    store = RunStore(root / "runs") if store is None else store
     store.publish_registration(registration)
     store.claim_run(attestation)
     return store, registration, attestation

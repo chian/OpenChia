@@ -14,6 +14,7 @@ def validate_commit(view, commit):
     from .judgment import operative_check_facts, parent_assessments
     from .prerequisites import parent_prerequisites
     from .succession import credited_facts
+    from .measure_controls import validated_control_facts
 
     if commit.kind != "commit" or commit.body["sequence"] != view.head["sequence"] + 1:
         raise ValueError("campaign commit skips its predecessor")
@@ -115,6 +116,10 @@ def validate_commit(view, commit):
         known = credited_facts(view, assignment)
         baseline_keys = baseline_fact_keys(view, assignment)
         check_facts = operative_check_facts(view, assignment, assessments)
+        for key, observation in validated_control_facts(
+            view, assignment_ref=assignment.ref
+        ).items():
+            check_facts[key] = (*check_facts.get(key, ()), observation)
         for assessment in prerequisites:
             for key in assessment.body["fact_keys"]:
                 check_facts[key] = (*check_facts.get(key, ()), assessment)
@@ -149,6 +154,7 @@ def validate_commit(view, commit):
                 "observation",
                 "parent_assessment",
                 "prerequisite_assessment",
+                "measure_control_observation",
             }:
                 if not any(
                     record.ref == fact.ref

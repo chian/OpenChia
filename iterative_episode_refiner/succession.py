@@ -258,6 +258,8 @@ def credited_facts(view, assignment):
 
 def context_bundle(view, assignment, child_reports):
     """Bounded original reports and measures, without a model-written summary."""
+    from .reports import report_overview
+
     prior_assignments = predecessors(view, assignment)
     prior_refs = {item.ref for item in prior_assignments}
     prior_reports = [
@@ -283,7 +285,7 @@ def context_bundle(view, assignment, child_reports):
                 ],
             })
     return {
-        "predecessor_reports": [report.as_record() for report in prior_reports],
+        "predecessor_reports": [report_overview(report) for report in prior_reports],
         "returned_assignments": returned,
         "predecessor_assignments": [
             {

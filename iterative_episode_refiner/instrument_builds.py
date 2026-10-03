@@ -12,6 +12,7 @@ from function_library.epistemic_contract import exact
 
 from .materialization_edits import baseline_inputs, source_paths
 from .records import Ref
+from .checking import checker_descriptor
 
 
 def _paths(reference, inputs):
@@ -25,17 +26,7 @@ def _paths(reference, inputs):
 
 
 def _baseline(reader, duet_id, checker):
-    exact(
-        checker,
-        {
-            "workflow_ref",
-            "build_receipt_ref",
-            "authority_approval_ref",
-            "launch_ref",
-            "result_inputs",
-        },
-        "instrument build baseline",
-    )
+    checker_descriptor(checker)
     receipt = BuildReceipt.from_record(
         reader.reference(Ref.from_record(checker["build_receipt_ref"]), duet_id)
     )

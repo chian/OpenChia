@@ -78,7 +78,9 @@ def _design(name, *, launch=False):
             "admit_request",
             arguments={"payload_contract": request_payload.as_record()},
         ),
-        open_source=OPEN_SOURCE.bind("open_source", arguments={"role": name}),
+        open_source=OPEN_SOURCE.bind(
+            "open_source", arguments={"role": name, "model_type": "refinement"}
+        ),
         controller=EpisodeControllerBinding(
             schema=SCHEMA.bind("schema"),
             composer=CONTROLLER.bind("compose_controller"),
@@ -95,7 +97,9 @@ def _design(name, *, launch=False):
             "build_result", arguments={"payload_contract": RESULT_PAYLOAD.as_record()}
         ),
         components=(
-            BUILD_EPISODE.bind("build_episode", arguments={"role": name}),
+            BUILD_EPISODE.bind(
+                "build_episode", arguments={"role": name, "model_type": "refinement"}
+            ),
             *guards,
         ),
         child_slots=tuple(

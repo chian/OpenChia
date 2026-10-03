@@ -1,8 +1,90 @@
 """Bounded parent projections over admitted records, never model summaries."""
 
 from agent.episode_contracts import OpaqueId
+from agent.duet_store import DuetNotFoundError
+from episode_runtime.records.outcomes import RequirementOutcome
 
 from .records import Ref, RefinementRecord
+
+
+def check_result(view, check, state):
+    """Project an existing observation without rejudging or rebinding its candidate."""
+    if state is None:
+        return None
+    observation = state.record
+    body = observation.as_record()["body"]
+    if (
+        observation.kind != "observation"
+        or body["check_key"] != check.artifact_id.value
+    ):
+        raise ValueError("check result requires its exact recorded observation")
+    request = view.read(Ref.from_record(body["request_ref"]), "evaluation")
+    criterion = check.as_record()["body"]
+    experiment_ref, experiment_id, prediction = None, None, None
+    if criterion["evidence_kind"] == "execution":
+        try:
+            binding = view.entry("evaluation_run", request.artifact_id.value).record
+        except DuetNotFoundError:
+            binding = None
+        if binding is not None:
+            experiment_ref = binding.body.get("experiment_ref")
+        if experiment_ref is not None:
+            from episode_runtime.testing.contracts import ExperimentSpec
+
+            experiment = view.data(Ref.from_record(experiment_ref))
+            experiment_id = ExperimentSpec.from_record(experiment["spec"]).experiment_id
+            prediction = next(
+                (
+                    row
+                    for row in experiment["spec"]["requirements"]
+                    if row["requirement_ref"] == check.ref.as_record()
+                ),
+                None,
+            )
+    result = RequirementOutcome(
+        requirement_ref=dict(view.contract.body["requirement_catalog_ref"]),
+        requirement_key=criterion["requirement_key"],
+        measure_ref=criterion["measure_ref"],
+        predicted=None if prediction is None else prediction["expected"],
+        falsifying=None if prediction is None else prediction["falsifying"],
+        status=body["outcome"],
+        observed=body["observed_value"],
+        criterion_expected=criterion["expected"],
+        evidence_ref=observation.ref.as_record(),
+        reason=None,
+        limitations=(
+            []
+            if prediction is not None
+            else [
+                "No separate prediction or falsifying statement was recorded for this evaluation."
+            ]
+        )
+        + [
+            "This observation does not grant parent acceptance or progress credit; current applicability is reported separately.",
+        ],
+    )
+    return {
+        "candidate_ref": request.as_record()["body"]["candidate_ref"],
+        "request_ref": request.ref.as_record(),
+        "criterion_ref": check.ref.as_record(),
+        "execution_ref": body["execution_ref"],
+        "experiment_ref": experiment_ref,
+        "experiment_id": experiment_id,
+        "local_host_queries": None
+        if experiment_id is None
+        else {
+            "results": {"experiment_id": experiment_id},
+            "history": {"kind": "experiments", "experiment_id": experiment_id},
+            "inventory": {
+                "source": {"kind": "experiment", "experiment_id": experiment_id},
+                "query": {},
+            },
+            "access": "Local host inspection only; these links do not grant a refiner child another invocation's experiment access.",
+        },
+        "outcome": result.model_dump(mode="json"),
+        "counterexample_refs": body["counterexample_refs"],
+        "limitation_refs": body["limitation_refs"],
+    }
 
 
 def decision_context(view, reference):
@@ -24,6 +106,33 @@ def decision_context(view, reference):
         "measure_ref": request.body["measure_ref"],
         "check_keys": request.body["check_keys"],
         "checking_gap": record.body["checking_gap"],
+    }
+
+
+def report_overview(record):
+    """Steering facts, not repeated full observations in every parent reply.
+
+    The immutable report and shared scoped history retain the complete typed
+    outcomes. Repeating their evidence payloads in child reports, preservation
+    findings and current check state can overflow the worker protocol after one
+    completed child. References preserve access without an LLM-written summary.
+    """
+    body = record.as_record()["body"]
+    return {
+        "report_ref": record.ref.as_record(),
+        "source_head_ref": body["complete_index_ref"],
+        **{
+            key: value for key, value in body.items()
+            if key not in {"determinations", "preservation_findings", "complete_index_ref"}
+        },
+        "check_states": [
+            {key: row[key] for key in (
+                "requirement_key", "check_key", "purpose", "outcome", "observation_ref",
+            )}
+            for row in body["determinations"]
+        ],
+        "preservation_check_keys": [row["check_key"] for row in body["preservation_findings"]],
+        "details_query": {"refinement_collection": "reports"},
     }
 
 
@@ -64,6 +173,7 @@ def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
             "purpose": check.record.body["purpose"],
             "outcome": outcome,
             "observation_ref": entry.record.ref.as_record() if entry else None,
+            "test_result": check_result(view, check.record, entry),
         }
         determinations.append(determination)
         if entry:

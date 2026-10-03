@@ -8,6 +8,24 @@ roles, nesting, numerical policies, and unresolved choices live in the companion
 [finalized design](iterative_episode_refiner_episodes.md). Both documents
 are intended to be edited as the human and assistant develop the design.
 
+## Terminology
+
+- **Target Workflow**: the scoped, nested Episode workflow being designed,
+  built, refined, tested or executed. Its approved contract defines its task;
+  it is not a general-purpose agent free to explore the computer.
+- **IterativeEpisodeRefiner** (refiner): the separate workflow that investigates,
+  repairs and verifies the Target Workflow's implementation.
+- **Candidate revision**: an exact implementation state of the Target Workflow,
+  including its materialization and source. Different revisions do not rename
+  the Target Workflow or silently change its approved semantics.
+- **Episode**: one node within a workflow. **Run**: an execution of an exact
+  admitted build, not a synonym for the Target Workflow or a revision.
+
+Use `target_workflow` and the existing `target_workflow_ref` for workflow identity
+in code. Keep `candidate_ref` for revision identity. References to a target part,
+checker or artifact path retain their narrower meanings. The same terms apply
+in model instructions, schemas, CLI descriptions, documentation and future work.
+
 ## Purpose
 
 The IterativeEpisodeRefiner is an active **designer Episode of reasoning
@@ -29,13 +47,20 @@ build lifecycle does not fulfill this goal.
 
 ## Agreed direction
 
+Model-routing boundary (clarified 2026-10-03): the refiner and its reasoning
+children use the owning Duet's model/provider configuration. The Target Workflow
+uses its own selected launch configuration when tested through the harness.
+Requesting a Target Workflow Run must not change the refiner's configuration. See the
+[canonical routing contract](episode_launch_configuration.md#duet-refiner-and-target-model-boundary);
+shared model settings do not imply shared prompts or authority.
+
 1. **The existing named refiner is not this active refiner.** Its useful baseline,
    provenance, change-classification, and boundary checks belong at the
    Builder/approval boundaries. They do not substitute for a repair-and-validation
    loop. Approval remains a Duet/host responsibility.
 
-2. **The refinement tree need not mirror the target tree.** One problem may span
-   several target Episodes; one target Episode may need several investigations.
+2. **The refinement tree need not mirror the Target Workflow tree.** One problem may span
+   several Episodes in the Target Workflow; one Episode in the Target Workflow may need several investigations.
    Nesting follows concrete repair goals and dependencies.
 
 3. **Use defined, callable child Episodes with fixed interfaces.** The parent

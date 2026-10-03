@@ -5,6 +5,12 @@ blocked or failed build. This is the starting evidence for the Refiner's
 initial planner and parts modularizer. It covers construction through static
 materialization; executable behavior requires separate evidence.
 
+This handoff does not select the refiner's model. The refiner uses the owning
+Duet's model/provider configuration; subsequent tests of the Target Workflow use
+the target's launch configuration. Recorded Builder routes are provenance, not
+instructions to reuse those routes for refinement. See the
+[routing boundary](episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
+
 ## Entry point for the Refiner session
 
 ```python

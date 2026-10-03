@@ -1,16 +1,17 @@
 # Goal: Build the unified Episode testing harness
 
-Status: agreed requirements, recorded for the next goal; implementation has not
-started. Saving this document does not authorize tests, live Runs or normal-build
-activation. The bounded refiner coding assignment is complete.
+Status: active implementation goal. The user has authorized building and validating
+the shared harness, including real Episode experiments. Normal-build activation
+remains excluded. The preceding bounded refiner coding assignment is complete.
 
 Refiner baseline: `3e158ebb8a2fddf8a7ba69b6c2256bad39a791d7`, saved in
 [draft PR #33](https://github.com/chian/OpenChia/pull/33) on
 `feat/iterative-episode-refiner`. This dependent branch is
 `feat/unified-episode-test-harness`; active work returns to
 `/home/chia/repos/OpenChia`. Compare harness changes against that exact refiner
-checkpoint (or the refiner branch while unchanged), not against main. Main's PR
-#32 launch-routing changes have not been integrated into this baseline.
+checkpoint (or the refiner branch while unchanged), not against main. PR #32's
+explicit launch routing was subsequently merged into this development branch at
+`0b3d90b395`; the saved refiner checkpoint itself is unchanged.
 
 The original checkout's earlier design/guidance copies are preserved locally in
 stash `d5c20282bc6868552b4bd738ab745a6c09ed5a0e`, named
@@ -33,6 +34,14 @@ explicit, accessible, executable, and measurable. Scope is not a testing sequenc
 chosen in advance by the harness author or a decision delegated back to the user.
 
 ## Requirements
+
+Routing clarification (2026-10-03): the IterativeEpisodeRefiner and its reasoning
+children use the owning Duet's model/provider configuration. The supplied
+`/home/chia/repos/OpenChia-iterative-refiner/launch_default.json` configures tests
+of the Target Workflow, not the refiner. Shared execution and replay must
+retain this separation and record which configuration each Run used. A target
+test must not mutate the caller's configuration. See the
+[routing contract](episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
 
 ### 1. The testing Episode owns experimental design
 

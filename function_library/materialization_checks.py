@@ -251,7 +251,7 @@ def _register(name, description, input_type, source_path, source_symbol):
             implementation=FunctionImplementation(module=__name__, symbol=name, is_async=False),
             input_type=input_type,
             output_type="{status: pass | fail | blocked | error, diagnostics: BuildDeficit-shaped records}",
-            effect="Read exact build artifacts and trusted library source; never import or execute generated candidate code, call a model, or mutate storage.",
+            effect="Read exact build artifacts and trusted library source; never import or execute generated Target Workflow code, call a model, or mutate storage.",
             failure_contract="Return checker errors separately from candidate failures; missing prerequisite artifacts are blocked, not passing evidence.",
             provenance={
                 "scope": "static_materialization",

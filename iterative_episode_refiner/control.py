@@ -7,6 +7,8 @@ from numeric_control_library.continuation import continuation_function_library
 from numeric_control_library.controller import ComposedIncidenceController
 from numeric_control_library.credit_assignment import (
     CreditObservation,
+    CreditSnapshot,
+    MarginalHypervolumeAssignment,
     ResultColumnSchema,
 )
 from numeric_control_library.rarefaction import rarefaction_function_library
@@ -132,6 +134,7 @@ def observation_inputs(view, attempt, assignment, assessments=None, prerequisite
     from .judgment import operative_check_facts, parent_assessments
     from .measures import unit_admissions
     from .prerequisites import parent_prerequisites
+    from .measure_controls import validated_control_facts
 
     if assessments is None:
         assessments = parent_assessments(view, attempt, assignment)
@@ -155,7 +158,9 @@ def observation_inputs(view, attempt, assignment, assessments=None, prerequisite
         for item in unit_admissions(view, attempt)
         if item.body["status"] == "admitted"
     ]
-    usable = bool(lessons or measures or prerequisites) or any(
+    controls = validated_control_facts(view, assignment_ref=assignment.ref)
+    current_controls = any(record.logical_unit_id == attempt.logical_unit_id and record.invocation_id == attempt.invocation_id for record in controls.values())
+    usable = bool(lessons or measures or prerequisites or current_controls) or any(
         item.body["outcome"] in {"pass", "fail"}
         for item in (*observations, *assessments)
     )
@@ -164,14 +169,13 @@ def observation_inputs(view, attempt, assignment, assessments=None, prerequisite
         | {key for entry in lessons for key in entry.record.body["fact_keys"]}
         | {key for measure in measures for key in measure.body["fact_keys"]}
         | {key for item in prerequisites for key in item.body["fact_keys"]}
+        | set(controls)
     )
     keys -= baseline_fact_keys(view, assignment)
     return keys if usable else set(), usable
 
 
-def numerical_decision(view, assignment, policy, observation_keys, *, usable):
-    from .succession import judgment_history
-
+def _controller(policy, remaining, *, snapshot=None):
     selection = policy["numeric_control"]
     rarefaction = _numeric_selection(
         rarefaction_function_library, selection["rarefaction"]
@@ -180,14 +184,13 @@ def numerical_decision(view, assignment, policy, observation_keys, *, usable):
         continuation_function_library, selection["continuation"]
     )
     bounded = resolve_selection(policy["opportunity_function"], BOUNDED_RAREFACTION)
-    remaining = None
-
     def estimate(state, parameters):
-        if remaining is None:
+        value = remaining()
+        if value is None:
             return rarefaction.load()(state, parameters)
-        return bounded(state, parameters, remaining_opportunities=remaining)
+        return bounded(state, parameters, remaining_opportunities=value)
 
-    controller = ComposedIncidenceController(
+    return ComposedIncidenceController(
         epoch="refinement-v1",
         schema=ResultColumnSchema((CHANNEL,), (0.0,)),
         credit_function=MARGINAL_DOMINATED_HYPERVOLUME,
@@ -196,10 +199,17 @@ def numerical_decision(view, assignment, policy, observation_keys, *, usable):
         credit_parameters={},
         rarefaction_parameters=selection["rarefaction"]["arguments"],
         continuation_parameters=selection["continuation"]["arguments"],
-        credit_factory=MARGINAL_DOMINATED_HYPERVOLUME.load(),
+        credit_factory=MARGINAL_DOMINATED_HYPERVOLUME.load() if snapshot is None else lambda schema, parameters: MarginalHypervolumeAssignment.from_snapshot(schema, snapshot),
         rarefaction_implementation=estimate,
         continuation_implementation=continuation.load(),
     )
+
+
+def numerical_decision(view, assignment, policy, observation_keys, *, usable):
+    from .succession import judgment_history
+
+    remaining = None
+    controller = _controller(policy, lambda: remaining)
     # Succession retains actual observations. Equivalent criterion keys are
     # projected into the successor, never counted as a fresh successful unit.
     lineages = judgment_history(view, assignment)
@@ -237,6 +247,7 @@ def numerical_decision(view, assignment, policy, observation_keys, *, usable):
             is_root=True,
         )
     role_attained = attained(view, assignment, policy)
+    previous_remaining = remaining
     remaining = 0 if role_attained else None
     factory = CreditObservation.observed if usable else CreditObservation.failed
     step = controller.observe(
@@ -250,10 +261,31 @@ def numerical_decision(view, assignment, policy, observation_keys, *, usable):
     return {
         "numeric_step": step.as_record(),
         "remaining_opportunities": remaining,
+        "prior_remaining_opportunities": previous_remaining,
         "attained": role_attained,
         "observation_keys": sorted(observation_keys) if usable else [],
         "usable_observation": usable,
         "stop": step.stop,
-        "numeric_control": selection,
+        "numeric_control": policy["numeric_control"],
         "opportunity_function": policy["opportunity_function"],
     }
+
+
+def recompute_numerical_step(decision):
+    """Re-evaluate one committed decision from its exact sufficient statistics."""
+    if "prior_remaining_opportunities" not in decision:
+        raise ValueError("This historical decision lacks its prior opportunity bound; it cannot be replayed exactly.")
+    for name in ("remaining_opportunities", "prior_remaining_opportunities"):
+        value = decision[name]
+        if value is not None and (type(value) is not int or value != 0):
+            raise ValueError("Recorded opportunity bound must be unknown or a host-proven zero.")
+    before = CreditSnapshot.from_record(decision["numeric_step"]["admission"]["before"])
+    remaining = decision["prior_remaining_opportunities"]
+    controller = _controller(decision, lambda: remaining, snapshot=before)
+    remaining = decision["remaining_opportunities"]
+    factory = CreditObservation.observed if decision["usable_observation"] else CreditObservation.failed
+    return controller.observe(
+        "recorded-unit",
+        factory({CHANNEL: tuple(decision["observation_keys"])}, code="observed" if decision["usable_observation"] else "acquisition_failed"),
+        is_root=True,
+    ).as_record()

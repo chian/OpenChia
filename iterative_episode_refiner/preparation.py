@@ -26,7 +26,7 @@ class PreparedRefinement:
     initial_checks: tuple[RefinementRecord, ...]
 
 
-def _contract_requirements(specification, workflow):
+def _contract_requirements(specification, target_workflow):
     """Keep every contract field and call boundary; no LLM summary is authoritative.
 
     These are coverage anchors, not claims that one check can establish an entire
@@ -41,7 +41,7 @@ def _contract_requirements(specification, workflow):
         )
         for episode in specification.episodes
     }
-    for node in workflow.episodes:
+    for node in target_workflow.episodes:
         target = contract_targets[node.local_id]
         values = {
             **node.contract.as_record(),
@@ -67,7 +67,7 @@ def _contract_requirements(specification, workflow):
                 "acceptance_predicate_ref": None,
             })
     # Repeatable calls are part of the approved architecture, not a source edit.
-    for call in workflow.repeatable_calls:
+    for call in target_workflow.repeatable_calls:
         value = call.as_record()
         requirements.append({
             "evidence_scope": "contract_coverage",

@@ -2,7 +2,7 @@
 
 Publishing a review bundle neither starts a successor nor supplies human notes.
 The ordinary approval service may attach it to an explicitly requested proposal.
-Candidate code remains evidence until the successor's own admission/validation.
+Target Workflow code remains evidence until the successor's own admission/validation.
 """
 
 from dataclasses import replace
@@ -34,7 +34,7 @@ def _baseline(view, root_report):
         != view.contract.body["target_approval_ref"]["artifact_id"]
     ):
         raise ValueError("review baseline differs from the campaign's target authority")
-    workflow = view.data(Ref.from_record(view.contract.body["target_workflow_ref"]))
+    target_workflow = view.data(Ref.from_record(view.contract.body["target_workflow_ref"]))
     receipt = view.data(
         Ref.from_record(view.contract.body["initial_build_receipt_ref"])
     )
@@ -42,8 +42,8 @@ def _baseline(view, root_report):
         Ref.from_record(view.contract.body["initial_materialization_ref"])
     )
     if (
-        workflow["artifact_id"] != baseline.frozen_workflow_artifact_id.value
-        or workflow["workflow_hash"] != baseline.workflow_hash.value
+        target_workflow["artifact_id"] != baseline.frozen_workflow_artifact_id.value
+        or target_workflow["workflow_hash"] != baseline.workflow_hash.value
         or receipt["receipt_id"] != baseline.build_receipt_id.value
         or receipt["content_hash"] != baseline.build_receipt_hash.value
         or materialization["specification_id"]

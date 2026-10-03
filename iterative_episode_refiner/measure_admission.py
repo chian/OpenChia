@@ -8,6 +8,7 @@ from agent.duet_contracts import canonical_json, content_id
 from agent.episode_contracts import OpaqueId
 from function_library.epistemic_contract import exact
 from function_library.refinement_checks import resolve_predicate
+from episode_runtime.testing.judgments import check_controls
 
 from .checking import checker_definition
 from .evaluation_inputs import instrument_context, native_template
@@ -32,8 +33,8 @@ def definition(proposal):
     }
 
 
-def _controls(view, grounding, proposal, predicate):
-    results = []
+def _controls(view, grounding, proposal, selection):
+    references, positive, negative = [], [], []
     for field, outcome in (
         ("positive_control_refs", "pass"),
         ("negative_control_refs", "fail"),
@@ -50,19 +51,19 @@ def _controls(view, grounding, proposal, predicate):
                 {"observed", "expected_outcome"},
                 "grounded predicate control",
             )
-            actual = predicate(
-                observed=control["observed"], expected=grounding["expected"]
-            )
-            results.append({
-                "control_ref": reference,
-                "expected": outcome,
-                "observed": actual,
-            })
-            if control["expected_outcome"] != outcome or actual != outcome:
+            if control["expected_outcome"] != outcome:
                 raise ValueError(
-                    f"control {reference['artifact_id']} requires {outcome}; predicate returned {actual}"
+                    f"control {reference['artifact_id']} changes its independently assigned {outcome} polarity"
                 )
-    return results
+            references.append(reference)
+            (positive if outcome == "pass" else negative).append(control["observed"])
+    results = check_controls(
+        selection, expected=grounding["expected"], positive=positive, negative=negative,
+    )
+    return [
+        {"control_ref": reference, "expected": result["expected_outcome"], "observed": result["observed_outcome"]}
+        for reference, result in zip(references, results, strict=True)
+    ]
 
 
 def grounded_cases(view, proposal, policy):
@@ -110,7 +111,7 @@ def grounded_cases(view, proposal, policy):
     selection = view.data(Ref.from_record(body["decision_function_ref"]))
     if selection["interface"] != "refinement.predicate":
         raise ValueError("measure must select a registered observation predicate")
-    predicate = resolve_predicate(selection)
+    resolve_predicate(selection)
     from .instrument_return import admitted_return
 
     constructed = admitted_return(view, proposal)
@@ -215,14 +216,14 @@ def grounded_cases(view, proposal, policy):
             required.update(map(Ref.from_record, constructed[2]))
         if len(set(declared)) != len(declared) or set(declared) != required:
             raise ValueError(f"measure must retain exactly its grounded {field}")
-    return cases, bindings, predicate
+    return cases, bindings, selection
 
 
 def _admitted_checks(view, attempt, proposal, measure_ref, policy):
     from .instrument_return import return_evidence
 
     body = proposal.body
-    cases, bindings, predicate = grounded_cases(view, proposal, policy)
+    cases, bindings, selection = grounded_cases(view, proposal, policy)
     acquired = authorize_acquisitions(view, body)
     results, controls, execution_evidence = [], [], list(acquired.evidence_refs)
     for reference, grounding in cases:
@@ -230,12 +231,12 @@ def _admitted_checks(view, attempt, proposal, measure_ref, policy):
             from .measure_controls import control_results
 
             outcomes, evidence = control_results(
-                view, proposal, reference, grounding, predicate
+                view, proposal, reference, grounding, selection
             )
             results.extend(outcomes)
             execution_evidence.extend(evidence)
         else:
-            results.extend(_controls(view, grounding, proposal, predicate))
+            results.extend(_controls(view, grounding, proposal, selection))
         controls.extend(
             grounding["positive_control_refs"] + grounding["negative_control_refs"]
         )
@@ -301,7 +302,15 @@ def _admitted_checks(view, attempt, proposal, measure_ref, policy):
     )
 
 
-def _fact_keys(view, checks, binding):
+def _fact_keys(view, checks, binding, proposal):
+    if proposal.body["oracle_kind"] == "independent_execution":
+        from .measure_controls import validated_control_facts
+
+        controls = validated_control_facts(view, proposal_ref=proposal.ref)
+        if controls:
+            # The same facts may already have earned partial progress. Full
+            # admission establishes coverage, not another copy of that credit.
+            return sorted(controls)
     # Grouping the same requirements into new bundles is not new adequacy.
     # Measure/proposal/assignment IDs are provenance, not semantic novelty.
     return sorted({
@@ -403,7 +412,7 @@ def admit_measure(view, attempt, resolved):
             "grounding_refs": proposal.body["grounding_refs"],
             "status": status,
             "reason": reason,
-            "fact_keys": _fact_keys(view, checks, bindings[0])
+            "fact_keys": _fact_keys(view, checks, bindings[0], proposal)
             if status == "admitted"
             else [],
         },
@@ -455,7 +464,7 @@ def validate_admission(view, admission):
         "grounding_refs": proposal.body["grounding_refs"],
         "status": "admitted",
         "reason": None,
-        "fact_keys": _fact_keys(view, checks, bindings[0]),
+        "fact_keys": _fact_keys(view, checks, bindings[0], proposal),
     }
     if (
         canonical_json(admission.body) != canonical_json(expected)

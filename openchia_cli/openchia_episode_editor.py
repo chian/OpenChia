@@ -1,4 +1,4 @@
-"""Full-screen Episode Workspace for architecture and built workflow review.
+"""Full-screen Episode Workspace for architecture and built Target Workflow review.
 
 The workspace has two deliberately different surfaces:
 

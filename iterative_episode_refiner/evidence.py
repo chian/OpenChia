@@ -11,6 +11,7 @@ from agent.episode_contracts import OpaqueId, Sha256Digest
 from episode_builder.store import BuildStore
 from episode_runtime.store import RunStore
 from episode_runtime.contracts import RunRegistration
+from episode_runtime.records.experiments import read_reference
 from function_library.epistemic_contract import exact
 from function_library.refinement_checks import resolve_predicate
 
@@ -28,22 +29,7 @@ class EvidenceReader:
         self.duets, self.builds, self.runs = duets, builds, runs
 
     def reference(self, ref: Ref, duet_id: str) -> object:
-        row = self.duets.get_artifact(ref.artifact_id.value)
-        if (
-            row is None
-            or row["duet_id"] != duet_id
-            or row["content_hash"] != ref.content_hash.value
-        ):
-            raise ValueError(
-                "reference is missing, changed, or outside its authorized Duet"
-            )
-        value = row["record"]
-        if row["kind"].startswith("refinement.") and "schema_id" in value:
-            if RefinementRecord.from_record(value).ref != ref:
-                raise ValueError("refinement evidence identity mismatch")
-        elif digest_record(value) != ref.content_hash:
-            raise ValueError("evidence bytes do not match their content digest")
-        return value
+        return read_reference(self.duets, ref.as_record(), duet_id)["record"]
 
     def approval(self, ref: Ref, duet_id: str | None = None) -> dict:
         row = self.duets.get_approval(ref.artifact_id.value)
@@ -228,6 +214,7 @@ class EvidenceReader:
             })
             if action == "bind_evaluation_run":
                 registration = RunRegistration.from_record(record.body["registration"])
+                execution_scope = None
                 stage = record.body.get("checking_gap") or (
                     record.body if "target_run_ref" in record.body else None
                 )
@@ -262,6 +249,7 @@ class EvidenceReader:
                                 "unavailable checker cannot bind an executable Run"
                             )
                         inputs = prepared.inputs
+                        execution_scope = prepared.execution_scope
                         references["expected_checker_launch"] = (
                             prepared.launch.as_record()
                         )
@@ -273,6 +261,7 @@ class EvidenceReader:
                     launch_request=registration.launch_request,
                     runtime_identity=registration.runtime_identity,
                     runtime_policy=registration.runtime_policy,
+                    execution_scope=execution_scope,
                 )
                 references["admitted_registration"] = admitted.as_record()
                 references["root_request_payload_contract"] = next(

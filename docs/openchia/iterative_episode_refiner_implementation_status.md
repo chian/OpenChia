@@ -8,6 +8,14 @@ This is an implementation checkpoint, not a claim of live reasoning acceptance,
 runtime compatibility, or merge readiness. No new tests or live Runs are being
 performed to save it. See the [collaboration handoff](iterative_episode_refiner_checkpoint.md).
 
+Routing clarification, 2026-10-03: the active refiner must use the owning Duet's
+model/provider configuration. The Target Workflow launch JSON is for testing
+the Target Workflow, not for launching the refiner. The explicit refiner entry accepts a
+broker; automatic Duet configuration binding and separation from Target Workflow Runs
+remain unverified. This does not reopen the completed coding assignment or
+claim normal-build activation. See the
+[routing contract](episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
+
 Worktree: `OpenChia-iterative-refiner`, branch `feat/iterative-episode-refiner`,
 based on merged OpenChia main `9980990488089f4c53bfe4c61f3054312ed70db8`
 (PR #31). The branch was fast-forwarded without creating a commit, and the
@@ -297,7 +305,7 @@ unit closure and parent-report mechanism as preflight evaluation gaps.
 
 - `prepare_checking` either resolves the existing approved checker launch or
   identifies unavailable/invalid checker source or an incompatible typed input.
-  It first validates the actual successful target Run. Target evidence corruption
+  It first validates the actual successful Target Workflow Run. Target evidence corruption
   and unexpected errors are not converted into ordinary measurement results.
 - An immutable successor `evaluation_run` record retains the target registration
   and carries `checking_gap`, with exact original target-binding/execution refs.
@@ -335,7 +343,7 @@ or automatic certification of newly generated checker code.
 - An optional frozen instrument `checker_ref` names exact workflow/build/approval
   references, a typed launch template, and declared target-result input mappings.
   Source/approval identity is checked against the existing BuildStore and Duet
-  approval records. The checker cannot simply be the target workflow itself.
+  approval records. The checker cannot simply be the Target Workflow itself.
 - The host reads the candidate's original successful Run evidence and projects
   only declared typed-status fields into the checker launch. Existing root
   handoff validation checks the resulting payload. No raw Run-log injection,
@@ -345,7 +353,7 @@ or automatic certification of newly generated checker code.
   active binding while retaining the original immutable target binding. Host
   admission reconstructs both the actual approved checker registration and its
   exact input from target evidence; a second checker replacement is rejected.
-- A successful target Run cannot be observed as a verdict when its frozen measure
+- A successful Target Workflow Run cannot be observed as a verdict when its frozen measure
   requires a checker. Failed target/checker execution remains an error, not a
   pass. Final evidence publication retains both Runs and source bindings.
 - Predicate-only adequacy controls explicitly cannot admit a checker-backed
@@ -450,7 +458,7 @@ The host supplies a fresh request identity while preserving the payload.
   through the existing parent-decision path. Static-only requests do not require
   a materialized executable root interface.
 - Grounded-measure admission accepts the same typed input reference and checks
-  target identity/types without consulting mutable candidate code. The original
+  target identity/types without consulting mutable Target Workflow code. The original
   independently authorized grounding, controls and ownership remain required.
 - The shared evaluation service supplies the payload to the existing executor.
   Run-binding admission independently reconstructs it from the frozen evaluation
@@ -687,7 +695,7 @@ finding or role-specific progress path. The native execution route is now wired:
 - The model selects an observation bundle by check identity. The host includes
   its guards and binds the choice to the current assignment/unit. All observations
   pass through `RefinementEvaluations`, ordinary source admission, the existing
-  executor and authenticated Run evidence. This is the same native target-workflow
+  executor and authenticated Run evidence. This is the same native Target Workflow
   route as verification, not a new support runner or fabricated observation.
 - `investigation.py` projects current evidence to bounded advisory findings.
   Reports and subsequent caller context retain the named decision/option or
@@ -762,7 +770,7 @@ only the initial `policy.check_refs`; newly proposed instruments remained inert.
   composes exact grounding references. The host preserves the requested original
   requirements, expected values, observation extraction, domain, environment,
   independence/uncertainty limits, guards and authorized instrument inputs.
-- This first route supports the native target-workflow instrument already handled
+- This first route supports the native Target Workflow instrument already handled
   by the shared evaluation service. It does **not** certify arbitrary generated
   instruments, independent-execution or approved-review claims. Those unsupported
   routes produce a recorded rejection/parent-decision return, not usable checks.
@@ -913,7 +921,7 @@ the same evaluation service as validation Runs:
 - `episode_builder.emitter.complete_module_source` is the common raw-source
   completion step for initial emissions and repaired candidates. It retains the
   existing syntax/export checks and host declaration attachment. It does not
-  import or execute candidate code.
+  import or execute Target Workflow code.
 - `candidate_source.project_candidate_sources` keeps raw and completed source
   distinct. Completed inputs must preserve their exact host declaration; raw
   inputs receive it through the common completion step. Invalid inputs remain
@@ -956,7 +964,7 @@ adapter still required the original plan; the later candidate-plan path above
 removes that restriction without changing approved workflow authority.
 
 The `evaluation.py` connection uses the existing executor for a native approved
-target workflow and records source/Run correlation. It is not a general instrument
+Target Workflow and records source/Run correlation. It is not a general instrument
 implementation yet, has not executed, and does not handle every support/measurement
 request. No normal-build activation occurred. No tests, model calls, validation
 Runs, or replay were run during this update.

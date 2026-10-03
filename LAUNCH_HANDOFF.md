@@ -4,6 +4,20 @@ The launch configuration supplies shared function-level model slots and an
 explicit Codex-login reference. The human approves resolved settings before
 Builder or Run starts.
 
+## Scope clarification — 2026-10-03
+
+This file configures testing of the **Target Workflow**, not the
+IterativeEpisodeRefiner. The refiner and its reasoning children use the owning
+Duet's model/provider configuration; no separate refiner launch file is needed.
+Calling a Target Workflow test through the harness must not switch the refiner's model.
+The Builder roles below remain target Builder settings, not refiner settings.
+See the [routing boundary](docs/openchia/episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
+
+The launch-support commits were integrated into the harness checkout as
+`6cbd04f3e8` and `1e42fee1c9`. That checkout still uses the original absolute
+launch path below; it does not have a copied credential file. Resolution there
+passed without a model call. This is not a refiner execution receipt.
+
 ## Files and invocation
 
 - Launch: `/home/chia/repos/OpenChia-iterative-refiner/launch_default.json`
@@ -129,3 +143,9 @@ The previous execution-backend check selected `systemd`, then failed with
 `RunExecutionError: cannot read host cpu.max`. Full confinement preflight did
 not pass. That result has not been rechecked after cleanup; credentials alone
 do not resolve it. No execution-boundary workaround has been applied.
+
+2026-10-03 correction: that systemd result records the previous backend choice,
+not the required Target Workflow execution path. [ADR 0005](docs/adr/0005-target-workflow-runs-use-containers.md)
+selects containers on Linux/macOS and container-only acceptance. Implementing
+that selection and configuring the existing container executor remain pending;
+systemd repairs are not acceptance prerequisites.

@@ -441,7 +441,7 @@ class OpenChiaCLI(
             for layer, note_id, target_id in sorted(candidates)
         )
         return _HostPreparedDuetTurn(
-            "A new human instruction for the current built workflow has been "
+            "A new human instruction for the current built Target Workflow has been "
             "persisted as these exact refinement candidates:\n"
             f"{candidate_lines}\n"
             "Read the exact saved instruction with episode_workspace_read "

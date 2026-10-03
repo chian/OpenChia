@@ -13,20 +13,13 @@ import stat
 import sys
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
-from urllib.parse import urlsplit
 
 from agent.episode_contracts import OpaqueId
 
-from .broker import (
-    ScopedModelBroker,
-    admit_model_request,
-    model_request_hash,
-    model_response_hash,
-    model_response_record,
-)
+from .broker import ScopedModelBroker
 from .audit_contracts import RunEvidence
-from .http_broker import ScopedHttpBroker, http_response_bytes
-from .http_contracts import http_request_hash, http_response_hash
+from .http_broker import ScopedHttpBroker
+from .exchanges import broker_http_request, broker_model_request
 from .contracts import (
     ExecutorKind,
     RuntimeIdentity,
@@ -100,20 +93,23 @@ class ExecutorResources:
         ``None`` is the explicit unbounded value for memory, tasks, or CPU
         quota.  The scan takes the tightest finite ancestor allocation; it
         never invents a task-specific ceiling.
+
+        Disabled controller levels contribute no additional limit only when
+        their delegation metadata confirms this. CPU period and weight come
+        from the nearest visible CPU-controlled ancestor, never defaults.
+        Without such an ancestor (including a process at the true root),
+        allocation discovery is unsupported.
         """
 
         hierarchy = _host_cgroup_hierarchy(
             cgroup_root=Path(cgroup_root),
             process_cgroup_path=Path(process_cgroup_path),
         )
-        quota, period = _effective_cpu_allocation(hierarchy)
+        quota, period, weight = _effective_cpu_allocation(hierarchy)
         return cls(
             memory_max_bytes=_effective_scalar_limit(hierarchy, "memory.max"),
             pids_max=_effective_scalar_limit(hierarchy, "pids.max"),
-            cpu_weight=_read_positive_control(
-                hierarchy[0] / "cpu.weight",
-                "host cpu.weight",
-            ),
+            cpu_weight=weight,
             cpu_quota_per_sec_micros=quota,
             cpu_period_micros=period,
         )
@@ -213,11 +209,13 @@ class _HostChannel:
     def next_sender_sequence(self) -> int:
         return self._sent_sequence
 
-    async def send(
+    def prepare(
         self,
         frame_type: str,
         body: Mapping[str, object],
-    ) -> ProtocolFrame:
+    ) -> tuple[ProtocolFrame, bytes]:
+        # Reserve and validate before an audit commit. Cancellation between
+        # that commit and publication must not reuse its sender sequence.
         expected = self._sent_sequence
         packet = self.encoder.encode(frame_type, body)
         frame = decode_frame(
@@ -227,9 +225,18 @@ class _HostChannel:
             expected_sequence=expected,
         )
         self._sent_sequence += 1
+        return frame, packet
+
+    async def publish(self, prepared: tuple[ProtocolFrame, bytes]) -> ProtocolFrame:
+        frame, packet = prepared
         self.writer.write(packet)
         await self.writer.drain()
         return frame
+
+    async def send(
+        self, frame_type: str, body: Mapping[str, object]
+    ) -> ProtocolFrame:
+        return await self.publish(self.prepare(frame_type, body))
 
     async def receive(self) -> ProtocolFrame:
         try:
@@ -243,7 +250,7 @@ class _HostChannel:
         return self.decoder.decode(prefix + payload)
 
 
-def _read_small_control(path: Path, name: str) -> str:
+def _read_small_control(path: Path, name: str, *, allow_empty: bool = False) -> str:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except OSError as exc:
@@ -268,7 +275,7 @@ def _read_small_control(path: Path, name: str) -> str:
         value = b"".join(chunks).decode("ascii", errors="strict").strip()
     except UnicodeDecodeError as exc:
         raise RunExecutionError(f"{name} is not ASCII") from exc
-    if not value or "\x00" in value:
+    if (not value and not allow_empty) or "\x00" in value:
         raise RunExecutionError(f"{name} is empty or malformed")
     return value
 
@@ -313,8 +320,45 @@ def _parse_positive_control(value: str, name: str) -> int:
     return result
 
 
-def _read_positive_control(path: Path, name: str) -> int:
-    return _parse_positive_control(_read_small_control(path, name), name)
+def _controller_names(directory: Path, filename: str) -> frozenset[str]:
+    values = _read_small_control(
+        directory / filename, f"host {filename}", allow_empty=True,
+    ).split()
+    if len(set(values)) != len(values) or any(
+        not value.isidentifier() or not value.islower() for value in values
+    ):
+        raise RunExecutionError(f"host {filename} has malformed controller names")
+    return frozenset(values)
+
+
+def _read_allocation_control(
+    directory: Path,
+    filename: str,
+    hierarchy_root: Path,
+) -> Optional[str]:
+    try:
+        return _read_small_control(directory / filename, f"host {filename}")
+    except RunExecutionError as exc:
+        if not isinstance(exc.__cause__, FileNotFoundError):
+            raise
+        # The true cgroup-v2 root has no per-controller allocation. A
+        # namespace-mounted non-root still has cgroup.type and its limits
+        # must not be discarded merely because its visible path is '/'.
+        try:
+            cgroup_type = _read_small_control(directory / "cgroup.type", "host cgroup.type")
+        except RunExecutionError as marker_error:
+            if directory == hierarchy_root and isinstance(marker_error.__cause__, FileNotFoundError):
+                return None
+            raise
+        if cgroup_type not in {"domain", "domain threaded", "threaded"}:
+            raise RunExecutionError("host cgroup.type is invalid for allocation discovery") from exc
+        if directory != hierarchy_root:
+            controller = filename.split(".", 1)[0]
+            available = _controller_names(directory, "cgroup.controllers")
+            delegated = _controller_names(directory.parent, "cgroup.subtree_control")
+            if controller not in available and controller not in delegated:
+                return None
+        raise
 
 
 def _effective_scalar_limit(
@@ -323,43 +367,53 @@ def _effective_scalar_limit(
 ) -> Optional[int]:
     limits: list[int] = []
     for directory in hierarchy:
-        value = _read_small_control(directory / filename, f"host {filename}")
-        if value != "max":
+        value = _read_allocation_control(directory, filename, hierarchy[-1])
+        if value is not None and value != "max":
             limits.append(_parse_positive_control(value, f"host {filename}"))
     return min(limits) if limits else None
 
 
 def _effective_cpu_allocation(
     hierarchy: tuple[Path, ...],
-) -> tuple[Optional[int], int]:
+) -> tuple[Optional[int], int, int]:
     finite: list[tuple[Fraction, int]] = []
-    leaf_period: Optional[int] = None
-    for index, directory in enumerate(hierarchy):
-        fields = _read_small_control(
-            directory / "cpu.max",
-            "host cpu.max",
-        ).split()
+    nearest_cpu: Optional[tuple[int, int]] = None
+    for directory in hierarchy:
+        value = _read_allocation_control(directory, "cpu.max", hierarchy[-1])
+        weight_value = _read_allocation_control(directory, "cpu.weight", hierarchy[-1])
+        if value is None and weight_value is None:
+            continue
+        if value is None or weight_value is None:
+            raise RunExecutionError("host CPU period and weight controls are inconsistent")
+        fields = value.split()
         if len(fields) != 2:
             raise RunExecutionError("host cpu.max must contain quota and period")
         period = _parse_positive_control(fields[1], "host cpu.max period")
         if not 1_000 <= period <= 1_000_000:
             raise RunExecutionError("host cpu.max period is outside kernel bounds")
-        if index == 0:
-            leaf_period = period
+        weight = _parse_positive_control(weight_value, "host cpu.weight")
+        if weight > 10_000:
+            raise RunExecutionError("host cpu.weight is outside kernel bounds")
+        if nearest_cpu is None:
+            nearest_cpu = period, weight
         if fields[0] != "max":
             quota = _parse_positive_control(fields[0], "host cpu.max quota")
             finite.append((Fraction(quota, period), period))
-    if leaf_period is None:
-        raise AssertionError("cgroup hierarchy cannot be empty")
+    if nearest_cpu is None:
+        raise RunExecutionError(
+            "no visible CPU-controlled ancestor provides an observed period and weight; "
+            "allocation discovery cannot invent root or hidden-ancestor settings"
+        )
+    nearest_period, weight = nearest_cpu
     if not finite:
-        return None, leaf_period
+        return None, nearest_period, weight
     ratio, period = min(finite, key=lambda item: item[0])
     per_second = ratio * 1_000_000
     if per_second.denominator != 1:
         raise RunExecutionError(
             "effective host CPU quota is not exactly expressible in microseconds per second"
         )
-    return int(per_second), period
+    return int(per_second), period, weight
 
 
 def _launch_identity(
@@ -375,7 +429,8 @@ def _launch_identity(
 
 def _cpu_quota_percent(resources: ExecutorResources) -> str:
     if resources.cpu_quota_per_sec_micros is None:
-        return "infinity"
+        # CPUQuota uses an empty assignment for no quota, unlike MemoryMax.
+        return ""
     percent = Decimal(resources.cpu_quota_per_sec_micros) / Decimal(10_000)
     return f"{format(percent.normalize(), 'f')}%"
 
@@ -758,6 +813,8 @@ class RunExecutor(Protocol):
         model_broker: ScopedModelBroker,
         http_broker: ScopedHttpBroker,
         refinement_session=None,
+        experiment_session=None,
+        continuation_admission=None,
     ) -> RunEvidence: ...
 
 
@@ -814,70 +871,6 @@ class _RunExecutorBase:
     ) -> None:
         raise NotImplementedError
 
-    async def _broker_http_request(
-        self,
-        *,
-        registration: RunRegistration,
-        channel: _HostChannel,
-        frame: ProtocolFrame,
-        http_broker: ScopedHttpBroker,
-    ) -> None:
-        """Broker one admitted HTTP request and record both evidence events.
-
-        The decoder already admitted the request and verified that
-        ``episode_path`` hashes to ``episode_id``; the path's leaf grain names
-        the node whose approved rules apply.  Policy outcomes come back as
-        response records; only a malformed request raises.
-        """
-
-        body = frame.body
-        local_id = body["episode_path"][-1]["grain"]
-        request = body["request"]
-        request_hash = http_request_hash(request)
-        episode_id = OpaqueId(body["episode_id"])
-        matched = http_broker.match_rule(local_id, request)
-        rule_name = None if matched is None else matched.name
-        url = urlsplit(str(request["url"]))
-        self.run_store.append_event(
-            run_id=registration.run_id,
-            origin=RunEventOrigin.WORKER,
-            sender_sequence=frame.sender_sequence,
-            kind=RunEventKind.HTTP_REQUESTED,
-            episode_id=episode_id,
-            payload={
-                "http_request_id": body["http_request_id"],
-                "request_hash": request_hash.value,
-                "rule": rule_name,
-                "method": request["method"],
-                "host": url.hostname,
-                "path": url.path,
-            },
-        )
-        response = await http_broker(local_id=local_id, request=request)
-        response_frame = await channel.send(
-            HostFrameType.HTTP_RESPONSE.value,
-            {
-                "http_request_id": body["http_request_id"],
-                "response": response,
-            },
-        )
-        self.run_store.append_event(
-            run_id=registration.run_id,
-            origin=RunEventOrigin.HOST,
-            sender_sequence=response_frame.sender_sequence,
-            kind=RunEventKind.HTTP_RESPONDED,
-            episode_id=episode_id,
-            payload={
-                "http_request_id": body["http_request_id"],
-                "request_hash": request_hash.value,
-                "response_hash": http_response_hash(response).value,
-                "outcome": response["outcome"],
-                "status": response["status"],
-                "response_bytes": http_response_bytes(response),
-                "rule": response["rule"],
-            },
-        )
-
     async def execute(
         self,
         *,
@@ -886,22 +879,28 @@ class _RunExecutorBase:
         model_broker: ScopedModelBroker,
         http_broker: ScopedHttpBroker,
         refinement_session=None,
+        experiment_session=None,
+        continuation_admission=None,
     ) -> RunEvidence:
-        """Execute one fresh registration; cancellation persists cancellation."""
+        """Execute an admitted physical attempt; cancellation remains interruption."""
 
         if not isinstance(registration, RunRegistration):
             raise TypeError("registration must be a RunRegistration")
+        if registration.resume_from is not None and not callable(continuation_admission):
+            raise RunExecutionError("interrupted continuation requires verified reconstruction and host-state restoration; fresh execution cannot substitute")
         if not isinstance(model_broker, ScopedModelBroker):
             raise TypeError("model_broker must be a ScopedModelBroker")
         if not isinstance(http_broker, ScopedHttpBroker):
             raise TypeError("http_broker must be a ScopedHttpBroker")
         if refinement_session is not None:
             await asyncio.to_thread(refinement_session.validate_registration, registration)
+        if experiment_session is not None:
+            await asyncio.to_thread(experiment_session.validate_registration, registration)
         runtime_source_package = (
             self.run_store.runtime_sources_root
             / registration.runtime_identity.runtime_source_manifest_id.value
         )
-        verify_runtime_identity(
+        runtime_manifest = verify_runtime_identity(
             registration.runtime_identity,
             runtime_source_package=runtime_source_package,
             **self._identity_arguments(),
@@ -927,6 +926,24 @@ class _RunExecutorBase:
         learning_broker = await asyncio.to_thread(
             LearningBroker, self.run_store, registration, source_package
         )
+        reconstruction = None
+        if registration.resume_from is not None:
+            from .testing.reconstruction_host import prepare_reconstruction
+            from .executor_lifecycle import verify_stopped_executor
+
+            reconstruction = await asyncio.to_thread(
+                prepare_reconstruction, self.run_store, registration,
+                source_package, runtime_manifest,
+                refinement_session=refinement_session, experiment_session=experiment_session,
+            )
+            old_claim = await asyncio.to_thread(self.run_store.read_claim, registration.resume_from.run_id)
+
+            async def authorize_continuation():
+                stopped = await verify_stopped_executor(self, old_claim)
+                authority = await continuation_admission()
+                return {"previous_executor": stopped, "current_authority": authority}
+
+            await authorize_continuation()
         self.run_store.publish_registration(registration)
 
         launch_identity = self._launch_identity(registration.run_id)
@@ -1058,74 +1075,42 @@ class _RunExecutorBase:
                 RunEventKind.EPISODE_STARTED,
                 RunEventKind.UNIT_COMPLETED,
                 RunEventKind.EPISODE_COMPLETED,
+                RunEventKind.COMPONENT_OBSERVED,
+            }
+            from .exchanges import broker_experiment_request, broker_refinement_request, broker_learning_request
+            from .scoped import validate_execution_path
+            scoped_handlers = {
+                WorkerFrameType.EXPERIMENT_REQUEST.value: (broker_experiment_request, experiment_session),
+                WorkerFrameType.REFINEMENT_REQUEST.value: (broker_refinement_request, refinement_session),
+                WorkerFrameType.LEARNING_REQUEST.value: (broker_learning_request, learning_broker),
             }
             while True:
                 frame = await channel.receive()
-                if frame.frame_type == WorkerFrameType.REFINEMENT_REQUEST.value:
-                    if refinement_session is None:
-                        raise ProtocolError("this Run has no admitted refinement session")
-                    response = await refinement_session.exchange(
-                        episode_id=OpaqueId(frame.body["episode_id"]),
-                        episode_path=frame.body["episode_path"],
-                        operation=frame.body["operation"],
-                        payload=frame.body["payload"],
-                    )
-                    await channel.send(HostFrameType.REFINEMENT_RESPONSE.value, {
-                        "request_id": frame.body["request_id"], "response": response,
-                    })
+                if reconstruction is not None and await reconstruction.consume(
+                    frame, channel, authorize=authorize_continuation,
+                ):
                     continue
-                if frame.frame_type == WorkerFrameType.LEARNING_REQUEST.value:
-                    response = await learning_broker(frame.body["episode_id"], frame.body["operation"], frame.body["payload"])
-                    await channel.send(HostFrameType.LEARNING_RESPONSE.value,
-                                       {"request_id": frame.body["request_id"], "response": response})
+                if "episode_path" in frame.body:
+                    validate_execution_path(registration, frame.body["episode_path"])
+                if frame.frame_type in scoped_handlers:
+                    handler, session = scoped_handlers[frame.frame_type]
+                    await handler(
+                        run_store=self.run_store, registration=registration,
+                        channel=channel, frame=frame, session=session,
+                    )
                     continue
                 if frame.frame_type == WorkerFrameType.MODEL_REQUEST.value:
-                    # Frame bodies are frozen (lists become tuples) for hashing;
-                    # the broker contract is plain JSON, so thaw the record once
-                    # here, exactly as INITIALIZE and START thaw theirs.
-                    request_record = _thaw_json(frame.body["request"])
-                    request = admit_model_request(request_record)
-                    request_hash = model_request_hash(request)
-                    episode_id = OpaqueId(frame.body["episode_id"])
-                    self.run_store.append_event(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.WORKER,
-                        sender_sequence=frame.sender_sequence,
-                        kind=RunEventKind.MODEL_REQUESTED,
-                        episode_id=episode_id,
-                        payload={
-                            "model_request_id": frame.body["model_request_id"],
-                            "request_hash": request_hash.value,
-                            "task": request.task,
-                        },
-                    )
-                    response = await model_broker(request_record, episode_path=frame.body["episode_path"])
-                    from function_library.epistemic_schemas import model_call_id
-                    response_frame = await channel.send(
-                        HostFrameType.MODEL_RESPONSE.value,
-                        {
-                            "model_request_id": frame.body["model_request_id"],
-                            "response": model_response_record(response),
-                        },
-                    )
-                    self.run_store.append_event(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.HOST,
-                        sender_sequence=response_frame.sender_sequence,
-                        kind=RunEventKind.MODEL_RESPONDED,
-                        episode_id=episode_id,
-                        payload={
-                            "model_request_id": frame.body["model_request_id"],
-                            "request_hash": request_hash.value,
-                            "response_hash": model_response_hash(response).value,
-                            "producer_call_id": model_call_id(response.text, request.task, response.route),
-                            "response_text": response.text,
-                            "route": dict(response.route),
-                        },
+                    await broker_model_request(
+                        run_store=self.run_store,
+                        registration=registration,
+                        channel=channel,
+                        frame=frame,
+                        model_broker=model_broker,
                     )
                     continue
                 if frame.frame_type == WorkerFrameType.HTTP_REQUEST.value:
-                    await self._broker_http_request(
+                    await broker_http_request(
+                        run_store=self.run_store,
                         registration=registration,
                         channel=channel,
                         frame=frame,
@@ -1133,9 +1118,18 @@ class _RunExecutorBase:
                     )
                     continue
                 if frame.frame_type == WorkerFrameType.RUN_EVENT.value:
+                    from .components import validate_component_event
+
                     kind = RunEventKind(frame.body["event_kind"])
                     if kind not in worker_event_kinds:
                         raise ProtocolError("worker emitted a host-owned event kind")
+                    validate_component_event(
+                        registration, kind,
+                        None if frame.body["episode_id"] is None else OpaqueId(frame.body["episode_id"]),
+                        frame.body["payload"],
+                    )
+                    if kind is RunEventKind.EPISODE_STARTED:
+                        validate_execution_path(registration, frame.body["payload"].get("episode_path", ()))
                     self.run_store.append_event(
                         run_id=registration.run_id,
                         origin=RunEventOrigin.WORKER,
@@ -1425,6 +1419,10 @@ class SystemdRunExecutor(_RunExecutorBase):
                 registration.run_id.value,
                 "--registration-hash",
                 registration.registration_hash.value,
+                "--logical-run-id",
+                registration.logical_run_id.value,
+                "--logical-registration-hash",
+                registration.logical_registration_hash.value,
                 "--manifest-id",
                 registration.manifest_id.value,
                 "--max-frame-bytes",

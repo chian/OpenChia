@@ -1095,17 +1095,47 @@ class Episode:
         finally:
             ctx.leave(scope)
 
+    async def run_unit_async(self, ctx: "Context", *, expected_label: str, starting_unit_index: int = 0) -> UnitRecord:
+        """Observe one identified unit, without closing the containing Episode.
+
+        Experimental stepping shares acquisition, goal commitment, controller
+        advancement and hooks with the ordinary loop. It does not invent a
+        stopping decision or call the Episode's result/close callbacks.
+        """
+        if self.resume_units:
+            raise ValueError("unit stepping requires coherent source restoration, not controller-only resume_units")
+        if type(starting_unit_index) is not int or starting_unit_index < 0:
+            raise ValueError("unit stepping requires a nonnegative restored position")
+        self._validate_position(ctx)
+        if not ctx.path and not ctx.has_run_id:
+            ctx.bind_run_id(self.key)
+        scope = ctx.enter(self.grain, self.key)
+        try:
+            item = self.source.next(self._view(ctx, scope, [], unit_offset=starting_unit_index))
+            if inspect.isawaitable(item):
+                item = await item
+            if item is None or isinstance(item, SourceEnd):
+                raise ValueError("the selected unit is unavailable at this source boundary")
+            if item.label != expected_label:
+                raise ValueError("the source selected a different unit; no replacement is acquired")
+            records: list[UnitRecord] = []
+            await self._acquire_unit_async(ctx, scope, records, item, unit_offset=starting_unit_index)
+            return records[0]
+        finally:
+            ctx.leave(scope)
+
     def _view(
         self,
         ctx: "Context",
         scope: Scope,
         records: list[UnitRecord],
+        *, unit_offset: int = 0,
     ) -> EpisodeView:
         return EpisodeView(
             grain=self.grain,
             key=self.key,
             path=scope,
-            units_consumed=len(records),
+            units_consumed=unit_offset + len(records),
             updates=tuple(
                 record.episode_update
                 for record in records
@@ -1164,10 +1194,11 @@ class Episode:
         records: list[UnitRecord],
         label: str,
         acquired: _AcquiredUnit,
+        *, unit_offset: int = 0,
     ) -> tuple[UnitRecord, UnitView, Contribution]:
         unit_ref = UnitRef(
             EpisodeRef(run_id=ctx.require_run_id(), path=scope).episode_id,
-            len(records),
+            unit_offset + len(records),
         )
         controller_input = acquired.contribution.controller_input
         goal_preview: Optional[GoalPreview] = None
@@ -1327,20 +1358,7 @@ class Episode:
             if isinstance(item, SourceEnd):
                 ended_by, end_reason = item.kind, item.kind
                 break
-            self._validate_child(item)
-            acquired = item.acquire_async(ctx)
-            if inspect.isawaitable(acquired):
-                acquired = await acquired
-            if not isinstance(acquired, _AcquiredUnit):
-                raise TypeError("Acquirable.acquire_async() returned an invalid result")
-            _, unit_view, contribution = self._append_record(
-                ctx, scope, records, item.label, acquired
-            )
-            if self.on_unit is not None:
-                result = self.on_unit(item, contribution, unit_view)
-                if inspect.isawaitable(result):
-                    await result
-            step = unit_view.controller_step
+            step = await self._acquire_unit_async(ctx, scope, records, item)
             if step.stop:
                 scope, end = await self._stop_end_async(
                     ctx, scope, records, step
@@ -1350,6 +1368,22 @@ class Episode:
                 ended_by = end
                 break
         return self._record(ctx, scope, records, ended_by, end_reason)
+
+    async def _acquire_unit_async(self, ctx, scope, records, item, *, unit_offset=0):
+        self._validate_child(item)
+        acquired = item.acquire_async(ctx)
+        if inspect.isawaitable(acquired):
+            acquired = await acquired
+        if not isinstance(acquired, _AcquiredUnit):
+            raise TypeError("Acquirable.acquire_async() returned an invalid result")
+        _, unit_view, contribution = self._append_record(
+            ctx, scope, records, item.label, acquired, unit_offset=unit_offset
+        )
+        if self.on_unit is not None:
+            result = self.on_unit(item, contribution, unit_view)
+            if inspect.isawaitable(result):
+                await result
+        return unit_view.controller_step
 
 
 @dataclass(frozen=True)
@@ -1532,11 +1566,19 @@ class Context:
         run_id: Optional[str] = None,
         runtime: Optional[ControllerRuntime] = None,
         goal_state: Optional[GoalState] = None,
+        boundary_path: Path = (),
     ) -> None:
         if not isinstance(tree, EpisodeTree):
             raise TypeError("Context.tree must be an EpisodeTree")
         self.runtime = runtime if runtime is not None else ControllerRuntime()
         self.tree = tree
+        parent: Path = ()
+        for grain_name, key in boundary_path:
+            allowed = (tree.root,) if not parent else tree.allowed_children(parent[-1][0])
+            if not isinstance(key, str) or not key or grain_name not in {grain.name for grain in allowed}:
+                raise ValueError("frozen context boundary is outside the declared Episode tree")
+            parent = (*parent, (grain_name, key))
+        self._boundary_path = parent
         if goal_state is not None and not isinstance(goal_state, GoalState):
             raise TypeError("Context.goal_state must implement GoalState")
         self.__goal_state = goal_state
@@ -1597,7 +1639,7 @@ class Context:
 
     @property
     def path(self) -> Path:
-        return self._stack[-1] if self._stack else ()
+        return self._stack[-1] if self._stack else self._boundary_path
 
     def _allowed_next(self, parent: Path) -> tuple[Grain, ...]:
         if not parent:

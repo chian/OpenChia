@@ -292,7 +292,7 @@ class RefinementBaseline:
 
 @dataclass(frozen=True)
 class RefinementTarget:
-    """Host-captured exact artifact location to which prose or a directive applies."""
+    """Exact location within the Target Workflow, not the entire workflow identity."""
 
     layer: RefinementTargetLayer
     artifact_id: OpaqueId

@@ -35,11 +35,15 @@ class LearningBroker:
         )
         if self.root_grain is None:
             raise ValueError("materialized workflow has no root Episode")
+        scope = registration.execution_scope
+        self.entry_path = (
+            ((self.root_grain, registration.logical_run_id.value),) if scope is None
+            else scope.entry_path(registration.logical_run_id.value)
+        )
+        self.root_grain = self.entry_path[-1][0]
 
     def _events(self):
-        attestation = self.store.read_claim(self.registration.run_id)
-        with self.store._claim_lock(self.registration.run_id):
-            return self.store._load_event_chain_locked(self.registration, attestation)
+        return self.store.read_execution_prefix(self.registration.run_id)
 
     def _contract(self, episode_id):
         events = self._events()
@@ -53,6 +57,15 @@ class LearningBroker:
             raise ValueError(
                 "learning request needs exactly one started admitted Episode"
             )
+        from .scoped import validate_execution_path
+        validate_execution_path(self.registration, started[0].payload.get("episode_path", ()))
+        scope = self.registration.execution_scope
+        if scope is not None and scope.kind == "unit" and any(
+            event.kind is RunEventKind.UNIT_COMPLETED
+            and event.episode_id.value == scope.target_ref(self.registration.logical_run_id.value).episode_id
+            for event in events
+        ):
+            raise ValueError("learning request exceeds the already observed unit scope")
         contract = self.contracts.get(started[0].payload["grain"])
         if contract is None or contract.epistemic is None:
             raise ValueError("Episode has no frozen learning authority")
@@ -139,12 +152,43 @@ class LearningBroker:
     def validate_completion(self, typed_status=None):
         """A worker cannot relabel an unfinished reasoning Episode as complete."""
         events = self._events()
+        scope = self.registration.execution_scope
+        if scope is not None and scope.kind == "component":
+            from .components import validate_component_event
+
+            observations = [event for event in events if event.kind is RunEventKind.COMPONENT_OBSERVED]
+            if len(observations) != 1 or typed_status is None:
+                raise ValueError("component execution needs exactly one committed observation")
+            event = observations[0]
+            validate_component_event(self.registration, event.kind, event.episode_id, event.payload)
+            if (
+                canonical(typed_status.get("execution_scope")) != canonical(scope.as_record())
+                or canonical(typed_status.get("component_result")) != canonical(event.payload["component_result"])
+                or "completion" in typed_status or "workflow_result" in typed_status
+                or any(event.kind in {RunEventKind.EPISODE_STARTED, RunEventKind.LEARNING_COMMITTED} for event in events)
+            ):
+                raise ValueError("component observation cannot claim Episode completion or learning credit")
+            return
+        def is_entry(event):
+            path = event.payload.get("episode_path")
+            if path is None:
+                return event.payload.get("grain") == self.root_grain and self.registration.execution_scope is None
+            return tuple((part["grain"], part["key"]) for part in path) == self.entry_path
+
+        if self.registration.execution_scope is not None:
+            if typed_status is None or canonical(typed_status.get("execution_scope")) != canonical(self.registration.execution_scope.as_record()):
+                raise ValueError("selected execution result omits or changes its exact scope")
+        unit_event = None
+        if scope is not None and scope.kind == "unit":
+            from .units import validate_unit_return
+
+            unit_event = validate_unit_return(self.registration, events, typed_status)
         if any(contract.epistemic is not None for contract in self.contracts.values()):
             roots = [
                 e
                 for e in events
                 if e.kind is RunEventKind.EPISODE_STARTED
-                and e.payload["grain"] == self.root_grain
+                and is_entry(e)
             ]
             if len(roots) != 1:
                 raise ValueError(
@@ -157,6 +201,16 @@ class LearningBroker:
             if contract is None or contract.epistemic is None:
                 continue
             history = self.ledger._history(events, event.episode_id)
+            if unit_event is not None and is_entry(event):
+                from function_library.reasoning import HostReceiptController
+
+                expected = history[-1].payload["receipt"] if history else HostReceiptController().state().as_record()
+                if len(history) > 1 or any(
+                    canonical(unit_event.payload[field]) != canonical(expected)
+                    for field in ("controller_input", "controller_step")
+                ):
+                    raise ValueError("unit decision differs from its authoritative host observation")
+                continue
             if (
                 not history
                 or history[-1].payload["receipt"]["terminal_state"] != "completed"
@@ -164,7 +218,7 @@ class LearningBroker:
                 raise ValueError(
                     "reasoning Episode has no committed yield-based completion"
                 )
-            if typed_status is not None and event.payload["grain"] == self.root_grain:
+            if typed_status is not None and is_entry(event):
                 if canonical(typed_status.get("workflow_result")) != canonical(
                     history[-1].payload["receipt"]
                 ):

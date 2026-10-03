@@ -84,9 +84,16 @@ def default_components():
 
 
 def resolve_component(role, selection):
-    function = epistemic_function_library.resolve(
-        f"{selection['library']}.{selection['function_id']}"
-    )
+    from .testing import testing_function_library
+
+    libraries = {
+        "epistemic": epistemic_function_library,
+        "testing": testing_function_library,
+    }
+    library = libraries.get(selection["library"])
+    if library is None:
+        raise ValueError("unknown registered epistemic component library")
+    function = library.resolve(f"{selection['library']}.{selection['function_id']}")
     if (
         function.interface != f"epistemic.{role}"
         or function.interface != selection["interface"]

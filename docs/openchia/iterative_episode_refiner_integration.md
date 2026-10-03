@@ -39,6 +39,13 @@ remaining verification requirements.
 
 ## Current measurement-loop mapping (source review, not execution evidence)
 
+Model-routing clarification, 2026-10-03: `execute_refinement` must receive the
+owning Duet's model/provider configuration. Target validation Runs must use the
+target's selected launch configuration through the shared harness, not inherit
+the refiner broker accidentally. The current entry accepts injected brokers;
+automatic Duet binding and end-to-end routing separation are not yet verified.
+See the [routing contract](episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
+
 This is Goal 4's task-specific measurement work, not the later harness for testing
 the refiner. All observations still use Goal 3's existing executor connection.
 
@@ -166,7 +173,7 @@ second memory API or a copied Run-local ledger with disconnected authority.
 ### E. “All builds” is not “all builds can already execute”
 
 Source preparation requires an admitted package. The refiner cannot depend on
-importing broken candidate code in order to repair it. Existing build lifecycle
+importing broken Target Workflow code in order to repair it. Existing build lifecycle
 also does not equate source admission with demonstrated task performance.
 
 Decision: stage the refiner from its separately approved implementation; read
@@ -190,7 +197,7 @@ independent competing copies of artifact bodies:
 | refinement_invocations | invocation_id primary key; assignment, parent, Parts owner, pending stage and current status |
 | refinement_fact_credits | (campaign_id, judgment_lineage, semantic_fact_key) unique; originating transition/measurement refs |
 | refinement_check_index | campaign/requirement/criterion/applicability keys; latest operative observation refs/status, including stale |
-| refinement_receipt_outbox | receipt_id primary key; target Run, publication/reconciliation status |
+| refinement_receipt_outbox | receipt_id primary key; Target Workflow Run, publication/reconciliation status |
 
 Immutable commit artifacts contain ordered deltas with a predecessor commit ref.
 Indexes and optional verified checkpoints accelerate retrieval; replay from deltas
@@ -372,12 +379,13 @@ or consumed by this interface. For the refiner, the final admission implementati
 must obtain its decision from the authenticated host campaign operation; that
 production policy/transport connection is still outstanding.
 
-The refiner uses separate launch and callable Parts entries. Launch keeps its
+The refiner uses separate root and callable Parts entries. The root keeps its
 empty Duet request. Recursive Parts calls target the predeclared child template
 with the campaign/assignment/invocation payload, retaining the supplied scoped
 goal view; they never reopen root goal state. Both entries execute the same Parts
 loop. This avoids weakening launch admission or pretending the root's empty
-request contract accepts a different parent payload.
+request contract accepts a different parent payload. These are task-input entry
+contracts, not separate model configurations; both use the Duet's configuration.
 
 `episode_library.refinement.materialization_bindings` supplies the fixed adapters
 only for exact registered refiner references selected in the approved workflow.

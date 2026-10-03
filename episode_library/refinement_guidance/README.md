@@ -6,6 +6,10 @@ not register new Episodes, install agent skills, resolve catalogs at runtime, or
 provide authority to execute anything. Selection, authenticated source resolution,
 frozen-input wiring and behavioral validation remain implementation work.
 
+**Target Workflow** names the scoped Episode workflow being built, refined and
+tested. The IterativeEpisodeRefiner works on it; a **candidate revision** is one
+exact implementation state. Use those terms in guidance and selected prompts.
+
 ## Browse narrowly, then read completely
 
 The [root index](index.json) contains subject cards only. Each subject has its own

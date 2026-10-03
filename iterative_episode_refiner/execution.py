@@ -9,6 +9,8 @@ receipt or unresolved gaps. It does not initiate successor approval or productio
 
 import asyncio
 
+from episode_runtime.testing.execution import RunExecution
+
 from .runtime import RefinementSession
 from .outcome import RefinementRunResult
 from .finalization import finalize_result
@@ -34,9 +36,15 @@ async def execute_refinement(
         source_package_path=source_package_path,
         evaluations=evaluations,
     )
-    evidence = await executor.execute(
+    evidence = await RunExecution(
+        artifacts=store.evidence.duets,
+        builds=store.evidence.builds,
+        runs=store.evidence.runs,
+        executor=executor,
+    ).execute(
         registration=registration,
         source_package_path=source_package_path,
+        intent_ref=session.contract.ref.as_record(),
         model_broker=model_broker,
         http_broker=http_broker,
         refinement_session=session,

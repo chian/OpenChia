@@ -65,6 +65,8 @@ _MEASURE_SHAPE = {
 
 
 def proposal_schemas(role):
+    from episode_runtime.testing.schema import experiment_schema
+
     schemas = {
         "choose_part": {
             "assignment": _ASSIGNMENT_SHAPE,
@@ -123,6 +125,7 @@ def proposal_schemas(role):
         "measure": {
             "one_of": [
                 {"instrument": _MEASURE_SHAPE},
+                {"resume_proposal_ref": "an existing exact measure_proposals reference owned by this assignment; continue selecting its remaining controls"},
                 {"prerequisite": _ASSIGNMENT_SHAPE},
                 {
                     "prerequisite_request": {
@@ -141,7 +144,15 @@ def proposal_schemas(role):
         "question": ("question",),
         "measure": ("measure",),
     }
-    return {name: schemas[name] for name in tasks[role]}
+    result = {name: schemas[name] for name in tasks[role]}
+    if role in {"implementer", "verify", "support", "question", "measure"}:
+        result["experiment"] = {"one_of": [
+            {"evaluation_request_ref": "one exact request from experiment_targets", "experiment": experiment_schema()},
+            {"control_target_ref": "one exact grounded control from experiment_targets", "experiment": experiment_schema()},
+        ]} if role == "measure" else {
+            "evaluation_request_ref": "one exact request from experiment_targets", "experiment": experiment_schema()
+        }
+    return result
 
 
 def assign_child(session, call, draft, producer, *, conflict_ref=None):
@@ -448,6 +459,14 @@ def _finding(session, call, proposal, producer):
 
 
 def _measure(session, call, proposal, producer):
+    if "resume_proposal_ref" in proposal:
+        exact(proposal, {"resume_proposal_ref"}, "continued measure proposal")
+        reference = Ref.from_record(proposal["resume_proposal_ref"])
+        with session.view() as view:
+            prior = view.entry("measure_proposal", reference.artifact_id.value).record
+            if prior.ref != reference or prior.body["assignment_ref"] != call.assignment.ref.as_record():
+                raise ValueError("continued measure proposal belongs to another assignment")
+        return session.reply(call, proposal_ref=reference.as_record())
     if "prerequisite" in proposal:
         return _prerequisite(session, call, proposal, producer, {"question"})
     if "prerequisite_request" in proposal:
@@ -518,4 +537,10 @@ _HANDLERS = {
 def admit_proposal(session, call, task, proposal, producer):
     if task not in proposal_schemas(call.assignment.body["role"]):
         raise ValueError("proposal task does not belong to this role")
+    if task == "experiment":
+        from .evaluation_experiments import propose_experiment
+
+        return propose_experiment(
+            session.evaluations, session, call, proposal, producer
+        )
     return _HANDLERS[task](session, call, proposal, producer)

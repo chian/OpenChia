@@ -34,7 +34,7 @@ from method_loop.identities import EpisodeRef
 from .campaign_store import CampaignView
 from .readiness import root_readiness
 from .records import Ref, RefinementRecord
-from .reports import decision_context
+from .reports import decision_context, report_overview
 from .measure_controls import control_context
 from .grounding import grounding_context
 from .measure_needs import assigned_context, catalog as measure_needs
@@ -138,12 +138,14 @@ class RefinementSession:
                 for row in view.entries("invocation")
                 if row.record.body["parent_assignment_ref"] is None
             ]
-            if len(roots) != 1 or roots[0].status != "active":
+            if len(roots) != 1 or (
+                registration.resume_from is None and roots[0].status != "active"
+            ):
                 raise ValueError(
                     "explicit refiner launch requires one active root assignment"
                 )
             assignment = roots[0].record
-            path = ((root.grain_name, registration.run_id.value),)
+            path = ((root.grain_name, registration.logical_run_id.value),)
             # This is the same root goal construction used by the existing linker.
             goal = EpisodeGoal.root(
                 objective=next(
@@ -157,17 +159,26 @@ class RefinementSession:
                 },
             )
             self.root_id = EpisodeRef(
-                run_id=registration.run_id.value, path=path
+                run_id=registration.logical_run_id.value, path=path
             ).episode_id
             self.calls[self.root_id] = Invocation(
                 OpaqueId(roots[0].key), assignment, path, goal
             )
         self.validate_registration(registration)
+        if registration.resume_from is not None:
+            from .runtime_state import restore_session
+
+            restore_session(self)
 
     @contextmanager
     def view(self):
         with self.store.duet_store.transaction() as connection:
             yield CampaignView(connection, self.campaign_id)
+
+    def continuation_state(self):
+        from .runtime_state import continuation_state
+
+        return continuation_state(self)
 
     def validate_registration(self, registration):
         if registration.registration_hash != self.registration.registration_hash:
@@ -184,7 +195,7 @@ class RefinementSession:
             raise ValueError("Run differs from the campaign's exact approved refiner")
 
     def _caller(self, episode_id, episode_path):
-        if episode_id_for_path(self.registration.run_id, episode_path) != episode_id:
+        if episode_id_for_path(self.registration.logical_run_id, episode_path) != episode_id:
             raise ValueError("refinement caller has the wrong runtime path")
         call = self.calls.get(episode_id.value)
         path = tuple((part["grain"], part["key"]) for part in episode_path)
@@ -235,7 +246,7 @@ class RefinementSession:
         operation_id = content_id(
             "refinement_operation",
             {
-                "run_id": self.registration.run_id.value,
+                "run_id": self.registration.logical_run_id.value,
                 "invocation_id": call.invocation_id.value,
                 "ordinal": self._operation_ordinal,
             },
@@ -256,7 +267,9 @@ class RefinementSession:
         )
         return self.store.commit_attempt(attempt)
 
-    def snapshot(self, call):
+    def snapshot(self, call, *, history_query=None):
+        from episode_runtime.records.refinement import assigned_history
+        from .evaluation_experiments import feedback
         from .runtime_proposals import proposal_schemas
         from .measures import admitted_measures, authorized_check_refs
         from .judgment import assessment_status, current_check_states, judgment_purpose
@@ -359,6 +372,9 @@ class RefinementSession:
             investigations = visible_findings(view, assignment)
             context = {
                 "assignment": assignment.as_record(),
+                "test_history": assigned_history(
+                    view, call.invocation_id, history_query
+                ),
                 "goal": self.store.evidence.reference(
                     Ref.from_record(assignment.body["goal_record_ref"]), self.duet_id
                 ),
@@ -400,7 +416,7 @@ class RefinementSession:
                 "investigation_reference_data": reference_data(
                     view, self.policy, assignment, investigations
                 ),
-                "child_reports": [report.as_record() for report in child_reports],
+                "child_reports": [report_overview(report) for report in child_reports],
                 "child_decisions": child_decisions,
                 "evaluation_availability": parent_evaluation,
                 "whole_build_readiness": (
@@ -485,9 +501,7 @@ class RefinementSession:
                 ],
                 "source_files": {},
                 "source_kinds": {},
-                "last_feedback": self.store.evidence.reference(
-                    call.feedback_ref, self.duet_id
-                )
+                "last_feedback": feedback(self, call.feedback_ref)
                 if call.feedback_ref is not None
                 else None,
                 "observations": [
@@ -540,14 +554,19 @@ class RefinementSession:
             "disposition": "continuing" if status == "active" else status,
         }
 
-    def reply(self, call, *, proceed=True, **values):
+    def reply(self, call, /, *, proceed=True, **values):
         return {**self.snapshot(call), "proceed": proceed, **values}
 
     def _context(self, call, episode_id, payload):
-        exact(payload, {"role"}, "refinement context")
+        exact(
+            payload,
+            {"role"}
+            | ({"test_history_query"} if "test_history_query" in payload else set()),
+            "refinement context",
+        )
         if payload["role"] != call.assignment.body["role"]:
             raise ValueError("worker requested another role's context")
-        return self.snapshot(call)
+        return self.snapshot(call, history_query=payload.get("test_history_query"))
 
     def _begin_unit(self, call, episode_id, payload):
         self._context(call, episode_id, payload)
@@ -564,7 +583,7 @@ class RefinementSession:
         call.unit_id = content_id(
             "refinement_unit",
             {
-                "run_id": self.registration.run_id.value,
+                "run_id": self.registration.logical_run_id.value,
                 "invocation_id": call.invocation_id.value,
                 "ordinal": ordinal,
             },
@@ -585,7 +604,9 @@ class RefinementSession:
             {"unit_id", "task", "raw_response", "producer_call_id"},
             "refinement proposal",
         )
-        events = self.store.evidence.runs.read_audit_log(self.registration.run_id)
+        events = self.store.evidence.runs.read_execution_prefix(
+            self.registration.run_id
+        )
         producers = [
             event
             for event in events
@@ -601,7 +622,7 @@ class RefinementSession:
             raise ValueError("proposal is not this Episode's committed model response")
         producer = producers[0]
         audit = {
-            "run_id": self.registration.run_id.value,
+            "run_id": producer.run_id.value,
             "event": producer.as_record(),
             "task": payload["task"],
         }
@@ -667,7 +688,7 @@ class RefinementSession:
         )
         path = call.path + ((node.grain_name, child.key),)
         child_id = EpisodeRef(
-            run_id=self.registration.run_id.value, path=path
+            run_id=self.registration.logical_run_id.value, path=path
         ).episode_id
         self.pending[child_id] = Invocation(
             OpaqueId(child.key), child_assignment, path, goal

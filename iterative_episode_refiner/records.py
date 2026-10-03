@@ -2,6 +2,9 @@
 
 The envelope is shared with no authority implied by its presence in DuetStore.
 Only the campaign publication boundary may install its typed projections.
+
+``target_workflow_ref`` names the Target Workflow being refined. A
+``candidate_ref`` names one exact candidate revision, not the workflow itself.
 """
 
 from __future__ import annotations
@@ -267,6 +270,7 @@ RECORD_FIELDS = {
     "continuation": {
         "numeric_step",
         "remaining_opportunities",
+        "prior_remaining_opportunities",
         "attained",
         "observation_keys",
         "usable_observation",
@@ -395,7 +399,10 @@ _OPTIONAL_FIELDS["parent_report"].add("child_report_refs")
 _OPTIONAL_FIELDS["evaluation"] = {"availability", "selection_check_keys"}
 _OPTIONAL_FIELDS["check"] = {"execution_binding"}
 _OPTIONAL_FIELDS["measure_admission"] = {"evaluation_bindings", "control_run_refs"}
+_OPTIONAL_FIELDS["measure_control_run"] = {"experiment_ref"}
+_OPTIONAL_FIELDS["continuation"] = {"prior_remaining_opportunities"}
 _OPTIONAL_FIELDS["evaluation_run"] = {
+    "experiment_ref",
     "target_run_ref",
     "target_execution_ref",
     "checking_gap",

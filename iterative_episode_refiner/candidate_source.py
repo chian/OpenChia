@@ -169,7 +169,9 @@ def _inputs(store, contract, candidate, builder, binding=None):
     request = replace(inputs.build_request, request_nonce=secrets.token_hex(32))
     attempt = BuildAttempt(
         build_request_id=request.build_request_id,
-        materializer=_materializer_identity(builder.call_options),
+        materializer=_materializer_identity(
+            builder.planner.call_options, builder.emitter.call_options
+        ),
         nonce=secrets.token_hex(32),
     )
     plan = replace(

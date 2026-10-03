@@ -3,6 +3,14 @@
 OpenChia has one human-facing design authority and three separate execution
 boundaries.
 
+The scoped Episode workflow being designed, built, refined, tested or executed
+is the **Target Workflow** (`target_workflow` in code). A **candidate revision**
+is one implementation state of that workflow; a **Run** is one execution.
+The IterativeEpisodeRefiner works on the Target Workflow and is a distinct
+workflow, not an alternate name for it. See the
+[refiner terminology](docs/openchia/iterative_episode_refiner_principles.md#terminology)
+and [execution decision](docs/adr/0005-target-workflow-runs-use-containers.md).
+
 ```text
 human <----> restricted conversational LLM
                     |

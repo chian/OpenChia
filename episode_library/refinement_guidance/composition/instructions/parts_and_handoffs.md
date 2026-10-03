@@ -2,7 +2,7 @@
 
 RefineParts owns a scope's decomposition, next-problem selection and contribution
 to the whole. Parts are behavioral problems whose results can be assessed, not
-automatic replicas of target Episode nodes or separate departments for activities.
+automatic replicas of Target Workflow Episode nodes or separate departments for activities.
 
 ## Choose meaningful nesting
 

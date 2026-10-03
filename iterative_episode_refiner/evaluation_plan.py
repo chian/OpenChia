@@ -149,7 +149,7 @@ def _group_plan(
         ):
             gap(
                 "instrument_route_unavailable",
-                "This admitted instrument needs an execution/input route not supported by native target-workflow evaluation.",
+                "This admitted instrument needs an execution/input route not supported by native Target Workflow evaluation.",
             )
         else:
             try:

@@ -1,6 +1,19 @@
-"""A checkable resource-constrained scheduling task; no model answers here."""
+"""One fixed scheduling benchmark and its independent host-side answer check.
 
+The exhaustive solver sees only the problem, never the proposed answer. The
+interval validator separately checks feasibility. Neither certifies the prose
+explanation, which remains part of the observed evidence for human inspection.
+"""
+
+from collections.abc import Mapping
+import json
 import math
+import re
+
+from .epistemic_contract import exact
+
+
+BENCHMARK_ID = "seven_job_resource_schedule_v1"
 
 
 JOBS = {
@@ -86,3 +99,49 @@ def optimal_schedule():
         if found is not None:
             return horizon, found
     raise AssertionError("serial execution must be feasible")
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("schedule repeats a job key")
+        result[key] = value
+    return result
+
+
+def check_optimal_schedule(*, observed, expected):
+    """Accept every feasible optimal answer, not just the oracle's witness.
+
+    Expected identifies the fixed problem, not a caller-supplied optimum. The
+    measured fields match the reasoning Episode's string-valued result schema.
+    Prose has no authority: a persuasive explanation cannot repair a bad answer,
+    and changing only the explanation cannot invalidate a correct schedule.
+    """
+    expected = exact(expected, {"benchmark_id"}, "scheduling benchmark")
+    if expected["benchmark_id"] != BENCHMARK_ID:
+        raise ValueError("unknown scheduling benchmark")
+    if not isinstance(observed, Mapping) or set(observed) != {
+        "schedule", "makespan", "optimality_argument"
+    }:
+        return "fail"
+    if any(not isinstance(value, str) for value in observed.values()):
+        return "fail"
+    if re.fullmatch(r"[0-9]+", observed["makespan"]) is None:
+        return "fail"
+    try:
+        starts = json.loads(observed["schedule"], object_pairs_hook=_unique_object)
+        claimed = int(observed["makespan"])
+    except (ValueError, RecursionError):
+        return "fail"
+    if not isinstance(starts, dict) or set(starts) != set(JOBS):
+        return "fail"
+    optimum, _witness = optimal_schedule()
+    # Bound validation by the known optimum, not an untrusted enormous time.
+    if claimed != optimum or any(
+        type(start) is not int or not 0 <= start <= optimum - JOBS[job]["duration"]
+        for job, start in starts.items()
+    ):
+        return "fail"
+    actual = max(starts[job] + value["duration"] for job, value in JOBS.items())
+    return "pass" if actual == claimed and not violations(starts) else "fail"

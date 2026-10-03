@@ -6,7 +6,7 @@ do not execute checks, impersonate a Run, or overwrite the child's observations.
 """
 
 from agent.duet_contracts import canonical_json, content_id
-from function_library.refinement_checks import resolve_predicate
+from episode_runtime.testing.judgments import judge_value
 
 from .records import Ref
 from .state_machine import derived
@@ -175,7 +175,8 @@ def parent_assessments(view, attempt, assignment):
                 )
             else:
                 predicate = view.data(Ref.from_record(check.body["predicate_ref"]))
-                outcome = resolve_predicate(predicate)(
+                outcome = judge_value(
+                    predicate,
                     observed=original.body["observed_value"],
                     expected=check.body["expected"],
                 )

@@ -1,0 +1,92 @@
+{
+  "status": "unapproved_setup_checklist_not_an_experiment_or_testing_contract",
+  "target_architecture_file": "schedule_target.blueprint.json",
+  "launch_file": "/home/chia/repos/OpenChia-iterative-refiner/launch_default.json",
+  "available_model_slots": [
+    "reasoning",
+    "fast",
+    "non_reasoning"
+  ],
+  "selected_model_slots": {
+    "builder_planning": "reasoning",
+    "builder_emission": "reasoning",
+    "action_selection": "reasoning",
+    "action_execution": "reasoning"
+  },
+  "stores": {
+    "duet_store": null,
+    "build_store": null,
+    "run_store": null
+  },
+  "target": {
+    "duet_id": null,
+    "workflow_approval_id": null,
+    "candidate_ref": null,
+    "build_receipt_ref": null,
+    "environment_ref": null,
+    "launch_ref": null,
+    "campaign_ref": null
+  },
+  "criterion": {
+    "predicate": {
+      "library": "refinement_checks",
+      "function_id": "optimal_resource_schedule_v1",
+      "interface": "refinement.predicate",
+      "definition_id": "function_e1c3be076eb84e844b45610226f1522ad6ee37924c5bbc50786f877178ce88eb",
+      "arguments": {}
+    },
+    "requirement_key": "feasible_optimal_schedule",
+    "expected_value": {
+      "benchmark_id": "seven_job_resource_schedule_v1"
+    },
+    "observation_path": "/workflow_result/result/admitted_problem_frontier/0/body/fields",
+    "scope": {
+      "kind": "workflow",
+      "entry_local_id": "schedule_reasoner",
+      "included_local_ids": [
+        "schedule_reasoner"
+      ],
+      "component_definition_id": null,
+      "unit_label": null,
+      "invocation_path": []
+    },
+    "accepted_modes": [
+      "live_fresh"
+    ],
+    "input_payload": {},
+    "grounding_refs": null,
+    "positive_controls": null,
+    "negative_controls": null,
+    "requirement_ref": null,
+    "measure_ref": null,
+    "limitations": [
+      "Measures the first admitted frontier answer, not every frontier entry.",
+      "Checks schedule feasibility and optimality; explanation text remains unverified prose.",
+      "One fixed problem does not establish general reasoning ability, nested replay, continuation, or refiner repair."
+    ]
+  },
+  "tester": {
+    "duet_id": null,
+    "episode_reference": {
+      "episode_id": "episode_c46c6f21c93d943a342a51e0d097d360f397817839c48a30f4592e5fb4779d6a"
+    },
+    "target_access": null,
+    "architecture_blueprint": null,
+    "workflow_approval_id": null,
+    "build_receipt_ref": null,
+    "launch_ref": null,
+    "required_capability": "episode_testing",
+    "proposed_scope_kinds": [
+      "workflow"
+    ],
+    "proposed_modes": [
+      "live_fresh"
+    ],
+    "unresolved": "Build a separate exact TestingContract only after target, criterion and launch references exist. Freeze its own numerical controller in the later human-reviewed Architecture; do not reuse target authority."
+  },
+  "unresolved_controls": {
+    "candidate_ref": null,
+    "build_receipt_ref": null,
+    "status": "Independent positive/negative measurement controls do not substitute for a genuinely executed broken/correct candidate. Those exact candidate builds and access references remain to be prepared and reviewed."
+  }
+}

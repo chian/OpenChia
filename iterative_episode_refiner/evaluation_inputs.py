@@ -6,13 +6,10 @@ the candidate. Artifact IDs retain their existing runtime meaning; this module
 does not grant artifact-store access to the target.
 """
 
-from collections.abc import Mapping
-
-from agent.duet_contracts import FrozenDuetWorkflow, content_id
-from function_library.epistemic_contract import exact
+from agent.duet_contracts import FrozenDuetWorkflow
+from episode_runtime.testing.inputs import workflow_template
 from handoff_library import (
     DuetLaunchAddress,
-    DuetLaunchRequest,
     admit_duet_launch_request,
 )
 
@@ -20,7 +17,7 @@ from .records import Ref
 
 
 def native_template(view, binding):
-    """Validate input identity/types without depending on mutable candidate code."""
+    """Validate input identity/types without depending on mutable Target Workflow code."""
     instrument = view.data(Ref.from_record(binding["harness_ref"]))
     from .instrument_builds import selected_entry
     from .checking import reference_definition
@@ -57,65 +54,6 @@ def native_template(view, binding):
         )
     )
     return workflow_template(workflow, template)
-
-
-def workflow_template(workflow, template=None):
-    """The same closed launch envelope for a target or an approved checker."""
-    roots = [
-        node
-        for node in workflow.workflow.episodes
-        if node.workflow_parent_local_id is None
-    ]
-    if len(roots) != 1:
-        raise ValueError("native validation requires one approved target root")
-    expected = {
-        "workflow_id": workflow.artifact_id.value,
-        "goal_id": content_id(
-            "goal", {"root_contract": roots[0].contract.as_record()}
-        ).value,
-    }
-    if template is None:
-        template = {
-            **expected,
-            "request_id": content_id("launch_request", expected).value,
-            "artifact_ids_by_role": {},
-            "measurements": {},
-            "states": {},
-            "flags": {},
-        }
-    exact(
-        template,
-        {
-            "request_id",
-            "workflow_id",
-            "goal_id",
-            "artifact_ids_by_role",
-            "measurements",
-            "states",
-            "flags",
-        },
-        "validation launch input",
-    )
-    artifacts = template["artifact_ids_by_role"]
-    if not isinstance(artifacts, Mapping) or any(
-        not isinstance(ids, (list, tuple)) for ids in artifacts.values()
-    ):
-        raise ValueError("validation launch artifact roles require arrays of IDs")
-    request = DuetLaunchRequest(
-        request_id=template["request_id"],
-        workflow_id=template["workflow_id"],
-        goal_id=template["goal_id"],
-        artifact_ids_by_role={role: tuple(ids) for role, ids in artifacts.items()},
-        measurements=template["measurements"],
-        states=template["states"],
-        flags=template["flags"],
-    )
-    if (
-        request.workflow_id != expected["workflow_id"]
-        or request.goal_id != expected["goal_id"]
-    ):
-        raise ValueError("validation launch input names a different workflow or goal")
-    return request
 
 
 def native_launch(view, binding, payload_contract, *, request_id=None):

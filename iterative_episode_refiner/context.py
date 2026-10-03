@@ -30,6 +30,7 @@ def applicable_lessons(view, assignment, candidate=None):
 
 def local_context(view, invocation_id):
     from .coordination import pending_decisions, relevant_conflicts
+    from .reports import check_result
 
     invocation = view.entry("invocation", invocation_id.value)
     assignment = invocation.record
@@ -61,8 +62,8 @@ def local_context(view, invocation_id):
         actions = [
             {"action_class": "return_child", "retry_justification_required": False}
         ]
-    check_keys = {
-        entry.key
+    checks = {
+        entry.key: entry.record
         for entry in view.entries("check")
         if entry.record.body["requirement_key"] in scope
     }
@@ -71,9 +72,10 @@ def local_context(view, invocation_id):
             "check_key": entry.key,
             "status": entry.status,
             "observation_ref": entry.record.ref.as_record(),
+            "test_result": check_result(view, checks[entry.key], entry),
         }
         for entry in view.entries("check_state")
-        if entry.key in check_keys
+        if entry.key in checks
     ]
     lessons = [
         entry.record

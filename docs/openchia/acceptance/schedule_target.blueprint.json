@@ -1,0 +1,168 @@
+{
+  "episodes": [
+    {
+      "local_id": "schedule_reasoner",
+      "workflow_parent_local_id": null,
+      "contract": {
+        "goal": "Find a minimum-makespan schedule for the seven jobs below. Two identical workers are available from time 0. Each nonpreemptive job occupies one worker throughout its execution. There is one laser: laser jobs cannot overlap each other. A job starts only after every listed predecessor has finished. Start times are nonnegative integers. Touching endpoints do not overlap. Return fields.schedule as a JSON-encoded object mapping every job name to its integer start time, fields.makespan as the integer completion time written as text, and fields.optimality_argument explaining why a shorter schedule is impossible. The result must include a concrete feasible schedule, not merely a formulation of this task or a proposal to use a solver. Jobs: {'A': {'duration': 3, 'after': [], 'laser': True}, 'B': {'duration': 4, 'after': [], 'laser': True}, 'C': {'duration': 2, 'after': [], 'laser': False}, 'D': {'duration': 5, 'after': ['A'], 'laser': False}, 'E': {'duration': 3, 'after': ['B'], 'laser': True}, 'F': {'duration': 2, 'after': ['C', 'D'], 'laser': False}, 'G': {'duration': 4, 'after': ['E'], 'laser': False}}",
+        "unit": "Choose solve, verify, or revise based on the approved problem, current candidate answers, prior outcomes and scoped lessons. Use the reasoning model slot for both action selection and execution, as in the reasoning.generic reference. Produce the exact typed unit result for host validation; do not call the independent benchmark checker or create children.",
+        "result": "Return the ordinary reasoning result with admitted_problem_frontier, unresolved uncertainties, durable scoped lessons and host continuation resolution. Each admitted answer has string fields schedule, makespan and optimality_argument. schedule is a JSON object encoded as text; makespan is nonnegative integer text. The independent acceptance measure evaluates the first returned answer. Explanation text is retained for inspection, not certified as a proof.",
+        "progress": "Only host-admitted durable epistemic state transitions earn credit through the frozen registered yield function. Failed attempts, prose assertions, unsupported self-ratings and duplicate answers earn no incremental credit. Epistemic admission does not certify schedule correctness: the independent acceptance measure checks feasibility and optimality after the Target Workflow Run.",
+        "stopping": "Normal return occurs only when the frozen numerical continuation function resolves false from projected marginal yield. No turn, token or wall-clock budget is semantic completion. External stops remain interrupted, cancelled, blocked or resource-limited as supported by the runtime, never a successful return.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "Return the ordinary reasoning result in the host's typed terminal evidence, including the complete candidate answer fields and continuation resolution.",
+          "tool_names": []
+        },
+        "epistemic": {
+          "goal_class": "optimal_resource_schedule",
+          "domain": "operations_research",
+          "allowed_actions": [
+            "solve",
+            "verify",
+            "revise"
+          ],
+          "environment": {
+            "benchmark_id": "seven_job_resource_schedule_v1",
+            "lasers": 1,
+            "preemptive": false,
+            "time_domain": "nonnegative_integer",
+            "workers": 2
+          },
+          "assumptions": [],
+          "required_fields": [
+            "schedule",
+            "makespan",
+            "optimality_argument"
+          ],
+          "required_evidence": [
+            "problem_specification"
+          ],
+          "components": {
+            "admission": {
+              "arguments": {},
+              "definition_id": "function_2287e7dc5c44bf3b7c751b6b623b5d7b407b9c1b29f31dc24165a81f2149fb56",
+              "function_id": "admission_v1",
+              "interface": "epistemic.admission",
+              "library": "epistemic"
+            },
+            "result_projection": {
+              "arguments": {},
+              "definition_id": "function_28d5a3dada9e8249f58b6da7e150144ecb6cb13f6f9a4664f6f9e9710a80fe8a",
+              "function_id": "result_projection_v1",
+              "interface": "epistemic.result_projection",
+              "library": "epistemic"
+            },
+            "result_schema": {
+              "arguments": {},
+              "definition_id": "function_7ab32fb68848ce009c00b38247b6f667f5d4ab9bcada4b4dd7b7a9b1c447223a",
+              "function_id": "result_schema_v1",
+              "interface": "epistemic.result_schema",
+              "library": "epistemic"
+            },
+            "state_projector": {
+              "arguments": {},
+              "definition_id": "function_10bffbff041d679d6b57290ac84a8f43ebba77c509d5501d10b49759ddfd7be9",
+              "function_id": "state_projector_v1",
+              "interface": "epistemic.state_projector",
+              "library": "epistemic"
+            },
+            "yield_function": {
+              "arguments": {},
+              "definition_id": "function_afc51a57f5a45e4cda8b7eee1b0eeb8222c28d07df308de398de502faf6ce785",
+              "function_id": "yield_function_v1",
+              "interface": "epistemic.yield_function",
+              "library": "epistemic"
+            }
+          },
+          "scope_tier": "episode",
+          "policy_strength": "advisory",
+          "evidence": [
+            {
+              "kind": "problem_specification",
+              "observation": {
+                "benchmark_id": "seven_job_resource_schedule_v1",
+                "jobs": {
+                  "A": {
+                    "after": [],
+                    "duration": 3,
+                    "laser": true
+                  },
+                  "B": {
+                    "after": [],
+                    "duration": 4,
+                    "laser": true
+                  },
+                  "C": {
+                    "after": [],
+                    "duration": 2,
+                    "laser": false
+                  },
+                  "D": {
+                    "after": [
+                      "A"
+                    ],
+                    "duration": 5,
+                    "laser": false
+                  },
+                  "E": {
+                    "after": [
+                      "B"
+                    ],
+                    "duration": 3,
+                    "laser": true
+                  },
+                  "F": {
+                    "after": [
+                      "C",
+                      "D"
+                    ],
+                    "duration": 2,
+                    "laser": false
+                  },
+                  "G": {
+                    "after": [
+                      "E"
+                    ],
+                    "duration": 4,
+                    "laser": false
+                  }
+                },
+                "lasers": 1,
+                "preemptive": false,
+                "time_domain": "nonnegative_integer",
+                "workers": 2
+              },
+              "text": "Find a minimum-makespan schedule for the seven jobs below. Two identical workers are available from time 0. Each nonpreemptive job occupies one worker throughout its execution. There is one laser: laser jobs cannot overlap each other. A job starts only after every listed predecessor has finished. Start times are nonnegative integers. Touching endpoints do not overlap. Return fields.schedule as a JSON-encoded object mapping every job name to its integer start time, fields.makespan as the integer completion time written as text, and fields.optimality_argument explaining why a shorter schedule is impossible. The result must include a concrete feasible schedule, not merely a formulation of this task or a proposal to use a solver. Jobs: {'A': {'duration': 3, 'after': [], 'laser': True}, 'B': {'duration': 4, 'after': [], 'laser': True}, 'C': {'duration': 2, 'after': [], 'laser': False}, 'D': {'duration': 5, 'after': ['A'], 'laser': False}, 'E': {'duration': 3, 'after': ['B'], 'laser': True}, 'F': {'duration': 2, 'after': ['C', 'D'], 'laser': False}, 'G': {'duration': 4, 'after': ['E'], 'laser': False}}"
+            }
+          ]
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_f86a8250ac81aa9e34b052b99f0e534ecfb989dd912c9bcf5c7a398ec783824f"
+      }
+    }
+  ]
+}

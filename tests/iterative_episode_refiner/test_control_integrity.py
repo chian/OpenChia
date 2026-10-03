@@ -7,7 +7,9 @@ import pytest
 from iterative_episode_refiner import state_machine
 
 
-def test_store_rejects_a_forged_completion_and_retry_recovers(campaign, monkeypatch):
+@pytest.mark.asyncio
+@pytest.mark.parametrize("corruption", ["completion", "prior_opportunity_bound"])
+async def test_store_rejects_a_forged_completion_and_retry_recovers(campaign, monkeypatch, corruption):
     campaign.implementer()
     attempt = campaign.attempt(
         "close_unit",
@@ -21,13 +23,16 @@ def test_store_rejects_a_forged_completion_and_retry_recovers(campaign, monkeypa
     def false_completion(view, attempt, resolved):
         records, deltas = admit(view, attempt, resolved)
         decision = next(record for record in records if record.kind == "continuation")
+        changes = (
+            {"attained": True, "stop": True, "remaining_opportunities": 0}
+            if corruption == "completion"
+            else {"prior_remaining_opportunities": 0 if decision.body["prior_remaining_opportunities"] is None else None}
+        )
         forged = replace(
             decision,
             body={
                 **decision.body,
-                "attained": True,
-                "stop": True,
-                "remaining_opportunities": 0,
+                **changes,
             },
         )
         receipt = next(record for record in records if record.kind == "unit_receipt")
@@ -36,7 +41,7 @@ def test_store_rejects_a_forged_completion_and_retry_recovers(campaign, monkeypa
             body={
                 **receipt.body,
                 "continuation_ref": forged.ref.as_record(),
-                "disposition": "attained",
+                "disposition": "attained" if corruption == "completion" else receipt.body["disposition"],
             },
         )
         return [forged, forged_receipt], [

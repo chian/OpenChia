@@ -78,6 +78,7 @@ from llm_call_library import (
     ModelTransportResponse,
     model_transport_scope,
 )
+from function_library.testing_contract import CAPABILITY as TESTING_CAPABILITY
 
 
 logger = logging.getLogger(__name__)
@@ -186,7 +187,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         self.egress_hosts, self.egress_credentials = _operator_egress_ceiling()
         self.service = DuetService(
             self.store,
-            allowed_episode_capabilities=(),
+            allowed_episode_capabilities=(TESTING_CAPABILITY,),
             allowed_egress_hosts=self.egress_hosts,
             egress_credential_names=tuple(sorted(self.egress_credentials)),
         )
@@ -279,6 +280,26 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         bound._duet_launch_proposer = self.propose_launch
         self._duet_agent = bound
         return bound
+
+    def refinement_experiment_service(self, *, refiner_build_receipt_id, evaluations):
+        """Bind explicit refiner experiments; this does not activate normal builds."""
+        from agent.duet_episode_transport import DuetEpisodeBinding, required_slots
+        from episode_runtime.testing.service import ExperimentService
+
+        if evaluations.builder.store is not self.build_store or evaluations.executor.run_store is not self.run_store:
+            raise OpenChiaHostError("Refiner evaluations must use this host's existing Builder and Run stores")
+        inputs = self.build_store.inspection_inputs_for_receipt(refiner_build_receipt_id)
+        if not inputs.receipt.materialized:
+            raise OpenChiaHostError("Refiner experiments require an admitted refiner build")
+        binding = DuetEpisodeBinding.from_bound_agent(
+            artifacts=self.store, owner_duet_id=self.identity.duet_id.value,
+            agent=self._duet_agent, model_types=required_slots(inputs),
+        )
+        return ExperimentService(
+            artifacts=self.store, builds=self.build_store, runs=self.run_store,
+            executor=evaluations.executor, http_credentials=self.egress_credentials,
+            duet_binding=binding, refinement_evaluations=evaluations,
+        )
 
     def _run_is_active(self) -> bool:
         with self._run_lock:
@@ -1476,6 +1497,16 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     transport=HttpxHostTransport(),
                     max_frame_bytes=registration.runtime_policy.max_frame_bytes,
                 )
+                from episode_runtime.testing.execution import RunExecution
+                from episode_runtime.testing.launches import record_launch_intent
+
+                execution = RunExecution(
+                    artifacts=self.store, builds=self.build_store,
+                    runs=self.run_store, executor=executor,
+                )
+                intent_ref = record_launch_intent(
+                    self.store, registration, launch_id, launch.configuration_hash,
+                )
                 self._run_registration = registration
                 self._run_evidence = None
                 self._run_baseline = None
@@ -1488,9 +1519,10 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 def run_worker() -> None:
                     loop = asyncio.new_event_loop()
                     task = loop.create_task(
-                        executor.execute(
+                        execution.execute(
                             registration=registration,
                             source_package_path=source_package,
+                            intent_ref=intent_ref,
                             model_broker=broker,
                             http_broker=http_broker,
                         )
@@ -1634,6 +1666,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     event_type="run_requested",
                     provenance=DuetProvenance.HUMAN_INPUT.value,
                     record={
+                        "intent_ref": intent_ref,
                         "run_id": registration.run_id.value,
                         "registration_hash": (
                             registration.registration_hash.value

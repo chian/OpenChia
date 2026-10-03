@@ -12,6 +12,7 @@ from typing import Any, BinaryIO, Mapping
 from agent.episode_contracts import OpaqueId, Sha256Digest
 from method_loop.identities import EpisodeRef
 from function_library.refinement_contract import OPERATIONS as REFINEMENT_OPERATIONS
+from function_library.testing_contract import OPERATIONS as EXPERIMENT_OPERATIONS
 
 from .contracts import (
     DEFAULT_MAX_FRAME_BYTES,
@@ -50,6 +51,7 @@ class HostFrameType(str, Enum):
     HTTP_RESPONSE = "http_response"
     LEARNING_RESPONSE = "learning_response"
     REFINEMENT_RESPONSE = "refinement_response"
+    EXPERIMENT_RESPONSE = "experiment_response"
     TERMINAL_ACK = "terminal_ack"
     CANCEL = "cancel"
 
@@ -60,6 +62,7 @@ class WorkerFrameType(str, Enum):
     HTTP_REQUEST = "http_request"
     LEARNING_REQUEST = "learning_request"
     REFINEMENT_REQUEST = "refinement_request"
+    EXPERIMENT_REQUEST = "experiment_request"
     RUN_EVENT = "run_event"
     TERMINAL = "terminal"
 
@@ -73,6 +76,17 @@ class CancelKind(str, Enum):
 _TYPES_BY_SENDER: Mapping[FrameSender, frozenset[str]] = {
     FrameSender.HOST: frozenset(item.value for item in HostFrameType),
     FrameSender.WORKER: frozenset(item.value for item in WorkerFrameType),
+}
+
+_SCOPED_OPERATIONS = {
+    WorkerFrameType.REFINEMENT_REQUEST.value: REFINEMENT_OPERATIONS,
+    WorkerFrameType.EXPERIMENT_REQUEST.value: EXPERIMENT_OPERATIONS,
+    WorkerFrameType.LEARNING_REQUEST.value: frozenset({"retrieve", "select", "submit"}),
+}
+_OPERATION_RESPONSES = {
+    HostFrameType.REFINEMENT_RESPONSE.value,
+    HostFrameType.EXPERIMENT_RESPONSE.value,
+    HostFrameType.LEARNING_RESPONSE.value,
 }
 
 
@@ -221,6 +235,8 @@ class ProtocolBinding:
     registration_hash: Sha256Digest
     manifest_id: OpaqueId
     max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES
+    logical_run_id: OpaqueId | None = None
+    logical_registration_hash: Sha256Digest | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, OpaqueId):
@@ -229,6 +245,12 @@ class ProtocolBinding:
             raise TypeError("registration_hash must be a Sha256Digest")
         if not isinstance(self.manifest_id, OpaqueId):
             raise TypeError("manifest_id must be an OpaqueId")
+        if self.logical_run_id is None:
+            object.__setattr__(self, "logical_run_id", self.run_id)
+        if self.logical_registration_hash is None:
+            object.__setattr__(self, "logical_registration_hash", self.registration_hash)
+        if not isinstance(self.logical_run_id, OpaqueId) or not isinstance(self.logical_registration_hash, Sha256Digest):
+            raise TypeError("logical execution identity must use the registered ID and digest")
         if (
             isinstance(self.max_frame_bytes, bool)
             or not isinstance(self.max_frame_bytes, int)
@@ -249,6 +271,8 @@ class ProtocolBinding:
             registration_hash=registration.registration_hash,
             manifest_id=registration.manifest_id,
             max_frame_bytes=registration.runtime_policy.max_frame_bytes,
+            logical_run_id=registration.logical_run_id,
+            logical_registration_hash=registration.logical_registration_hash,
         )
 
 
@@ -259,42 +283,30 @@ def _validate_body(
     body: object,
     binding: ProtocolBinding,
 ) -> Mapping[str, object]:
-    if sender is FrameSender.HOST and frame_type == HostFrameType.REFINEMENT_RESPONSE.value:
-        record = _record(body, "refinement response", {"request_id", "response"})
+    if sender is FrameSender.HOST and frame_type in _OPERATION_RESPONSES:
+        record = _record(body, frame_type, {"request_id", "response"})
         return MappingProxyType({
             "request_id": OpaqueId(record["request_id"]).value,
-            "response": _json_mapping(record["response"], "refinement response"),
+            "response": _json_mapping(record["response"], frame_type),
         })
-    if sender is FrameSender.WORKER and frame_type == WorkerFrameType.REFINEMENT_REQUEST.value:
-        record = _record(body, "refinement request", {
+    if sender is FrameSender.WORKER and frame_type in _SCOPED_OPERATIONS:
+        record = _record(body, frame_type, {
             "request_id", "episode_id", "episode_path", "operation", "payload",
         })
         operation = record["operation"]
-        if not isinstance(operation, str) or operation not in REFINEMENT_OPERATIONS:
-            raise ProtocolError("unknown refinement operation")
+        if not isinstance(operation, str) or operation not in _SCOPED_OPERATIONS[frame_type]:
+            raise ProtocolError("unknown scoped host operation")
         path = _episode_path(record["episode_path"])
-        episode_id = episode_id_for_path(binding.run_id, path)
+        episode_id = episode_id_for_path(binding.logical_run_id, path)
         if episode_id.value != record["episode_id"]:
-            raise ProtocolError("refinement caller differs from its runtime path")
+            raise ProtocolError("scoped caller differs from its runtime path")
         return MappingProxyType({
             "request_id": OpaqueId(record["request_id"]).value,
             "episode_id": episode_id.value,
             "episode_path": path,
             "operation": operation,
-            "payload": _json_mapping(record["payload"], "refinement payload"),
+            "payload": _json_mapping(record["payload"], frame_type),
         })
-    if sender is FrameSender.HOST and frame_type == HostFrameType.LEARNING_RESPONSE.value:
-        record = _record(body, "learning response", {"request_id", "response"})
-        return MappingProxyType({"request_id": OpaqueId(record["request_id"]).value,
-                                 "response": _json_mapping(record["response"], "learning response")})
-    if sender is FrameSender.WORKER and frame_type == WorkerFrameType.LEARNING_REQUEST.value:
-        record = _record(body, "learning request", {"request_id", "episode_id", "operation", "payload"})
-        if record["operation"] not in {"retrieve", "select", "submit"}:
-            raise ProtocolError("unknown learning operation")
-        return MappingProxyType({"request_id": OpaqueId(record["request_id"]).value,
-                                 "episode_id": OpaqueId(record["episode_id"]).value,
-                                 "operation": record["operation"],
-                                 "payload": _json_mapping(record["payload"], "learning payload")})
     if sender is FrameSender.HOST:
         if frame_type == HostFrameType.INITIALIZE.value:
             record = _record(
@@ -311,6 +323,8 @@ def _validate_body(
                 or registration.registration_hash
                 != binding.registration_hash
                 or registration.manifest_id != binding.manifest_id
+                or registration.logical_run_id != binding.logical_run_id
+                or registration.logical_registration_hash != binding.logical_registration_hash
             ):
                 raise ProtocolError("initialize carries another registration")
             executor_id = OpaqueId(record["executor_instance_id"])
@@ -434,7 +448,7 @@ def _validate_body(
             request_id = OpaqueId(record["model_request_id"])
             episode_id = OpaqueId(record["episode_id"])
             episode_path = _episode_path(record["episode_path"])
-            if episode_id_for_path(binding.run_id, episode_path) != episode_id:
+            if episode_id_for_path(binding.logical_run_id, episode_path) != episode_id:
                 raise ProtocolError("model request path does not identify its Episode")
             request = _json_mapping(record["request"], "model request")
             return MappingProxyType(
@@ -454,7 +468,7 @@ def _validate_body(
             request_id = OpaqueId(record["http_request_id"])
             episode_id = OpaqueId(record["episode_id"])
             episode_path = _episode_path(record["episode_path"])
-            if episode_id_for_path(binding.run_id, episode_path) != episode_id:
+            if episode_id_for_path(binding.logical_run_id, episode_path) != episode_id:
                 raise ProtocolError(
                     "http_request episode_path does not identify its episode_id"
                 )
@@ -533,6 +547,9 @@ class ProtocolFrame:
     manifest_id: OpaqueId
     sender_sequence: int
     body: Mapping[str, object]
+    # Supplied by the host's registered binding, never by untrusted wire data.
+    logical_run_id: OpaqueId | None = None
+    logical_registration_hash: Sha256Digest | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.sender, FrameSender):
@@ -553,7 +570,11 @@ class ProtocolFrame:
             run_id=self.run_id,
             registration_hash=self.registration_hash,
             manifest_id=self.manifest_id,
+            logical_run_id=self.logical_run_id,
+            logical_registration_hash=self.logical_registration_hash,
         )
+        object.__setattr__(self, "logical_run_id", binding.logical_run_id)
+        object.__setattr__(self, "logical_registration_hash", binding.logical_registration_hash)
         object.__setattr__(
             self,
             "body",
@@ -604,6 +625,8 @@ class ProtocolFrame:
             manifest_id=OpaqueId(record["manifest_id"]),
             sender_sequence=record["sender_sequence"],
             body=record["body"],
+            logical_run_id=binding.logical_run_id,
+            logical_registration_hash=binding.logical_registration_hash,
         )
         if (
             frame.run_id != binding.run_id
@@ -698,6 +721,8 @@ class FrameEncoder:
             manifest_id=self._binding.manifest_id,
             sender_sequence=self._next_sequence,
             body=body,
+            logical_run_id=self._binding.logical_run_id,
+            logical_registration_hash=self._binding.logical_registration_hash,
         )
         packet = encode_frame(
             frame,

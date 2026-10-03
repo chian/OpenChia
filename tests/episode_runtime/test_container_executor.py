@@ -140,24 +140,19 @@ def test_container_executor_satisfies_the_host_protocol(tmp_path):
     assert executor._identity_arguments() == {"interpreter_runtime": _fake_interpreter()}
 
 
-def test_launch_arguments_are_hardened_and_carry_the_same_worker_argv(tmp_path):
+def test_launch_arguments_are_hardened_and_carry_the_same_worker_argv(tmp_path, run_store):
     runtime = _runtime(tmp_path)
     executor = ce.ContainerRunExecutor.__new__(ce.ContainerRunExecutor)
     executor.runtime = runtime
     executor.resources = runtime.default_resources()
     executor.python_executable = runtime.python_executable
-    run_id = OpaqueId("run_" + "e" * 64)
-    registration = SimpleNamespace(
-        run_id=run_id,
-        registration_hash=Sha256Digest.of_bytes(b"r"),
-        manifest_id=OpaqueId("manifest_" + "f" * 64),
-        runtime_identity=SimpleNamespace(
-            runtime_source_manifest_id=OpaqueId("runtime_source_manifest_" + "a" * 64),
-            runtime_source_manifest_hash=Sha256Digest.of_bytes(b"m"),
-        ),
-        runtime_policy=SimpleNamespace(max_frame_bytes=1 << 20),
+    registration = run_store[1]
+    run_id = registration.run_id
+    mounts = executor._runtime_mounts(
+        registration,
+        Path("/srv/runtime_pkg") / registration.runtime_identity.runtime_source_manifest_id.value,
+        Path("/srv/src") / registration.manifest_id.value,
     )
-    mounts = executor._runtime_mounts(registration, Path("/srv/runtime_pkg/runtime_source_manifest_" + "a" * 64), Path("/srv/src/manifest_" + "f" * 64))
     identity = _LaunchIdentity(unit_name=expected_executor_unit_name(ExecutorKind.CONTAINER, run_id, "1" * 32),
                                description=f"openchia-episode-launch:{run_id.value}:{'1' * 32}")
     args = executor._launch_arguments(registration, identity, mounts, "print('bootstrap')")
@@ -172,8 +167,15 @@ def test_launch_arguments_are_hardened_and_carry_the_same_worker_argv(tmp_path):
     worker = args[image_index + 1:]
     assert worker[:6] == ("/usr/local/bin/python3.14", "-I", "-S", "-B", "-X", "pycache_prefix=/tmp/openchia-disabled-pycache")
     assert worker[6:8] == ("-c", "print('bootstrap')")
-    assert "--run-id" in worker and worker[worker.index("--run-id") + 1] == run_id.value
-    assert "--max-frame-bytes" in worker and worker[worker.index("--max-frame-bytes") + 1] == str(1 << 20)
+    for flag, value in (
+        ("--run-id", registration.run_id.value),
+        ("--registration-hash", registration.registration_hash.value),
+        ("--logical-run-id", registration.logical_run_id.value),
+        ("--logical-registration-hash", registration.logical_registration_hash.value),
+        ("--manifest-id", registration.manifest_id.value),
+        ("--max-frame-bytes", str(registration.runtime_policy.max_frame_bytes)),
+    ):
+        assert flag in worker and worker[worker.index(flag) + 1] == value
 
 
 # ----------------------------------------------------------- inspection

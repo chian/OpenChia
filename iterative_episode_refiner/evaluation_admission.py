@@ -112,7 +112,7 @@ def bind_run(view, attempt, resolved):
                 existing.record.body["registration"]
             ):
                 raise ValueError(
-                    "checking gap must retain its exact target Run and host-derived cause"
+                    "checking gap must retain its exact Target Workflow Run and host-derived cause"
                 )
             return [binding], [
                 index(
@@ -131,6 +131,39 @@ def bind_run(view, attempt, resolved):
         ).as_record()
     if canonical_json(launch) != canonical_json(expected_launch):
         raise ValueError("validation Run does not use its measure's exact launch input")
+    if "experiment_ref" in binding.body:
+        from episode_runtime.testing.contracts import ExperimentSpec
+
+        experiment = view.data(Ref.from_record(binding.body["experiment_ref"]))
+        spec = ExperimentSpec.from_record(experiment["spec"]).as_record()
+        target_binding = (
+            view.read(Ref.from_record(binding.body["target_run_ref"]), "evaluation_run")
+            if "target_run_ref" in binding.body
+            else binding
+        )
+        if (
+            canonical_json(experiment["registration"])
+            != canonical_json(target_binding.body["registration"])
+            or target_binding.body.get("experiment_ref")
+            != binding.body["experiment_ref"]
+            or spec["candidate_ref"] != binding.body["candidate_ref"]
+            or spec["campaign_ref"] != view.contract.ref.as_record()
+            or spec["environment_ref"] != view.contract.body["environment_ref"]
+            or spec["scope"]["kind"] != "workflow"
+            or spec["mode"] not in {"live_fresh", "live_saved"}
+        ):
+            raise ValueError(
+                "experiment cannot establish this campaign's native live judgment"
+            )
+        for requirement in spec["requirements"]:
+            check = view.read(Ref.from_record(requirement["requirement_ref"]), "check")
+            if (
+                check.artifact_id.value not in request.body["check_keys"]
+                or check.body["measure_ref"] != requirement["measure_ref"]
+            ):
+                raise ValueError(
+                    "experiment changes the requested checks or parent measures"
+                )
     return [binding], [index("evaluation_run", request.artifact_id.value, binding)]
 
 

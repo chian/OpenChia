@@ -27,6 +27,7 @@ _BUILTIN_REFERENCE_MODULES = {
     },
     "reasoning.generic": "episode_library.reasoning",
     "reasoning.inquiry": "episode_library.inquiry",
+    "reasoning.testing": "episode_library.testing",
     "question_pipeline.run": "episode_library.question_run",
     "question_pipeline.search_strategy": "episode_library.search_strategy",
     "question_pipeline.web_search": "episode_library.web_search",

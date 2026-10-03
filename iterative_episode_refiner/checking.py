@@ -1,7 +1,7 @@
 """Connect an independently approved checking Episode to a target's typed return.
 
 Both executions use the existing executor. The frozen instrument supplies the
-checker and field mapping; neither candidate code nor a model chooses the oracle
+checker and field mapping; neither Target Workflow code nor a model chooses the oracle
 after seeing a result. This module grants no artifact-body access or host tools.
 """
 
@@ -14,7 +14,7 @@ from episode_runtime.contracts import RunRegistration, RunTerminalStatus
 from function_library.epistemic_contract import exact
 from handoff_library import DuetLaunchAddress, admit_duet_launch_request
 
-from .evaluation_inputs import workflow_template
+from episode_runtime.testing.inputs import workflow_template
 from .records import Ref, pointer_parts, project
 
 
@@ -26,6 +26,36 @@ class CheckingPreparation:
     inputs: object = None
     launch: object = None
     gap: dict | None = None
+    execution_scope: object = None
+
+
+def checker_descriptor(raw):
+    """One descriptor shape for checking and authorized instrument refinement."""
+    definition = exact(
+        raw,
+        {
+            "workflow_ref",
+            "build_receipt_ref",
+            "authority_approval_ref",
+            "launch_ref",
+            "result_inputs",
+        }
+        | (
+            {"entry_local_id", "entry_context"}
+            if "entry_local_id" in raw or "entry_context" in raw
+            else set()
+        ),
+        "approved checking workflow",
+    )
+    if "entry_local_id" in definition and (
+        not isinstance(definition["entry_local_id"], str)
+        or not definition["entry_local_id"]
+        or definition["entry_context"] != "declared_goal_initial_state"
+    ):
+        raise ValueError(
+            "checker entry must explicitly select a declared child goal and initial state"
+        )
+    return definition
 
 
 def checker_definition(view, binding):
@@ -33,17 +63,7 @@ def checker_definition(view, binding):
     reference = instrument.get("checker_ref")
     if reference is None:
         return None
-    definition = exact(
-        view.data(Ref.from_record(reference)),
-        {
-            "workflow_ref",
-            "build_receipt_ref",
-            "authority_approval_ref",
-            "launch_ref",
-            "result_inputs",
-        },
-        "approved checking workflow",
-    )
+    definition = checker_descriptor(view.data(Ref.from_record(reference)))
     if "instrument_return" in instrument:
         from .instrument_return import checker_from_return
 
@@ -96,25 +116,6 @@ def checker_definition(view, binding):
     return definition
 
 
-def checker_launch(view, definition, typed_status, payload_contract, *, request_id):
-    workflow = FrozenDuetWorkflow.from_record(
-        view.data(Ref.from_record(definition["workflow_ref"]))
-    )
-    template = workflow_template(
-        workflow, view.data(Ref.from_record(definition["launch_ref"]))
-    ).as_record()
-    for mapping in definition["result_inputs"]:
-        template[mapping["field"]][mapping["key"]] = project(
-            typed_status, mapping["result_path"]
-        )
-    address = DuetLaunchAddress(
-        request_id, template["workflow_id"], template["goal_id"]
-    )
-    return admit_duet_launch_request(
-        {**template, "request_id": request_id}, address, payload_contract
-    )
-
-
 def admitted_build(reader, definition, *, duet_id):
     """Read original approval/build evidence outside the campaign transaction."""
     receipt = BuildReceipt.from_record(
@@ -135,6 +136,68 @@ def admitted_build(reader, definition, *, duet_id):
             "reference differs from its independently approved source build"
         )
     return inputs
+
+
+def validate_checker_entry(inputs, definition, template):
+    """Check static payload vocabulary before any target or checker is run."""
+    from handoff_library import HandoffPayloadContract
+    from episode_runtime.testing.boundaries import fresh_entry_declaration
+
+    definition = checker_descriptor(definition)
+    entry = definition.get("entry_local_id")
+    if entry is None:
+        raise ValueError(
+            "Checker result_inputs cannot enter the closed-empty workflow root. "
+            "Declare an admitted non-root entry_local_id and entry_context=declared_goal_initial_state."
+        )
+    node = next((node for node in inputs.plan.nodes if node.local_id == entry), None)
+    if node is None or entry == inputs.plan.root_local_id:
+        raise ValueError(
+            "checker entry_local_id must select an admitted non-root Episode"
+        )
+    contract = HandoffPayloadContract.from_record(node.request_payload_contract)
+    vocabularies = {
+        "artifact_ids_by_role": (
+            contract.artifact_roles,
+            contract.required_artifact_roles,
+        ),
+        "measurements": (
+            contract.measurement_names,
+            contract.required_measurement_names,
+        ),
+        "states": (tuple(contract.state_values), contract.required_state_names),
+        "flags": (contract.flag_names, contract.required_flag_names),
+    }
+    for field, (allowed, required) in vocabularies.items():
+        provided = set(template[field]) | {
+            item["key"]
+            for item in definition["result_inputs"]
+            if item["field"] == field
+        }
+        if not set(required) <= provided <= set(allowed):
+            raise ValueError(
+                f"checker mapped {field} does not satisfy its declared child payload vocabulary"
+            )
+    return fresh_entry_declaration(inputs, entry_local_id=entry)
+
+
+def checker_payload(inputs, definition, template, typed_status):
+    """Project one typed observation into the declared child input."""
+    from function_library.models import _thaw_json
+    from handoff_library import HandoffPayloadContract
+
+    validate_checker_entry(inputs, definition, template)
+    payload = {field: _thaw_json(template[field]) for field in PAYLOAD_FIELDS}
+    for mapping in definition["result_inputs"]:
+        payload[mapping["field"]][mapping["key"]] = project(
+            typed_status, mapping["result_path"]
+        )
+    node = next(node for node in inputs.plan.nodes if node.local_id == definition["entry_local_id"])
+    HandoffPayloadContract.from_record(node.request_payload_contract).validate(**{
+        **payload,
+        "artifact_ids_by_role": {key: tuple(value) for key, value in payload["artifact_ids_by_role"].items()},
+    })
+    return payload
 
 
 def reference_definition(read_data, contract, binding):
@@ -185,7 +248,7 @@ def reference_definition(read_data, contract, binding):
 def target_result(reader, binding, execution_ref):
     """Only an actual successful result of the already-bound candidate may flow in."""
     if "target_run_ref" in binding.body or "checking_gap" in binding.body:
-        raise ValueError("a checking Run cannot substitute for the target Run")
+        raise ValueError("a checking Run cannot substitute for the Target Workflow Run")
     registration = RunRegistration.from_record(binding.body["registration"])
     evidence = reader.runs.read_evidence(registration.run_id)
     if (
@@ -193,7 +256,7 @@ def target_result(reader, binding, execution_ref):
         or evidence.terminal_status is not RunTerminalStatus.SUCCEEDED
         or reader.runs.read_registration(registration.run_id) != registration
     ):
-        raise ValueError("checker input lacks its exact successful target Run")
+        raise ValueError("checker input lacks its exact successful Target Workflow Run")
     terminal = next(
         event
         for event in reader.runs.read_audit_log(registration.run_id)
@@ -224,7 +287,12 @@ def prepare_checking(
         return None
     status, _ = target_result(reader, target_binding, execution_ref)
     prepared = prepare_checker_inputs(
-        reader, campaign_id, definition, status, request_id=request_id
+        reader,
+        campaign_id,
+        definition,
+        status,
+        request_id=request_id,
+        input_evidence_ref=execution_ref.as_record(),
     )
     if prepared.gap is None:
         return prepared
@@ -238,12 +306,18 @@ def prepare_checking(
 
 
 def prepare_checker_inputs(
-    reader, campaign_id, definition, typed_status, *, request_id
+    reader,
+    campaign_id,
+    definition,
+    typed_status,
+    *,
+    request_id,
+    input_evidence_ref=None,
 ):
     """One checker preparation path for actual target results and named fixtures.
 
-    Callers supply provenance: a target Run or an independently authorized
-    control. A fixture is input data and must never be described as a target Run.
+    Callers supply provenance: a Target Workflow Run or an independently authorized
+    control. A fixture is input data and must never be described as a Target Workflow Run.
     """
     from .campaign_store import CampaignView
 
@@ -259,19 +333,50 @@ def prepare_checker_inputs(
         return unavailable("checker_source_unavailable", str(exc))
     except BuildStoreCorruptionError as exc:
         return unavailable("checker_source_invalid", str(exc))
-    root = next(
-        node for node in inputs.plan.nodes if node.local_id == inputs.plan.root_local_id
-    )
     with reader.duets.transaction() as connection:
         view = CampaignView(connection, campaign_id)
         try:
-            launch = checker_launch(
-                view,
-                definition,
-                typed_status,
-                root.request_payload_contract,
-                request_id=request_id,
+            workflow = FrozenDuetWorkflow.from_record(
+                view.data(Ref.from_record(definition["workflow_ref"]))
             )
+            template = workflow_template(
+                workflow, view.data(Ref.from_record(definition["launch_ref"]))
+            ).as_record()
+            payload = checker_payload(inputs, definition, template, typed_status)
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             return unavailable("checker_input_invalid", str(exc))
-    return CheckingPreparation(inputs=inputs, launch=launch)
+    from episode_runtime.records.experiments import put_data
+    from episode_runtime.testing.boundaries import fresh_entry_scope
+    from function_library.models import _thaw_json
+
+    if input_evidence_ref is None:
+        return unavailable(
+            "checker_input_invalid",
+            "fresh checker entry requires exact target or grounded-control evidence",
+        )
+    try:
+        definition_ref = put_data(
+            reader.duets, duet_id, "checker_entry_definition", _thaw_json(definition)
+        )
+        scope = fresh_entry_scope(
+            inputs,
+            entry_local_id=definition["entry_local_id"],
+            input_payload=payload,
+            definition_ref=definition_ref,
+            input_evidence_ref=input_evidence_ref,
+            artifacts=reader.duets,
+            duet_id=duet_id,
+        )
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        return unavailable("checker_input_invalid", str(exc))
+    root = next(
+        node for node in inputs.plan.nodes if node.local_id == inputs.plan.root_local_id
+    )
+    template = workflow_template(workflow).as_record()
+    address = DuetLaunchAddress(
+        request_id, template["workflow_id"], template["goal_id"]
+    )
+    launch = admit_duet_launch_request(
+        {**template, "request_id": request_id}, address, root.request_payload_contract
+    )
+    return CheckingPreparation(inputs=inputs, launch=launch, execution_scope=scope)

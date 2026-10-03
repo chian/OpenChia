@@ -327,8 +327,10 @@ def _library_functions() -> tuple[LibraryFunction, ...]:
     from function_library.epistemic import epistemic_function_library
     from function_library.reasoning import reasoning_function_library
     from function_library.refinement import refinement_function_library
+    from function_library.testing import testing_function_library
     return (
         BUILD_REPEATABLE_CHILD,
+        *testing_function_library.functions(),
         *epistemic_function_library.functions(),
         *reasoning_function_library.functions(),
         *refinement_function_library.functions(),

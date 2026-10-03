@@ -11,7 +11,7 @@ from agent.duet_contracts import canonical_json, content_id
 from agent.episode_contracts import OpaqueId
 from episode_runtime.contracts import RunRegistration
 from function_library.epistemic_contract import exact
-from function_library.refinement_checks import resolve_predicate
+from episode_runtime.testing.judgments import judge_value
 
 from .checking import admitted_build, checker_definition, prepare_checker_inputs
 from .records import Ref, RefinementRecord, project
@@ -94,7 +94,12 @@ def prepare_control(
             view, proposal_ref, grounding_ref, control_ref
         )
     return prepare_checker_inputs(
-        reader, campaign_id, checker, control["typed_status"], request_id=request_id
+        reader,
+        campaign_id,
+        checker,
+        control["typed_status"],
+        request_id=request_id,
+        input_evidence_ref=control_ref.as_record(),
     )
 
 
@@ -133,6 +138,17 @@ def bind_control(view, attempt, resolved):
             raise ValueError(
                 "control Run differs from its approved source or exact fixture input"
             )
+        if "experiment_ref" in body:
+            dispatch = view.data(Ref.from_record(body["experiment_ref"]))
+            subject = dispatch["plan"].get("subject", {})
+            target = view.data(Ref.from_record(subject["reference"]))
+            if (
+                subject.get("kind") != "grounded_control"
+                or dispatch["spec"]["mode"] not in {"live_fresh", "live_saved"}
+                or canonical_json(dispatch["registration"]) != canonical_json(body["registration"])
+                or any(target[field] != body[field] for field in ("proposal_ref", "grounding_ref", "control_ref"))
+            ):
+                raise ValueError("control binding does not retain its exact shared live experiment")
     elif body["registration"] is not None:
         raise ValueError("an unavailable control cannot claim a Run registration")
     return [binding], [
@@ -189,12 +205,12 @@ def observe_control(view, attempt, resolved):
             raise ValueError(
                 "control observation must use its frozen terminal-result projection"
             )
-        predicate = resolve_predicate(
-            view.data(Ref.from_record(proposal.body["decision_function_ref"]))
-        )
+        selection = view.data(Ref.from_record(proposal.body["decision_function_ref"]))
         try:
             observed = project(resolved.values[0], grounding["observation_path"])
-            outcome = predicate(observed=observed, expected=grounding["expected"])
+            outcome = judge_value(
+                selection, observed=observed, expected=grounding["expected"]
+            )
             error = None
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             # The original terminal event remains evidence. Missing/wrong-typed
@@ -219,7 +235,7 @@ def observe_control(view, attempt, resolved):
     return [observation], [index("measure_control", entry.key, observation, "observed")]
 
 
-def control_results(view, proposal, grounding_ref, grounding, predicate):
+def control_results(view, proposal, grounding_ref, grounding, selection):
     results, evidence = [], []
     rows = {row.key: row for row in view.entries("measure_control")}
     for field, expected in (
@@ -261,7 +277,8 @@ def control_results(view, proposal, grounding_ref, grounding, predicate):
                 raise ValueError(
                     f"checker control has no adequate observation: {observation.body['error']}"
                 )
-            actual = predicate(
+            actual = judge_value(
+                selection,
                 observed=observation.body["observed_value"],
                 expected=grounding["expected"],
             )
@@ -294,6 +311,49 @@ def control_run_refs(view, proposal):
         if binding.body["proposal_ref"] == proposal.ref.as_record():
             records.append(binding.ref.as_record())
     return records
+
+
+def validated_control_facts(view, *, assignment_ref=None, proposal_ref=None):
+    """Distinct grounded behavior, independent of proposal or unit identity."""
+    facts = {}
+    for entry in view.entries("measure_control"):
+        if entry.status != "observed":
+            continue
+        observation = entry.record
+        binding = view.read(Ref.from_record(observation.body["control_run_ref"]), "measure_control_run")
+        if "experiment_ref" not in binding.body or not observation.evidence_refs:
+            continue
+        proposal, grounding, control, _ = control_request(
+            view, *(Ref.from_record(binding.body[field]) for field in ("proposal_ref", "grounding_ref", "control_ref"))
+        )
+        if (assignment_ref is not None and proposal.body["assignment_ref"] != assignment_ref.as_record()) or (proposal_ref is not None and proposal.ref != proposal_ref):
+            continue
+        selection = view.data(Ref.from_record(proposal.body["decision_function_ref"]))
+        if observation.body["outcome"] != control["expected_outcome"] or judge_value(selection, observed=observation.body["observed_value"], expected=grounding["expected"]) != control["expected_outcome"]:
+            continue
+        experiment = view.data(Ref.from_record(binding.body["experiment_ref"]))
+        registration = binding.body["registration"]
+        boundary = registration["execution_scope"]["boundary"]
+        fact = content_id("refinement_fact", {
+            "kind": "validated_grounded_control_v1",
+            "source_files": experiment["plan"]["candidate"]["source_files"],
+            "workflow_hash": registration["workflow_hash"],
+            "entry_path": boundary["path_local_ids"],
+            "goal_context": boundary["goals"],
+            "mapped_input": boundary["input_payload"],
+            "requirement_key": grounding["requirement_key"],
+            "input_domain_ref": proposal.body["input_domain_ref"],
+            "predicate": selection,
+            "predicate_expected": grounding["expected"],
+            "required_outcome": control["expected_outcome"],
+            "observation_path": grounding["observation_path"],
+            "environment_ref": experiment["spec"]["environment_ref"],
+            # Fresh and saved-input live Runs exercise the same exact case.
+            # Changing input selection syntax cannot manufacture another fact.
+            "execution_mode": "live",
+        }).value
+        facts[fact] = observation
+    return facts
 
 
 def control_context(view, proposal_refs):
@@ -448,6 +508,7 @@ def resolve_control_attempt(reader, attempt):
                 launch_request=registration.launch_request,
                 runtime_identity=registration.runtime_identity,
                 runtime_policy=registration.runtime_policy,
+                execution_scope=prepared.execution_scope,
             )
             result.update(
                 admitted_registration=admitted.as_record(),

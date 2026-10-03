@@ -36,6 +36,14 @@ There are two approvals to distinguish: authority to refine this target, and
 approval of the refiner's own executable role graph and capabilities. Approving
 this document does not silently manufacture either runtime approval.
 
+Model configuration follows the [Duet/refiner/target boundary](episode_launch_configuration.md#duet-refiner-and-target-model-boundary):
+the refiner's reasoning uses the owning Duet's configuration; execution of a
+Target Workflow uses that target's launch configuration. Sharing an executor does
+not merge these settings. No separate refiner model launch file is required.
+The typed `DuetLaunchRequest` and checker/provider `launch_ref` inputs described
+below are task-input envelopes, not model/provider configuration. Keep those
+input identities distinct from the model configuration recorded for each Run.
+
 ## 2. Contract notation and identity
 
 Records are closed: unknown fields are rejected. Arrays are ordered unless the
@@ -420,7 +428,7 @@ Source/plan construction mapping (implemented in source, not executed):
   `instrument_build_refs`, before preparation adds checker modules to the
   candidate. Each specification names a separately approved checking workflow
   and its original Builder receipt; a partial/rejected receipt is repairable.
-  The target workflow cannot be its own checking workflow.
+  The Target Workflow cannot be its own checking workflow.
 - `instrument_builds_ref` optionally freezes the checker baselines, original
   handoffs and module-path mapping in the campaign. Modules live in the existing
   candidate `files` under
@@ -567,7 +575,7 @@ authority. The proposed case manifest composes `grounding_refs`; it cannot edit
 the cases or their expectations.
 
 The initial implementation accepts registered observation predicates and the
-existing native target-workflow evaluation route. It verifies the controls and
+existing native Target Workflow evaluation route. It verifies the controls and
 retains all declared limits before installing the resulting scoped checks. An
 admitted measure is available to its owner and descendants for later assignments,
 not as a mutation of an active criterion. A closed `measure_admission` records
@@ -585,7 +593,7 @@ and the admission carries `evaluation_bindings` with the legacy singular binding
 set to null. One-context admissions keep their original v1 fields and hashes.
 The native bindings reference complete typed root launch inputs as described in
 §7.1. Admission checks their identity and payload types independently of mutable
-candidate code; execution additionally requires the current admitted root interface
+Target Workflow code; execution additionally requires the current admitted root interface
 to accept each payload. This does not create new oracle grounding.
 
 The existing evaluation service groups checks by these frozen contexts, records
@@ -823,7 +831,7 @@ enforceable exclusions. An execution failure is not the `fail` predicate outcome
 
 An assigned child proposes `finding: {check_keys: [...]}`. This is a selection,
 not evidence. The host adds required guards and uses the shared evaluation
-service's exact native target-workflow binding. Source admission and actual Run
+service's exact native Target Workflow binding. Source admission and actual Run
 evidence precede predicate evaluation. Only then does `investigation.findings`
 project the parent's fixed outcome meaning. Missing execution, stale evidence,
 contradictions or failing guards cannot produce a resolved finding.
@@ -1122,19 +1130,22 @@ case while breaking another is visible. Legacy checks lacking an explicit bindin
 retain their original same-context comparison. Final acceptance still requires
 all mandatory cases and guards on compatible current evidence.
 
-### 7.1.1 Separately approved checking workflow (implemented, unexecuted)
+### 7.1.1 Separately approved checking workflow (integration verification in progress)
 
 A frozen native instrument may additionally name `checker_ref`. This reference
 designates committed data with this closed shape:
 
 ```text
 workflow_ref, build_receipt_ref, authority_approval_ref, launch_ref,
+entry_local_id, entry_context: "declared_goal_initial_state",
 result_inputs: [{field, key, result_path}]
 ```
 
 The referenced workflow is a separately approved build, not the target itself.
 `launch_ref` is the existing complete `DuetLaunchRequest` envelope for that
-workflow. Each mapping names one destination in `artifact_ids_by_role`,
+workflow, retaining its closed-empty root payload. `entry_local_id` selects an
+already-approved non-root Episode that accepts the mapped result. Each mapping
+names one destination in that child's `artifact_ids_by_role`,
 `measurements`, `states` or `flags`. `result_path` is a JSON pointer relative to
 the candidate Run's committed typed status; for example,
 `/workflow_result/measurements/makespan`. Mappings cannot collide or overwrite a
@@ -1143,10 +1154,23 @@ The checker receives no new artifact-body access or refiner host authority.
 
 The shared evaluator admits and runs the candidate through the existing executor.
 After actual success, it loads the independently approved checker build and
-projects the declared result fields into its ordinary root input contract. It
-registers and runs that workflow through the same executor with its own identity,
-capabilities, HTTP policy and audit. A binding is admitted before either Run starts.
+projects the declared result fields into the selected child's typed input
+contract. It registers and runs that child/subtree through the same executor with
+its own identity, capabilities, HTTP policy and audit. The existing Run scope
+records `fresh_typed_entry`: new context derived from frozen goal declarations
+and initial state, not a recorded parent decision or an interrupted-state
+restoration. The root initializer and scoper execute; ancestor Episodes and their
+controllers do not. A binding is admitted before either Run starts.
 No specialist spawns another Designer or constructs an unchecked runtime topology.
+
+The common experiment service records the checker as a declared measurement
+dependency of the target experiment. Shared execution history links both Runs
+without assigning the target's verdict to the checker implementation. Definitions
+that only provide root mappings fail preview with instructions to declare a typed
+child entry. They never widen the root launch contract. See the
+[shared harness guide](unified_episode_test_harness_design.md#supplying-a-new-typed-input-to-a-checker)
+for scope limits and the [receipts](unified_episode_test_harness_receipts.md) for
+what has actually been verified.
 
 For the checker stage, the existing immutable `evaluation_run` adds both
 `target_run_ref` and `target_execution_ref`. Its `build_receipt_ref` continues to
@@ -1212,7 +1236,7 @@ request_payload_contract_ref
 ```
 
 The provider must already be independently approved and materialized. It cannot
-be the target workflow or any editable checker workflow in this campaign. Its
+be the Target Workflow or any editable checker workflow in this campaign. Its
 actual BuildStore receipt, approval and root input contract must match the copied
 references. Source projection uses those original modules without candidate
 substitution or compilation of candidate bytes. The provider receives no editing,
@@ -1330,7 +1354,7 @@ require a new attempt and cannot replace old evidence.
 
 ### 8.2 Recursion in a fixed approved graph
 
-Keep the existing concrete target workflow and its frozen topology unchanged.
+Keep the existing concrete Target Workflow and its frozen topology unchanged.
 Extend the workflow contract with a **versioned, explicitly approved repeatable
 call binding**, rather than making a model mutate parent pointers at runtime.
 

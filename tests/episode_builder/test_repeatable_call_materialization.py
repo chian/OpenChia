@@ -19,6 +19,7 @@ from episode_runtime.contracts import RunRegistration
 from episode_runtime.linker import prepare_source_package
 from handoff_library import ADMIT_PARENT_REQUEST, ADMIT_CHILD_RESULT, DuetLaunchRequest
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
+from llm_call_library import CallOptions
 from tests.episode_runtime.test_reasoning_workflow import (
     _approved_request,
     _plan_response,
@@ -63,7 +64,12 @@ async def build(tmp_path, calls):
         return ModelTransportResponse(text=json.dumps(response), route={})
 
     with model_transport_scope(model):
-        receipt = await EpisodeBuilder(store=store).build(request)
+        receipt = await EpisodeBuilder(
+            store=store,
+            planning_options=CallOptions(model_type="planner"),
+            emission_options=CallOptions(model_type="writer"),
+            model_slot_catalog={"selector": {}, "executor": {}},
+        ).build(request)
     return request, store, receipt
 
 

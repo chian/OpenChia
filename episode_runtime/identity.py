@@ -60,6 +60,8 @@ _SELECTED_LOCAL_SOURCES = (
     "episode_library/refinement.py",
     BOOTSTRAP_SOURCE_PATH,
     "episode_runtime/broker.py",
+    "episode_runtime/components.py",
+    "episode_runtime/continuation.py",
     "episode_runtime/contracts.py",
     "episode_runtime/http_contracts.py",
     "episode_runtime/identity.py",
@@ -68,6 +70,8 @@ _SELECTED_LOCAL_SOURCES = (
     "episode_runtime/linker.py",
     "episode_runtime/protocol.py",
     "episode_runtime/repeatable.py",
+    "episode_runtime/scoped.py",
+    "episode_runtime/units.py",
     "episode_runtime/seccomp.py",
     "episode_runtime/worker.py",
 )

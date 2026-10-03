@@ -102,6 +102,33 @@ GROUNDING_PAYLOAD = refinement_check_library.register(
 )
 
 
+OPTIMAL_SCHEDULE = refinement_check_library.register(
+    LibraryFunction(
+        library="refinement_checks",
+        function_id="optimal_resource_schedule_v1",
+        interface="refinement.predicate",
+        description="Check the fixed seven-job schedule for feasibility, truthful completion time and independently enumerated optimality; explanation text is not a correctness signal.",
+        implementation=FunctionImplementation(
+            module="function_library.scheduling_benchmark",
+            symbol="check_optimal_schedule",
+            is_async=False,
+        ),
+        input_type="String-valued schedule, makespan and optimality_argument fields; expected benchmark_id=seven_job_resource_schedule_v1",
+        output_type="pass | fail",
+        effect="Pure host calculation over the fixed benchmark; accepts all optimal witnesses and preserves the original answer as measurement evidence.",
+        failure_contract="Reject malformed, infeasible, nonoptimal or incorrectly reported schedules; reject unknown benchmark identities; prose cannot award a pass.",
+        provenance={
+            "schema_version": 1,
+            "parameter_schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    )
+)
+
+
 def resolve_predicate(selection):
     from .materialization_checks import materialization_check_library
 

@@ -3,7 +3,7 @@
 from agent.duet_contracts import canonical_json, content_id, digest_record
 from agent.duet_store import DuetConflictError
 from function_library.epistemic_contract import exact, names
-from function_library.refinement_checks import resolve_predicate
+from episode_runtime.testing.judgments import judge_value
 
 from .checking import checker_definition
 from .evaluation_inputs import instrument_context, semantic_inputs
@@ -166,6 +166,13 @@ def observe(view, attempt, resolved):
     candidate = view.read(Ref.from_record(request.body["candidate_ref"]), "candidate")
     registration = resolved.references["registration"]
     binding = view.entry("evaluation_run", request.artifact_id.value).record
+    if "experiment_ref" in binding.body:
+        experiment = view.data(Ref.from_record(binding.body["experiment_ref"]))
+        if not any(
+            row["requirement_ref"] == check.ref.as_record()
+            for row in experiment["spec"]["requirements"]
+        ):
+            raise ValueError("observation was not requested by the bound experiment")
     if "checking_gap" in binding.body:
         raise ValueError(
             "unavailable checking is a parent decision, not an observation"
@@ -206,11 +213,11 @@ def observe(view, attempt, resolved):
                 "observation must use the frozen terminal-result projection"
             )
         observed = resolved.values[0]
-        outcome = resolve_predicate(resolved.references["predicate"])(
-            observed=observed, expected=check.body["expected"]
+        outcome = judge_value(
+            resolved.references["predicate"],
+            observed=observed,
+            expected=check.body["expected"],
         )
-        if outcome not in {"pass", "fail", "inconclusive"}:
-            raise ValueError("registered predicate returned an invalid outcome")
     return _record_observation(
         view,
         attempt,
@@ -465,6 +472,7 @@ def close_unit(view, attempt, resolved):
     from .measure_needs import unit_prerequisite
     from .prerequisites import parent_prerequisites
     from .succession import credited_facts
+    from .measure_controls import validated_control_facts
 
     assignment = actor(view, attempt)
     payload = exact(
@@ -514,6 +522,9 @@ def close_unit(view, attempt, resolved):
     for assessment in prerequisites:
         for key in assessment.body["fact_keys"]:
             facts[key] = assessment
+    for key, record in validated_control_facts(view, assignment_ref=assignment.ref).items():
+        if record.logical_unit_id == attempt.logical_unit_id and record.invocation_id == attempt.invocation_id:
+            facts[key] = record
     fresh = {
         key: record
         for key, record in facts.items()

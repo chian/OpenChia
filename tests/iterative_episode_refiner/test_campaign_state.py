@@ -8,20 +8,21 @@ from agent.duet_store import DuetConflictError
 from iterative_episode_refiner.records import logical_path
 
 
-def test_candidate_cas_and_audited_retry_preserve_exact_baseline(campaign):
+@pytest.mark.asyncio
+async def test_candidate_cas_and_audited_retry_preserve_exact_baseline(campaign):
     campaign.implementer()
     original = campaign.candidate
-    attempt = campaign.change(b"def solve(values):\n    return sorted(set(values))\n")
+    attempt = campaign.change(b"# First unmeasured revision\n" + campaign.initial_source)
     commit = campaign.store.commit_attempt(attempt)
     revised = campaign.candidate
     assert revised.ref != original.ref
     assert (
-        campaign.builds.read_blob(original.body["files"]["target.py"])
-        == b"def solve(values):\n    return values\n"
+        campaign.builds.read_blob(original.body["files"][campaign.source_path])
+        == campaign.initial_source
     )
     assert campaign.store.commit_attempt(attempt).ref == commit.ref
     assert campaign.candidate.ref == revised.ref
-    stale = campaign.change(b"def solve(values):\n    return []\n", before=original)
+    stale = campaign.change(b"# Stale revision\n" + campaign.initial_source, before=original)
     with pytest.raises(DuetConflictError, match="stale"):
         campaign.store.commit_attempt(stale)
     with campaign.duets.transaction() as connection:
@@ -53,9 +54,10 @@ def test_scoped_candidate_namespace_rejects_aliases(path):
         logical_path(path)
 
 
-def test_unmeasured_edit_and_revisit_do_not_mint_credit(campaign):
+@pytest.mark.asyncio
+async def test_unmeasured_edit_and_revisit_do_not_mint_credit(campaign):
     campaign.implementer()
-    attempt = campaign.change(b"def solve(values):\n    raise ValueError('failed')\n")
+    attempt = campaign.change(b"# Unmeasured edit\n" + campaign.initial_source)
     campaign.store.commit_attempt(attempt)
     campaign.perform(
         "close_unit",
@@ -68,11 +70,7 @@ def test_unmeasured_edit_and_revisit_do_not_mint_credit(campaign):
     assert receipt.body["realized_yield"] == 0
     assert receipt.body["credit_before"] == receipt.body["credit_after"] == 0
     campaign.unit = type(campaign.unit).mint("unit", "next")
-    campaign.store.commit_attempt(
-        campaign.change(
-            campaign.builds.read_blob(campaign.initial.body["files"]["target.py"])
-        )
-    )
+    campaign.store.commit_attempt(campaign.change(campaign.initial_source))
     conflict = campaign.entries("conflict")[0].record
     assert conflict.body["kind"] == "exact_revisit"
     assert conflict.body["state"] == "suspected"
@@ -83,13 +81,20 @@ def test_unmeasured_edit_and_revisit_do_not_mint_credit(campaign):
         ]
         == "continuing"
     )
-
-
-def test_designer_cannot_create_another_designer_through_an_assignment(campaign):
-    campaign.implementer()
-    malicious = campaign.assignment(
-        "designer", campaign.implementation, campaign.current_invocation
+    campaign.perform(
+        "close_unit",
+        {"candidate_before_ref": receipt.body["candidate_after_ref"], "continuation_ref": None},
     )
+    revisited = campaign.entries("unit")[-1].record
+    assert revisited.body["realized_yield"] == 0
+    assert revisited.body["credit_before"] == revisited.body["credit_after"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("parent_role", ("designer", "implementer"))
+async def test_specialists_cannot_create_designers_through_an_assignment(campaign, parent_role):
+    getattr(campaign, parent_role)()
+    malicious = campaign.assignment("designer", campaign.current_assignment)
     with pytest.raises(ValueError, match="cannot create"):
         campaign.perform(
             "assign",

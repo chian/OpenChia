@@ -23,7 +23,7 @@ ROLES = MappingProxyType({
         "Select a behavioral problem, obtain a child result, and assess its contribution to the whole.",
         "New independently measured whole-scope evidence or admitted coordination knowledge.",
         ("parts", "designer", "support", "question", "measure", "verify"),
-        "Choose work from measured gaps and shared regression history, not the target's file or Episode tree. "
+        "Choose work from measured gaps and shared regression history, not the Target Workflow's file or Episode tree. "
         "Use the Builder handoff's requirement identities, prerequisites and recorded baseline. Its static "
         "passes are existing achievement, not new credit or proof of behavior; retain behavioral coverage gaps. "
         "You alone may assign Designers or a proper smaller Parts scope. Combine coupled problems when "

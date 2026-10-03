@@ -20,7 +20,7 @@
     {"id": "R01", "requirement": "Persist the full objective, its constraints, acceptance requirements, iteration history and review evidence."},
     {"id": "R02", "requirement": "Define the whole path from initial Builder output and boundary findings to an active refiner and a verified build or an honest unresolved result."},
     {"id": "R03", "requirement": "Accept all materialization-spec'd builds, including broken and novel nested designs; do not restrict refinement to a domain-specific example catalog."},
-    {"id": "R04", "requirement": "Define root and scoped outcome ownership, with refinement nesting independent of the target Episode architecture."},
+    {"id": "R04", "requirement": "Define root and scoped outcome ownership, with refinement nesting independent of the Target Workflow architecture."},
     {"id": "R05", "requirement": "Make design itself a nested Episode workflow with independently judged parts and a parent responsible for the combined design."},
     {"id": "R06", "requirement": "Identify RefineImplementation as the actual coding Episode, with its own iterative local measurement and credit."},
     {"id": "R07", "requirement": "Keep VerifyBehavior as independent parent acceptance, not the coding Episode's internal measurement mechanism."},

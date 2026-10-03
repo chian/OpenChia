@@ -11,6 +11,38 @@ from agent.episode_launch import LaunchConfigurationError, read_launch_spec, res
 from agent.episode_launch_transport import LaunchModelTransport
 
 
+def resolve_approved_launch(store, duet_id, *, configuration_hash=None, model_types=()):
+    """Resolve the current human-approved launch for any host execution entry."""
+    events = store.events(duet_id)
+    selections = [event for event in events if event["event_type"] == "launch_configuration_selected"]
+    approvals = [event for event in events if event["event_type"] == "launch_configuration_approved"]
+    if not selections:
+        raise LaunchConfigurationError("Select a launch file with /launch load FILE")
+    selection = selections[-1]["record"]
+    spec = selection["spec"]
+    if selection["mode"] == "resolve":
+        spec = read_launch_spec(spec["source_file"])
+    launch = resolve_launch(spec)
+    if (
+        not approvals
+        or approvals[-1]["provenance"] != DuetProvenance.HUMAN_APPROVAL.value
+        or approvals[-1]["record"]["selection_id"] != selection["selection_id"]
+        or approvals[-1]["record"]["configuration_hash"] != launch.configuration_hash
+    ):
+        raise LaunchConfigurationError("Human launch approval required. Review /launch preview, then /launch approve HASH.")
+    if configuration_hash is not None and configuration_hash != launch.configuration_hash:
+        raise LaunchConfigurationError("Requested launch differs from the current human-approved configuration.")
+    unknown = set(model_types) - launch.model_slot_catalog().keys()
+    if unknown:
+        raise LaunchConfigurationError(f"Materialized functions require missing model slots: {sorted(unknown)}")
+    return selection, launch, {
+        "duet_id": duet_id,
+        "event_sequence": approvals[-1]["sequence"],
+        "selection_id": selection["selection_id"],
+        "configuration_hash": launch.configuration_hash,
+    }
+
+
 class EpisodeLaunchHostMixin:
     def _launch_events(self, kind: str) -> list[dict]:
         return [event["record"] for event in self.store.events(self.identity.duet_id.value)
@@ -168,12 +200,9 @@ class EpisodeLaunchHostMixin:
 
     def _require_approved_launch(self, *, model_types=()):
         with self._launch_lock:
-            selection, launch = self._resolve_selected_launch()
-            if not self._launch_is_approved(selection, launch):
-                raise LaunchConfigurationError("Human launch approval required. Review /launch preview, then /launch approve HASH.")
-            unknown = set(model_types) - launch.record["resolved_spec"]["model_slots"].keys()
-            if unknown:
-                raise LaunchConfigurationError(f"Materialized functions require missing model slots: {sorted(unknown)}")
+            selection, launch, _ = resolve_approved_launch(
+                self.store, self.identity.duet_id.value, model_types=model_types
+            )
             return selection, launch
 
     def launch_design_context(self) -> dict:

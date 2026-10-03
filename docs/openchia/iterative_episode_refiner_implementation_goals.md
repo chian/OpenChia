@@ -33,6 +33,12 @@ creating a dependent harness branch. This does not authorize running tests or
 starting harness implementation. See the
 [collaboration handoff](iterative_episode_refiner_checkpoint.md).
 
+Routing clarification, 2026-10-03: wherever the goals below refer to model
+configuration, refiner reasoning uses the owning Duet's configuration and
+Target Workflow test Runs use the target's launch configuration. Receipts must distinguish
+them, even if both select the same model. No separate refiner launch file is
+required; see the [routing contract](episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
+
 ## Overall goal
 
 Latest user direction: prioritize the executing Episode shape and connect the
@@ -145,7 +151,7 @@ the exact requirement instead of replacing this proof with a mock.
 Done when:
 
 - Parts owners choose, split or combine work based on evidence, independently of
-  the target workflow's node layout. Only they create design assignments.
+  the Target Workflow's node layout. Only they create design assignments.
 - A Designer owns its implementation/evaluation feedback and cannot escape a
   difficult problem by creating another Designer or a Parts wrapper.
 - The implementer makes actual candidate changes and uses its own measure; the

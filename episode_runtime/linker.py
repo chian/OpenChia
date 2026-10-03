@@ -55,6 +55,7 @@ from method_loop import (
 from method_loop.identities import EpisodeRef, normalize_structural_path
 
 from .contracts import RunEventKind, RunRegistration
+from .components import ComponentScope, LinkedComponentRun
 from .repeatable import admitted_builder, build_declared_tree, declared_call_selections
 
 
@@ -644,6 +645,12 @@ def prepare_source_package(
         raise RuntimeLinkError("source package build chain is invalid") from exc
     if not report.admitted:
         raise RuntimeLinkError("source package was not statically admitted")
+    if registration.execution_scope is not None:
+        scope = registration.execution_scope
+        scope.validate_plan(plan)
+        workflow_hash = scope.workflow_hash
+        if workflow_hash != registration.workflow_hash.value:
+            raise RuntimeLinkError("selected boundary belongs to a different approved workflow")
 
     frozen = build_request.frozen_workflow
     authority = build_request.admission_authority
@@ -723,7 +730,7 @@ def prepare_source_package(
         raise RuntimeLinkError(
             f"source package file set differs: missing={missing!r}, unknown={unknown!r}"
         )
-    return PreparedSourcePackage(
+    package = PreparedSourcePackage(
         registration=registration,
         build_request=build_request,
         build_attempt=build_attempt,
@@ -732,6 +739,20 @@ def prepare_source_package(
         manifest=manifest,
         modules=prepared,
     )
+    baseline = getattr(registration.execution_scope, "learning_baseline", None)
+    if baseline is not None:
+        from .testing.reconstruction_source import admit_reasoning_unit_source
+
+        try:
+            admission = admit_reasoning_unit_source(
+                package, source_package_path=root,
+                entry_local_id=registration.execution_scope.entry_local_id,
+            )
+        except ValueError as exc:
+            raise RuntimeLinkError(f"later-unit source restoration unavailable: {exc}") from exc
+        if canonical_json(admission) != canonical_json(baseline["source_admission"]):
+            raise RuntimeLinkError("saved learning source admission differs from the prepared package")
+    return package
 
 
 class _GoalViewRegistry:
@@ -762,6 +783,7 @@ class _InstrumentedEpisode(Episode):
     runtime_episode_id: OpaqueId = field(default=None)  # type: ignore[assignment]
     runtime_event_sink: RunEventSink = field(default=None, repr=False)  # type: ignore[assignment]
     runtime_episode_path: tuple[tuple[str, str], ...] = field(default=None)  # type: ignore[assignment]
+    runtime_boundary: Callable[[], Mapping[str, object]] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -774,20 +796,36 @@ class _InstrumentedEpisode(Episode):
         )
         if not callable(self.runtime_event_sink):
             raise TypeError("runtime_event_sink must be callable")
+        if not callable(self.runtime_boundary):
+            raise TypeError("runtime_boundary must be callable")
 
     def run(self, ctx: Context):  # type: ignore[override]
         del ctx
         raise RuntimeLinkError("isolated runtime Episodes must run asynchronously")
 
     async def run_async(self, ctx: Context):  # type: ignore[override]
+        return await self._run_runtime(ctx)
+
+    async def run_unit_async(self, ctx: Context, *, expected_label: str, starting_unit_index: int = 0):
+        return await self._run_runtime(ctx, unit_label=expected_label, starting_unit_index=starting_unit_index)
+
+    async def _run_runtime(self, ctx, *, unit_label=None, starting_unit_index=0):
         token = _CURRENT_RUNTIME_EPISODE_ID.set(self.runtime_episode_id)
         path_token = _CURRENT_RUNTIME_EPISODE_PATH.set(self.runtime_episode_path)
         try:
             await self.runtime_event_sink(
                 RunEventKind.EPISODE_STARTED,
                 self.runtime_episode_id,
-                {"grain": self.grain.name, "key": self.key},
+                {
+                    "grain": self.grain.name,
+                    "key": self.key,
+                    "episode_path": [{"grain": grain, "key": key} for grain, key in self.runtime_episode_path],
+                    "request": self.request.as_record(),
+                    **self.runtime_boundary(),
+                },
             )
+            if unit_label is not None:
+                return await super().run_unit_async(ctx, expected_label=unit_label, starting_unit_index=starting_unit_index)
             record = await super().run_async(ctx)
             await self.runtime_event_sink(
                 RunEventKind.EPISODE_COMPLETED,
@@ -812,6 +850,23 @@ class LinkedEpisodeRun:
     context: Context
 
     async def run(self) -> Mapping[str, object]:
+        scope = self.registration.execution_scope
+        if scope is not None and scope.kind == "unit":
+            from .units import unit_projection
+
+            record = await self.root_episode.run_unit_async(
+                self.context, expected_label=scope.unit_label,
+                starting_unit_index=scope.unit_ref["unit_index"],
+            )
+            return {
+                "outcome": "succeeded",
+                "execution_scope": scope.as_record(),
+                "unit_result": unit_projection(record),
+                "limitations": [
+                    "One selected unit was observed; the containing Episode was not completed or accepted.",
+                    "Its controller decision is reported unchanged; experiment scope is not an Episode stopping rule.",
+                ],
+            }
         record = await self.root_episode.run_async(self.context)
         result = self.root_episode.build_result(record)
         if inspect.isawaitable(result):
@@ -832,6 +887,7 @@ class LinkedEpisodeRun:
                 "root_episode_id": record.episode_id,
                 "completion": completion.as_record(),
                 "workflow_result": _json_value(result),
+                **({"execution_scope": self.registration.execution_scope.as_record()} if self.registration.execution_scope is not None else {}),
             }
         )
 
@@ -852,7 +908,7 @@ class ActivatedSourcePackage:
         *,
         event_sink: RunEventSink,
         collaborators: Mapping[str, object] = MappingProxyType({}),
-    ) -> LinkedEpisodeRun:
+    ) -> LinkedEpisodeRun | LinkedComponentRun:
         if not callable(event_sink):
             raise TypeError("event_sink must be callable")
         if not isinstance(collaborators, Mapping):
@@ -865,6 +921,15 @@ class ActivatedSourcePackage:
             raise RuntimeLinkError(
                 "runtime collaborators must exactly cover admitted capabilities"
             )
+
+        scope = self.registration.execution_scope
+        if isinstance(scope, ComponentScope):
+            scope.validate_plan(self.plan)
+            definitions = self.modules[scope.entry_local_id].design.function_definitions
+            definition = next((item for item in definitions if item.definition_id == scope.binding["definition_id"]), None)
+            if definition is None:
+                raise RuntimeLinkError("component is absent from the admitted module design")
+            return LinkedComponentRun(self.registration, definition, event_sink)
 
         registry = _GoalViewRegistry()
         node_by_id = {node.local_id: node for node in self.plan.nodes}
@@ -895,6 +960,15 @@ class ActivatedSourcePackage:
                     raise RuntimeLinkError(
                         "ControllerFactory returned another runtime type"
                     )
+                if getattr(scope, "learning_baseline", None) is not None:
+                    from function_library.reasoning import HostReceiptController
+
+                    if type(controller) is not HostReceiptController:
+                        raise RuntimeLinkError("saved learning requires the stock receipt controller")
+                    controller.observe(
+                        "inherited-state", HostReceipt(scope.learning_baseline["controller_state"]),
+                        is_root=len(path) == 1,
+                    )
                 return controller
 
             grains[node.local_id] = Grain(
@@ -913,32 +987,25 @@ class ActivatedSourcePackage:
             edge_by_slot[(edge.parent_local_id, edge.slot_name)] = edge
         tree = build_declared_tree(self.plan, grains)
 
+        from .scoped import initial_launch, restore_entry
         goal_state = root_module.build_goal_state(
-            self.registration.launch_request,
+            initial_launch(self.registration),
             collaborators,
         )
         if not isinstance(goal_state, GoalState):
             raise RuntimeLinkError("build_goal_state must return GoalState")
-        root_goal = EpisodeGoal.root(
-            objective=root_module.BINDING.goal,
-            result_contract=root_module.RESULT_PAYLOAD_CONTRACT.as_record(),
-            task_context={
-                "duet_launch_request": self.registration.launch_request.as_record()
-            },
+        initial_goal_state_id = goal_state.state_id
+        entry_id, root_request, root_path, root_view = restore_entry(
+            self.registration, self.plan, root_module, goal_state,
         )
-        root_request = EpisodeRequest(
-            goal=root_goal,
-            message=self.registration.launch_request,
-        )
-        root_key = self.registration.run_id.value
-        root_path: EpisodePath = ((grains[root_node.local_id].name, root_key),)
-        root_view = root_module.scope_goal_state(goal_state, root_goal)
+        root_key = root_path[-1][1]
         registry.register(root_path, root_view)
 
         context = Context(
             tree=tree,
-            run_id=self.registration.run_id.value,
+            run_id=self.registration.logical_run_id.value,
             goal_state=goal_state,
+            boundary_path=root_path[:-1],
         )
         context_holder["context"] = context
 
@@ -959,6 +1026,8 @@ class ActivatedSourcePackage:
             ):
                 raise RuntimeLinkError("child builder collaborators changed")
             node = node_by_id[local_id]
+            if self.registration.execution_scope is not None and local_id not in self.registration.execution_scope.included_local_ids:
+                raise RuntimeLinkError("child construction exceeds the selected execution scope")
             activated = self.modules[local_id]
             current_path = tuple(context_holder["context"].path)
             path = current_path + ((grains[local_id].name, key),) if current_path else root_path
@@ -1003,7 +1072,7 @@ class ActivatedSourcePackage:
                 child_builders[slot_name] = (
                     child_builder if edge.repeatable_call is None else admitted_builder(
                         edge=edge, parent_path=path, parent_request=request,
-                        run_id=self.registration.run_id.value, child_grain=grains[child_id],
+                        run_id=self.registration.logical_run_id.value, child_grain=grains[child_id],
                         definitions=activated.design.function_definitions,
                         current_path=lambda: context_holder["context"].path,
                         construct=child_builder,
@@ -1032,7 +1101,7 @@ class ActivatedSourcePackage:
             if set(child_builders) != expected_slots:
                 raise RuntimeLinkError("runtime child builders differ from the plan")
             runtime_ref = EpisodeRef(
-                run_id=self.registration.run_id.value,
+                run_id=self.registration.logical_run_id.value,
                 path=path,
             )
             runtime_episode_id = OpaqueId(runtime_ref.episode_id)
@@ -1040,8 +1109,20 @@ class ActivatedSourcePackage:
 
             prior_on_unit = episode.on_unit
             prior_build_result = episode.build_result
+            if getattr(scope, "learning_baseline", None) is not None:
+                from function_library.reasoning import ReasoningGoalState, ReasoningSource
+
+                if (
+                    type(episode.source) is not ReasoningSource
+                    or type(goal_state) is not ReasoningGoalState
+                    or episode.resume_units
+                    or prior_on_unit is not None
+                    or episode.on_close is not None
+                ):
+                    raise RuntimeLinkError("saved learning requires stock reasoning state without custom hooks")
 
             async def on_unit(item: object, contribution: object, view: object) -> None:
+                from .units import unit_projection
                 if prior_on_unit is not None:
                     prior = prior_on_unit(item, contribution, view)
                     if inspect.isawaitable(prior):
@@ -1049,14 +1130,7 @@ class ActivatedSourcePackage:
                 await event_sink(
                     RunEventKind.UNIT_COMPLETED,
                     runtime_episode_id,
-                    {
-                        "unit_label": view.unit_label,
-                        "unit_ref": view.unit_ref.as_record(),
-                        "epoch": view.epoch,
-                        "controller_step": _json_value(view.controller_step),
-                        "episode_update": _json_value(view.episode_update),
-                        "goal_result": _json_value(view.goal_result),
-                    },
+                    unit_projection(view),
                 )
 
             async def build_result(record: object) -> ClosedRecord:
@@ -1087,10 +1161,15 @@ class ActivatedSourcePackage:
                 runtime_episode_id=runtime_episode_id,
                 runtime_event_sink=event_sink,
                 runtime_episode_path=runtime_path,
+                runtime_boundary=lambda: {
+                    "goal_state_id": goal_state.state_id,
+                    "initial_goal_state_id": initial_goal_state_id,
+                    "goal_view": _json_value(registry.require(path)),
+                },
             )
 
         root_episode = build_node(
-            root_node.local_id,
+            entry_id,
             root_key,
             root_request,
             root_view,

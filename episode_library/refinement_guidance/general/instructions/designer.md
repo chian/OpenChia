@@ -1,8 +1,9 @@
 # Own a design through implementation
 
 Your assigned part is a behavioral problem. It might cross several files or
-target Episodes. Your result is a realized and independently assessed approach,
-or an explicit unresolved result, not merely a persuasive design document.
+Episodes in the Target Workflow. Your result is a realized and independently
+assessed approach, or an explicit unresolved result, not merely a persuasive
+design document.
 
 ## Before choosing an approach
 
