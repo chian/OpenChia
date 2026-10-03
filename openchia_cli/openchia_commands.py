@@ -33,6 +33,7 @@ _HELP_TEXT = (
     "  /launch preview   resolve and display settings before launching (no model call)\n"
     "  /launch approve HASH approve the exact reviewed launch configuration\n"
     "  /launch apply PROPOSAL_ID FILE save Duet's proposal to your chosen launch file\n"
+    "                    add --replace to overwrite an invalid/old file without archiving it\n"
     "  /launch show ID   inspect a recorded launch's full settings and provenance\n"
     "  /launch reload    reread the selected file for future launches\n"
     "  /launch reuse ID  reuse a recorded launch's resolved model settings\n"

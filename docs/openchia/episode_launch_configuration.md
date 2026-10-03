@@ -12,6 +12,11 @@ receives current setup and approval state through `duet_status`, including the
 available model slots. The conversational LLM can propose settings; approval
 belongs to the human command surface.
 
+`/launch apply PROPOSAL_ID FILE --replace` explicitly replaces an old-format or
+invalid JSON file. Without that flag, an existing target must be a valid current
+launch file. Replacement records the previous file's hash, not its contents;
+there is no content backup or legacy-format conversion.
+
 ```text
 /launch load /absolute/path/to/project/launch.json
 /launch preview
@@ -47,7 +52,7 @@ relative `env_files` paths are relative to that project root.
   "routes": {
     "design": {
       "provider": "openai",
-      "model": {"env": "EPISODE_MODEL"},
+      "model": "your-chosen-model",
       "base_url": "https://api.openai.com/v1",
       "api_mode": "chat_completions",
       "auth": {"kind": "env", "env": "PROJECT_API_KEY", "account": "project-billing-account"},
@@ -76,9 +81,18 @@ is a materialized-code change. Builder receives the approved slot catalog,
 records the selected `model_type` in each prompt specification, and rejects
 unknown slots during planning. Run verifies those slots exist in its launch.
 
+`CallOptions.model_type` is required, including for library calls. A reusable
+function that contains model calls declares the argument names supplying their
+slots in `provenance.model_slot_parameters` and requires those arguments in its
+parameter schema. For example, the reasoning source takes
+`selection_model_type` and `execution_model_type`. These are visible binding
+arguments and can name different slots. Planning and Run preflight check both
+prompt specifications and library binding dependencies against the launch.
+The names `reasoning` and `fast` are examples, not mandatory project slots.
+
 ### Source precedence and model selection
 
-Declared `.env` files supply all variable references in list order, with the last file
+Declared `.env` files supply credential references in list order, with the last file
 winning. Missing or unreadable declared files fail resolution. Missing
 referenced variables fail rather than invoking account/provider discovery.
 The process environment supplies no credentials or launch settings. No `.env`
@@ -89,17 +103,21 @@ fallbacks, must have resolvable settings and credentials. A launch file declares
 one complete configuration to freeze, rather than a menu with unavailable
 accounts. Keep a project-specific set of routes in each file.
 
-Provider, model, base URL, and API mode can be literal strings or explicit
-`{"env": "VARIABLE_NAME"}` references. Other fields live in the launch file.
-Each resolved field records its source. Project root is an attribution and
-configuration-path base; it does not grant workers filesystem access.
+Provider, model, base URL, and API mode are literal nonsecret strings in the
+launch JSON. Environment indirection in these fields is rejected before any
+credential file is read, so credential-file values cannot be dereferenced into
+public settings or Duet status. Each resolved field records its source.
+Project root is an attribution and configuration-path base; it does not grant
+workers filesystem access. Explicit credential-file paths may be outside it.
 
 Builder calls use the slots in `builder_slots.planning` and
 `builder_slots.emission`. Runtime calls use their own `model_type`. The slot
 resolves to a route, which owns the concrete model, endpoint, credential
 reference, reasoning setting, and explicit fallbacks. An unknown slot fails
-before a model request. Reference calls that specify only the existing
-`ModelTier` use its string value as their slot name.
+before a model request. `ModelTier` describes the call shape's existing task
+classification; it supplies no implicit slot. The host sets planning and emission
+CallOptions from their respective approved slots, and records each stage's
+effective options separately in the Builder identity.
 
 An explicit route `reasoning` overrides the call's reasoning preference;
 otherwise the existing call options apply. Temperature, output-token request,
@@ -172,8 +190,8 @@ secret values are neither persisted nor included in the approval hash.
 
 `/launch reload` rereads the source file for subsequent launches. Those launches
 resolve environment references anew. `/launch reuse LAUNCH_ID` instead selects
-that launch's resolved nonsecret settings, so model/endpoint variables no longer
-follow the environment. Credential references are still read anew: secret
+that launch's resolved nonsecret settings instead of following file edits.
+Credential references are still read anew: secret
 values are never persisted, and rotation is possible. Reuse therefore repeats
 routing settings, not exact credentials, provider internals or model output.
 While reuse mode is selected, `/launch reload` asks you to select a file with

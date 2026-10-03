@@ -54,7 +54,7 @@ class EpisodeLaunchHostMixin:
         return {"proposal_id": proposal_id, "configuration": spec,
                 "next_action": f"Human: /launch apply {proposal_id} FILE, then /launch preview and /launch approve HASH"}
 
-    def apply_launch_proposal(self, proposal_id: str, path: str) -> dict:
+    def apply_launch_proposal(self, proposal_id: str, path: str, *, replace_existing: bool = False) -> dict:
         from utils import atomic_write_text
 
         with self._launch_lock:
@@ -65,14 +65,25 @@ class EpisodeLaunchHostMixin:
             target = Path(path).expanduser().resolve()
             if target.suffix != ".json":
                 raise LaunchConfigurationError("Choose a .json launch file")
-            previous = read_launch_spec(target) if target.exists() else None
+            previous_hash = None
+            if target.exists():
+                previous_hash = Sha256Digest.of_bytes(target.read_bytes()).value
+                if not replace_existing:
+                    try:
+                        read_launch_spec(target)
+                    except (ValueError, OSError):
+                        raise LaunchConfigurationError(
+                            "The destination is not a valid current launch file. "
+                            "To replace that exact file, repeat /launch apply PROPOSAL_ID FILE --replace. "
+                            "Replacement does not archive its contents."
+                        ) from None
             spec = matches[-1]["configuration"]
-            # The human names the destination. Existing launch content remains in
-            # the event store before replacement; the model has no file-write tool.
-            self._launch_event("launch_proposal_applied", {
-                "proposal_id": proposal_id, "path": str(target), "previous_spec": previous,
-            }, human=True)
             atomic_write_text(target, json.dumps(spec, indent=2) + "\n")
+            # Record identity, not arbitrary prior text that might contain secrets.
+            self._launch_event("launch_proposal_applied", {
+                "proposal_id": proposal_id, "path": str(target),
+                "previous_content_hash": previous_hash, "replace_existing": replace_existing,
+            }, human=True)
             return self.configure_launch(str(target))
 
     def launch_details(self, launch_id: str) -> dict:
@@ -155,11 +166,14 @@ class EpisodeLaunchHostMixin:
             )
             return {"approved": True, "configuration_hash": launch.configuration_hash}
 
-    def _require_approved_launch(self):
+    def _require_approved_launch(self, *, model_types=()):
         with self._launch_lock:
             selection, launch = self._resolve_selected_launch()
             if not self._launch_is_approved(selection, launch):
                 raise LaunchConfigurationError("Human launch approval required. Review /launch preview, then /launch approve HASH.")
+            unknown = set(model_types) - launch.record["resolved_spec"]["model_slots"].keys()
+            if unknown:
+                raise LaunchConfigurationError(f"Materialized functions require missing model slots: {sorted(unknown)}")
             return selection, launch
 
     def launch_design_context(self) -> dict:
@@ -194,10 +208,7 @@ class EpisodeLaunchHostMixin:
                                 for slot, route in spec["model_slots"].items()}}
 
     def _prepare_model_launch(self, kind: str, subject_id: str, *, model_types=()):
-        selection, launch = self._require_approved_launch()
-        unknown = set(model_types) - launch.record["resolved_spec"]["model_slots"].keys()
-        if unknown:
-            raise LaunchConfigurationError(f"Materialized functions require missing model slots: {sorted(unknown)}")
+        selection, launch = self._require_approved_launch(model_types=model_types)
         digest = self.build_store.put_blob(launch.public_json.encode())
         launch_id = f"model_launch_{uuid.uuid4().hex}"
         source_root = Path(__file__).resolve().parents[1]

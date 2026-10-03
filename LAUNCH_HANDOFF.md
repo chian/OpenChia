@@ -88,6 +88,36 @@ These checks exercised conversational setup, the CLI approval path, persistence,
 and real model routing. They did not materialize or execute a complete workflow.
 Local sessions and credentials are ignored runtime state, not PR contents.
 
+### PR review verification
+
+Session `20261003_033740_938924` exercised the review fixes through the real
+Duet and CLI with project-defined slots `big` and `small`:
+
+- Duet persisted a proposal with `big → sol_medium`, `small → luna_none`,
+  Builder planning on `big`, and emission on `small`.
+- Applying it over an old-format file first returned the explicit `--replace`
+  instruction and left the destination unchanged. The confirmed replacement
+  succeeded. The event recorded the prior content hash; an old-file marker
+  was absent from the event records.
+- The reasoning library's selection and execution slot arguments were detected
+  as dependencies even with an empty `prompt_specs` list. Real structured-JSON
+  calls using those library options crossed worker serialization and the broker,
+  succeeded on `small` and `big`, and recorded their respective routes.
+- Actual Builder construction selected planning `big` and emission `small`;
+  the materializer identity recorded them separately. Real structured-JSON
+  calls using each stage's options succeeded with those slots.
+- Missing prompt slots, missing library slot arguments, and a required slot
+  absent from the launch each produced an explicit diagnostic. An environment
+  reference in a public model field was rejected by launch validation.
+- Reopening in another process retained the approval and both custom slots.
+  Applying over that valid current-format file worked without `--replace`,
+  required a new approval, and accepted it.
+
+These calls verify slot plumbing, not the reasoning loop, complete Builder
+materialization, or confined workflow execution. Existing fixture callers were
+updated for the explicit slot arguments; no new mock test suite was added or
+used as validation.
+
 The workflow `.env` also contains a copied Firecrawl key, whose validity and quota
 are unverified. That copied key came from `/home/chia/repos/nano-graphrag/.env`;
 the launcher does not read that other workflow's file.

@@ -39,6 +39,7 @@ class ModelTransportRequest:
     """Provider-neutral request crossing the one model transport boundary."""
 
     task: str
+    model_type: str
     messages: tuple[Mapping[str, str], ...]
     temperature: float | None
     max_tokens: int | None
@@ -47,7 +48,6 @@ class ModelTransportRequest:
     main_runtime: Mapping[str, Any] | None
     episode_local_id: str | None = None
     call_role: str | None = None
-    model_type: str = "reasoning"
 
     def __post_init__(self) -> None:
         if not isinstance(self.task, str) or not self.task.strip():

@@ -39,12 +39,6 @@ DUET_STATUS_SCHEMA = {
 }
 
 
-_LAUNCH_SETTING = {"anyOf": [
-    {"type": "string"},
-    {"type": "object", "properties": {"env": {"type": "string"}},
-     "required": ["env"], "additionalProperties": False},
-]}
-
 DUET_LAUNCH_PROPOSE_SCHEMA = {
     "name": "duet_launch_propose",
     "description": (
@@ -53,7 +47,9 @@ DUET_LAUNCH_PROPOSE_SCHEMA = {
         "values. This saves a proposal only. The human selects a file destination "
         "and approves its resolved settings through /launch. model_slots maps "
         "function-level model_type names to routes; builder_slots selects slots "
-        "for planning and emission. env_files are relative to project_root."
+        "for planning and emission. Model, provider, endpoint and API mode are literal "
+        "nonsecret settings in this JSON. env_files supply credential references only "
+        "and are relative to project_root."
     ),
     "parameters": {
         "type": "object", "required": ["configuration"], "additionalProperties": False,
@@ -73,7 +69,7 @@ DUET_LAUNCH_PROPOSE_SCHEMA = {
                     "type": "object", "additionalProperties": False,
                     "required": ["provider", "model", "base_url", "api_mode", "auth"],
                     "properties": {
-                        **{name: _LAUNCH_SETTING for name in ("provider", "model", "base_url", "api_mode")},
+                        **{name: {"type": "string"} for name in ("provider", "model", "base_url", "api_mode")},
                         "auth": {"type": "object", "additionalProperties": False,
                                  "required": ["kind"], "properties": {
                                      "kind": {"type": "string", "enum": ["env", "codex_login", "none"]},

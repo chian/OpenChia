@@ -17,6 +17,9 @@ capabilities, child topology, and deliverable boundary.
   Use the configured slot names in the Architecture's implementation guidance.
   The launch file maps each slot to a concrete route and chooses slots for
   Builder planning and emission. The human owns those assignments.
+  Slot names are project-defined. Reusable functions declare their internal
+  model-slot parameters alongside their binding arguments, so those calls can
+  use the same approved catalog as generated prompts.
 - Use `duet_launch_propose` to save a complete nonsecret configuration candidate.
   Its returned proposal ID lets the human use `/launch apply PROPOSAL_ID FILE`,
   inspect `/launch preview`, and approve that exact hash with
@@ -24,6 +27,10 @@ capabilities, child topology, and deliverable boundary.
   variable names and file references; the human keeps credential values in the
   named .env files. For Codex subscription access, `codex_login` references the
   Codex login-file path through a variable in that .env file.
+  Keep provider, model, endpoint, and API mode as literal nonsecret settings in
+  the launch JSON; .env lookup serves credential references. For replacement of
+  an old or invalid JSON file, the human adds `--replace` to `/launch apply`.
+  That explicit replacement records the prior file hash, not its contents.
 - Complete launch setup and human approval before asking the human to start
   `/build`. Show the approved model choices during design. Later model or
   credential-source changes go through the same preview and approval flow and

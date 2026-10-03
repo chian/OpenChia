@@ -652,12 +652,17 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         )
 
     def _builder_for(self, request: ApprovedBuildRequest, launch) -> EpisodeBuilder:
-        return EpisodeBuilder(
-            store=self.build_store,
-            call_options=CallOptions(
+        def options(stage):
+            return CallOptions(
+                model_type=launch.builder_model_type(stage),
                 tier=ModelTier.REASONING,
                 launch_configuration_hash=launch.configuration_hash,
-            ),
+            )
+
+        return EpisodeBuilder(
+            store=self.build_store,
+            planning_options=options("planning"),
+            emission_options=options("emission"),
             model_slot_catalog=launch.model_slot_catalog(),
         )
 
@@ -1440,7 +1445,14 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     source_package,
                 ) = self._runnable_build_context()
                 launch_request = self._root_launch_request(request, plan)
-                self._require_approved_launch()
+                from episode_builder.planner import required_model_types
+                model_types = set()
+                for node in plan.nodes:
+                    try:
+                        model_types.update(required_model_types(node.prompt_specs, node.selected_function_bindings))
+                    except ValueError as exc:
+                        raise OpenChiaHostError(f"Episode {node.local_id}: {exc}") from None
+                self._require_approved_launch(model_types=model_types)
                 executor = self._runtime_executor()
                 runtime_identity = executor.inspect_runtime_identity(
                     destination_root=self.run_store.runtime_sources_root,
@@ -1455,7 +1467,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     runtime_policy=RuntimePolicy(),
                 )
                 launch_id, launch = self._prepare_model_launch("run", registration.run_id.value,
-                    model_types={prompt["model_type"] for node in plan.nodes for prompt in node.prompt_specs})
+                    model_types=model_types)
                 broker = ScopedModelBroker(self._model_launch_transport(launch_id, launch),
                     episode_paths={self._model_node_path(node.local_id, plan): node.local_id for node in plan.nodes})
                 http_broker = ScopedHttpBroker(

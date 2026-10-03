@@ -28,7 +28,6 @@ from handoff_library import (
 from http_call_library import HTTP_JSON, HTTP_REQUEST
 from llm_call_library import (
     CallOptions,
-    ModelTier,
     PROBABILITY_JUDGMENT,
     PROBABILITY_VECTOR_JUDGMENT,
     STRUCTURED_JSON_COMPLETION,
@@ -359,6 +358,31 @@ def materializer_function_catalog() -> tuple[dict[str, object], ...]:
     functions = _library_functions()
     by_id = {item.definition_id: item.as_record() for item in functions}
     return tuple(by_id[key] for key in sorted(by_id))
+
+
+def required_model_types(prompt_specs, bindings) -> set[str]:
+    """Collect declared call slots, including calls encapsulated by library functions."""
+    slots = set()
+
+    def add(value, location):
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            raise ValueError(f"{location} requires an explicit model slot; rebuild this materialization")
+        slots.add(value)
+
+    for index, prompt in enumerate(prompt_specs):
+        add(prompt.get("model_type"), f"prompt_specs[{index}].model_type")
+    functions = {(function.library, function.function_id): function for function in _library_functions()}
+    for binding in bindings:
+        if binding["source"] == "generated":
+            continue
+        # Pointer identity is checked by plan admission. Slot requirements come
+        # from the implementation bundled in this host, including for old plans.
+        function = functions.get((binding["library"], binding["function_id"]))
+        if function is None:
+            continue
+        for parameter in function.provenance.get("model_slot_parameters", ()):
+            add(binding["arguments"].get(parameter), f"{binding['role']}.arguments.{parameter}")
+    return slots
 
 
 def _architecture_numeric_bindings(
@@ -1038,13 +1062,15 @@ class EpisodeMaterializationPlanner:
         self,
         *,
         reference_resolver: EpisodeReferenceResolver,
-        call_options: CallOptions | None = None,
+        call_options: CallOptions,
         model_slot_catalog: Mapping[str, object] | None = None,
     ) -> None:
         if not isinstance(reference_resolver, EpisodeReferenceResolver):
             raise TypeError("planner requires an EpisodeReferenceResolver")
         self.reference_resolver = reference_resolver
-        self.call_options = call_options or CallOptions(tier=ModelTier.REASONING)
+        if not isinstance(call_options, CallOptions):
+            raise TypeError("planner requires explicit CallOptions")
+        self.call_options = call_options
         self.model_slot_catalog = dict(model_slot_catalog or {})
 
     @staticmethod
@@ -1109,6 +1135,10 @@ class EpisodeMaterializationPlanner:
                 "The human's launch configuration owns model, provider, endpoint, "
                 "reasoning effort and credentials. Generated LLM calls use "
                 "llm_call_library.CallOptions(model_type=the_declared_slot)."
+                " Library functions may encapsulate calls: supply each function's "
+                "provenance.model_slot_parameters in its binding arguments, using "
+                "approved slot names. Reference binding slot names are examples to "
+                "adapt to this project's approved catalog."
             ),
             "node": node.as_record(),
             "position": "root" if is_root else "child",
@@ -1175,9 +1205,9 @@ class EpisodeMaterializationPlanner:
         from llm_call_library.transport import model_call_scope
         def admit_with_slots(value):
             payload = _admit_plan_payload(value)
-            unknown = {prompt["model_type"] for prompt in payload["prompt_specs"]} - self.model_slot_catalog.keys()
+            unknown = required_model_types(payload["prompt_specs"], payload["selected_function_bindings"]) - self.model_slot_catalog.keys()
             if unknown:
-                raise ValueError(f"prompt_specs reference unapproved model slots: {sorted(unknown)}")
+                raise ValueError(f"materialization references unapproved model slots: {sorted(unknown)}")
             return payload
 
         with model_call_scope(node.local_id, "builder.planning"):

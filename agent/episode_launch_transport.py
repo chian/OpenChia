@@ -149,8 +149,8 @@ class LaunchModelTransport:
         record = self._record
         spec = record["resolved_spec"]
         role = request.call_role or "run"
-        model_type = self.launch.model_type_for(request.model_type, role)
-        names = self.launch.route_names(model_type, role)
+        model_type = request.model_type
+        names = self.launch.route_names(model_type)
         call_id = uuid.uuid4().hex
         last_receipt = {}
         for index, name in enumerate(names):

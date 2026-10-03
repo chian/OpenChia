@@ -78,12 +78,7 @@ def validate_launch_spec(value: object) -> dict[str, Any]:
         _text(name, "route name")
         route = _fields(raw, {"provider", "model", "base_url", "api_mode", "auth"}, {"reasoning", "fallbacks"}, f"route {name}")
         for key in ("provider", "model", "base_url", "api_mode"):
-            val = route[key]
-            if isinstance(val, Mapping):
-                ref = _fields(val, {"env"}, set(), key)
-                _text(ref["env"], key)
-            else:
-                _text(val, key)
+            _text(route[key], f"route {name}.{key} (literal launch setting)")
         auth = _fields(route["auth"], {"kind"}, {"env", "account"}, "auth")
         if auth["kind"] not in {"env", "codex_login", "none"}:
             raise LaunchConfigurationError("auth.kind must be env, codex_login, or none")
@@ -143,15 +138,13 @@ class ResolvedLaunch:
     def record(self) -> dict[str, Any]:
         return json.loads(self.public_json)
 
-    def model_type_for(self, model_type: str, role: str) -> str:
-        stage = role.removeprefix("builder.") if role.startswith("builder.") else None
-        selected = self._builder_slots[stage] if stage in self._builder_slots else model_type
-        if selected not in self._model_slots:
-            raise LaunchConfigurationError(f"model_type {selected!r} is not in the approved launch slots")
-        return selected
+    def builder_model_type(self, stage: str) -> str:
+        return self._builder_slots[stage]
 
-    def route_names(self, model_type: str, role: str) -> tuple[str, ...]:
-        return self._route_chains[self._model_slots[self.model_type_for(model_type, role)]]
+    def route_names(self, model_type: str) -> tuple[str, ...]:
+        if model_type not in self._model_slots:
+            raise LaunchConfigurationError(f"model_type {model_type!r} is not in the approved launch slots")
+        return self._route_chains[self._model_slots[model_type]]
 
     def model_slot_catalog(self) -> dict[str, dict]:
         spec = self.record["resolved_spec"]
@@ -207,15 +200,7 @@ def resolve_launch(spec: Mapping[str, Any]) -> ResolvedLaunch:
     codex_tokens: dict[Path, str] = {}
     for name, route in resolved["routes"].items():
         for key in ("provider", "model", "base_url", "api_mode"):
-            val = route[key]
-            if isinstance(val, dict):
-                variable = val["env"]
-                if variable not in values or not values[variable]:
-                    raise LaunchConfigurationError(f"route {name}.{key}: explicit variable {variable} is unavailable")
-                route[key] = values[variable]
-                provenance[f"routes.{name}.{key}"] = sources[variable]
-            else:
-                provenance[f"routes.{name}.{key}"] = spec.get("source_file", "selected_launch")
+            provenance[f"routes.{name}.{key}"] = spec.get("source_file", "selected_launch")
         route["base_url"] = _endpoint(route["base_url"])
         if route["provider"] == "auto":
             raise LaunchConfigurationError("launch routes require a concrete provider")
