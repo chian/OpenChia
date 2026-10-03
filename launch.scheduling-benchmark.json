@@ -1,0 +1,67 @@
+{
+  "project": "scheduling-reasoning-benchmark",
+  "project_root": ".",
+  "env_files": [".env.scheduling-benchmark"],
+  "inherit_env": [],
+  "routes": {
+    "sol_medium": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "api_mode": "codex_responses",
+      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "reasoning": {"enabled": true, "effort": "medium"},
+      "fallbacks": []
+    },
+    "sol_none": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "api_mode": "codex_responses",
+      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "reasoning": {"enabled": false, "effort": "none"},
+      "fallbacks": []
+    },
+    "terra_medium": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-terra",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "api_mode": "codex_responses",
+      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "reasoning": {"enabled": true, "effort": "medium"},
+      "fallbacks": []
+    },
+    "terra_none": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-terra",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "api_mode": "codex_responses",
+      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "reasoning": {"enabled": false, "effort": "none"},
+      "fallbacks": []
+    },
+    "luna_medium": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-luna",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "api_mode": "codex_responses",
+      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "reasoning": {"enabled": true, "effort": "medium"},
+      "fallbacks": []
+    },
+    "luna_none": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-luna",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "api_mode": "codex_responses",
+      "auth": {"kind": "env", "env": "WORKFLOW_CODEX_ACCESS_TOKEN", "account": "chia-workflow-codex"},
+      "reasoning": {"enabled": false, "effort": "none"},
+      "fallbacks": []
+    }
+  },
+  "bindings": {
+    "default": "sol_medium",
+    "roles": {"builder.planning": "sol_medium", "builder.emission": "sol_medium"},
+    "episodes": {}
+  }
+}
