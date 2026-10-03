@@ -57,6 +57,11 @@ def complete_source_checkout(
         print(f"⚠ Could not provide git for the source completion: {exc}", file=sys.stderr)
     publish_launchers(root)
     build_update_products(root, desktop=desktop)
+    from openchia_cli.doctor_episode_runtime import check_episode_runtime
+
+    # Diagnose optional execution prerequisites on unattended installs too.
+    # Neither a warning nor --yes authorizes a host security-policy change.
+    check_episode_runtime(False)
     if announce:
         print(announce)
     complete = _run_post_update_maintenance(

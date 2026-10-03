@@ -5,11 +5,18 @@ Status: active implementation. This is not an acceptance receipt. The complete
 
 **Terminology and execution decision (2026-10-03):** the workflow being built,
 refined and tested is the **Target Workflow**; `candidate_ref` identifies an
-exact candidate revision. The refiner is separate. [ADR 0005](../adr/0005-target-workflow-runs-use-containers.md)
-selects container execution on Linux/macOS and explicitly for acceptance. That
-default/test-selection change is pending; systemd failures below are historical
-results, not prerequisites for the container path. All current work is being
-saved in existing PR #33; see the [checkpoint](iterative_episode_refiner_checkpoint.md).
+exact candidate revision. The refiner is separate.
+[ADR 0005](../adr/0005-target-workflow-execution-backends.md) supports container
+and systemd execution, with containers as the default and no silent fallback.
+The default change is pending. [ADR 0006](../adr/0006-support-systemd-255.md)
+adds systemd 255 support. The approved AppArmor setup now works; native service,
+reasoning-worker, single-Episode and nested-refiner continuation checks pass.
+Installation and doctor check actual namespace setup; see the
+[systemd setup guide](systemd_setup.md).
+The [receipt log](unified_episode_test_harness_receipts.md) preserves both the
+earlier failures and the successful focused checks. The compatibility and setup
+changes belong to the PR #33 checkpoint; see the
+[checkpoint](iterative_episode_refiner_checkpoint.md).
 
 ## Required launch configuration for this development session
 
@@ -37,7 +44,8 @@ The [canonical routing contract](episode_launch_configuration.md#duet-refiner-an
 defines this boundary. `OpenChiaHost.refinement_experiment_service` now binds
 the owning Duet's concrete route for refiner-job experiments. Supplied-agent,
 local-provider integration coverage verifies separation from target routing;
-fully initialized conversational-agent and native/live acceptance remain unverified.
+fully initialized conversational-agent and live-model acceptance remain unverified.
+Native nested execution now passes with supplied model decisions.
 If the configuration cannot be resolved, stop at that boundary and report why.
 File existence alone does not establish readiness. Earlier scripted fixtures
 remain mechanical checks, not evidence of live Episode building or reasoning.
@@ -46,9 +54,10 @@ remain mechanical checks, not evidence of live Episode building or reasoning.
 
 ### Task status
 
-Three tasks remain: **3, 4 and 5**. Tasks 1 and 2 are complete at the shared-routing
-and record-interface scopes described below; that does not establish live
-model-directed testing or complete the overall goal. IDs are retained for tracking.
+Task **4** remains. Tasks 1, 2, 3 and the compatibility/documentation checkpoint
+in task 5 are complete at the scopes described below. Live model-directed testing
+and actual repair are not established; the overall goal remains open. IDs are
+retained for tracking. Task 4's eventual result must be added to the same receipts.
 
 - **Task 1: Finish connecting the refiner's tests to the shared harness — complete.** Direct
   target-output checks now use an Episode-proposed experiment specification and
@@ -78,8 +87,8 @@ model-directed testing or complete the overall goal. IDs are retained for tracki
   execution fallback is removed. Both source cases pass integration checks,
   including exact source/criterion binding, shared measured return, authorized
   worker inventory/report queries, numerical reuse and explicit recorded-request
-  divergence without live fallback. Native/live proof and final compatibility
-  remain tasks 3–5, not claims of this routing completion.
+  divergence without live fallback. Native proof and compatibility are recorded
+  separately under tasks 3 and 5; live acceptance remains task 4.
 - **Task 2: Shared access to Run and test records — complete.** Indexed history,
   exact-prefix recording previews, executable inventory queries, scoped original
   outcomes and unresolved-conflict context are implemented. A test drives actual
@@ -87,8 +96,8 @@ model-directed testing or complete the overall goal. IDs are retained for tracki
   assignments; the parent sees the opposing result cycle without reading the
   Run audit. Execution outputs in this test are supplied, not derived from the
   edited source. Live reasoning and autonomous repair are not claimed.
-- **Task 3: Finish resuming interrupted nested work.** Coherent nested restoration
-  remains open; saved-input execution is not its substitute. The shared journal
+- **Task 3: Finish resuming interrupted nested work — complete.** Saved-input
+  execution is not its substitute. The shared journal
   now records all five exchange channels, with replies committed before worker
   publication. Refiner replies also retain host-only active/prepared call state,
   open-unit references and the exact campaign head. A common reconstruction
@@ -102,34 +111,34 @@ model-directed testing or complete the overall goal. IDs are retained for tracki
   gate, with current-authority and stopped-worker checks before new work. Its
   shared continuation admission checks pass. The service and CLI now expose
   exact-reference continuation; the CLI and continued-history checks pass.
-  The complete nested-return comparison now passes with loopback worker transport:
-  uninterrupted and resumed loops match terminal disposition, normalized controller
-  history and operation counts, without repeated model choices or edits. Decisions,
-  target observations and process authority are supplied, so this is not live
-  reasoning or native confinement. The corrected measurement and worker-interface
-  tests now pass, including advertised attempt selection. Native continuation remains unverified:
-  this host's systemd 255 rejects required `PrivatePIDs`, and the alternative
-  container backend has no installed runtime.
+  The nested-return comparison now passes through the common experiment service
+  and actual systemd workers, replacing the loopback driver. It interrupts after
+  Implementer's committed final unit reply, verifies the old worker is stopped,
+  reconstructs waiting parents under current authority, and accepts the child
+  return once. Resumed and uninterrupted results match disposition, normalized
+  controller history and operation counts. Repeating the continuation request
+  does not repeat calls, edits, target checks or credit. The final native check
+  passed in 844.7 seconds; earlier failures and their fixes remain in the receipts.
+  Model decisions and target observations are supplied, and the source edit is
+  a comment: this is native continuation proof, not live reasoning or repair.
+  Native single-Episode continuation also passes. The container backend still
+  has no installed runtime on this host.
 - **Task 4: Demonstrate the complete system on a real reasoning problem.** Live model-directed,
   independently checked acceptance remains open.
-- **Task 5: Check compatibility and finish documentation.** Targeted mechanical
-  receipts are not final whole-system compatibility or live acceptance proof.
-  PR #34 is now merged. The harness launch/setup and library-call bindings use
-  its explicit approved model-slot APIs. The five failures found in the broader
-  post-merge check now pass their focused reruns, including candidate admission
-  and independent checking. Full-system compatibility and live acceptance remain
-  open; see the dated receipts for exact coverage and the isolated-test skip.
-  The old campaign fixture now uses actual admitted builds. Its ten campaign
-  state/publication-integrity checks pass without relaxing production admission.
-  The latest broad check finished with 444 passed, four failures and two skips.
-  The container-fixture failure is corrected and its checks pass. The scripted
-  testing loop passed unchanged in isolation, then passed after removing its
-  redundant 60-second deadline; its numerical stopping rule is unchanged. CLI
-  live run/continuation now receive existing profile HTTP credentials, with
-  A→B→A isolation and secret-free record checks passing. Report queries, replay
-  limits, launch approval and fresh refiner setup are documented accurately.
-  The two native-launch failures remain visible: this host rejects `PrivatePIDs`.
-  No complete live-acceptance receipt is claimed.
+- **Task 5: Check compatibility and finish documentation — checkpoint complete.**
+  PR #34 is merged and its explicit approved model-slot APIs are integrated.
+  The latest 64-file check returned 343 passed, one test-specific timeout and
+  two skips. The affected reasoning fixture then passed both cases after removing
+  its duplicate operational timeout, without changing its numerical controller.
+  The six-file rerun returned nine passes and a nested-test assertion failure;
+  correcting that test's distinction between prelaunch, startup and reconstruction
+  produced the final native nested pass above. These are separate receipts, not
+  a claim that the full batch was rerun green. Installer/doctor checks passed
+  21 tests, including the actual namespace probe. The docs record the supported
+  scope, model-routing boundary, setup, commands, code map and limitations.
+  Earlier failures are retained in the receipt log. This checkpoint saves the
+  current work to existing PR #33; the PR stays draft pending task 4. There is
+  no live-model acceptance claim and no normal-build refiner activation.
 
 ### Record ownership
 
@@ -150,7 +159,8 @@ experiment overviews; `inventory.py` pages exact invocation/unit facts.
 `outcomes.py` defines the requirement result used by experiments and refiner
 reports; `refinement.py` pages admitted observations, reports and conflicts from
 the existing campaign index. Refiner execution is connected to this interface;
-complete nested-continuation and live-refinement verification remain unfinished.
+native nested continuation is verified with supplied decisions; live-refinement
+verification remains unfinished.
 
 The record system must distinguish these linked facts without asking callers to
 assemble them:
@@ -807,7 +817,7 @@ or host admission sessions. Do not present it as nested recovery. The shared
 reconstruction path below must validate all required state or return an explicit
 unsupported result. Target/checker/refiner-specific replay loops are not allowed.
 
-### Interrupted nested execution: implementation and remaining verification for task 3
+### Interrupted nested execution: implementation and task 3 verification
 
 Continuation must preserve a waiting parent's actual child call, not just its
 credit total. The refiner's admitted calls, prepared children, open unit and
@@ -853,10 +863,11 @@ the same typed parent result and numerical history as uninterrupted execution,
 with no repeated historical calls, edits, tests or credit. Divergent requests
 must fail before any live operation. Shared exchange recording, host-state
 restoration, source admission and the existing executor's reconstruction gate
-are implemented. The complete nested-return comparison now passes through
-loopback worker transport with supplied decisions and process authority. The
-service and CLI expose continuation, but native-worker verification remains
-unavailable on this host; task 3 stays open.
+are implemented. The complete nested-return comparison now passes through the
+common service and real confined systemd workers, as does single-Episode
+continuation. The service and CLI expose the same continuation operation.
+Task 3 is complete. Decisions and target observations are supplied; the native
+test does not establish live-model reasoning or behavioral repair.
 
 `episode_runtime/testing/reconstruction.py` reads the complete interrupted Run
 through the same recording projection. Its cursor checks exact worker requests
@@ -889,8 +900,9 @@ reference (Run ID, registration hash and final terminal event ID/hash), not a
 new candidate or a new experiment specification. Current target or checker
 attempts appear in status, while prior evidence and measurement reports remain
 immutable. Repeating an already-dispatched continuation does not launch again.
-CLI admission and idempotent continuation checks pass with supplied execution;
-complete native continuation verification is still pending.
+CLI admission and idempotent continuation checks pass with supplied execution.
+The native nested comparison separately verifies the same service with actual
+worker claims, stopped-process checks and reconstruction before new work.
 
 Use the current interrupted target's or declared checker's `resume_from` object
 from `status` as the contents of `interruption.json`, unchanged:
@@ -956,7 +968,8 @@ retains closed-unit candidate context. Prepared children remain unentered.
 Restoration does not replay edits, re-admit evidence, publish credit or authorize
 worker execution. Three broker/store tests verify these boundaries and rejection
 of later campaign changes. The finished-child return now passes in the complete
-loopback nested comparison. Native-worker continuation remains unverified.
+native nested comparison: the child returns once and the resumed result matches
+uninterrupted execution. Native single-Episode continuation also passes.
 
 `RunStore.read_execution_prefix` is the shared exact-lineage reader. It follows
 only authenticated interrupted-Run predecessors and retains each original
@@ -1382,16 +1395,16 @@ It does not yet establish autonomous experimental design or live task reasoning.
 
 ## Remaining completion evidence
 
-The three outstanding tasks remain **3, 4 and 5**, as defined at the top of
-this guide. Task 1's refiner-job and numerical-replay integration and negative
+Task **4** remains, as defined at the top of this guide. Task 1's refiner-job
+and numerical-replay integration and negative
 decoder check now pass; stock later-unit saved learning passed in-process
 execution, numerical comparison, preparation and preview checks. Instrument-build
 and reference-workflow experiments now pass the shared-service and authorized
 worker-discovery checks, completing task 1's routing work.
 Historical refiner-state forks are an unsupported extension, distinct from
-task 3's same-execution nested continuation;
-task 4 requires the real, independently checked live acceptance demonstration;
-task 5 requires final compatibility checks and complete documentation/receipts.
+task 3's now-verified same-execution native nested continuation. Task 5's
+compatibility/documentation checkpoint is complete. Task 4 requires the real,
+independently checked live acceptance demonstration and its honest receipt.
 
 Launch setup, approved target configuration and the owning-Duet refiner-job
 binding are implemented. Supplied-agent/local-provider and in-process checks

@@ -25,8 +25,6 @@ from episode_runtime.broker import ScopedModelBroker
 from episode_runtime.continuation import InterruptedRunRef
 from episode_runtime.contracts import RunEventKind, RunTerminalStatus, RuntimePolicy
 from episode_runtime.executor import (
-    ExecutorResources,
-    RunExecutionError,
     make_systemd_run_executor_factory,
 )
 from episode_runtime.executor_lifecycle import verify_stopped_executor
@@ -64,11 +62,6 @@ async def test_confined_continuation_preserves_committed_calls_and_credit(
     )
     if status.returncode != 0:
         pytest.skip("native continuation requires a running user systemd manager")
-    try:
-        ExecutorResources.from_host_effective_allocation()
-    except RunExecutionError as exc:
-        pytest.skip(f"host cgroup allocation cannot be attested: {exc}")
-
     spec = EpisodeCreationSpec(
         goal="Determine which search routes remain useful for this corpus.",
         progress="Admitted durable knowledge transitions",

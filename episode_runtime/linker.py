@@ -258,6 +258,37 @@ def _preload_declared_imports(tree: ast.Module) -> None:
         builtins.__import__(node.module, fromlist=fromlist, level=0)
 
 
+def _library_implementation_modules(import_names, selected_bindings) -> tuple[str, ...]:
+    """Resolve selected definitions exported by already verified library imports.
+
+    LibraryFunction objects carry lazy implementation references. Importing their
+    registry does not load those implementations; after Landlock it is too late.
+    Inspect trusted exports only, never execute a generated module to discover them.
+    """
+    from function_library import FunctionLibrary, LibraryFunction
+
+    selected = {item["definition_id"] for item in selected_bindings}
+    modules = set()
+    for name in import_names:
+        for value in tuple(vars(sys.modules[name]).values()):
+            if isinstance(value, LibraryFunction):
+                definitions = (value,)
+            elif isinstance(value, FunctionLibrary):
+                definitions = value.functions()
+            elif isinstance(value, EpisodeLibraryDesign):
+                definitions = value.function_definitions
+            else:
+                continue
+            for definition in definitions:
+                if definition.definition_id not in selected:
+                    continue
+                if definition.implementation is not None:
+                    modules.add(definition.implementation.module)
+                if definition.evaluation is not None:
+                    modules.add(definition.evaluation.implementation.module)
+    return tuple(sorted(modules))
+
+
 def _implementation_modules(tree: ast.Module) -> tuple[str, ...]:
     modules: set[str] = set()
     for node in ast.walk(tree):
@@ -709,8 +740,11 @@ def prepare_source_package(
         imports = _import_names(tree)
         if set(imports) & generated_names:
             raise RuntimeLinkError("generated modules cannot import each other")
-        implementation_modules = _implementation_modules(tree)
         _preload_declared_imports(tree)
+        implementation_modules = tuple(sorted(
+            set(_implementation_modules(tree))
+            | set(_library_implementation_modules(imports, node.selected_function_bindings))
+        ))
         for imported in implementation_modules:
             if imported == node.module_name:
                 continue

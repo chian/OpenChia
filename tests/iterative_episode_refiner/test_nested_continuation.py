@@ -1,113 +1,46 @@
-"""Actual stock nested loops reconstructed through the common host gate.
+"""Actual stock nested loops continued through the shared experiment service.
 
-Builder/model choices, target observations and process attestation are supplied.
-The source edit, campaign admissions, worker channel, nested method loop, Run
-journal and restoration gate are real. A comment edit is not a demonstrated
-behavioral repair; this tests continuation, not live reasoning or confinement.
+The refiner runs in real confined systemd workers. Builder/model choices and
+Target Workflow observations are supplied; only target executions are replaced
+by the existing result fixture. Source edits, campaign admissions, nested loops,
+Run journal and continuation are real. A comment edit is not a behavioral repair;
+this tests native nested recovery, not live-model reasoning or target correctness.
 """
 
 import asyncio
 from collections import Counter
 from copy import deepcopy
-from dataclasses import replace
 from pathlib import Path
 import json
-import sys
+import os
+import subprocess
+from types import SimpleNamespace
 
 import pytest
 
 from agent.episode_contracts import OpaqueId
-from agent.duet_contracts import canonical_json
+from agent.duet_contracts import DuetIdentity
+from agent.duet_episode_transport import DuetEpisodeBinding, required_slots
 from agent.episode_launch import resolve_launch
-from episode_runtime import protocol
-from episode_runtime.broker import ScopedModelBroker
+from episode_runtime import exchanges, protocol
 from episode_runtime.continuation import InterruptedRunRef
-from episode_runtime.contracts import RunEventKind, RunEventOrigin, RunTerminalStatus
-from episode_runtime.exchanges import (
-    broker_experiment_request,
-    broker_http_request,
-    broker_learning_request,
-    broker_model_request,
-    broker_refinement_request,
-)
-from episode_runtime.executor import _HostChannel
-from episode_runtime.http_broker import ScopedHttpBroker
+from episode_runtime.contracts import RunEventKind, RunTerminalStatus
+from episode_runtime.executor import make_systemd_run_executor_factory
+from episode_runtime.executor_lifecycle import verify_stopped_executor
 from episode_runtime.identity import (
     inspect_runtime_source_manifest,
     runtime_identity_from_manifest,
 )
-from episode_runtime.learning_broker import LearningBroker
-from episode_runtime.linker import prepare_source_package
 from episode_runtime.records.experiments import put_data
-from episode_runtime.testing.reconstruction_host import HostReconstruction
-from episode_runtime.testing.reconstruction_source import admit_reconstruction_source
-from episode_runtime.worker import (
-    _ProtocolChannel,
-    _WorkerHttpTransport,
-    _WorkerModelTransport,
-    runtime_collaborators,
-)
-from function_library.reasoning_transport import reasoning_transport_scope
-from function_library.refinement_transport import refinement_transport_scope
-from function_library.testing import experiment_transport_scope
-from http_call_library import http_transport_scope
+from episode_runtime.store import RunStoreNotFound
+from episode_runtime.testing.service import ExperimentService
 from iterative_episode_refiner.records import Ref
-from iterative_episode_refiner.runtime import RefinementSession
-from llm_call_library import ModelTransportResponse, model_transport_scope
-from tests.episode_runtime.conftest import claim_store
+from llm_call_library import ModelTransportResponse
 from tests.episode_runtime.test_reasoning_workflow import _approved_request
 from tests.episode_runtime.testing.launch_fixture import FixtureLaunchHost
 from tests.episode_runtime.testing.refinement_fixture import prepared_refiner
 from tests.episode_runtime.testing.test_measurements import ResultOnlyExecutor
-
-
-class InterruptedBeforeChildReturn(BaseException):
-    """Drop the physical worker after a durable final child reply."""
-
-
-class ReplyPipe:
-    def __init__(self, reader, binding):
-        self.reader = reader
-        self.decoder = protocol.FrameDecoder(
-            sender=protocol.FrameSender.HOST, binding=binding
-        )
-        self.last = None
-
-    def write(self, packet):
-        self.last = self.decoder.decode(packet)
-        self.reader.feed_data(packet)
-
-    async def drain(self):
-        return None
-
-
-class SizedHostChannel(_HostChannel):
-    def prepare(self, frame_type, body):
-        try:
-            return super().prepare(frame_type, body)
-        except protocol.ProtocolError as exc:
-            context = body.get("response", {}).get("context", {})
-            sizes = sorted(
-                ((key, len(canonical_json(value).encode("utf-8"))) for key, value in context.items()),
-                key=lambda item: item[1], reverse=True,
-            )
-            raise AssertionError(f"{exc}; context field byte sizes: {sizes}") from exc
-
-
-class LoopbackWorkerChannel(_ProtocolChannel):
-    """Replace stdout only; use the worker's real request IDs and reply loop."""
-
-    async def send(self, frame_type, body):
-        async with self._send_lock:
-            frame = protocol.decode_frame(
-                self.encoder.encode(frame_type, body),
-                sender=protocol.FrameSender.WORKER,
-                binding=self.binding,
-                expected_sequence=self._sent_sequence,
-            )
-            self._sent_sequence += 1
-            await self.dispatch(frame)
-            return frame
+from tests.episode_runtime.testing.test_refinement_job_experiments import job_spec
 
 
 def experiment_proposal(target):
@@ -258,112 +191,6 @@ class SuppliedDecisions:
         }
 
 
-async def run_linked(
-    session, package, decisions, *, gate=None, authorize=None, interrupt=False
-):
-    """A test I/O adapter around the ordinary linked worker, not a new loop."""
-    runs, registration = session.store.evidence.runs, session.registration
-    claim_store(runs.root, registration, store=runs)
-    prepared = prepare_source_package(registration, package)
-    binding = protocol.ProtocolBinding.from_registration(registration)
-    reader = asyncio.StreamReader()
-    writer = ReplyPipe(reader, binding)
-    host = SizedHostChannel(binding=binding, reader=asyncio.StreamReader(), writer=writer)
-    worker = LoopbackWorkerChannel(binding=binding, reader=reader)
-    models = ScopedModelBroker.from_plan(decisions, prepared.plan)
-    learning = LearningBroker(runs, registration, package)
-
-    async def forbidden_http(*args, **kwargs):
-        pytest.fail("The stock refiner has no approved HTTP operation in this fixture.")
-
-    http = ScopedHttpBroker(
-        policy={},
-        credentials={},
-        transport=forbidden_http,
-        max_frame_bytes=binding.max_frame_bytes,
-    )
-    request_handlers = {
-        "learning_request": (broker_learning_request, {"session": learning}),
-        "refinement_request": (broker_refinement_request, {"session": session}),
-        "experiment_request": (broker_experiment_request, {"session": None}),
-        "model_request": (broker_model_request, {"model_broker": models}),
-        "http_request": (broker_http_request, {"http_broker": http}),
-    }
-
-    async def dispatch(frame):
-        if gate is not None and await gate.consume(frame, host, authorize=authorize):
-            return
-        arguments = dict(
-            run_store=runs, registration=registration, channel=host, frame=frame
-        )
-        if frame.frame_type == "run_event":
-            body = frame.body
-            runs.append_event(
-                run_id=registration.run_id,
-                origin=RunEventOrigin.WORKER,
-                sender_sequence=frame.sender_sequence,
-                kind=RunEventKind(body["event_kind"]),
-                episode_id=OpaqueId(body["episode_id"]),
-                payload=body["payload"],
-            )
-        else:
-            broker, owner = request_handlers[frame.frame_type]
-            await broker(**arguments, **owner)
-            if (
-                interrupt
-                and frame.frame_type == "refinement_request"
-                and frame.body["operation"] == "close_unit"
-            ):
-                call = session.calls[frame.body["episode_id"]]
-                reply = writer.last.body["response"]
-                if call.assignment.body["role"] == "implementer" and reply["stop"]:
-                    assert reply["disposition"] == "attained"
-                    assert call.unit_id is None
-                    # The worker decodes the committed reply but send() has not
-                    # returned to the unit, so its final receipt cannot escape.
-                    await worker._pending_refinement[frame.body["request_id"]]
-                    raise InterruptedBeforeChildReturn
-
-    worker.dispatch = dispatch
-    receiver = asyncio.create_task(worker.receive_loop())
-    try:
-        activated = prepared.activate()
-        with (
-            model_transport_scope(_WorkerModelTransport(worker)),
-            http_transport_scope(_WorkerHttpTransport(worker)),
-            reasoning_transport_scope(worker.request_learning),
-            refinement_transport_scope(worker.request_refinement),
-            experiment_transport_scope(worker.request_experiment),
-        ):
-            result = await activated.link(
-                event_sink=worker.event,
-                collaborators=runtime_collaborators(prepared.plan),
-            ).run()
-        status = RunTerminalStatus(result["outcome"])
-        session.validate_return(status.value, result)
-    except InterruptedBeforeChildReturn:
-        status = RunTerminalStatus.INTERRUPTED
-        result = {
-            "outcome": "interrupted",
-            "reason": "completed Implementer has not returned to Designer",
-        }
-    finally:
-        receiver.cancel()
-        try:
-            await receiver
-        except asyncio.CancelledError:
-            pass
-        for module in prepared.modules.values():
-            sys.modules.pop(module.module_name, None)
-    return runs.finalize_run(
-        run_id=registration.run_id,
-        origin=RunEventOrigin.HOST,
-        sender_sequence=host.next_sender_sequence,
-        terminal_status=status,
-        typed_status=result,
-    )
-
-
 def campaign_effects(session):
     with session.view() as view:
         actions = Counter(
@@ -433,7 +260,7 @@ def controller_history(session):
     return result
 
 
-async def case(tmp_path, runtime_manifest, checks, *, interrupted):
+async def case(tmp_path, runtime_manifest, checks, patch, *, interrupted):
     async with prepared_refiner(
         tmp_path,
         runtime_identity_from_manifest(runtime_manifest),
@@ -475,13 +302,109 @@ async def case(tmp_path, runtime_manifest, checks, *, interrupted):
         inputs = builds.inspection_inputs_for_receipt(
             session.registration.build_receipt_id
         )
-        package = builds.verify_source_package(inputs.manifest)
-        decisions = SuppliedDecisions(evaluations.executor)
-        evidence = await run_linked(session, package, decisions, interrupt=interrupted)
+        target_executor = evaluations.executor
+        decisions = SuppliedDecisions(target_executor)
+        executor = make_systemd_run_executor_factory(
+            repository_root=Path(__file__).resolve().parents[2]
+        )(runs)
+        assert executor.inspect_runtime_identity(
+            destination_root=runs.runtime_sources_root
+        ) == session.registration.runtime_identity
+        evaluations.executor = executor
+        identity = DuetIdentity.from_record(artifacts.get_duet(session.duet_id)["identity"])
+        agent = SimpleNamespace(
+            _duet_identity=identity,
+            _current_main_runtime=lambda: {
+                "provider": "custom", "model": "supplied-refiner-decisions",
+                "base_url": "http://localhost:9999/v1", "api_mode": "chat_completions",
+                "session_id": "native-continuation-fixture", "auth_mode": "none",
+            },
+            reasoning_config=None,
+        )
+        binding = DuetEpisodeBinding.from_bound_agent(
+            artifacts=artifacts, owner_duet_id=session.duet_id,
+            agent=agent, model_types=required_slots(inputs),
+        )
+        patch.setattr(DuetEpisodeBinding, "transport", lambda self, **kwargs: decisions)
+        service = ExperimentService(
+            artifacts=artifacts, builds=builds, runs=runs, executor=executor,
+            duet_binding=binding, refinement_evaluations=evaluations,
+        )
+        spec = job_spec(session, binding, completed=True)
+        preview = service.preview(spec)
+        assert preview["resolved"], preview["gaps"]
+        sessions, cuts, activations = {}, [], []
+        startup_events = {RunEventKind.RUNTIME_READY, RunEventKind.RUN_STARTED}
+        native_execute = executor.execute
+
+        async def execute_with_supplied_target(**arguments):
+            current = arguments.get("refinement_session")
+            if current is None:
+                # Only Target Workflow observations are supplied. The refiner's
+                # process, pipes, isolation and reconstruction are never replaced.
+                assert arguments["registration"].duet_id.value == session.duet_id
+                return await target_executor.execute(**arguments)
+            registration = arguments["registration"]
+            sessions[registration.run_id.value] = current
+            if registration.resume_from is not None:
+                admit = arguments["continuation_admission"]
+
+                async def inspect_activation():
+                    authority = await admit()
+                    assert any(call.assignment.body["role"] == "implementer"
+                               for call in current.calls.values())
+                    assert campaign_effects(current) == effects
+                    assert dict(decisions.calls) == call_counts
+                    assert target_executor.calls == target_calls
+                    assert runs.read_audit_log(original.run_id) == original_audit
+                    try:
+                        published = runs.read_registration(registration.run_id)
+                    except RunStoreNotFound:
+                        stage = "before_launch"
+                    else:
+                        stage = "after_reconstruction"
+                        assert published == registration
+                        assert runs.read_claim(registration.run_id).executor_instance_id != original_claim.executor_instance_id
+                        before_activation = runs.read_committed_prefix(registration.run_id)
+                        assert before_activation
+                        assert all(event.kind in startup_events for event in before_activation)
+                    activations.append((stage, authority))
+                    return authority
+
+                arguments["continuation_admission"] = inspect_activation
+            return await native_execute(**arguments)
+
+        patch.setattr(executor, "execute", execute_with_supplied_target)
+        exchange = exchanges.broker_refinement_request
+
+        async def interrupt_closed_implementer(**arguments):
+            await exchange(**arguments)
+            frame = arguments["frame"]
+            if interrupted and not cuts and frame.body["operation"] == "close_unit":
+                current = arguments["session"]
+                call = current.calls[frame.body["episode_id"]]
+                event = runs.read_committed_prefix(arguments["registration"].run_id)[-1]
+                assert event.kind is RunEventKind.REFINEMENT_RESPONDED
+                reply = event.payload["response"]
+                if call.assignment.body["role"] == "implementer" and reply["stop"]:
+                    assert reply["disposition"] == "attained" and call.unit_id is None
+                    cuts.append(event.event_id)
+                    # The final reply is durable, but the host has not accepted
+                    # any child-return event. Stop the real physical worker.
+                    raise asyncio.CancelledError
+
+        patch.setattr(exchanges, "broker_refinement_request", interrupt_closed_implementer)
         if interrupted:
-            assert evidence.terminal_status is RunTerminalStatus.INTERRUPTED
+            with pytest.raises(asyncio.CancelledError):
+                await service.run(spec)
+            assert len(cuts) == 1 and len(sessions) == 1
+            session = next(iter(sessions.values()))
             original = session.registration
+            evidence = runs.read_evidence(original.run_id)
+            assert evidence.terminal_status is RunTerminalStatus.CANCELLED
             original_audit = runs.read_audit_log(original.run_id)
+            original_claim = runs.read_claim(original.run_id)
+            assert (await verify_stopped_executor(executor, original_claim))["stopped"]
             saved = session.continuation_state()
             assert not saved["pending_children"]
             active = {
@@ -505,65 +428,49 @@ async def case(tmp_path, runtime_manifest, checks, *, interrupted):
                 for event in original_audit
             )
             effects, call_counts, target_calls = (
-                campaign_effects(session),
-                dict(decisions.calls),
-                evaluations.executor.calls,
+                campaign_effects(session), dict(decisions.calls), target_executor.calls,
             )
-            resumed = replace(
-                original, resume_from=InterruptedRunRef.from_run(runs, original.run_id)
-            )
-            session = RefinementSession(
-                store=session.store,
-                campaign_id=session.campaign_id,
-                registration=resumed,
-                source_package_path=package,
-                evaluations=evaluations,
-            )
-            assert (
-                resumed.logical_run_id == original.run_id
-                and resumed.run_id != original.run_id
-            )
-            source_receipt = admit_reconstruction_source(
-                prepare_source_package(resumed, package),
-                source_package_path=package,
-                runtime_manifest=runtime_manifest,
-            )
-            gate = HostReconstruction(
-                runs, resumed, source_receipt, refinement_session=session
-            )
-            activations = []
-
-            async def authorize():
-                assert gate.cursor.prefix_verified
-                assert campaign_effects(session) == effects
-                assert dict(decisions.calls) == call_counts
-                assert evaluations.executor.calls == target_calls
-                assert runs.read_audit_log(original.run_id) == original_audit
-                assert runs.read_committed_prefix(resumed.run_id) == ()
-                activations.append(gate.cursor.report())
-                return {
-                    "kind": "supplied_test_authority",
-                    "native_activation_verified": False,
-                }
-
-            evidence = await run_linked(
-                session, package, decisions, gate=gate, authorize=authorize
-            )
-            assert len(activations) == 1 and gate.activated
+            continuation = {
+                "experiment_id": spec.experiment_id,
+                "resume_from": InterruptedRunRef.from_run(runs, original.run_id).as_record(),
+            }
+            result = await service.continue_run(**continuation)
+            session = sessions[result["run_id"]]
+            resumed = session.registration
+            evidence = runs.read_evidence(resumed.run_id)
+            assert resumed.logical_run_id == original.run_id and resumed.run_id != original.run_id
+            assert runs.read_claim(resumed.run_id).executor_instance_id != original_claim.executor_instance_id
+            assert {stage for stage, _ in activations} == {"before_launch", "after_reconstruction"}
+            assert activations[0][0] == "before_launch"
+            assert activations[-1][0] == "after_reconstruction"
+            assert all(authority["duet_model_binding_ref"] == binding.reference
+                       for _, authority in activations)
             assert runs.read_audit_log(original.run_id) == original_audit
             suffix = runs.read_audit_log(resumed.run_id)
-            assert suffix[0].kind is RunEventKind.RUN_RECONSTRUCTED
-            assert (
-                sum(
-                    event.kind is RunEventKind.EPISODE_COMPLETED
-                    and event.episode_id.value == child_id
-                    for event in suffix
-                )
-                == 1
+            gates = [(index, event) for index, event in enumerate(suffix)
+                     if event.kind is RunEventKind.RUN_RECONSTRUCTED]
+            assert len(gates) == 1
+            gate_index, gate = gates[0]
+            assert all(event.kind in startup_events for event in suffix[:gate_index])
+            admission = gate.payload["activation_admission"]
+            assert admission["previous_executor"]["stopped"]
+            assert admission["current_authority"]["duet_model_binding_ref"] == binding.reference
+            assert sum(event.kind is RunEventKind.EPISODE_COMPLETED
+                       and event.episode_id.value == child_id for event in suffix) == 1
+            assert sum(event.kind is RunEventKind.MODEL_RESPONDED for event in suffix) == (
+                sum(decisions.calls.values()) - sum(call_counts.values())
             )
-            assert sum(
-                event.kind is RunEventKind.MODEL_RESPONDED for event in suffix
-            ) == sum(decisions.calls.values()) - sum(call_counts.values())
+            effects_after, calls_after, targets_after = (
+                campaign_effects(session), dict(decisions.calls), target_executor.calls,
+            )
+            assert (await service.continue_run(**continuation))["run_id"] == resumed.run_id.value
+            assert campaign_effects(session) == effects_after
+            assert dict(decisions.calls) == calls_after and target_executor.calls == targets_after
+        else:
+            result = await service.run(spec)
+            session = sessions[result["run_id"]]
+            evidence = runs.read_evidence(session.registration.run_id)
+        assert result["candidate_verdict"] == "pass", result
         assert evidence.terminal_status is RunTerminalStatus.SUCCEEDED, (
             evidence.typed_status
         )
@@ -600,15 +507,25 @@ async def case(tmp_path, runtime_manifest, checks, *, interrupted):
             "history": history,
             "actions": effects["actions"],
             "model_calls": dict(decisions.calls),
-            "target_runs": evaluations.executor.calls,
+            "target_runs": target_executor.calls,
             "worker_units": len(units),
         }
 
 
+@pytest.mark.platforms("linux")
 @pytest.mark.asyncio
 async def test_completed_implementer_returns_once_after_exact_nested_reconstruction(
-    tmp_path,
+    tmp_path, monkeypatch,
 ):
+    runtime_dir = Path("/run/user") / str(os.getuid())
+    if (runtime_dir / "bus").exists():
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+        monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime_dir / 'bus'}")
+    status = subprocess.run(
+        ["systemctl", "--user", "is-system-running"], capture_output=True, timeout=5,
+    )
+    if status.returncode != 0:
+        pytest.skip("native nested continuation requires a running user systemd manager")
     runtime_manifest = inspect_runtime_source_manifest(
         repository_root=Path(__file__).resolve().parents[2]
     )
@@ -632,10 +549,12 @@ async def test_completed_implementer_returns_once_after_exact_nested_reconstruct
         for field in (*schema, "workflow_parent_local_id")
         for purpose in ("local", "acceptance", "composition")
     ]
-    uninterrupted = await case(
-        tmp_path / "uninterrupted", runtime_manifest, checks, interrupted=False
-    )
-    resumed = await case(
-        tmp_path / "resumed", runtime_manifest, checks, interrupted=True
-    )
+    with monkeypatch.context() as patch:
+        resumed = await case(
+            tmp_path / "resumed", runtime_manifest, checks, patch, interrupted=True
+        )
+    with monkeypatch.context() as patch:
+        uninterrupted = await case(
+            tmp_path / "uninterrupted", runtime_manifest, checks, patch, interrupted=False
+        )
     assert resumed == uninterrupted

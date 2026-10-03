@@ -1,10 +1,10 @@
 """Real approval, Builder, package linker, host ledger and generic Episode loop.
 
-Only the external model is replaced by deterministic responses. Confinement
-attestation is inert fixture data; this test does not claim a live systemd Run.
+External model replies are supplied. One case uses in-process execution with
+fixture attestation; the native case exercises the real systemd worker and
+confinement. Neither case is a live-model reasoning benchmark.
 """
 
-import asyncio
 import json
 import os
 from pathlib import Path
@@ -38,7 +38,6 @@ from episode_runtime.contracts import (
 from episode_runtime.learning_broker import LearningBroker
 from episode_runtime.identity import materialize_runtime_source_package
 from episode_runtime.executor import make_systemd_run_executor_factory
-from episode_runtime.executor import ExecutorResources, RunExecutionError
 from episode_runtime.broker import ScopedModelBroker
 from episode_runtime.store import RunStore
 from episode_runtime.linker import current_runtime_episode_id, prepare_source_package
@@ -447,19 +446,17 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
             executor = make_systemd_run_executor_factory(
                 repository_root=Path(__file__).resolve().parents[2]
             )(store)
-            evidence = await asyncio.wait_for(
-                executor.execute(
-                    registration=registration,
-                    source_package_path=package,
-                    model_broker=ScopedModelBroker.from_plan(inquiry_model, prepared.plan),
-                    http_broker=ScopedHttpBroker(
-                        policy=registration.egress_policy,
-                        credentials={},
-                        transport=no_http,
-                        max_frame_bytes=registration.runtime_policy.max_frame_bytes,
-                    ),
+            # The canonical runner owns the operational timeout for this test.
+            evidence = await executor.execute(
+                registration=registration,
+                source_package_path=package,
+                model_broker=ScopedModelBroker.from_plan(inquiry_model, prepared.plan),
+                http_broker=ScopedHttpBroker(
+                    policy=registration.egress_policy,
+                    credentials={},
+                    transport=no_http,
+                    max_frame_bytes=registration.runtime_policy.max_frame_bytes,
                 ),
-                180,  # Operational watchdog; real durable I/O also runs under parallel CI load.
             )
             outcome = evidence.typed_status
         else:
@@ -467,9 +464,7 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
                 model_transport_scope(inquiry_model),
                 reasoning_transport_scope(learning),
             ):
-                outcome = await asyncio.wait_for(
-                    activated.link(event_sink=event_sink).run(), 180
-                )
+                outcome = await activated.link(event_sink=event_sink).run()
         broker.validate_completion(outcome)
         result = outcome["workflow_result"]
         assert (
@@ -540,8 +535,4 @@ async def test_live_confined_reasoning_worker(tmp_path, run_store, monkeypatch):
     )
     if status.returncode != 0:
         pytest.skip("live isolated Run requires a running user systemd manager")
-    try:
-        ExecutorResources.from_host_effective_allocation()
-    except RunExecutionError as exc:
-        pytest.skip(f"host cgroup allocation cannot be attested: {exc}")
     await _exercise_workflow(tmp_path, run_store, isolated=True)

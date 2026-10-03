@@ -223,7 +223,7 @@ class RunExecution:
                     or claim["record"]["experiment_id"] != ExperimentSpec.from_record(request).experiment_id
                     or claim["record"]["starting_state"] != (
                         subject["starting_state"] if registration.resume_from is None
-                        else intent["record"]["plan"]["subject"]["starting_state"]
+                        else intent["record"]["plan"]["scope"]["starting_state"]
                     )
                     or claim["record"]["registration"] != base.as_record()
                 ):

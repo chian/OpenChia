@@ -88,7 +88,7 @@ def local_provider():
             thread.join(timeout=5)
 
 
-def job_spec(session, binding):
+def job_spec(session, binding, *, completed=False):
     artifacts, builds = session.store.evidence.duets, session.store.evidence.builds
     inputs = builds.inspection_inputs_for_receipt(session.registration.build_receipt_id)
     source_owner = session.registration.duet_id.value
@@ -100,7 +100,7 @@ def job_spec(session, binding):
         artifacts,
         source_owner,
         "environment",
-        {"case": "prepared refiner, fixed invalid choice and cancellation"},
+        {"case": "prepared refiner, supplied decisions", "completed": completed},
     )
     grounding = put_data(
         artifacts,
@@ -131,10 +131,10 @@ def job_spec(session, binding):
                 for key, value in EXACT_VALUE.bind("measurement").as_record().items()
                 if key != "name"
             },
-            "observation_path": "/workflow_result/stop",
-            "expected_value": True,
-            "positive_controls": [True],
-            "negative_controls": [False],
+            "observation_path": "/workflow_result/disposition" if completed else "/workflow_result/stop",
+            "expected_value": "attained" if completed else True,
+            "positive_controls": ["attained"] if completed else [True],
+            "negative_controls": ["cancelled", "unresolved"] if completed else [False],
             "grounding_refs": [grounding],
             "limitations": ["Cancellation provides no completed-candidate verdict."],
         },
@@ -144,8 +144,11 @@ def job_spec(session, binding):
     )
     return ExperimentSpec.from_record({
         "schema_version": 1,
-        "question": "Does the refiner preserve invalid-choice feedback and report interruption honestly?",
-        "rationale": "Exercise the real refiner through the shared service before testing a successful repair.",
+        "question": (
+            "Does exact continuation preserve nested refinement and return its terminal report?"
+            if completed else "Does the refiner preserve invalid-choice feedback and report interruption honestly?"
+        ),
+        "rationale": "Exercise the real refiner through the shared service; supplied decisions do not establish reasoning quality.",
         "candidate_ref": receipt,
         "build_receipt_ref": receipt,
         "environment_ref": environment,
@@ -160,8 +163,8 @@ def job_spec(session, binding):
             {
                 "requirement_ref": criterion["requirement_ref"],
                 "measure_ref": criterion["measure_ref"],
-                "expected": "No completed build is claimed after cancellation.",
-                "falsifying": "The cancelled Run is represented as a completed refinement.",
+                "expected": "The completed refiner returns attained." if completed else "No completed build is claimed after cancellation.",
+                "falsifying": "A missing or unresolved report fails." if completed else "The cancelled Run is represented as a completed refinement.",
             }
         ],
         "unresolved_questions": [

@@ -23,6 +23,7 @@ from openchia_cli.colors import Colors, color
 from openchia_cli.doctor_report import Finding, _section, check_bool, check_info, doctor_check, warn_on_error
 from openchia_cli.doctor_connectivity import _has_healthy_oauth_fallback_for_apikey_provider, build_probes, run_probes
 from openchia_cli.doctor_tools import _safe_which
+from openchia_cli.doctor_episode_runtime import check_episode_runtime
 
 from openchia_cli.doctor_config import (
     _check_config_drift,
@@ -119,6 +120,7 @@ DOCTOR_CHECKS = (
     ('Directory Structure', _check_directory_structure), (None, _check_state_db), (None, _check_checkpoint_store),
     (None, _check_gateway_supervision), (None, _check_command_installation),
     ('External Tools', _check_git_and_rg), (None, _check_terminal_backend), (None, _check_node_and_browser),
+    ('Target Workflow Execution', check_episode_runtime),
     (None, _check_npm_audit), ('API Connectivity', _check_api_connectivity),
     ('Tool Availability', _check_tool_availability), ('Skills Hub', _check_skills_hub),
     ('Memory Provider', _check_memory_provider), (None, _check_profiles),

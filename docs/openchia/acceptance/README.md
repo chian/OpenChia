@@ -5,11 +5,12 @@ No user store was changed, no proposal or approval was recorded, and no model or
 Episode was launched to prepare them.
 
 The **Target Workflow** here is the scheduling workflow, not the testing Episode
-or IterativeEpisodeRefiner. Acceptance must explicitly use the existing container
-executor on Linux as well as macOS, with no systemd or in-process fallback; see
-[ADR 0005](../../adr/0005-target-workflow-runs-use-containers.md). The selection
-change remains pending. Historical systemd failures below do not make systemd
-repair a requirement for acceptance.
+or IterativeEpisodeRefiner. Each acceptance Run explicitly selects and records
+its existing execution backend, with no silent fallback. Container and systemd
+execution share this harness and its task criteria; see
+[ADR 0005](../../adr/0005-target-workflow-execution-backends.md). The container
+default change remains pending. The systemd setup failures are resolved on this
+host, and native worker checks pass. Live-model acceptance is not yet established.
 
 - [schedule_target.blueprint.json](schedule_target.blueprint.json) is one complete
   Architecture blueprint for the existing `reasoning.generic` reference.
@@ -137,6 +138,13 @@ repair. Those require their own exact inputs and evidence within the existing
 harness. Positive/negative predicate controls validate the measuring mechanism;
 they do not substitute for actual candidate Runs.
 
+Run the actual task and let observed failures drive refinement. A naturally
+failing candidate followed by an independently verified repair satisfies the
+fail/pass demonstration; do not script the model's choices or prescribe a
+failure-then-success sequence. A first-pass success establishes correctness for
+that case, not repair behavior. The iterator may also return unresolved when
+useful yield runs out; iteration is not a guarantee of eventual success.
+
 ## Acceptance evidence checked on 2026-10-03
 
 These are the goal's acceptance requirements, not additional implementation
@@ -150,17 +158,18 @@ executed checks and their failures; test names alone are not passing evidence.
 | Scoped and broader nested execution establish distinct claims | `test_scoped_execution.py` executes generated nested sources, then selected invocations, rejects omitted children and forbids promotion of narrow recordings to whole-workflow evidence. `test_unit_execution.py` covers declared-unit scope. Execution is in-process with supplied model responses, not native confinement. |
 | Numerical, recorded-response and live execution remain distinct; incompatible recordings fail | `test_numerical_execution.py` recomputes actual ledger history without calls or new credit. `test_recorded_execution.py` exercises brokers, frames and stores, including matched reuse and explicit divergence, but its executor emits supplied exchanges. Stock reasoning's Run-specific prompts also correctly diverge on a new Run; they are not silently normalized for replay. |
 | Cross-child regression is visible to the responsible parent | `records/test_refinement_regression.py` drives admitted source revisions and contrasting supplied results through the shared service. Indexed parent history exposes the opposing outcomes without reconstructing the audit. It proves history visibility, not that the edited code caused those supplied outcomes. |
-| Interruption, continuation and repeats preserve evidence and credit | `test_nested_continuation.py` compares actual generated nested loops uninterrupted versus restored through loopback transport; model choices, target observations and process authority are supplied. CLI continuation and retained-history checks also pass. Native continuation still fails before worker inspection on this host. |
+| Interruption, continuation and repeats preserve evidence and credit | `test_nested_continuation.py` passes through the shared experiment service and real systemd workers: uninterrupted and resumed nested loops have equal results, controller history and operation counts, without duplicate child returns, calls, edits or credit. Current authority and stopped predecessor checks are real. Model choices and target observations are supplied; the comment-only edit does not demonstrate repair. CLI continuation and native single-Episode continuation also pass. |
 | The measure distinguishes known-correct and known-incorrect results | `test_scheduling_measure.py` verifies the registered exhaustive-solver predicate, multiple optimal witnesses, negative controls and rejection of mislabeled controls or a caller-invented optimum. This establishes the fixed benchmark's measuring mechanism, not an LLM's reasoning ability. |
 
-The current native blocker was rechecked without launching anything: the existing
-backend selector chooses systemd, this host reports systemd 255, and
-`find_container_cli()` finds no Docker-compatible CLI. Prior native test output
-records rejection of `PrivatePIDs=yes`. No runtime was installed, no confinement
-setting was removed, and no alternate executor was substituted.
+The native setup blocker is resolved on this systemd 255 host. The unsupported
+private-PID requirement was removed under ADR 0006; the other isolation checks
+remain. The operator-approved AppArmor exception permits namespace setup without
+global disablement. Real worker execution, single-Episode and nested-refiner
+continuation pass with supplied model replies. No alternate executor was
+substituted; the container backend still has no installed runtime. See the [setup guide](../systemd_setup.md)
+and [dated receipts](../unified_episode_test_harness_receipts.md).
 
 The actual store, target, tester and approval references in `setup_inputs.json`
 remain unset. The next live work therefore needs the human setup/approval
-sequence above and a supported confined execution environment. Installing one
-or selecting another host requires operator direction. These missing inputs
+sequence above. A supported systemd environment is now available. These missing inputs
 must not be filled with fixture approvals or invented receipts.

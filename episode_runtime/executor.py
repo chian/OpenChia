@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from decimal import Decimal
-from fractions import Fraction
 import os
 from pathlib import Path, PurePosixPath
 import secrets
@@ -57,7 +56,11 @@ class RunExecutionError(RuntimeError):
 
 @dataclass(frozen=True)
 class ExecutorResources:
-    """Cgroup allocation facts; none is an Episode stopping rule."""
+    """Explicit service/container resource settings, never Episode stopping rules.
+
+    An unset limit adds no per-Run ceiling; the execution environment's ancestor
+    limits still apply. These are not a copy of the host process's allocation.
+    """
 
     memory_max_bytes: Optional[int]
     pids_max: Optional[int]
@@ -80,40 +83,6 @@ class ExecutorResources:
             raise ValueError("cpu_weight must be <= 10000")
         if not 1_000 <= self.cpu_period_micros <= 1_000_000:
             raise ValueError("cpu_period_micros must be between 1ms and 1s")
-
-    @classmethod
-    def from_host_effective_allocation(
-        cls,
-        *,
-        cgroup_root: str | Path = "/sys/fs/cgroup",
-        process_cgroup_path: str | Path = "/proc/self/cgroup",
-    ) -> "ExecutorResources":
-        """Mirror the host process's effective cgroup-v2 allocation.
-
-        ``None`` is the explicit unbounded value for memory, tasks, or CPU
-        quota.  The scan takes the tightest finite ancestor allocation; it
-        never invents a task-specific ceiling.
-
-        Disabled controller levels contribute no additional limit only when
-        their delegation metadata confirms this. CPU period and weight come
-        from the nearest visible CPU-controlled ancestor, never defaults.
-        Without such an ancestor (including a process at the true root),
-        allocation discovery is unsupported.
-        """
-
-        hierarchy = _host_cgroup_hierarchy(
-            cgroup_root=Path(cgroup_root),
-            process_cgroup_path=Path(process_cgroup_path),
-        )
-        quota, period, weight = _effective_cpu_allocation(hierarchy)
-        return cls(
-            memory_max_bytes=_effective_scalar_limit(hierarchy, "memory.max"),
-            pids_max=_effective_scalar_limit(hierarchy, "pids.max"),
-            cpu_weight=weight,
-            cpu_quota_per_sec_micros=quota,
-            cpu_period_micros=period,
-        )
-
 
 @dataclass(frozen=True)
 class _ExecutorFacts:
@@ -250,172 +219,6 @@ class _HostChannel:
         return self.decoder.decode(prefix + payload)
 
 
-def _read_small_control(path: Path, name: str, *, allow_empty: bool = False) -> str:
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError as exc:
-        raise RunExecutionError(f"cannot read {name}") from exc
-    try:
-        info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode):
-            raise RunExecutionError(f"{name} is not a regular control file")
-        chunks: list[bytes] = []
-        size = 0
-        while True:
-            chunk = os.read(descriptor, 4096)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > 16_384:
-                raise RunExecutionError(f"{name} exceeds its control-file bound")
-            chunks.append(chunk)
-    finally:
-        os.close(descriptor)
-    try:
-        value = b"".join(chunks).decode("ascii", errors="strict").strip()
-    except UnicodeDecodeError as exc:
-        raise RunExecutionError(f"{name} is not ASCII") from exc
-    if (not value and not allow_empty) or "\x00" in value:
-        raise RunExecutionError(f"{name} is empty or malformed")
-    return value
-
-
-def _host_cgroup_hierarchy(
-    *,
-    cgroup_root: Path,
-    process_cgroup_path: Path,
-) -> tuple[Path, ...]:
-    root = cgroup_root.expanduser().resolve(strict=True)
-    if not root.is_dir():
-        raise RunExecutionError("cgroup_root must be a directory")
-    record = _read_small_control(process_cgroup_path, "host process cgroup")
-    unified = tuple(
-        line[3:]
-        for line in record.splitlines()
-        if line.startswith("0::/")
-    )
-    if len(unified) != 1:
-        raise RunExecutionError("host process does not have one cgroup-v2 path")
-    relative = PurePosixPath(unified[0]).relative_to("/")
-    leaf = root.joinpath(*relative.parts).resolve(strict=True)
-    if leaf != root and root not in leaf.parents:
-        raise RunExecutionError("host cgroup escapes the supplied cgroup root")
-    hierarchy: list[Path] = []
-    current = leaf
-    while True:
-        hierarchy.append(current)
-        if current == root:
-            break
-        current = current.parent
-    return tuple(hierarchy)
-
-
-def _parse_positive_control(value: str, name: str) -> int:
-    try:
-        result = int(value, 10)
-    except ValueError as exc:
-        raise RunExecutionError(f"{name} is not an integer") from exc
-    if result < 1:
-        raise RunExecutionError(f"{name} must be positive")
-    return result
-
-
-def _controller_names(directory: Path, filename: str) -> frozenset[str]:
-    values = _read_small_control(
-        directory / filename, f"host {filename}", allow_empty=True,
-    ).split()
-    if len(set(values)) != len(values) or any(
-        not value.isidentifier() or not value.islower() for value in values
-    ):
-        raise RunExecutionError(f"host {filename} has malformed controller names")
-    return frozenset(values)
-
-
-def _read_allocation_control(
-    directory: Path,
-    filename: str,
-    hierarchy_root: Path,
-) -> Optional[str]:
-    try:
-        return _read_small_control(directory / filename, f"host {filename}")
-    except RunExecutionError as exc:
-        if not isinstance(exc.__cause__, FileNotFoundError):
-            raise
-        # The true cgroup-v2 root has no per-controller allocation. A
-        # namespace-mounted non-root still has cgroup.type and its limits
-        # must not be discarded merely because its visible path is '/'.
-        try:
-            cgroup_type = _read_small_control(directory / "cgroup.type", "host cgroup.type")
-        except RunExecutionError as marker_error:
-            if directory == hierarchy_root and isinstance(marker_error.__cause__, FileNotFoundError):
-                return None
-            raise
-        if cgroup_type not in {"domain", "domain threaded", "threaded"}:
-            raise RunExecutionError("host cgroup.type is invalid for allocation discovery") from exc
-        if directory != hierarchy_root:
-            controller = filename.split(".", 1)[0]
-            available = _controller_names(directory, "cgroup.controllers")
-            delegated = _controller_names(directory.parent, "cgroup.subtree_control")
-            if controller not in available and controller not in delegated:
-                return None
-        raise
-
-
-def _effective_scalar_limit(
-    hierarchy: tuple[Path, ...],
-    filename: str,
-) -> Optional[int]:
-    limits: list[int] = []
-    for directory in hierarchy:
-        value = _read_allocation_control(directory, filename, hierarchy[-1])
-        if value is not None and value != "max":
-            limits.append(_parse_positive_control(value, f"host {filename}"))
-    return min(limits) if limits else None
-
-
-def _effective_cpu_allocation(
-    hierarchy: tuple[Path, ...],
-) -> tuple[Optional[int], int, int]:
-    finite: list[tuple[Fraction, int]] = []
-    nearest_cpu: Optional[tuple[int, int]] = None
-    for directory in hierarchy:
-        value = _read_allocation_control(directory, "cpu.max", hierarchy[-1])
-        weight_value = _read_allocation_control(directory, "cpu.weight", hierarchy[-1])
-        if value is None and weight_value is None:
-            continue
-        if value is None or weight_value is None:
-            raise RunExecutionError("host CPU period and weight controls are inconsistent")
-        fields = value.split()
-        if len(fields) != 2:
-            raise RunExecutionError("host cpu.max must contain quota and period")
-        period = _parse_positive_control(fields[1], "host cpu.max period")
-        if not 1_000 <= period <= 1_000_000:
-            raise RunExecutionError("host cpu.max period is outside kernel bounds")
-        weight = _parse_positive_control(weight_value, "host cpu.weight")
-        if weight > 10_000:
-            raise RunExecutionError("host cpu.weight is outside kernel bounds")
-        if nearest_cpu is None:
-            nearest_cpu = period, weight
-        if fields[0] != "max":
-            quota = _parse_positive_control(fields[0], "host cpu.max quota")
-            finite.append((Fraction(quota, period), period))
-    if nearest_cpu is None:
-        raise RunExecutionError(
-            "no visible CPU-controlled ancestor provides an observed period and weight; "
-            "allocation discovery cannot invent root or hidden-ancestor settings"
-        )
-    nearest_period, weight = nearest_cpu
-    if not finite:
-        return None, nearest_period, weight
-    ratio, period = min(finite, key=lambda item: item[0])
-    per_second = ratio * 1_000_000
-    if per_second.denominator != 1:
-        raise RunExecutionError(
-            "effective host CPU quota is not exactly expressible in microseconds per second"
-        )
-    return int(per_second), period, weight
-
-
 def _launch_identity(
     run_id: OpaqueId,
     executor_kind: ExecutorKind = ExecutorKind.SYSTEMD,
@@ -454,6 +257,8 @@ def _systemd_properties(
     return (
         "Type=exec",
         "Restart=no",
+        "KillMode=control-group",
+        "SendSIGKILL=yes",
         f"MemoryMax={_systemd_limit(resources.memory_max_bytes)}",
         f"TasksMax={_systemd_limit(resources.pids_max)}",
         f"CPUWeight={resources.cpu_weight}",
@@ -465,7 +270,6 @@ def _systemd_properties(
         f"BindReadOnlyPaths={bind_specification}",
         "PrivateDevices=yes",
         "PrivateNetwork=yes",
-        "PrivatePIDs=yes",
         "ProtectProc=invisible",
         "ProcSubset=pid",
         "NoNewPrivileges=yes",
@@ -510,7 +314,9 @@ _SHOW_PROPERTIES = (
     "ProtectHome",
     "PrivateTmp",
     "PrivateNetwork",
-    "PrivatePIDs",
+    "ControlPID",
+    "KillMode",
+    "SendSIGKILL",
     "ProtectProc",
     "ProcSubset",
     "NoNewPrivileges",
@@ -674,20 +480,6 @@ def _proc_start_time(pid: int) -> int:
     return _positive_integer(fields[19], "process start time")
 
 
-def _proc_cgroup(pid: int) -> str:
-    try:
-        lines = Path(f"/proc/{pid}/cgroup").read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise RunExecutionError("cannot inspect executor cgroup") from exc
-    unified = tuple(line[3:] for line in lines if line.startswith("0::/"))
-    if len(unified) != 1:
-        raise RunExecutionError("executor does not have one unified cgroup")
-    value = unified[0]
-    if str(PurePosixPath(value)) != value:
-        raise RunExecutionError("executor cgroup path is not normalized")
-    return value
-
-
 def _boot_id() -> str:
     try:
         return Path("/proc/sys/kernel/random/boot_id").read_text(
@@ -715,6 +507,11 @@ async def _inspect_executor(
             continue
         if values["ActiveState"] == "active" and values["SubState"] == "running":
             break
+        # systemd-run submits StartTransientUnit asynchronously. The unit may
+        # already be loaded but still inactive before its first invocation.
+        if values["ActiveState"] == "inactive" and not values["InvocationID"]:
+            await asyncio.sleep(0.05)
+            continue
         if values["ActiveState"] in {"failed", "inactive", "deactivating"}:
             raise RunExecutionError("transient service did not reach running state")
         await asyncio.sleep(0.05)
@@ -724,12 +521,15 @@ async def _inspect_executor(
     if (
         not cgroup.startswith("/")
         or PurePosixPath(cgroup).name != launch_identity.unit_name
-        or _proc_cgroup(pid) != cgroup
         or values["Description"] != launch_identity.description
         or len(values["InvocationID"]) != 32
         or any(character not in "0123456789abcdef" for character in values["InvocationID"])
     ):
-        raise RunExecutionError("systemd and /proc cgroup identities disagree")
+        raise RunExecutionError("systemd service identity differs from the exact launch")
+    if values["KillMode"] != "control-group" or values["SendSIGKILL"] != "yes":
+        raise RunExecutionError("systemd service must allow whole-job termination")
+    if values["ProtectProc"] != "invisible" or values["ProcSubset"] != "pid":
+        raise RunExecutionError("systemd service process visibility differs from launch policy")
     inspected_mounts = _verify_read_only_runtime_mounts(
         pid,
         read_only_runtime_mounts,
@@ -768,12 +568,14 @@ async def _inspect_executor(
             and values["PrivateTmp"] == "yes"
             and inspected_mounts == read_only_runtime_mounts
         ),
-        process_namespace_isolated=(
-            values["PrivatePIDs"] == "yes"
-            and values["ProtectProc"] == "invisible"
-            and values["ProcSubset"] == "pid"
+        # systemd 255 has no PrivatePIDs; do not claim a namespace we did not create.
+        process_namespace_isolated=False,
+        # A user manager can accept PrivateNetwork but log that it skipped it.
+        # Attest the actual namespace, not just the requested unit property.
+        network_namespace_isolated=(
+            values["PrivateNetwork"] == "yes"
+            and os.readlink(f"/proc/{pid}/ns/net") != os.readlink("/proc/self/ns/net")
         ),
-        network_namespace_isolated=values["PrivateNetwork"] == "yes",
         host_runtime_read_only=(
             values["ProtectSystem"] == "strict"
             and inspected_mounts == read_only_runtime_mounts
@@ -787,7 +589,7 @@ async def _inspect_executor(
         or facts.cpu_quota_micros != resources.cpu_quota_per_sec_micros
         or facts.cpu_period_micros != resources.cpu_period_micros
     ):
-        raise RunExecutionError("live cgroup allocation differs from launch policy")
+        raise RunExecutionError("systemd resource settings differ from launch policy")
     return facts
 
 
@@ -1474,7 +1276,6 @@ class SystemdRunExecutor(_RunExecutorBase):
                 or live_pid != facts.leader_pid
                 or values["ControlGroup"] != facts.cgroup_path
                 or _proc_start_time(live_pid) != facts.leader_start_time_ticks
-                or _proc_cgroup(live_pid) != facts.cgroup_path
                 or _boot_id() != facts.boot_id
             ):
                 launcher.terminate()
@@ -1550,12 +1351,13 @@ RunExecutorFactory = Callable[[RunStore], RunExecutor]
 def make_systemd_run_executor_factory(
     *,
     repository_root: str | Path,
+    resources: Optional[ExecutorResources] = None,
 ) -> RunExecutorFactory:
     """Build the strict host dependency for fresh per-Run executors.
 
-    The current interpreter identity is captured once.  Effective cgroup-v2
-    allocation is inspected afresh for every explicit Run action, so a
-    long-lived host neither invents nor retains stale task ceilings.
+    Resource controls are explicit systemd settings, not host cgroup-file reads.
+    Defaults add no per-Run hard limit; ancestor constraints remain systemd's
+    responsibility. The current interpreter identity is captured once.
     """
 
     root = Path(repository_root).expanduser()
@@ -1583,7 +1385,13 @@ def make_systemd_run_executor_factory(
         return SystemdRunExecutor(
             run_store=run_store,
             repository_root=root,
-            resources=ExecutorResources.from_host_effective_allocation(),
+            resources=resources if resources is not None else ExecutorResources(
+                memory_max_bytes=None,
+                pids_max=None,
+                cpu_weight=100,
+                cpu_quota_per_sec_micros=None,
+                cpu_period_micros=100_000,
+            ),
             python_executable=interpreter,
             python_runtime_root=python_runtime_root,
         )

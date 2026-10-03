@@ -1,6 +1,56 @@
 # IterativeEpisodeRefiner coding checkpoint and collaboration handoff
 
-## Current checkpoint: refiner and unified harness, 2026-10-03
+## Current checkpoint: systemd 255 and native nested continuation, 2026-10-03
+
+This update saves all current work to existing draft PR #33 and both remote
+branches, `feat/iterative-episode-refiner` and `feat/unified-episode-test-harness`.
+The active checkout remains `/home/chia/repos/OpenChia`; the secondary worktree
+is not changed. No history rewrite or normal-build refiner activation is included.
+The PR records the exact published checkpoint commit.
+
+The checkpoint adds systemd 255 compatibility under
+[ADR 0006](../adr/0006-support-systemd-255.md), the approved AppArmor setup guide
+and policy file, and the shared install/doctor namespace diagnostic. The diagnostic
+reports failures without changing host security policy. The operator separately
+approved and installed the launcher-specific profile on this host; it permits
+user namespaces for services using that launcher, not only OpenChia.
+
+Native service lifecycle, reasoning-worker and single-Episode continuation checks
+pass. Native nested `Parts → Designer → Implementer` continuation now also passes
+through the common experiment service and existing systemd executor. It verifies
+current authority, stopped predecessor, one child return, unchanged old evidence
+and no duplicate calls, edits or credit; its result matches uninterrupted execution.
+The continuation test exposed and fixed the frozen starting-state lookup in the
+shared service. Its old loopback driver is removed.
+
+Exact validation and earlier failures are retained in the
+[receipt log](unified_episode_test_harness_receipts.md): latest broad check
+**343 passed, 1 failed, 2 skipped**; focused rerun **9 passed, 1 failed**; final
+native nested comparison **1 passed in 844.7 seconds**. The focused passes and
+final comparison resolve the known failures, not constitute a full green rerun.
+Installation/doctor checks separately passed **21 tests**. These use supplied
+model decisions and target observations where documented. The nested source
+edit is a comment; it is not evidence of autonomous repair.
+
+Tasks 1–3 and task 5's compatibility/documentation checkpoint are complete.
+**Task 4 remains:** actual live-model testing and independently checked reasoning
+and repair. Its [acceptance draft](acceptance/README.md) still awaits exact human
+approval and real build/setup references. A naturally encountered failure and
+verified repair are appropriate evidence; no model-authored fail/pass script is
+required or permitted. No fixture approval substitutes for the human decision.
+
+[ADR 0005](../adr/0005-target-workflow-execution-backends.md) supports both
+container and systemd execution. Container-default changes and project-environment
+reproduction remain pending; this checkpoint does not claim they are implemented
+or that a container runtime is installed. Refiner model routing still uses the
+owning Duet, separate from the Target Workflow's approved launch configuration.
+
+## Earlier saved checkpoint: refiner and unified harness, 2026-10-03
+
+This section describes checkpoint `c000277bac`, not the current update above.
+The systemd/AppArmor setup and native checks have since progressed; use
+the [current task status](unified_episode_test_harness_design.md#task-status)
+and [dated receipts](unified_episode_test_harness_receipts.md) for current results.
 
 The user requested saving **all current work in existing PR #33**, including the
 unified harness. This supersedes the original instruction below to keep harness
@@ -30,14 +80,14 @@ receipt was 444 passed, 4 failed and 2 skipped; subsequent focused checks and
 fixture corrections are recorded separately, not presented as a clean full run.
 Nested continuation has loopback coverage, not container execution proof.
 
-[ADR 0005](../adr/0005-target-workflow-runs-use-containers.md) records containers
-as the Target Workflow Run default on Linux/macOS and explicit container-only
-acceptance. The default change, removal of systemd selection from acceptance
-tests, and reproduction of the current project environment are **not implemented
-in this checkpoint**. The previous systemd failures are historical results of
-the wrong acceptance backend, not prerequisites for the container path.
+[ADR 0005](../adr/0005-target-workflow-execution-backends.md), revised after this
+checkpoint, supports container and systemd execution with containers as the
+Target Workflow Run default. It replaces the earlier container-only decision.
+The default change and reproduction of the current project environment are
+**not implemented in this checkpoint**. The recorded systemd failures were
+unresolved at that checkpoint; no backend acceptance result is implied by this decision.
 
-Live container acceptance, model-directed testing/repair and final compatibility
+Live backend acceptance, model-directed testing/repair and final compatibility
 remain unproven. The [acceptance preparation](acceptance/README.md) identifies
 the missing exact build/approval references; no fixture approval substitutes for
 them. Normal-build refinement remains unactivated. Saving does not install a

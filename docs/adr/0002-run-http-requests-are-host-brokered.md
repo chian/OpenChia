@@ -4,9 +4,9 @@ Status: Accepted
 
 Implementation: implemented in chian/OpenChia#11 (closes #8).
 
-Related: [ADR 0005](0005-target-workflow-runs-use-containers.md) selects containers
-as the default for Target Workflow Runs on Linux and macOS. It preserves this
-record's host-brokered requests and host-only credentials.
+Related: [ADR 0005](0005-target-workflow-execution-backends.md) supports container
+and systemd execution, with containers as the Target Workflow Run default.
+Both preserve this record's host-brokered requests and host-only credentials.
 
 ## Context
 

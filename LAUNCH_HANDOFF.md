@@ -141,11 +141,19 @@ workflows that use those services.
 
 The previous execution-backend check selected `systemd`, then failed with
 `RunExecutionError: cannot read host cpu.max`. Full confinement preflight did
-not pass. That result has not been rechecked after cleanup; credentials alone
-do not resolve it. No execution-boundary workaround has been applied.
+not pass at that time. Credentials alone did not resolve it; later compatibility
+work removed this bespoke allocation scan in favor of systemd's service interface.
 
-2026-10-03 correction: that systemd result records the previous backend choice,
-not the required Target Workflow execution path. [ADR 0005](docs/adr/0005-target-workflow-runs-use-containers.md)
-selects containers on Linux/macOS and container-only acceptance. Implementing
-that selection and configuring the existing container executor remain pending;
-systemd repairs are not acceptance prerequisites.
+2026-10-03 decision update:
+[ADR 0005](docs/adr/0005-target-workflow-execution-backends.md) supports container
+and systemd execution, with containers as the default and no silent fallback.
+That default change remains pending. Systemd 255 is now supported without the
+unsupported `PrivatePIDs` setting. A subsequent AppArmor namespace denial was
+resolved with the operator-approved launcher-specific profile, without disabling
+AppArmor globally. Native service lifecycle, reasoning-worker, single-Episode and
+nested-refiner continuation checks now pass with supplied model responses.
+Installation and doctor share an actual namespace check; see the
+[systemd setup guide](docs/openchia/systemd_setup.md). These checks do not prove
+live-model reasoning or behavioral repair. The nested continuation comparison
+uses supplied target observations and a comment-only edit. See the
+[test receipts](docs/openchia/unified_episode_test_harness_receipts.md).

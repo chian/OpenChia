@@ -1,8 +1,5 @@
 """Read-only stopped-attempt checks used before continuation, never a runner."""
 
-import asyncio
-from pathlib import Path
-
 from .contracts import ExecutorKind
 
 
@@ -27,18 +24,15 @@ async def _systemd_stopped(executor, attestation):
         if (
             values["ActiveState"] not in {"inactive", "failed"}
             or values["MainPID"] != "0"
+            or values["ControlPID"] != "0"
+            or values["KillMode"] != "control-group"
+            or values["SendSIGKILL"] != "yes"
             or values["Description"] != attestation.launch_description
             or values["InvocationID"] not in {"", attestation.executor_invocation_id}
         ):
             raise RunExecutionError("previous executor is not verified stopped with its exact identity")
-    path = Path("/sys/fs/cgroup") / attestation.cgroup_path.lstrip("/") / "cgroup.events"
-    try:
-        events = await asyncio.to_thread(path.read_text, encoding="ascii")
-    except FileNotFoundError:
-        events = "populated 0"
-    rows = dict(line.split() for line in events.splitlines())
-    if rows.get("populated") != "0":
-        raise RunExecutionError("previous executor cgroup still contains processes")
+    # Whole-service teardown is owned by systemd (KillMode=control-group), not
+    # a second OpenChia cgroup scanner. Collected units no longer have processes.
     return {"attestation_id": attestation.attestation_id.value, "executor_kind": attestation.executor_kind.value, "stopped": True}
 
 

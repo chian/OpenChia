@@ -1165,8 +1165,8 @@ class RunRegistration:
 class InspectedExecutorAttestation:
     """Host inspection of the claimed executor and its isolation allocation.
 
-    The cgroup values record isolation facts only.  They never participate in
-    Episode continuation or stopping decisions.
+    Resource settings record backend facts only, not effective ancestor limits.
+    They never participate in Episode continuation or stopping decisions.
     """
 
     run_id: OpaqueId
@@ -1331,8 +1331,16 @@ class InspectedExecutorAttestation:
         )
         if any(not isinstance(item, bool) for item in isolation):
             raise TypeError("executor isolation facts must be boolean")
-        if not all(isolation):
-            raise ValueError("executor attestation must prove every isolation fact")
+        required_isolation = (
+            self.filesystem_namespace_isolated,
+            self.network_namespace_isolated,
+            self.host_runtime_read_only,
+            self.no_new_privs,
+        )
+        if not all(required_isolation):
+            raise ValueError("executor attestation must prove required isolation facts")
+        if self.executor_kind is ExecutorKind.CONTAINER and not self.process_namespace_isolated:
+            raise ValueError("container executor must prove process namespace isolation")
         attestation_id = content_id(
             "executor_attestation",
             self.semantic_record(),

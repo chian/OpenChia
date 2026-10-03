@@ -6,11 +6,209 @@ They do not replace the goal's end-to-end acceptance requirements.
 
 **2026-10-03 checkpoint clarification:** "Target Workflow" now names the scoped
 workflow being built and tested, distinct from the refiner and from a candidate
-revision. [ADR 0005](../adr/0005-target-workflow-runs-use-containers.md) selects
-container-only acceptance. Systemd failures recorded below describe the prior
-backend choice; repairing systemd is not a prerequisite for that acceptance.
+revision. The revised [ADR 0005](../adr/0005-target-workflow-execution-backends.md)
+supports container and systemd execution, replacing the earlier container-only
+decision. At that checkpoint, the systemd failures remained unresolved; the
+decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
+
+### Native nested continuation: passing shared-service comparison, 2026-10-03
+
+The final canonical run of
+`tests/iterative_episode_refiner/test_nested_continuation.py` passed
+**1 test in 844.7 seconds**, one worker, retries disabled, with the runner's
+operational file timeout set to 1800 seconds. No Episode controller or semantic
+stopping threshold changed. This completes task 3's native nested-continuation
+verification, not task 4's live reasoning acceptance.
+
+The test executes `Parts → Designer → Implementer` in real confined systemd
+workers through `ExperimentService.run` and `continue_run`. It cancels the first
+physical Run after Implementer's final unit reply is durable but before the host
+accepts the child return. The old worker is verified stopped. Continuation keeps
+the logical identity, uses a new executor identity, and checks current authority
+both before launch and after reconstruction. Only physical startup events may
+precede the reconstruction gate; no old model call, edit, target check or credit
+admission is repeated.
+
+The resumed child returns once. Repeating the continuation request returns the
+existing Run without another call, edit or credit update. The resumed and
+uninterrupted cases have equal terminal disposition, normalized numerical
+history, campaign operations, model-call counts, target-check counts and unique
+unit counts. Both end with disposition `attained` under the fixture's contract.
+During this run, the shared `run-record` CLI also exposed the cancelled original
+and succeeded continuation with current indexes: seven original model responses
+and two new responses after continuation, not nine repeated responses.
+
+**Evidence limit:** Builder/model decisions and Target Workflow observations are
+supplied. The applied source change is a comment, not a behavioral repair. This
+proves native refiner execution and continuation through the common service; it
+does not prove live-model experimental design, target correctness or autonomous
+repair. Those remain task 4. The nine focused passes below plus this final pass
+resolve the known failures; the entire 64-file suite was not rerun green.
+
+### Focused continuation rerun, 2026-10-03
+
+The six-file canonical rerun finished **9 passed, 1 failed in 719.0 seconds**,
+two workers with retries disabled. Reasoning execution passed both in-process
+and confined cases (**217.8 seconds** for that file), along with confined
+single-Episode continuation, execution admission, refiner-job routing and CLI
+continuation. No Episode stopping threshold changed.
+
+The remaining nested test reached the real executor's continuation preflight,
+past the corrected frozen-starting-state lookup. Its own inspection callback
+then incorrectly tried to read an unpublished Run's journal. The executor
+deliberately authorizes before publishing the new registration, then authorizes
+again after worker reconstruction. The assertion was changed to distinguish
+those two stages, and the interrupted case moved before the uninterrupted
+comparison.
+
+The next one-file run **failed in 266.0 seconds** at the second stage: the
+callback still incorrectly required an empty journal, overlooking the native
+executor's `runtime_ready` and `run_started` events. It reached that stage
+without repeating campaign effects or model calls, but did not admit new work.
+After reviewing the executor and reconstruction sequence, the callback now
+allows only those physical-startup events before activation. The final audit
+check locates the single `run_reconstructed` event after startup instead of
+assuming it is the journal's first event. It still forbids new Episode work
+before authorization and checks unchanged original evidence, campaign effects,
+model calls and target executions. Native nested recovery was not yet a passing
+claim at that point; the subsequent passing comparison is recorded above.
+
+### Compatibility after native setup, 2026-10-03
+
+The canonical check finished **343 passed, 1 failed, 2 skipped across 64 files
+in 883.9 seconds**, with three workers, retries disabled and runtime sources
+unchanged throughout. It covered runtime, Builder, refiner and method-loop tests,
+reasoning selection, repeatable calls, ordinary testing launch, launch setup and
+CLI continuation. The nested continuation comparison ran separately below.
+
+The sole failure was the confined reasoning fixture's separate **180-second
+`wait_for`**. The trace shows it handling a learning `select` request at unit
+ordinal 18 when cancelled; it is not a launch or AppArmor refusal. Native
+single-Episode continuation and service lifecycle checks passed in this batch.
+The optional live-model and live-container cases skipped. This is not a
+whole-system acceptance pass, and the timeout is not attributed conclusively to
+load or to a specific storage cost.
+
+The reasoning fixture now relies on the canonical runner's operational file
+timeout instead of its own additional deadline. Its frozen continuation threshold
+remains **0.1**, not the reference/live-benchmark default **0.01**; these timings
+are not performance evidence for the default. The nested-continuation lookup
+described below is also corrected. The subsequent focused result is recorded
+above; the Episode controllers and their thresholds are unchanged. Focused
+Ruff and `git diff --check` pass.
+
+### Native nested continuation: first shared-service run, 2026-10-03
+
+The nested comparison now calls `ExperimentService.run` and `continue_run`
+through the actual systemd executor, worker pipes and current-authority gate.
+The former test-only loopback/reconstruction driver is removed. Refiner model
+choices and Target Workflow observations remain supplied fixtures; the source
+change is a comment, not a demonstrated behavioral repair.
+
+The first canonical check, one worker with retries disabled, **failed after
+694.5 seconds**. Uninterrupted `Parts → Designer → Implementer` execution passed
+its assertions. The interrupted case durably closed Implementer's unit, stopped
+the physical worker and retained the waiting parents. The common service then
+refused continuation before launching a replacement worker: `execution.py`
+looked for `plan.subject.starting_state`, whereas the frozen preview stores it
+under `plan.scope.starting_state`. This is a continuation defect, not an
+AppArmor failure or a passing recovery receipt. Task 3 remains open.
+
+### Approved AppArmor setup and installation diagnostic, 2026-10-03
+
+The operator approved the executable-specific exception. The reviewed
+`scripts/apparmor/openchia-systemd-executor` was installed as root-owned mode
+0644 at `/etc/apparmor.d/openchia-systemd-executor` and loaded with
+`apparmor_parser`. AppArmor remains enabled and
+`kernel.apparmor_restrict_unprivileged_userns` remains **1**. The exception
+applies to all services using `/usr/lib/systemd/systemd-executor`, not only
+OpenChia. No systemd upgrade, global AppArmor disablement or replacement
+executor was used. Setup and reversible removal are documented in
+[the systemd setup guide](systemd_setup.md).
+
+The real diagnostic returns `ready` on systemd **255.4-1ubuntu8.17**, having
+observed distinct mount and network namespaces. Source installation (including
+unattended installation) and `hermes doctor` invoke the same diagnostic. It does
+not run an Episode or access model credentials, and never installs security
+policy automatically, including under `doctor --fix`.
+
+The four-file canonical CLI check, three workers with retries disabled, passed
+**21 tests in 7.3 seconds**: diagnostic behavior (3), source completion (6),
+doctor exit status (7), and source-update compatibility (5). The diagnostic test
+executes the real namespace probe; the refusal cases also cover systemd accepting
+properties without creating the namespaces. The install-path assertion confirms
+unattended installation invokes the check without requesting policy changes.
+
+After the policy was installed, a three-file native/runtime check first returned
+**4 passed, 2 failed in 54.2 seconds**. Native service inspection and descendant
+termination passed, but the full worker exposed a pre-existing startup race:
+the host rejected an inactive unit before its first invocation. Correcting that
+race exposed a second issue in the previously unexercised worker path: importing
+library definitions did not preload their lazily referenced implementations
+before Landlock. The next two-file check returned **1 passed, 2 failed in
+56.8 seconds**, with that explicit loader error. The loader now preloads selected
+definitions from verified library exports, without executing generated code
+before confinement. The executor also inspects the actual network namespace
+instead of trusting the requested property.
+
+The final three-file canonical runtime check passed **6 tests in 198.8 seconds**,
+three workers and retries disabled:
+
+- Native service lifecycle and backend attestation: **3 passed** (default and
+  explicit resource settings, actual namespace/mount inspection, whole-job stop).
+- Confined interrupted continuation: **1 passed**. Two distinct real systemd
+  workers preserve the committed model replies and positive credit, verify the
+  first worker is stopped, reconstruct through the shared gate, then return
+  normally without repeating calls or awarding the same credit twice.
+- Reasoning workflow: **2 passed**, one in-process and one real confined worker.
+  The native case uses actual host/worker messages and host model audit events,
+  including rejection and repair of malformed responses.
+
+Builder/model answers in these runtime checks are supplied fixtures; this is
+not the live-model scheduling benchmark. The continuation case is one inquiry
+Episode, not the remaining native nested-refiner acceptance. Live container
+execution, live-model experimental design and independently checked reasoning
+acceptance remain unverified. Focused Ruff and `git diff --check` pass.
+
+### Systemd 255 compatibility work, 2026-10-03
+
+[ADR 0006](../adr/0006-support-systemd-255.md) records the approved compatibility
+decision. The current worktree removes the unsupported `PrivatePIDs` request and
+mandatory private-PID attestation for systemd only; the container requirement is
+unchanged. Direct host cgroup-allocation discovery is removed. Explicit resource
+settings and whole-service stop behavior use systemd's existing interfaces.
+
+The canonical two-file check, two workers and retries disabled, returned
+**17 passed, 2 failed, 1 skipped in 2.8 seconds**. Container checks passed
+**16**, with their live-daemon case skipped. The attestation invariant passed,
+including rejection of weakened container isolation and of missing other
+systemd isolation facts. Both real-systemd service cases failed before the helper
+program started. The test covers default and explicit resource settings, actual
+mount inspection, and termination of the service and its child; those native
+claims therefore remain **unverified**, not passing.
+
+The service journal reports `226/NAMESPACE` and failure to establish mount
+namespacing. The matching kernel audit records AppArmor denying `sys_admin`
+inside `unprivileged_userns` for `/usr/lib/systemd/systemd-executor`. The network
+namespace request was also skipped by systemd for lack of privilege. This is
+distinct from the earlier unknown-property rejection. An explicit `PrivateUsers`
+diagnostic encountered the same denial; no additional namespace mechanism is
+being added to the worker.
+
+A separate four-file canonical check, three workers and retries disabled, passed
+**15 tests in 15.6 seconds**: continuation identity (2), worker stderr diagnostics
+(2), executor HTTP protocol loop (1), and egress contracts (10). The HTTP-loop
+test uses real pipes and stores but a supplied worker/inspection; it does not
+prove native confinement. Focused Ruff and `git diff --check` pass.
+
+The obsolete synthetic cgroup-hierarchy tests were replaced with the real-service
+and backend-attestation checks in `test_systemd_executor.py`; their old source is
+recoverable from Git. At this point no host security policy had been changed and
+operator approval for a launcher-specific AppArmor exception was outstanding.
+Full native worker continuation and live model-directed acceptance had not been
+rerun on that edit. The later approved setup is recorded above.
 
 ### CLI HTTP credentials and compatibility corrections, 2026-10-03
 
