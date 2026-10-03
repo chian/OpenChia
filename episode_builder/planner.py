@@ -1174,7 +1174,6 @@ class EpisodeMaterializationPlanner:
                     options=self.call_options,
                 )
             )
-        )
         observe_model_call(
             model_call_observer,
             stage="planning",
