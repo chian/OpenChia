@@ -121,7 +121,7 @@ async def _call_and_admit(
                 f"{type(exc).__name__}: {exc}",
             ),
             auxiliary_task=auxiliary_task,
-            route=(),
+            route=_route_record(getattr(exc, "route", {})),
         )
 
     route_record = _route_record(response.route)

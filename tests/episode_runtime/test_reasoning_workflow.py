@@ -382,7 +382,10 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
                 executor.execute(
                     registration=registration,
                     source_package_path=package,
-                    model_broker=ScopedModelBroker(inquiry_model),
+                    model_broker=ScopedModelBroker(inquiry_model, episode_paths={
+                        (node.grain_name,): node.local_id
+                        for node in builder_store.read_plan(receipt.plan_id).nodes
+                    }),
                 ),
                 60,
             )

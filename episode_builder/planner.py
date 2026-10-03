@@ -1164,14 +1164,16 @@ class EpisodeMaterializationPlanner:
             ),
             "required_output_shape": _plan_shape_for_children(child_plans),
         }
-        result = await structured_json_completion(
-            StructuredJSONRequest(
-                system_prompt=_PLANNER_SYSTEM_PROMPT,
-                prompt=_canonical(prompt_record),
-                admit=_admit_plan_payload,
-                options=self.call_options,
+        from llm_call_library.transport import model_call_scope
+        with model_call_scope(node.local_id, "builder.planning"):
+            result = await structured_json_completion(
+                StructuredJSONRequest(
+                    system_prompt=_PLANNER_SYSTEM_PROMPT,
+                    prompt=_canonical(prompt_record),
+                    admit=_admit_plan_payload,
+                    options=self.call_options,
+                )
             )
-        )
         observe_model_call(
             model_call_observer,
             stage="planning",

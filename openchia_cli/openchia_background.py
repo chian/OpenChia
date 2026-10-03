@@ -49,6 +49,7 @@ class OpenChiaBackgroundDuetsMixin:
         "approve": "_background_action_approve",
         "decline": "_background_action_decline",
         "build": "_background_action_build",
+        "launch": "_background_action_launch",
         "run": "_background_action_run",
         "cancel": "_background_action_cancel",
         "evidence": "_background_action_evidence",
@@ -137,11 +138,14 @@ class OpenChiaBackgroundDuetsMixin:
                 home=get_hermes_home(),
                 session_id=duet_id,
                 available_tool_names=self._tool_names(agent),
-                agent_kwargs_factory=lambda role, identity: self._agent_kwargs_for_episode_under(
-                    duet_id,
-                    role,
-                    identity,
-                ),
+                agent_kwargs_factory=lambda role, identity: {
+                    "provider": agent.provider,
+                    "model": agent.model,
+                    "api_key": agent.api_key,
+                    "base_url": agent.base_url,
+                    "api_mode": agent.api_mode,
+                    "session_id": duet_id,
+                },
                 run_executor_factory=self._strict_run_executor_factory(),
             )
             agent = host.bind_duet(agent)
@@ -550,6 +554,14 @@ class OpenChiaBackgroundDuetsMixin:
             self._print_openchia(
                 f"Background EpisodeBuilder operation failed: {exc}"
             )
+
+    def _background_action_launch(self, context: _BackgroundDuet, duet_id: str, arguments: str) -> None:
+        from openchia_cli.episode_launch_command import launch_command
+        try:
+            result = launch_command(context.host, arguments)
+            self._print_openchia(json.dumps(result, indent=2, ensure_ascii=False))
+        except Exception as exc:
+            self._print_openchia(f"Background Duet {duet_id} launch configuration: {exc}")
 
     def _background_action_run(
         self,
