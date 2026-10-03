@@ -47,10 +47,13 @@ class ModelTransportRequest:
     main_runtime: Mapping[str, Any] | None
     episode_local_id: str | None = None
     call_role: str | None = None
+    model_type: str = "reasoning"
 
     def __post_init__(self) -> None:
         if not isinstance(self.task, str) or not self.task.strip():
             raise ValueError("model transport task must be non-empty text")
+        if not isinstance(self.model_type, str) or not self.model_type.strip() or "\x00" in self.model_type:
+            raise ValueError("model_type must name a launch slot")
         object.__setattr__(self, "messages", _messages(self.messages))
         if self.reasoning_config is not None:
             if not isinstance(self.reasoning_config, Mapping):

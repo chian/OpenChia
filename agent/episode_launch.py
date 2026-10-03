@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-import os
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -62,12 +61,12 @@ def read_launch_spec(path: str | Path) -> dict[str, Any]:
 
 
 def validate_launch_spec(value: object) -> dict[str, Any]:
-    spec = _fields(value, {"project", "project_root", "env_files", "inherit_env", "routes", "bindings"}, {"source_file"}, "launch")
+    spec = _fields(value, {"project", "project_root", "env_files", "routes", "model_slots", "builder_slots"}, {"source_file"}, "launch")
     for name in ("project", "project_root"):
         _text(spec[name], name)
     if "source_file" in spec:
         _text(spec["source_file"], "source_file")
-    for name in ("env_files", "inherit_env"):
+    for name in ("env_files",):
         if not isinstance(spec[name], list) or any(not isinstance(x, str) or not x for x in spec[name]):
             raise LaunchConfigurationError(f"{name} must be a list of names")
         if len(spec[name]) != len(set(spec[name])):
@@ -86,8 +85,8 @@ def validate_launch_spec(value: object) -> dict[str, Any]:
             else:
                 _text(val, key)
         auth = _fields(route["auth"], {"kind"}, {"env", "account"}, "auth")
-        if auth["kind"] not in {"env", "codex_login", "session", "none"}:
-            raise LaunchConfigurationError("auth.kind must be env, codex_login, session, or none")
+        if auth["kind"] not in {"env", "codex_login", "none"}:
+            raise LaunchConfigurationError("auth.kind must be env, codex_login, or none")
         expected = {"kind"} if auth["kind"] == "none" else {"kind", "account"}
         if auth["kind"] in {"env", "codex_login"}:
             expected.add("env")
@@ -106,23 +105,16 @@ def validate_launch_spec(value: object) -> dict[str, Any]:
             raise LaunchConfigurationError(f"route {name} has invalid fallbacks")
         if len(fallbacks) != len(set(fallbacks)):
             raise LaunchConfigurationError("fallbacks must name distinct routes in attempt order")
-    bindings = _fields(spec["bindings"], {"default"}, {"roles", "episodes"}, "bindings")
-    refs = [bindings["default"]]
-    for group in ("roles", "episodes"):
-        overrides = bindings.get(group, {})
-        if not isinstance(overrides, dict):
-            raise LaunchConfigurationError(f"bindings.{group} must be an object")
-        for name, ref in overrides.items():
-            _text(name, f"bindings.{group} name")
-            if group == "roles" and name not in {
-                "builder.planning", "builder.emission", "run",
-                "episode_structured_json_reasoning", "episode_structured_json_fast",
-                "episode_probability_reasoning", "episode_probability_fast",
-            }:
-                raise LaunchConfigurationError(f"unknown model call role {name}")
-            refs.append(ref)
-    if any(not isinstance(ref, str) or ref not in routes for ref in refs):
-        raise LaunchConfigurationError("every binding must name a declared route")
+    slots = spec["model_slots"]
+    if not isinstance(slots, dict) or not slots:
+        raise LaunchConfigurationError("model_slots must map call-site model types to routes")
+    for name, route in slots.items():
+        _text(name, "model slot")
+        if not isinstance(route, str) or route not in routes:
+            raise LaunchConfigurationError(f"model slot {name} must name a declared route")
+    builder = _fields(spec["builder_slots"], {"planning", "emission"}, set(), "builder_slots")
+    if any(not isinstance(slot, str) or slot not in slots for slot in builder.values()):
+        raise LaunchConfigurationError("each Builder stage must name a declared model slot")
     return json.loads(canonical_json(spec))
 
 
@@ -133,18 +125,16 @@ class ResolvedLaunch:
     public_json: str
     credentials: Mapping[str, str | None] = field(repr=False, compare=False)
     configuration_hash: str = field(init=False)
-    _bindings: Mapping = field(init=False, repr=False, compare=False)
+    _model_slots: Mapping = field(init=False, repr=False, compare=False)
+    _builder_slots: Mapping = field(init=False, repr=False, compare=False)
     _route_chains: Mapping = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "credentials", MappingProxyType(dict(self.credentials)))
         object.__setattr__(self, "configuration_hash", Sha256Digest.of_bytes(self.public_json.encode()).value)
         spec = self.record["resolved_spec"]
-        object.__setattr__(self, "_bindings", MappingProxyType({
-            "default": spec["bindings"]["default"],
-            "roles": MappingProxyType(spec["bindings"].get("roles", {})),
-            "episodes": MappingProxyType(spec["bindings"].get("episodes", {})),
-        }))
+        object.__setattr__(self, "_model_slots", MappingProxyType(spec["model_slots"]))
+        object.__setattr__(self, "_builder_slots", MappingProxyType(spec["builder_slots"]))
         object.__setattr__(self, "_route_chains", MappingProxyType({
             name: (name, *route.get("fallbacks", [])) for name, route in spec["routes"].items()
         }))
@@ -153,13 +143,21 @@ class ResolvedLaunch:
     def record(self) -> dict[str, Any]:
         return json.loads(self.public_json)
 
-    def route_names(self, episode_local_id: str | None, role: str, task: str) -> tuple[str, ...]:
-        bindings = self._bindings
-        roles = bindings.get("roles", {})
-        name = roles.get(role, roles.get(task, bindings["default"]))
-        if role == "run":
-            name = bindings.get("episodes", {}).get(episode_local_id, name)
-        return self._route_chains[name]
+    def model_type_for(self, model_type: str, role: str) -> str:
+        stage = role.removeprefix("builder.") if role.startswith("builder.") else None
+        selected = self._builder_slots[stage] if stage in self._builder_slots else model_type
+        if selected not in self._model_slots:
+            raise LaunchConfigurationError(f"model_type {selected!r} is not in the approved launch slots")
+        return selected
+
+    def route_names(self, model_type: str, role: str) -> tuple[str, ...]:
+        return self._route_chains[self._model_slots[self.model_type_for(model_type, role)]]
+
+    def model_slot_catalog(self) -> dict[str, dict]:
+        spec = self.record["resolved_spec"]
+        return {slot: {"route": name, **{key: spec["routes"][name].get(key)
+                    for key in ("provider", "model", "base_url", "reasoning")}}
+                for slot, name in spec["model_slots"].items()}
 
 
 def _codex_login_token(path: Path) -> str:
@@ -183,7 +181,7 @@ def _codex_login_token(path: Path) -> str:
     return token.strip()
 
 
-def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any] | None = None) -> ResolvedLaunch:
+def resolve_launch(spec: Mapping[str, Any]) -> ResolvedLaunch:
     """Snapshot explicit file/env inputs. No provider discovery or network calls."""
     spec = validate_launch_spec(spec)
     root = Path(spec["project_root"]).expanduser().resolve(strict=True)
@@ -191,10 +189,6 @@ def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any
         raise LaunchConfigurationError("project_root must be a directory")
     values: dict[str, str] = {}
     sources: dict[str, str] = {}
-    for name in spec["inherit_env"]:
-        if name in os.environ:
-            values[name] = os.environ[name]
-            sources[name] = f"process_env:{name}"
     paths = []
     for raw in spec["env_files"]:
         path = (root / Path(raw).expanduser()).resolve(strict=True)
@@ -252,18 +246,6 @@ def resolve_launch(spec: Mapping[str, Any], *, session_runtime: Mapping[str, Any
                 codex_tokens[path] = _codex_login_token(path)
             key = codex_tokens[path]
             source = f"{sources[variable]} -> codex_login:{path}"
-        elif auth["kind"] == "session":
-            runtime = session_runtime or {}
-            for setting in ("provider", "base_url", "api_mode"):
-                actual = runtime.get(setting)
-                if setting == "base_url" and actual:
-                    actual = _endpoint(actual)
-                if actual != route[setting]:
-                    raise LaunchConfigurationError(f"route {name}: session {setting} differs from selected route")
-            key = runtime.get("api_key")
-            if not isinstance(key, str) or not key:
-                raise LaunchConfigurationError(f"route {name}: current session has no concrete credential")
-            source = f"explicit_session_credential:{runtime.get('parent_session_id') or runtime.get('session_id') or 'unspecified'}"
         credentials[name] = key
         provenance[f"routes.{name}.auth"] = source
         provenance[f"routes.{name}.reasoning"] = (

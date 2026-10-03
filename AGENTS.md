@@ -528,7 +528,7 @@ extract, not to regex around it.
 | `skills/`, `optional-skills/`, `agent/curator*.py` | `skills/AGENTS.md` | Frontmatter, HARDLINE authoring standards, curator |
 | `cron/`, kanban (`openchia_cli/kanban*.py`, `tools/kanban_tools.py`, `plugins/kanban/`) | `cron/AGENTS.md` | Scheduler invariants, job fields, kanban board/dispatcher |
 | `docs/adr/` | `docs/adr/README.md` | Architecture decision records, filename/status convention, and durable design rationale |
-| Episode model launch routing | `docs/openchia/episode_launch_configuration.md` | Explicit project/model settings, environment inheritance, credential references, and durable launch receipts |
+| Episode model launch routing | `docs/openchia/episode_launch_configuration.md` | Duet launch proposals, human approval, shared model slots, explicit credential references, and durable launch receipts |
 | `gateway/platforms/` new adapter | `gateway/platforms/ADDING_A_PLATFORM.md` | Step-by-step adapter guide |
 | profiles / multiplex / secret scope (any area) | `gateway/AGENTS.md` § Profile scope, `website/docs/user-guide/multi-profile-gateways.md` § What is isolated per profile | which execution points bind scope, what is isolated per profile |
 

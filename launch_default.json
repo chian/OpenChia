@@ -2,7 +2,6 @@
   "project": "openchia-default",
   "project_root": ".",
   "env_files": [".env.launch_default"],
-  "inherit_env": [],
   "routes": {
     "sol_medium": {
       "provider": "openai-codex",
@@ -59,9 +58,6 @@
       "fallbacks": []
     }
   },
-  "bindings": {
-    "default": "sol_medium",
-    "roles": {"builder.planning": "sol_medium", "builder.emission": "sol_medium"},
-    "episodes": {}
-  }
+  "model_slots": {"reasoning": "sol_medium", "fast": "luna_none", "non_reasoning": "sol_none"},
+  "builder_slots": {"planning": "reasoning", "emission": "reasoning"}
 }

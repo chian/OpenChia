@@ -102,6 +102,7 @@ async def _call_and_admit(
         response = await call_model_transport(
             ModelTransportRequest(
                 task=auxiliary_task,
+                model_type=options.model_type,
                 messages=tuple(_messages(system_prompt, prompt)),
                 temperature=options.temperature,
                 max_tokens=options.max_tokens,

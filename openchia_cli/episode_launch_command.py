@@ -11,6 +11,8 @@ def launch_command(host, arguments: str):
         "status": (0, host.launch_status),
         "calls": (0, host.launch_calls),
         "preview": (0, host.preview_launch),
+        "approve": (1, host.approve_launch),
+        "apply": (2, host.apply_launch_proposal),
         "load": (1, host.configure_launch),
         "reuse": (1, host.reuse_launch),
         "show": (1, host.launch_details),
@@ -18,5 +20,5 @@ def launch_command(host, arguments: str):
     }
     selected = handlers.get(action)
     if selected is None or len(parts[1:]) != selected[0]:
-        raise ValueError("Usage: /launch [status|preview|calls|show LAUNCH_ID|load FILE|reload|reuse LAUNCH_ID]")
+        raise ValueError("Usage: /launch [status|preview|approve HASH|apply PROPOSAL_ID FILE|calls|show LAUNCH_ID|load FILE|reload|reuse LAUNCH_ID]")
     return selected[1](*parts[1:])

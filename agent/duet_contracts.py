@@ -148,6 +148,7 @@ DUET_PROTOCOL_TOOLS = frozenset(
     {
         "openchia_scope",
         "duet_status",
+        "duet_launch_propose",
         "episode_architecture_submit",
         "episode_workspace_read",
         "episode_refinement_request",

@@ -5,9 +5,17 @@ conversation keeps its own `/model` setting; selecting a launch configuration
 does not change the conversation. Foreground and background Duets each persist
 their own launch selection.
 
+Duet asks about project launch setup during initial design. It can propose a
+configuration with `duet_launch_propose`; the human saves that proposal with
+`/launch apply PROPOSAL_ID FILE`, or selects an existing file as below. Duet
+receives current setup and approval state through `duet_status`, including the
+available model slots. The conversational LLM can propose settings; approval
+belongs to the human command surface.
+
 ```text
 /launch load /absolute/path/to/project/launch.json
 /launch preview
+/launch approve HASH_FROM_PREVIEW
 /build
 /launch calls
 /run
@@ -20,6 +28,11 @@ request or an auth refresh. `/launch calls` shows started, successful, failed
 and cancelled attempts. Background
 Duets use `/bg DUET_ID launch ...` with the same commands.
 
+Approval binds the resolved, nonsecret configuration hash to this Duet's
+selection. Builder and Run require that approval before model requests. Changes
+to models, slots, endpoints, reasoning settings, or credential references require
+another preview and approval. Architecture approval is a separate decision.
+
 ## Launch file
 
 This JSON file contains settings and credential references. `.env` files hold
@@ -31,7 +44,6 @@ relative `env_files` paths are relative to that project root.
   "project": "oscillator",
   "project_root": ".",
   "env_files": [".env"],
-  "inherit_env": ["EPISODE_MODEL"],
   "routes": {
     "design": {
       "provider": "openai",
@@ -39,7 +51,7 @@ relative `env_files` paths are relative to that project root.
       "base_url": "https://api.openai.com/v1",
       "api_mode": "chat_completions",
       "auth": {"kind": "env", "env": "PROJECT_API_KEY", "account": "project-billing-account"},
-      "reasoning": {"enabled": true, "effort": "xhigh"},
+      "reasoning": {"enabled": true, "effort": "medium"},
       "fallbacks": []
     },
     "local": {
@@ -51,25 +63,26 @@ relative `env_files` paths are relative to that project root.
       "fallbacks": []
     }
   },
-  "bindings": {
-    "default": "design",
-    "roles": {"builder.planning": "design", "builder.emission": "design"},
-    "episodes": {"simulation": "local"}
-  }
+  "model_slots": {"reasoning": "design", "fast": "local"},
+  "builder_slots": {"planning": "reasoning", "emission": "reasoning"}
 }
 ```
 
-Use actual local Episode IDs from the Architecture in `bindings.episodes`.
-Unknown IDs are rejected before model requests. The example's `simulation`
-entry should be removed or replaced for a different workflow.
+Slot names are project-defined. Each LLM-using function declares its slot with
+`CallOptions(model_type="reasoning")`, for example. Functions within one Episode
+can use different slots. Changing the route assigned to a slot updates all its
+consumers on subsequent approved launches. Changing which slot a function uses
+is a materialized-code change. Builder receives the approved slot catalog,
+records the selected `model_type` in each prompt specification, and rejects
+unknown slots during planning. Run verifies those slots exist in its launch.
 
 ### Source precedence and model selection
 
-Only variables named in `inherit_env` are read from the process environment.
-Declared `.env` files overlay those values in list order, with the last file
+Declared `.env` files supply all variable references in list order, with the last file
 winning. Missing or unreadable declared files fail resolution. Missing
 referenced variables fail rather than invoking account/provider discovery.
-No `.env` file is written into the process environment.
+The process environment supplies no credentials or launch settings. No `.env`
+file is written into the process environment.
 
 Resolution is eager: every declared route, including unused routes and
 fallbacks, must have resolvable settings and credentials. A launch file declares
@@ -81,12 +94,12 @@ Provider, model, base URL, and API mode can be literal strings or explicit
 Each resolved field records its source. Project root is an attribution and
 configuration-path base; it does not grant workers filesystem access.
 
-Builder calls select `builder.planning` or `builder.emission`, then the call's
-task binding, then `default`. Runtime calls select the Episode override, then
-`run`, then their task binding, then `default`. Task binding names are
-`episode_structured_json_reasoning`, `episode_structured_json_fast`,
-`episode_probability_reasoning`, and `episode_probability_fast`. Episode
-overrides affect running Episodes, not the model writing their code.
+Builder calls use the slots in `builder_slots.planning` and
+`builder_slots.emission`. Runtime calls use their own `model_type`. The slot
+resolves to a route, which owns the concrete model, endpoint, credential
+reference, reasoning setting, and explicit fallbacks. An unknown slot fails
+before a model request. Reference calls that specify only the existing
+`ModelTier` use its string value as their slot name.
 
 An explicit route `reasoning` overrides the call's reasoning preference;
 otherwise the existing call options apply. Temperature, output-token request,
@@ -123,7 +136,7 @@ In the workflow's named `.env` file, set:
 WORKFLOW_CODEX_AUTH_FILE=/absolute/path/to/.codex/auth.json
 ```
 
-The reference must come from a declared workflow `.env`, not `inherit_env`.
+The reference must come from a declared workflow `.env`.
 Each new launch reads that exact file once and snapshots its access token for
 all routes sharing it. The route must use `openai-codex`, `codex_responses`, and
 the official Codex endpoint. The file must contain `auth_mode: chatgpt` and a
@@ -138,14 +151,6 @@ running launch keeps its snapshot; a new launch picks up Codex's latest token.
 If it expires, refresh that login in Codex and start a new launch. See
 [Codex authentication](https://learn.chatgpt.com/docs/auth#login-caching).
 
-`auth.kind: session` explicitly borrows the current Duet session's concrete
-credential. Supply an `account` label and literal/resolved provider, endpoint
-and API mode matching that session. A mismatch fails before dispatch. This
-option snapshots the credential; it does not discover another login, rotate a
-credential pool, or refresh OAuth tokens. An expired token requires a refreshed
-session credential and a new launch. Use a dedicated `.env` reference when
-account isolation must be independent of the conversational session.
-
 Supported wires are `chat_completions`, `codex_responses`, and
 `anthropic_messages`. The existing provider wire adapters perform serialization;
 the ambient auxiliary routing/fallback machinery does not select the route.
@@ -158,10 +163,12 @@ and provider-specific arbitrary headers are not supported in this launch format.
 
 ### Stable launches, new launches and repeating settings
 
-The selected launch file is captured when loaded. Each `/build` or `/run`
-resolves its explicit environment references once and freezes that result for
-the entire launch, including fallbacks. Editing `.env`, the process environment,
-the selection, or the Duet model does not change an in-flight launch.
+Each preview, approval, `/build`, and `/run` rereads the selected launch file
+and its explicit environment references. A launch freezes the approved result
+for its entire lifetime, including fallbacks. Editing files, the selection, or
+the Duet model does not change an in-flight launch. Credential rotation at the
+same reference is picked up by the next launch without changing its approval;
+secret values are neither persisted nor included in the approval hash.
 
 `/launch reload` rereads the source file for subsequent launches. Those launches
 resolve environment references anew. `/launch reuse LAUNCH_ID` instead selects
@@ -179,16 +186,17 @@ fallback. SDK retries and implicit provider/account hopping are disabled.
 
 ## Durable receipts and boundaries
 
-The existing Duet event store records `launch_configuration_selected`,
+The existing Duet event store records `launch_configuration_proposed`,
+`launch_proposal_applied`, `launch_configuration_selected`, `launch_configuration_approved`,
 `model_launch_resolved`, and `model_launch_call`. Each resolved launch binds a
 build-request ID or Run ID to a content-addressed configuration blob in the
 Builder's blob store. Its receipt includes source paths, requested and resolved
-settings, inheritance policy, credential references, host/adapter source
+settings, credential references, host/adapter source
 hashes, checkout commit/dirty state, and SDK package versions. These records
 survive reopening the same Duet.
 
 Every physical model attempt records launch ID, configuration hash, call ID,
-Episode local ID, call role, provider, model, endpoint, credential source,
+Episode local ID, call role, model slot, provider, model, endpoint, credential source,
 operator account label, outcome and elapsed time. Failed attempts retain error
 type and HTTP status without storing raw provider errors that may contain
 secrets. An interrupted process can leave a `started` receipt without a terminal
@@ -196,13 +204,15 @@ receipt; it must not be interpreted as success.
 
 The worker supplies its structural Episode path; the protocol checks its
 runtime identity and the host broker matches it to the admitted tree before
-selecting the local Episode's route. Endpoint and credential configuration stay
+dispatching its function's model slot. Endpoint and credential configuration stay
 on the host. Changing this worker protocol requires a fresh runtime package;
 there is no old-frame compatibility path.
 
-This feature concerns Builder and Run model calls. Duet conversation routing,
-external acquisition-tool credentials, and Refiner design/credit logic retain
-their own existing ownership.
+This feature concerns Builder and Run model calls. External acquisition services
+use the existing host egress configuration; `duet_status` reports its allowed
+hosts and credential names so Duet can ask for missing setup during design.
+Those credentials are not model routes. Duet conversation routing and Refiner
+design/credit logic retain their existing ownership.
 
 The native Messages wire requires the repository's optional `anthropic` extra.
 A missing SDK is recorded as a failed attempt; it never switches to another

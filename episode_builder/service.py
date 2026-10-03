@@ -152,6 +152,7 @@ def _model_config(options: CallOptions) -> Mapping[str, object]:
         ),
         "launch_configuration_hash": options.launch_configuration_hash,
         "tier": options.tier.value,
+        "model_type": options.model_type,
         "temperature": options.temperature,
         "max_tokens": options.max_tokens,
         "timeout": options.timeout,
@@ -329,6 +330,7 @@ class EpisodeBuilder:
         planner: EpisodeMaterializationPlanner | None = None,
         emitter: EpisodeModuleEmitter | None = None,
         admission: EpisodeBuildAdmission | None = None,
+        model_slot_catalog: Mapping[str, object] | None = None,
     ) -> None:
         if not isinstance(store, BuildStore):
             raise TypeError("EpisodeBuilder requires a BuildStore")
@@ -369,6 +371,7 @@ class EpisodeBuilder:
         self.planner = planner or EpisodeMaterializationPlanner(
             reference_resolver=resolver,
             call_options=effective_options,
+            model_slot_catalog=model_slot_catalog,
         )
         self.emitter = emitter or EpisodeModuleEmitter(call_options=effective_options)
         self.admission = admission or EpisodeBuildAdmission()

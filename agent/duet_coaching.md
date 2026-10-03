@@ -5,6 +5,35 @@ complete nested Episode workflow Architecture. The Architecture states each
 Episode's goal, repeatable unit, result, measurement, numerical controller,
 capabilities, child topology, and deliverable boundary.
 
+- Read `duet_status` at the start of design and after launch settings change.
+  Its `launch` block supplies the current project setup, model options, and
+  exact human approval state. During initial design, ask whether to load the
+  project's existing launch file or prepare one together. Gather its project
+  directory, workflow-specific .env file paths, model endpoints, credential
+  references, and desired reasoning settings as those choices become relevant.
+- Propose shared model slots such as `reasoning` and `fast`, and explain the
+  quality, latency, and cost tradeoffs for the human to choose. Each model-using
+  function declares a `model_type` slot; an Episode can use several slots.
+  Use the configured slot names in the Architecture's implementation guidance.
+  The launch file maps each slot to a concrete route and chooses slots for
+  Builder planning and emission. The human owns those assignments.
+- Use `duet_launch_propose` to save a complete nonsecret configuration candidate.
+  Its returned proposal ID lets the human use `/launch apply PROPOSAL_ID FILE`,
+  inspect `/launch preview`, and approve that exact hash with
+  `/launch approve HASH`. Existing files use `/launch load FILE`. Gather secret
+  variable names and file references; the human keeps credential values in the
+  named .env files. For Codex subscription access, `codex_login` references the
+  Codex login-file path through a variable in that .env file.
+- Complete launch setup and human approval before asking the human to start
+  `/build`. Show the approved model choices during design. Later model or
+  credential-source changes go through the same preview and approval flow and
+  apply to subsequent launches; active launches keep their recorded settings.
+  Architecture approval and launch approval are separate decisions.
+- When external services become part of the workflow, ask which service account
+  and credential reference the human wants. `duet_status` lists the host's
+  available HTTP credential names and hosts; those must be configured through
+  the host egress configuration before the Architecture can name them.
+
 - During initial design, submit each complete candidate Architecture against
   the exact current mutable draft identity. The first submission has no prior
   draft identity. Approved Architecture successors use the refinement request

@@ -27,13 +27,67 @@ DUET_STATUS_SCHEMA = {
     "name": "duet_status",
     "description": (
         "Read the durable Duet workflow state, current draft metadata, "
-        "validation, and exact human approval state."
+        "validation, exact human approval state, and project launch setup: "
+        "model slots, routes, credential references and launch approval."
     ),
     "parameters": {
         "type": "object",
         "properties": {},
         "required": [],
         "additionalProperties": False,
+    },
+}
+
+
+_LAUNCH_SETTING = {"anyOf": [
+    {"type": "string"},
+    {"type": "object", "properties": {"env": {"type": "string"}},
+     "required": ["env"], "additionalProperties": False},
+]}
+
+DUET_LAUNCH_PROPOSE_SCHEMA = {
+    "name": "duet_launch_propose",
+    "description": (
+        "Prepare a complete project launch configuration for human review. "
+        "Proposals contain model settings and credential references, never secret "
+        "values. This saves a proposal only. The human selects a file destination "
+        "and approves its resolved settings through /launch. model_slots maps "
+        "function-level model_type names to routes; builder_slots selects slots "
+        "for planning and emission. env_files are relative to project_root."
+    ),
+    "parameters": {
+        "type": "object", "required": ["configuration"], "additionalProperties": False,
+        "properties": {"configuration": {
+            "type": "object", "additionalProperties": False,
+            "required": ["project", "project_root", "env_files", "routes", "model_slots", "builder_slots"],
+            "properties": {
+                "project": {"type": "string"},
+                "project_root": {"type": "string"},
+                "env_files": {"type": "array", "items": {"type": "string"}},
+                "model_slots": {"type": "object", "additionalProperties": {"type": "string"}},
+                "builder_slots": {
+                    "type": "object", "required": ["planning", "emission"], "additionalProperties": False,
+                    "properties": {"planning": {"type": "string"}, "emission": {"type": "string"}},
+                },
+                "routes": {"type": "object", "additionalProperties": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["provider", "model", "base_url", "api_mode", "auth"],
+                    "properties": {
+                        **{name: _LAUNCH_SETTING for name in ("provider", "model", "base_url", "api_mode")},
+                        "auth": {"type": "object", "additionalProperties": False,
+                                 "required": ["kind"], "properties": {
+                                     "kind": {"type": "string", "enum": ["env", "codex_login", "none"]},
+                                     "env": {"type": "string"}, "account": {"type": "string"},
+                                 }},
+                        "reasoning": {"type": "object", "additionalProperties": False,
+                                      "required": ["enabled", "effort"], "properties": {
+                                          "enabled": {"type": "boolean"}, "effort": {"type": "string"},
+                                      }},
+                        "fallbacks": {"type": "array", "items": {"type": "string"}},
+                    },
+                }},
+            },
+        }},
     },
 }
 
@@ -193,6 +247,7 @@ def _agent_bound_only(**_kwargs: Any) -> dict[str, Any]:
 for schema in (
     OPENCHIA_SCOPE_SCHEMA,
     DUET_STATUS_SCHEMA,
+    DUET_LAUNCH_PROPOSE_SCHEMA,
     EPISODE_ARCHITECTURE_SUBMIT_SCHEMA,
     EPISODE_WORKSPACE_READ_SCHEMA,
     EPISODE_REFINEMENT_REQUEST_SCHEMA,
@@ -207,6 +262,7 @@ for schema in (
 
 __all__ = [
     "DUET_STATUS_SCHEMA",
+    "DUET_LAUNCH_PROPOSE_SCHEMA",
     "EPISODE_ARCHITECTURE_SUBMIT_SCHEMA",
     "EPISODE_REFINEMENT_REQUEST_SCHEMA",
     "EPISODE_WORKSPACE_READ_SCHEMA",

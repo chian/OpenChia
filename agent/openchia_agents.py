@@ -12,6 +12,7 @@ DUET_MODEL_PROTOCOL_TOOLS = frozenset(
     {
         "openchia_scope",
         "duet_status",
+        "duet_launch_propose",
         "episode_architecture_submit",
         "episode_workspace_read",
         "episode_refinement_request",
@@ -91,6 +92,7 @@ def _duet_authority_scope(
         "allowed_operations": [
             "inspect_scope",
             "read_duet_status",
+            "propose_nonsecret_launch_configuration_for_human_review",
             "gather_read_only_information",
             "submit_the_complete_mutable_initial_architecture",
             "read_validated_episode_workspace_targets",
@@ -148,6 +150,8 @@ def bind_duet_agent(
     agent._episode_architecture_submitter = None
     agent._episode_workspace_reader = None
     agent._episode_refinement_requester = None
+    agent._duet_launch_reader = None
+    agent._duet_launch_proposer = None
     agent.skip_context_files = True
     agent.load_soul_identity = False
     agent.skip_background_review = True

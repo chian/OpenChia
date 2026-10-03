@@ -183,7 +183,7 @@ def _prompt_record(value: object, name: str) -> dict[str, object]:
         raise ValueError(f"{name} must be an object")
     required = {
         "name",
-        "model_tier",
+        "model_type",
         "purpose",
         "system_prompt",
         "prompt_template",
@@ -191,8 +191,6 @@ def _prompt_record(value: object, name: str) -> dict[str, object]:
         "basis",
     }
     _require_exact_fields(value, required, name)
-    if value["model_tier"] not in {"reasoning", "fast"}:
-        raise ValueError(f"{name}.model_tier must be reasoning or fast")
     for field in required:
         if not isinstance(value[field], str) or not value[field].strip():
             raise ValueError(f"{name}.{field} must be non-empty text")
@@ -859,7 +857,7 @@ _PLAN_SHAPE = {
     "prompt_specs": [
         {
             "name": "prompt_name",
-            "model_tier": "reasoning|fast",
+            "model_type": "one name from approved_model_slots",
             "purpose": "one semantic operation",
             "system_prompt": "complete system prompt",
             "prompt_template": "complete task prompt template",
@@ -1041,11 +1039,13 @@ class EpisodeMaterializationPlanner:
         *,
         reference_resolver: EpisodeReferenceResolver,
         call_options: CallOptions | None = None,
+        model_slot_catalog: Mapping[str, object] | None = None,
     ) -> None:
         if not isinstance(reference_resolver, EpisodeReferenceResolver):
             raise TypeError("planner requires an EpisodeReferenceResolver")
         self.reference_resolver = reference_resolver
         self.call_options = call_options or CallOptions(tier=ModelTier.REASONING)
+        self.model_slot_catalog = dict(model_slot_catalog or {})
 
     @staticmethod
     def _children_by_parent(
@@ -1102,6 +1102,14 @@ class EpisodeMaterializationPlanner:
             ADMIT_DUET_LAUNCH_REQUEST if is_root else ADMIT_PARENT_REQUEST
         )
         prompt_record = {
+            "approved_model_slots": self.model_slot_catalog,
+            "model_selection_rule": (
+                "Each prompt_spec.model_type names one approved_model_slots entry. "
+                "Choose per function; one Episode can use different slots. "
+                "The human's launch configuration owns model, provider, endpoint, "
+                "reasoning effort and credentials. Generated LLM calls use "
+                "llm_call_library.CallOptions(model_type=the_declared_slot)."
+            ),
             "node": node.as_record(),
             "position": "root" if is_root else "child",
             "direct_children": [child.as_record() for child in child_plans],
@@ -1165,12 +1173,19 @@ class EpisodeMaterializationPlanner:
             "required_output_shape": _plan_shape_for_children(child_plans),
         }
         from llm_call_library.transport import model_call_scope
+        def admit_with_slots(value):
+            payload = _admit_plan_payload(value)
+            unknown = {prompt["model_type"] for prompt in payload["prompt_specs"]} - self.model_slot_catalog.keys()
+            if unknown:
+                raise ValueError(f"prompt_specs reference unapproved model slots: {sorted(unknown)}")
+            return payload
+
         with model_call_scope(node.local_id, "builder.planning"):
             result = await structured_json_completion(
                 StructuredJSONRequest(
                     system_prompt=_PLANNER_SYSTEM_PROMPT,
                     prompt=_canonical(prompt_record),
-                    admit=_admit_plan_payload,
+                    admit=admit_with_slots,
                     options=self.call_options,
                 )
             )
