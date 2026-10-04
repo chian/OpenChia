@@ -3,12 +3,16 @@
 Approval, materialization, generated Episodes, host brokers, measurement and
 stores are real. Model responses and executor attestation are fixtures; this is
 not live reasoning, operating-system confinement or a scheduling acceptance run.
+Each normal build enters refinement, then is explicitly cancelled by the test.
+The later explicit Run uses its admitted source without claiming a verified build.
 """
 
 import asyncio
 import json
 from pathlib import Path
 import sys
+import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -53,7 +57,7 @@ class HostExecutor(LinkedExecutor):
         self.python_executable = Path(sys.executable)
 
 
-def _build(host, contract, reference):
+def _build_then_cancel_refinement(host, contract, reference, refining):
     workflow = EpisodeWorkflowSpec((
         EpisodeDesignSpec(
             "inquiry",
@@ -73,14 +77,21 @@ def _build(host, contract, reference):
     with pytest.raises(DuetProtocolError, match="sealed workflow authority"):
         host.start_run()
     host.approve_current()
+    refining.clear()
     host.start_build()
     thread = host._build_thread
-    if thread is not None:
-        thread.join(timeout=60)
-        assert not thread.is_alive(), host.build_status()
-    assert host.build_status()["state"] == "materialized", host.build_status()
+    assert refining.wait(90), host.build_status()
+    assert host.build_status()["state"] == "refining", host.build_status()
+    assert host.build_status()["refinement"] is not None
+    host.cancel_build()
+    assert thread is not None
+    thread.join(timeout=90)
+    assert not thread.is_alive(), host.build_status()
+    assert host.build_status()["state"] == "cancelled", host.build_status()
     baseline = host.workspace.current_baseline()
-    return host.build_store.inspection_inputs_for_receipt(baseline.build_receipt_id)
+    inputs = host.build_store.inspection_inputs_for_receipt(baseline.build_receipt_id)
+    assert inputs.receipt.materialized
+    return inputs
 
 
 def test_ordinary_run_preserves_approval_and_launches_nested_experiments(
@@ -116,8 +127,13 @@ def test_ordinary_run_preserves_approval_and_launches_nested_experiments(
     launch_path = tmp_path / "launch.json"
     launch_path.write_text(json.dumps(launch_spec), encoding="utf-8")
     raw, selections = {}, []
+    refining = threading.Event()
 
     def respond(route, key, request, cancel, progress):
+        if route["model"] == "duet-refiner-fixture":
+            refining.set()
+            assert cancel.wait(90), "test did not cancel its refinement job"
+            return "{}", route["model"]
         prompt = json.loads(request.messages[-1]["content"])
         if "node" in prompt:
             value = _plan_response(
@@ -206,9 +222,21 @@ def test_ordinary_run_preserves_approval_and_launches_nested_experiments(
     target, tester = hosts
     try:
         for host in hosts:
+            host._duet_agent = SimpleNamespace(
+                _duet_identity=host.identity,
+                reasoning_config=None,
+                _current_main_runtime=lambda: {
+                    "model": "duet-refiner-fixture",
+                    "provider": "custom",
+                    "base_url": "https://example.org/v1",
+                    "api_mode": "chat_completions",
+                    "session_id": "launch-refiner-fixture",
+                    "api_key": None,
+                },
+            )
             host.configure_launch(str(launch_path))
             host.approve_launch(host.preview_launch()["configuration_hash"])
-        target_inputs = _build(
+        target_inputs = _build_then_cancel_refinement(
             target,
             EpisodeCreationSpec(
                 goal="Inspect the supplied evidence",
@@ -222,6 +250,7 @@ def test_ordinary_run_preserves_approval_and_launches_nested_experiments(
                 ),
             ),
             INQUIRY,
+            refining,
         )
         raw.update(
             experiment(target.store, target_inputs.build_request, target_inputs.receipt)
@@ -301,7 +330,8 @@ def test_ordinary_run_preserves_approval_and_launches_nested_experiments(
                 environment={"dataset": "empty"},
             ),
         )
-        _build(tester, testing_contract, TESTING)
+        _build_then_cancel_refinement(tester, testing_contract, TESTING, refining)
+        prior_calls = sum(executor.calls for executor in executors)
         tester.start_run()
         thread = tester._run_thread
         if thread is not None:
@@ -311,7 +341,7 @@ def test_ordinary_run_preserves_approval_and_launches_nested_experiments(
         assert status["state"] == "succeeded", status["error"]
         assert selections[0] == ("run", None)
         assert ("results", "pass") in selections
-        assert sum(executor.calls for executor in executors) == 2
+        assert sum(executor.calls for executor in executors) == prior_calls + 2
         run_id = status["run_id"]
         execution = RunExecution.status(tester.store, tester.run_store, run_id)
         assert execution["execution_status"] == "succeeded"
@@ -344,7 +374,7 @@ def test_ordinary_run_preserves_approval_and_launches_nested_experiments(
                     http_broker=None,
                 )
             )
-        assert sum(item.calls for item in executors) == 2
+        assert sum(item.calls for item in executors) == prior_calls + 2
         recorded = tester.store.get_artifact(record_id("execution", run_id=run_id))["record"]
         assert recorded["registration"] == registration.as_record()
         audit = tester.run_store.read_audit_log(OpaqueId(run_id))

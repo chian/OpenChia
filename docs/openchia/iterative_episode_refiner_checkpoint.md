@@ -23,9 +23,18 @@ regression was reproduced red and passed after correction (**1 passed in 2.7
 seconds**): a revised valid implementation plan can clear its old uncertainty
 without rewriting history or accepting forged result-channel identities.
 These are not live reasoning or successful-repair receipts. The older ordinary
-testing-launch fixture currently fails because it has no owning Duet binding;
-the fixture must follow the complete lifecycle, not bypass refinement. See the
-receipt log for that separate **1 failed** result.
+testing-launch fixture has now been updated and passes: it binds its owning
+Duet, enters the real refiner, explicitly cancels that job, and separately tests
+an approved `/run` of the admitted source. Cancellation is not successful build
+completion. This preserves `/run` compatibility without bypassing refinement or
+claiming that source admission establishes acceptance.
+
+A live job from `899ff4a220` now demonstrates automatic failed-build handoff to
+the native refiner with the actual owning Duet configuration. The parent repaired
+a rejected assignment proposal through its normal next unit and entered its
+Designer child. At this checkpoint the job is still running; no candidate repair
+or final acceptance has been demonstrated. Exact IDs are in
+`acceptance/setup_inputs.json` and the receipt log.
 
 The normal-build policy now supplies a frozen grant for registered requirement
 grounding functions. `measure_preparation` uses only the original approved task

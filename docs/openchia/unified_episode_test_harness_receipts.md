@@ -13,6 +13,25 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Ordinary launch compatibility after automatic refinement, 2026-10-03
+
+The old launch fixture failed on the current tree (**1 failed in 2.9 seconds**)
+because it supplied no owning Duet binding and expected `/build` to finish at
+`materialized`. It now binds a distinct supplied refiner route, starts the normal
+build, waits for the real refiner call, and explicitly cancels the job. The
+cancelled job retains admitted source; the subsequent explicit `/run` tests
+launch approval, nested experimental dispatch and host measurement as before.
+Both target and tester builds take this route. No production preflight, refiner
+handoff or final-acceptance check was bypassed or weakened.
+
+The focused canonical run passed **1 test in 91.9 seconds**, retries disabled.
+The final combined run with `tests/agent/test_build_refinement_job.py` passed
+**3 tests across two files in 107.5 seconds**, also without retries. The existing
+native failed-build handoff/cancellation case remains green. Ruff and
+`git diff --check` pass. Model choices and in-process confinement
+attestation remain fixtures. This proves compatibility of explicit `/run` with
+admitted source from a cancelled build, not successful whole-build refinement.
+
 ### Live one-start build reaches the native refiner, 2026-10-03
 
 From clean source commit `899ff4a220`, the ordinary `OpenChiaHost.start_build`
