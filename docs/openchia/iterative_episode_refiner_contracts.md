@@ -434,6 +434,38 @@ applicable construction or acquisition route for those requirements, so this
 return exposed a system gap; it did not demonstrate autonomous instrument
 construction. See the shared harness receipt log.
 
+#### Missing first-time check design in normal builds
+
+The code inspection after that live run identifies an earlier missing operation,
+not just omitted configuration:
+
+- `measure_needs.build_specification` requires a checker reference, local and
+  acceptance measures, and existing controls or exact acquisition routes.
+- `instrument_builds.prepare_sources` resolves that checker to an existing
+  approved workflow and Builder receipt before adding its source to the campaign.
+  This supports repairing an existing checker, including a partial build; it
+  does not define a new checker from a requirement.
+- `grounding.specification` and `acquired_value` accept expected values and
+  controls only from a previously authorized, independently built evidence
+  source with a fixed case template. They do not admit a parent's newly reasoned
+  test expectations.
+- `measures.require_implementation_measure` correctly prevents a coding
+  assignment without its local metric, but these preparation restrictions can
+  leave no operation that can establish that metric.
+
+The missing step is parent-owned check design and admission before checker
+construction: the precise requirement being tested, expected and falsifying
+results, their justification, observation contract, controls, and limitations.
+It must use the existing Designer/Implementer, shared execution and evidence
+path; another runner would not solve this problem.
+
+Open design decision raised with the user: whether newly reasoned expectations
+may be admitted under the initial job grant after separate review against the
+original requirement and executable positive/negative controls, or must always
+come from an existing trusted source. Review agreement alone is not evidence of
+target correctness or a credit event. Passing finite controls is not proof of
+general adequacy. No admission policy has been relaxed while this is unresolved.
+
 Source/plan construction mapping (implemented in source, not executed):
 
 - Request authority is not edit authority. The frozen policy must additionally
