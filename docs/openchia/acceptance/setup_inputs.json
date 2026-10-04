@@ -1,12 +1,12 @@
 {
   "status": "target_and_launch_approved_build_continuation_in_progress_tester_unapproved",
   "continuation_observation": {
-    "observed_at": "2026-10-04T17:05:12Z",
+    "observed_at": "2026-10-04T17:11:18Z",
     "entry": "OpenChiaHost.continue_build",
     "source_commit": "b6ae19fe9625c70d65df72003c003d744404ff8c",
     "source_checkout": "/home/chia/repos/OpenChia-continue-live-hHDLek30",
     "process_id": 2820540,
-    "state": "repaired_measure_design_awaiting_independent_review",
+    "state": "measure_admitted_designer_resumed_source_repair",
     "predecessor_run_id": "run_358b0b188f2732c49a60c6d304d8309705e611b325cd6c822d0ad771a1347edf",
     "recovered_terminal_evidence_ref": {
       "artifact_id": "run_evidence_7d1dfe3f5dd7c24b844dd1c0faa74b132c9635d2ff1e141a1244205baeea1fd0",
@@ -23,7 +23,7 @@
     },
     "reissued_model_request_id": "model_request_a7fe6f13254543b43172c19604cc0016393d92bce35289f0252ded44c4076ea8",
     "reissued_request_hash": "sha256:52aa9c2cb75fbc2286a5caea6554dbb01f6ce9ed45f1a850f315da1a25b9f604",
-    "completed_new_model_responses": 2,
+    "completed_new_model_responses": 4,
     "completed_response": {
       "event_id": "run_event_2895fd3aa076ce07075f1bce90c6c20d97d9404c27f06be7b88f79403cbf69db",
       "event_hash": "sha256:90b889ffb5ec463fe6f7ef263491b0af4f490d89dcd4579dabf355aa05cdd3b0",
@@ -47,19 +47,44 @@
         "content_hash": "sha256:20222c7321570268a75705b43682dcdffdc235cb1a7d4909a7da5a0440c7f750"
       },
       "host_review_assignment_event_sequence": 17,
-      "measure_admitted": false
+      "measure_admitted": true
+    },
+    "measure_admission": {
+      "review_response_event_sequence": 30,
+      "favorable_review_criteria": 5,
+      "selection_response_event_sequence": 51,
+      "admission_event_sequence": 55,
+      "admission_event_hash": "sha256:ccd072ce011b4759bde1e699d39f1c3efcb8d1775ccecbfe287fcf86c8dd6454",
+      "admission_ref": {
+        "artifact_id": "refinement_9fa97053b772331595105166bf3dc58bc7ece4e5e3f394a313ddffabe35c8e73",
+        "content_hash": "sha256:9fa97053b772331595105166bf3dc58bc7ece4e5e3f394a313ddffabe35c8e73"
+      },
+      "measure_ref": {
+        "artifact_id": "refinement_data_5f0122e63ba86e04665673709b5a2b28ac411265073edb371bdc811bcb8ad61e",
+        "content_hash": "sha256:1eb65df272c9b3f2acffe16579286a3f997f0117974ab54cd0545f77e07755a0"
+      },
+      "positive_controls": 13,
+      "negative_controls": 20,
+      "control_outcome_mismatches": 0,
+      "unit_event_sequence": 58,
+      "unit_event_hash": "sha256:b94517d683ccf7252cfe94ee691393d86ef7186c9d855da1dbb097e58d0cbf96",
+      "credit_before": 0,
+      "credit_after": 12,
+      "realized_yield": 12,
+      "disposition": "attained",
+      "limitation": "This completes the assigned Measure work, not Target Workflow implementation or behavioral acceptance."
     },
     "next_automatic_model_request": {
-      "event_sequence": 29,
-      "request_hash": "sha256:e916f48c4220f9c21cb4cfb06b8812948becffb8387cc127502dd99aef1c64f5",
-      "task": "question",
-      "invocation_id": "refinement_invocation_56702568c17ddcc3468802d09d79759d1eab926eb3ac2ea176bbc929e7521336"
+      "event_sequence": 71,
+      "request_hash": "sha256:e94a162e7e86558a97e8f05cec311656e7d2a0b85085135312fbea6deab79ed9",
+      "task": "design",
+      "invocation_id": "refinement_invocation_e4a0f3b9590d03f4821133fc73e096558931228c3740d4546339fba226c9d4bf"
     },
     "target_workflow_experiments": 0,
     "transport_activity": {
-      "observed_at": "2026-10-04T17:05:12Z",
-      "bytes_received": 116258,
-      "milliseconds_since_last_receive": 1075,
+      "observed_at": "2026-10-04T17:11:18Z",
+      "bytes_received": 71580,
+      "milliseconds_since_last_receive": 898,
       "limitation": "Incoming network data establishes response activity, not completed reasoning or an admitted measure."
     },
     "health_policy": "disabled_by_absence_in_original_frozen_binding",

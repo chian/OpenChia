@@ -13,6 +13,36 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live Measure admission, 2026-10-04 17:11 UTC: controls pass and Designer resumes
+
+Successor Run `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
+continued automatically. Question response 30 judged all five check-design
+criteria satisfied, while retaining its stated limitations. Measure response 51
+selected that exact `reviewed_definition_ref`, without rewriting its expectations.
+Host event 55 records admitted measure
+`refinement_9fa97053b772331595105166bf3dc58bc7ece4e5e3f394a313ddffabe35c8e73`.
+Its 33 executable control results all match: 13 expected passes and 20 expected
+failures. The admission has 24 check references and twelve measurement fact keys.
+Event 55's hash is
+`sha256:ccd072ce011b4759bde1e699d39f1c3efcb8d1775ccecbfe287fcf86c8dd6454`.
+
+The independent review alone earned zero. After host admission, unit event 58
+records credit changing from 0 to 12, realized yield 12, twelve semantic fact
+keys, and `attained` for this Measure assignment. Its event hash is
+`sha256:b94517d683ccf7252cfe94ee691393d86ef7186c9d855da1dbb097e58d0cbf96`.
+The child returned through the ordinary report path. Designer request 71 then
+received the admitted measure and resumed its source-repair assignment; request
+hash `sha256:e94a162e7e86558a97e8f05cec311656e7d2a0b85085135312fbea6deab79ed9`.
+
+This is real model-designed measure admission through the shared host path,
+not operator-supplied repair or model-awarded credit. Its control observations
+validate the measuring mechanism; they are not Target Workflow execution
+evidence. The retained format and explanation limitations still apply. No
+Target Workflow experiment or behavioral acceptance is established. No new
+test suite, replacement Run, pinned-source edit or manual stage dispatch was
+performed. At 17:11 UTC the exact owning process remained live with incoming
+data on Designer's model call.
+
 ### Live Measure repair, 2026-10-04 17:05 UTC: valid design reaches separate review
 
 The same successor Run

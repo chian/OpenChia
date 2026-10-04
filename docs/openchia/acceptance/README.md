@@ -1,6 +1,6 @@
-# Scheduling acceptance — static source repair demonstrated; behavioral acceptance pending
+# Scheduling acceptance — Measure admitted; Target Workflow acceptance pending
 
-Latest status, 2026-10-04 17:05 UTC: the normal `OpenChiaHost.continue_build()`
+Latest status, 2026-10-04 17:11 UTC: the normal `OpenChiaHost.continue_build()`
 entry has started successor Run
 `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
 for the same saved job and experiment. Event 2 records 479 matched worker frames,
@@ -13,9 +13,15 @@ This is the seventh consecutive malformed revision after the same independent
 review. Event 14 is OpenChia's automatic next Measure request, carrying the exact
 rejected response and parse error. Response 15 then produced valid JSON: 154,207
 characters and twelve cases. Host response 17 authorized a separate Question
-reviewer; event 29 is its model request. The same live process has incoming
-network data. This is automatic repair into a reviewable check design, not
-measure admission, successful controls, Target Workflow execution or acceptance.
+reviewer; response 30 judged all five design criteria satisfied. Measure response
+51 selected that exact reviewed definition. Host event 55 records admission:
+all 33 executable controls matched their expected outcomes (13 positive and
+20 negative). Event 58 records twelve newly credited measurement facts and
+Measure's `attained` return. Event 71 is Designer's next model request to resume
+source repair, carrying the admitted measure. All of these transitions occurred
+inside the same OpenChia job without manual stage dispatch. This establishes
+measure construction, review, control execution and host admission, not an
+executed or accepted Target Workflow. The same owner remains live.
 
 Continuation also completed the cancelled Run's missing terminal-evidence
 publication, preserving its 866 events and `cancelled` status. The pinned host
