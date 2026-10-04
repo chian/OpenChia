@@ -1,4 +1,4 @@
-# Scheduling acceptance — one-start build in progress; testing Episode pending
+# Scheduling acceptance — system gap identified; testing Episode pending
 
 Current attempt, 2026-10-03: the ordinary `OpenChiaHost.start_build` entry was
 called once from commit `7222da1a21`, with a fully initialized owning Duet using
@@ -6,8 +6,13 @@ its configured `gpt-5.6-sol-900k` route and `xhigh` reasoning effort. The Target
 Workflow retains its separate approved launch file. The initial Builder attempt
 failed source planning; OpenChia automatically entered the shipped refiner in a
 native systemd worker. No operator launched that next stage or repaired its code.
-The job is running; its initial verification child has returned evidence to its
-parent, which has issued a live model request. No accepted repair is claimed.
+The refiner corrected an invalid subdivision and reached Designer, whose plan
+was rejected for incomplete measurement coverage. Designer called EstablishMeasure;
+that child returned `grounding_required` for five requested contract fields.
+The frozen normal-build policy supplied no applicable construction or acquisition
+route. The development run was cancelled before changing the system. Both the
+job and native Run record `cancelled`, with no verified build. No accepted repair
+or Target Workflow execution is claimed.
 
 The previous job from `899ff4a220` was cancelled to correct a host feedback defect: two Designer plans
 covered all assigned contribution keys but included a preservation-only key.
@@ -58,10 +63,11 @@ the latter by manually supplying this benchmark's design, code or answers.
 Current system-level findings:
 
 - Builder admission requires exact registered controller composer/credit
-  bindings, but the ordinary planning return still asks the model to author
-  those selections. The live initial attempts produced mismatches. The minimum
-  correction to examine is supplying host-owned fixed selections through the
-  same contract used by validation, leaving actual design choices to the model.
+  bindings, but the planning input did not identify those fixed selections.
+  The live attempts produced mismatches, including a parent asking Designer to
+  use the continuation predicate as the composer. Builder and scoped refiner
+  repair now install the same host-owned selections and expose them in planning
+  context. Focused integration checks pass; the live correction is unverified.
 - The plan-mapping check required exact contribution keys while its rejection
   did not distinguish omissions from preservation-only extras. This is fixed
   without relaxing the check; live recovery after the fix remains to be observed.
@@ -72,6 +78,10 @@ Current system-level findings:
   available cases, but cannot construct those missing definitions from this
   setup. The deficit is in the system's preparation/construction interface,
   not a request for the operator to pre-author eleven benchmark-specific tests.
+- The proposal format advertised `approved_review`, which its admission route
+  rejects. The format now lists only the two implemented oracle kinds. This
+  removes an unusable option; it does not add reviewer admission or resolve
+  missing grounding.
 
 Minimum information to trace across each nested assignment: the original
 requirement, contribution and preservation scope, what observation would support
@@ -83,8 +93,10 @@ inconsistent part. Use the existing contract, shared harness and records for
 these connections; do not introduce another runner or a fixed test sequence.
 
 These are implementation findings, not grounds to waive a requirement or call
-an unverified build complete. The current job remains free to make progress
-through its declared loop while the findings are investigated.
+an unverified build complete. The preserved cancelled run is evidence of the
+gap. A fresh live attempt must use a coherent system correction; manually
+authoring its missing tests or executing individual repair stages would not
+establish the requested one-start cycle.
 
 ## Target design and review choices
 

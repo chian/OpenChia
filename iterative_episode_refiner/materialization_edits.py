@@ -209,6 +209,11 @@ def edit_context(view, policy, assignment, *, instrument=None):
             "local_id": local_id,
             "design": designs[local_id].as_record(),
             "architecture_owned_bindings": list(bindings),
+            "binding_rule": (
+                "The host installs architecture_owned_bindings when constructing "
+                "or revising this node plan. Omit those fixed roles or copy them "
+                "exactly; author components only for the other roles."
+            ),
             "unavailable_binding": None if failure is None else failure.as_record(),
             "direct_children": [
                 node.as_record()

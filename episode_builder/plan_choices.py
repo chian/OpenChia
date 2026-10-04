@@ -23,6 +23,22 @@ CHOICE_FIELDS = (
 )
 
 
+def install_architecture_bindings(payload, bindings):
+    """Install fixed facts while constructing a plan, never while checking one."""
+    roles = {binding["role"] for binding in bindings}
+    return {
+        **payload,
+        "selected_function_bindings": [
+            binding for binding in payload["selected_function_bindings"]
+            if binding["role"] not in roles
+        ] + [dict(binding) for binding in bindings],
+        "generated_component_specs": [
+            component for component in payload["generated_component_specs"]
+            if component["role"] not in roles
+        ],
+    }
+
+
 def node_choices(node, edges, *, unresolved=(), calls=()):
     """Recover planner input, excluding host-installed repeatable bindings."""
     from .call_plan import call_bindings

@@ -38,8 +38,18 @@ Feedback now identifies missing and unexpected keys without changing admission.
 No candidate repair or final acceptance has been demonstrated. Exact IDs are in
 `acceptance/setup_inputs.json` and the receipt log. The feedback fix is saved in
 `7222da1a21`; its 13 focused tests pass. A fresh normal build from that commit
-again handed a failed initial attempt to the native refiner automatically. It is
-still running, with no accepted repair yet. The prior cancelled job is retained.
+again handed a failed initial attempt to the native refiner automatically. It
+reached Designer and EstablishMeasure, which returned missing grounding for five
+contract fields. The policy had no applicable construction/acquisition route.
+Both job and Run were cancelled before the system correction, with no verified
+build. Both cancelled jobs are retained; neither is successful repair evidence.
+
+Builder planning and scoped plan repair now install the exact fixed controller
+composer/credit functions that admission already required. They use one shared
+construction helper; saved-plan checking does not normalize tampered artifacts.
+The focused Builder/reference/repair checks pass. The Measure proposal format
+also no longer offers the unimplemented `approved_review` route. These fixes
+do not resolve the missing grounding/construction capability.
 
 The normal-build policy now supplies a frozen grant for registered requirement
 grounding functions. `measure_preparation` uses only the original approved task

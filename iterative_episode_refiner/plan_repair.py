@@ -11,11 +11,16 @@ from agent.episode_contracts import Sha256Digest
 from episode_builder._contract_base import BuildDeficit
 from episode_builder.call_plan import materialize_call
 from episode_builder.plan_choices import (
+    install_architecture_bindings,
     materialize_edge_choices,
     materialize_node_choices,
     node_choices,
 )
-from episode_builder.planner import _admit_plan_payload, _library_functions
+from episode_builder.planner import (
+    _admit_plan_payload,
+    _architecture_numeric_bindings,
+    _library_functions,
+)
 from episode_builder.reference import EpisodeReferenceResolver
 from function_library.materialization_checks import NODE_PLAN_CONSISTENCY
 from function_library.models import _thaw_json
@@ -129,6 +134,10 @@ def revise_plan(current, inputs, proposed, changed_fields):
     for local_id, value in proposed.items():
         design = designs[local_id]
         payload = _admit_plan_payload(_thaw_json(value))
+        bindings, failure = _architecture_numeric_bindings(design)
+        if failure is not None:
+            raise ValueError(failure.detail)
+        payload = install_architecture_bindings(payload, bindings)
         payloads[local_id] = payload
         old = nodes.get(local_id)
         new = materialize_node_choices(

@@ -45,7 +45,7 @@ _ASSIGNMENT_SHAPE = {
 _MEASURE_SHAPE = {
     "requirement_keys": ["the parent's exact requested requirement keys"],
     "purpose": "the parent's requested local, acceptance, composition or adequacy purpose",
-    "oracle_kind": "registered_predicate, independent_execution or approved_review",
+    "oracle_kind": "registered_predicate or independent_execution",
     "oracle_ref": "exact committed reference to the proposed oracle",
     "input_domain_ref": "exact committed domain and applicability reference",
     "case_manifest": {

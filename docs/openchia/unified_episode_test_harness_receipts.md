@@ -13,6 +13,57 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live missing-measure finding and fixed-controller correction, 2026-10-03
+
+The one-start Run from `7222da1a21` below progressed beyond its initial Verify
+child. Its root Parts corrected the rejected full-scope subdivision and called
+a narrower Parts child, which entered Designer. At Run event 77, admission
+rejected the design with `implementation measure has unresolved requirement
+coverage`. Designer then called EstablishMeasure for `stopping`, `epistemic`,
+`progress`, `unit` and `numeric_control`.
+
+The committed prerequisite
+`refinement_d04b5c5b3ff01a37a0f45ee76145d708057baef9403394e9ecec6ead2826d4d7`
+records `grounding_required` for those fields and no instrument-building reference.
+Inspection of the exact campaign policy confirms three grounded cases (the
+scheduling goal at three purposes), zero instrument-building routes and zero
+acquisition routes. This is a missing normal-build capability, not evidence
+that further model retries can obtain the required checks. Existing construction
+primitives require a supplied specification; this job did not provide one.
+
+The development job was cancelled before source changes. Durable job and Run
+records both confirm `cancelled`, `verified_build` is null, and the final Run
+index records 123 events, five invocations started, two completed, six completed
+units and seven model requests with six responses. No candidate source edit,
+Target Workflow Run, accepted repair or final acceptance is established. No
+operator supplied missing measures or manually launched a next stage.
+
+The live output also confused the composer with the continuation predicate.
+Admission already required exact composer/credit identities, but planning did
+not supply those host-owned facts. Builder planning and scoped refiner repair
+now install the same authoritative bindings through `plan_choices`; their
+contexts expose them. Task-specific choices remain model-owned. Saved-plan
+checks still reject changed fixed bindings instead of repairing them during
+validation. The Measure prompt also no longer offers `approved_review`, which
+the current admission route cannot accept.
+
+The new Builder regression was reproduced red (**1 failed in 2.7 seconds**).
+After correction, the canonical runner passed **3 tests across 3 files in
+4.8 seconds**, retries disabled: `test_fixed_numeric_bindings.py`,
+`test_refinement_plan_resolution.py` and `test_reference_context.py` under
+`tests/episode_builder`. A second focused run passed **6 tests across 2 files
+in 30.1 seconds**: binding-contract matching and plan feedback. These use
+supplied model responses and check construction/admission behavior, not live
+reasoning or measurement construction. The missing normal-build measurement
+route remains unresolved; these corrections do not establish acceptance.
+
+Repeatable-call materialization and reasoning-workflow checks also passed:
+**4 tests across 2 files in 189.6 seconds**, retries disabled. This includes
+the real systemd reasoning worker with supplied model responses, in addition
+to in-process execution. Across these three focused runs, **13 tests passed**.
+Ruff, JSON parsing of the setup record and `git diff --check` pass. No new live
+model build was started after discovering the missing measurement route.
+
 ### Live one-start retry after host feedback correction, 2026-10-03
 
 Clean source `7222da1a21` started the ordinary build entry once:

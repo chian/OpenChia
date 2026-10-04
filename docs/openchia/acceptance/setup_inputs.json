@@ -1,8 +1,10 @@
 {
-  "status": "target_and_launch_approved_one_start_build_refining_tester_unapproved",
+  "status": "target_and_launch_approved_system_gap_identified_tester_unapproved",
   "current_build_job": {
     "source_commit": "7222da1a2167018d8ba486793f6b3774318ba3bc",
-    "state_at_observation": "refining",
+    "state_at_observation": "cancelled",
+    "run_terminal_status": "cancelled",
+    "cancellation_reason": "The live Designer requested missing measurement coverage. EstablishMeasure returned grounding_required, but the normal-build policy supplied no applicable construction or acquisition route. Cancelled before changing system code; no candidate edits or accepted repair.",
     "build_request_id": "build_request_2f512662e164f8a9f46cad98a884254b94180cefd01c0450fe767be405855f32",
     "initial_build_receipt_id": "build_receipt_83028c19946fe7e368664b00a71a06ceffcac62d8800b3b48511739d9d786846",
     "campaign_ref": {

@@ -341,6 +341,13 @@ Supported grounding has an actual stopping point:
 - An explicitly authorized human/reviewer determination bound to the exact
   requirement, candidate, evidence and criterion. A model suggestion is not this.
 
+The implemented Measure admission route currently supports only
+`registered_predicate` and `independent_execution`. `approved_review` is a
+reserved contract alternative, not an available operation; it is not offered
+in the model's proposal shape. The normal-build preparation must supply an
+applicable grounding source or construction/acquisition route. The presence of
+the general schema or a missing-grounding report does not supply that route.
+
 These are not universal truth machines. If none can support the claim, record
 `measurement_gap`; do not replace the oracle with model agreement. A counterexample
 may conclusively refute a universal claim while a finite passing sample supports
@@ -383,7 +390,7 @@ independent fixture expectations and protocol checks. If that foundation is also
 missing, ResolveQuestion or an authorized human supplies it, or the task returns
 a measurement gap. There is no infinite chain of agents certifying each other.
 
-Implemented request boundary (unexecuted): EstablishMeasure can select
+Implemented request boundary: EstablishMeasure can select
 `{prerequisite_request: {need_key}}` from its host-projected `measure_needs`.
 The host derives missing measurement authority or absent applicable complete
 grounding cases from the frozen policy and original requested requirements. It
@@ -420,6 +427,12 @@ existing `input_refs`. Descendants receive `assigned_prerequisites` unchanged.
 Those references cannot expand editable paths, replace measures or create a new
 child edge. EstablishMeasure still cannot call a Designer. Original inputs remain
 available as the owner chooses ordinary preparation or returns missing authority.
+
+Live evidence on 2026-10-03 reached this prerequisite return after a Designer
+plan lacked required measurement coverage. The normal-build campaign had no
+applicable construction or acquisition route for those requirements, so this
+return exposed a system gap; it did not demonstrate autonomous instrument
+construction. See the shared harness receipt log.
 
 Source/plan construction mapping (implemented in source, not executed):
 

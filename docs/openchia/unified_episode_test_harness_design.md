@@ -168,8 +168,11 @@ retained for tracking. Task 4's eventual result must be added to the same receip
   blocked by an invalid generated-function identifier and unresolved credit
   channels. The reference context and normal-build handoff are now connected.
   A live one-start job reached Parts and Designer automatically; it was cancelled
-  to fix misleading plan rejection feedback. A fresh job from `7222da1a21` is
-  refining after another failed initial build. The failed/cancelled evidence is
+  to fix misleading plan rejection feedback. A fresh job from `7222da1a21`
+  reached EstablishMeasure, exposing missing grounding with no applicable
+  construction/acquisition route. It was cancelled before modifying the system.
+  Fixed controller facts are now supplied by the host, but that correction does
+  not resolve the measurement gap. The failed/cancelled evidence is
   retained; no Target Workflow Run or accepted source repair is yet demonstrated.
   See the latest receipt and setup record.
 - **Task 5: Check compatibility and finish documentation — checkpoint complete.**
