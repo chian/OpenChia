@@ -15,6 +15,7 @@ from agent.duet_contracts import canonical_json, content_id, digest_record
 RECORDS = {
     "build_job": ("build_request_id",),
     "build_job_result": ("build_receipt_id",),
+    "build_job_result_attempt": ("build_receipt_id", "run_id"),
     "refinement_job": ("campaign_id",),
     "refinement_result": ("experiment_id",),
     "refinement_result_attempt": ("experiment_id", "run_id"),
@@ -36,6 +37,7 @@ RECORDS = {
 # Opaque ID kinds are limited to 32 characters. Keep established identities;
 # only the new per-attempt report names need shorter ID namespaces.
 _ID_KINDS = {
+    "build_job_result_attempt": "experiment_build_result_attempt",
     "refinement_result_attempt": "experiment_refiner_attempt",
     "instrument_result_attempt": "experiment_instrument_attempt",
 }

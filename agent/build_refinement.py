@@ -21,16 +21,48 @@ from .build_refinement_authority import authorize_program
 
 
 class BuildRefinement:
-    def __init__(self, host):
+    def __init__(self, host, *, binding=None):
         self.host = host
         # Check both routes before starting work, never half way through a job.
         self.executor = host._runtime_executor()
-        self.binding = DuetEpisodeBinding.from_bound_agent(
+        self.binding = binding or DuetEpisodeBinding.from_bound_agent(
             artifacts=host.store,
             owner_duet_id=host.identity.duet_id.value,
             agent=host._duet_agent,
             model_types={"refinement"},
         )
+
+    async def continue_job(self, job, target_builder, launch):
+        from episode_runtime.records.experiments import read_reference
+
+        host = self.host
+        target_launch = await asyncio.to_thread(
+            put_data, host.store, host.identity.duet_id.value, "launch", launch.record
+        )
+        service = ExperimentService(
+            artifacts=host.store, builds=host.build_store, runs=host.run_store,
+            executor=self.executor, http_credentials=host.egress_credentials,
+            duet_binding=self.binding,
+            refinement_evaluations=RefinementEvaluations(
+                builder=target_builder, executor=self.executor,
+                target_launch_ref=target_launch, http_credentials=host.egress_credentials,
+                progress_callback=self.progress,
+            ),
+        )
+        try:
+            status = await service.continue_interrupted(experiment_id=job["experiment_id"])
+        except asyncio.CancelledError:
+            status = await asyncio.to_thread(
+                service.status, host.store, host.run_store, job["experiment_id"]
+            )
+            if "refinement" not in status:
+                raise
+        if "refinement" not in status:
+            raise ValueError(f"continued refinement has no committed result: {status}")
+        row = await asyncio.to_thread(
+            read_reference, host.store, status["refinement"]["result_ref"], host.identity.duet_id.value
+        )
+        return row["record"]
 
     def progress(self, stage):
         with self.host._build_lock:

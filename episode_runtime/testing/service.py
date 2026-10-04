@@ -511,6 +511,38 @@ class ExperimentService:
         result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
         return await self._finish_measurement(experiment_id, result)
 
+    async def continue_interrupted(self, *, experiment_id):
+        """Recover terminal publication, then continue the latest exact attempt.
+
+        A terminal journal entry is not itself proof that its worker stopped.
+        Publication recovery and ordinary continuation both require the existing
+        executor's exact process-identity check.
+        """
+        from ..continuation import InterruptedRunRef
+        from ..contracts import RunRegistration
+        from ..executor_lifecycle import verify_stopped_executor
+        from ..records.experiments import execution_attempts
+
+        dispatch = await asyncio.to_thread(
+            read_record, self.artifacts, "dispatch", experiment_id=experiment_id
+        )
+        if dispatch is None or self.executor is None:
+            raise ValueError("continuation requires an existing experiment and executor")
+        attempts = await asyncio.to_thread(
+            execution_attempts, self.artifacts, None,
+            dispatch["record"]["registration"]["run_id"],
+        )
+        if not attempts:
+            raise ValueError("experiment has no admitted execution to continue")
+        registration = RunRegistration.from_record(attempts[-1]["record"]["registration"])
+        claim = await asyncio.to_thread(self.runs.read_claim, registration.run_id)
+        await verify_stopped_executor(self.executor, claim)
+        # This existing store method only publishes artifacts for an already
+        # committed terminal head. It never invents a terminal state.
+        await asyncio.to_thread(self.runs.complete_terminal_publication, registration.run_id)
+        reference = await asyncio.to_thread(InterruptedRunRef.from_run, self.runs, registration.run_id)
+        return await self.continue_run(experiment_id=experiment_id, resume_from=reference.as_record())
+
     async def _finish_measurement(self, experiment_id, result):
         if "evidence_ref" in result:
             from .measurements import measure_execution

@@ -537,8 +537,8 @@ class OpenChiaBackgroundDuetsMixin:
         arguments: str,
     ) -> None:
         mode = arguments.strip().lower()
-        if mode not in {"", "status"}:
-            self._print_openchia("Usage: /bg DUET_ID build [status]")
+        if mode not in {"", "status", "continue"}:
+            self._print_openchia("Usage: /bg DUET_ID build [status|continue]")
             return
         try:
             if mode == "status":
@@ -547,9 +547,9 @@ class OpenChiaBackgroundDuetsMixin:
                     json.dumps(build, indent=2, ensure_ascii=False)
                 )
             else:
-                build = context.host.start_build()
+                build = context.host.continue_build() if mode == "continue" else context.host.start_build()
                 self._print_openchia(
-                    f"Background Duet {duet_id} started fresh build "
+                    f"Background Duet {duet_id} {'continued' if mode == 'continue' else 'started fresh'} build "
                     f"{build['build_request_id']}."
                 )
         except Exception as exc:

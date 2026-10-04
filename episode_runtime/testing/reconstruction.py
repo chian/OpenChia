@@ -59,7 +59,27 @@ def _worker_frame(event, exchanges):
             _freeze_json(event_reference(event), "event reference"), None,
         )
     channel, request_key = _REQUESTS[event.kind]
-    exchange = exchanges[event.event_id.value]
+    exchange = exchanges.get(event.event_id.value)
+    if exchange is None:
+        # Only a final model request can reach this branch. Unlike HTTP or a
+        # host mutation it proposes data, and no result has been admitted.
+        from ..broker import admit_model_request, model_request_hash
+
+        if event.kind is not RunEventKind.MODEL_REQUESTED:
+            raise ReconstructionError("an unanswered side-effecting operation requires receipt reconciliation")
+        request = admit_model_request(payload["request"])
+        if model_request_hash(request).value != payload["request_hash"]:
+            raise ReconstructionError("pending model request differs from its committed hash")
+        return _ExpectedFrame(
+            "model_request",
+            _freeze_json({
+                "episode_id": event.episode_id.value,
+                "episode_path": payload["episode_path"],
+                request_key: payload[request_key],
+                "request": payload["request"],
+            }, "pending model request"),
+            _freeze_json(event_reference(event), "event reference"), None,
+        )
     body = {
         "episode_id": event.episode_id.value,
         "episode_path": exchange["episode_path"],
@@ -110,6 +130,8 @@ def _active_stack(events, run_id, entry_path=None):
             else:
                 returning = None
         elif event.kind in _REQUESTS:
+            if episode_id_for_path(run_id, _thaw_json(event.payload.get("episode_path"))) != event.episode_id:
+                raise ReconstructionError("recorded request path differs from its logical Episode identity")
             # build_result runs after Context.leave(), with the just-completed
             # child's identity. Its typed return can still require a host call.
             active = stack and stack[-1]["episode_id"] == event.episode_id.value
@@ -131,26 +153,49 @@ class ReconstructionCursor:
 
         run_id = OpaqueId(run_id) if isinstance(run_id, str) else run_id
         registration = runs.read_registration(run_id)
-        recordings, events = [], []
+        recordings, events, semantic = [], [], []
+        pending = None
         for attempt in execution_lineage(runs, registration):
             recording = read_recording(runs, attempt.run_id)
             if not recording["terminal_evidence_available"] or recording["source_terminal_status"] not in _INTERRUPTIONS:
                 raise ReconstructionError("reconstruction requires terminal interruption evidence")
-            if recording["gaps"]:
-                raise ReconstructionError("interrupted Run has incomplete exchanges; an earlier prefix cannot substitute")
             attempt_events = runs.read_audit_log(attempt.run_id)
+            fresh = [event for event in attempt_events if event.kind in _BOUNDARIES or event.kind in _REQUESTS]
+            gaps = recording["gaps"]
+            trailing = None
+            if gaps:
+                if (
+                    len(gaps) != 1 or not fresh
+                    or gaps[0]["kind"] != "response_not_committed"
+                    or gaps[0].get("channel") != "model"
+                    or fresh[-1].kind is not RunEventKind.MODEL_REQUESTED
+                    or gaps[0]["event_ref"] != event_reference(fresh[-1])
+                ):
+                    raise ReconstructionError("unfinished host/HTTP operations need durable receipt reconciliation; only a final unanswered model request can be retried")
+                trailing = fresh[-1]
             if attempt.resume_from is not None:
                 activation = [event for event in attempt_events if event.kind is RunEventKind.RUN_RECONSTRUCTED]
-                fresh = [event for event in attempt_events if event.kind in _BOUNDARIES or event.kind in _REQUESTS]
                 if len(activation) > 1 or (fresh and (
                     not activation or activation[0].origin is not RunEventOrigin.HOST_RECONSTRUCTION
                     or activation[0].sequence >= fresh[0].sequence
                     or activation[0].payload.get("resume_from") != attempt.resume_from.as_record()
                 )):
                     raise ReconstructionError("continued execution lacks its prior host reconstruction admission")
+                if pending is not None and fresh:
+                    if (
+                        activation[0].payload.get("reconstruction", {}).get("pending_model_request_ref") != event_reference(pending)
+                        or canonical_json(_worker_frame(pending, {}).body)
+                        != canonical_json(_worker_frame(fresh[0], {}).body)
+                    ):
+                        raise ReconstructionError("continued model request differs from the interrupted request")
+                    semantic.pop()
+                    pending = None
             recordings.append(recording)
             events.extend(attempt_events)
-        semantic = tuple(event for event in events if event.kind in _BOUNDARIES or event.kind in _REQUESTS)
+            semantic.extend(fresh)
+            if trailing is not None:
+                pending = trailing
+        semantic = tuple(semantic)
         if any(event.origin is not RunEventOrigin.WORKER for event in semantic):
             raise ReconstructionError("worker history contains an invalid event origin")
         if any(event.kind is RunEventKind.COMPONENT_OBSERVED for event in events):
@@ -174,6 +219,7 @@ class ReconstructionCursor:
         self._lineage = tuple(recording["registration_ref"] for recording in recordings)
         self._position = 0
         self._divergence = None
+        self._pending_ref = None if pending is None else event_reference(pending)
         states = [row for recording in recordings for row in recording["exchanges"] if row["kind"] == "refinement"]
         self._host_state = None if not states else _freeze_json({
             "event_ref": states[-1]["response_event_ref"],
@@ -188,6 +234,10 @@ class ReconstructionCursor:
     @property
     def prefix_verified(self):
         return self._divergence is None and self._position == len(self._frames)
+
+    @property
+    def retry_pending_model(self):
+        return self.prefix_verified and self._pending_ref is not None
 
     def accept(self, frame):
         if self._divergence is not None:
@@ -220,4 +270,5 @@ class ReconstructionCursor:
             "status": "diverged" if self._divergence else ("prefix_verified" if self.prefix_verified else "reconstructing"),
             "divergence": _thaw_json(self._divergence),
             "live_work_authorized": False,
+            "pending_model_request_ref": self._pending_ref,
         }

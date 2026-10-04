@@ -19,15 +19,16 @@ _HELP_TEXT = (
     "  /bg DUET_ID send TEXT   FIFO-queue a turn for that background Duet\n"
     "  /bg DUET_ID episode [edit|diff] browse or edit its Workspace\n"
     "  /bg DUET_ID status|approve|decline inspect or decide authority\n"
-    "  /bg DUET_ID build [status] materialize or inspect its build\n"
+    "  /bg DUET_ID build [status|continue] start, inspect or continue its build job\n"
     "  /bg DUET_ID run [status] run or inspect its materialization\n"
     "  /bg DUET_ID evidence [RUN_ID] inspect terminal evidence\n"
     "  /bg DUET_ID logs [RUN_ID] inspect the terminal audit log\n"
     "  /bg DUET_ID cancel|close cancel owned work or close its context\n"
     "  /approve          approve the current Architecture or refinement\n"
     "  /decline          reject the pending refinement and keep the baseline\n"
-    "  /build            start a fresh materialization attempt\n"
-    "  /build status     inspect the current materialization attempt\n"
+    "  /build            start a fresh build → refine → validate job\n"
+    "  /build status     inspect the current build job\n"
+    "  /build continue   continue the saved job with its original execution identity\n"
     "  /launch load FILE select project/model configuration for future launches\n"
     "  /launch [status|calls] inspect selected settings and actual routing receipts\n"
     "  /launch preview   resolve and display settings before launching (no model call)\n"
@@ -86,7 +87,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
     counts = progress.get("counts") or {}
     run = status.get("run") or {}
     run_state = str(run.get("state") or "not_started")
-    if build_state in {"starting", "building", "refining", "validating", "cancel_requested"}:
+    if build_state in {"starting", "continuing", "building", "refining", "validating", "cancel_requested"}:
         emitted = int(counts.get("episodes_emitted") or 0)
         total = int(counts.get("episodes_total") or 0)
         stage = str(progress.get("stage") or build_state)
@@ -228,15 +229,16 @@ class OpenChiaCommandMixin:
                     f"EpisodeBuilder status unavailable: {exc}"
                 )
             return True
-        if action:
-            self._print_openchia("Usage: /build [status]")
+        if action not in {"", "continue"}:
+            self._print_openchia("Usage: /build [status|continue]")
             return True
         try:
-            build = self._episode_host().start_build()
+            build = (self._episode_host().continue_build() if action == "continue"
+                     else self._episode_host().start_build())
             attempt = build.get("build_attempt_id") or "pending"
+            operation = "Build job continued" if action == "continue" else "EpisodeBuilder started fresh request"
             self._print_openchia(
-                "EpisodeBuilder started fresh request "
-                f"{build['build_request_id']} (attempt {attempt}). "
+                f"{operation} {build['build_request_id']} (attempt {attempt}). "
                 "Use /build status to inspect progress."
             )
         except Exception as exc:

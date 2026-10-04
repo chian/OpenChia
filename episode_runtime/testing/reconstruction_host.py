@@ -74,7 +74,9 @@ class HostReconstruction:
             self.activated = True
         if reply is not None:
             await channel.send(reply.frame_type, reply.body)
-        return True
+        # The final request was matched, not answered. Only after the host
+        # activation receipt commits may the ordinary broker send it again.
+        return not self.cursor.retry_pending_model
 
 
 def prepare_reconstruction(runs, registration, source_package, runtime_manifest, *, refinement_session=None, experiment_session=None):

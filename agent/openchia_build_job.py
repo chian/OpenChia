@@ -22,6 +22,15 @@ def finalization_for(host, receipt):
     )
     if row is None:
         return None
+    job = read_record(host.store, "build_job", build_request_id=row["record"]["build_request_id"])
+    if job is not None:
+        run_id = latest_job_run(host, job["record"])
+        continued = None if run_id is None else read_record(
+            host.store, "build_job_result_attempt",
+            build_receipt_id=receipt.receipt_id.value, run_id=run_id,
+        )
+        if continued is not None:
+            row = continued
     result = row["record"]
     if row[
         "duet_id"
@@ -38,6 +47,16 @@ def finalization_for(host, receipt):
         # Preserve its reference, but do not label the older baseline complete.
         return {**result, "state": "interrupted"}
     return result
+
+
+def latest_job_run(host, job):
+    from episode_runtime.records.experiments import execution_attempts
+
+    dispatch = read_record(host.store, "dispatch", experiment_id=job["experiment_id"])
+    if dispatch is None:
+        return None
+    attempts = execution_attempts(host.store, None, dispatch["record"]["registration"]["run_id"])
+    return None if not attempts else attempts[-1]["record"]["registration"]["run_id"]
 
 
 def refinement_links(host, request):
@@ -90,7 +109,7 @@ def accepted_receipt(host, result, request):
     return receipt
 
 
-def _publish_result(host, request, initial, receipt, result, state, error):
+def _publish_result(host, request, initial, receipt, result, state, error, *, continued_job=None):
     record = {
         "build_request_id": request.build_request_id.value,
         "authority_head_approval_id": request.authority_approval.approval_id.value,
@@ -107,17 +126,27 @@ def _publish_result(host, request, initial, receipt, result, state, error):
     receipts = {
         item.receipt_id.value for item in (initial, receipt) if item is not None
     }
-    artifacts = tuple(
-        artifact_fields(
-            "build_job_result",
+    artifacts = []
+    for receipt_id in sorted(receipts):
+        artifacts.append(artifact_fields(
+            "build_job_result" if continued_job is None else "build_job_result_attempt",
             duet_id=host.identity.duet_id.value,
             build_receipt_id=receipt_id,
+            **({} if continued_job is None else {"run_id": latest_job_run(host, continued_job)}),
             record=record,
-        )
-        for receipt_id in sorted(receipts)
-    )
+        ))
+        if continued_job is not None and read_record(
+            host.store, "build_job_result", build_receipt_id=receipt_id
+        ) is None:
+            # A crash can precede the initial job's report; a newly accepted
+            # revision also needs its first receipt-to-job link. Existing
+            # terminal reports are immutable and remain in the history.
+            artifacts.append(artifact_fields(
+                "build_job_result", duet_id=host.identity.duet_id.value,
+                build_receipt_id=receipt_id, record=record,
+            ))
     host.store.put_artifacts_with_events(
-        artifacts=artifacts,
+        artifacts=tuple(artifacts),
         events=(
             {
                 "event_type": "build_finished",
@@ -172,7 +201,8 @@ async def _execute(
 
 
 def run_build_job(
-    host, request, builder, launch, launch_transport, cancel_event, refiner
+    host, request, builder, launch, launch_transport, cancel_event, refiner,
+    *, continuation=None, continued_job=None,
 ):
     from agent.openchia_host import _describe_exception
 
@@ -180,7 +210,7 @@ def run_build_job(
     state = "host_error"
     try:
         initial, result = asyncio.run(
-            _execute(
+            continuation() if continuation is not None else _execute(
                 host, request, builder, launch, launch_transport, cancel_event, refiner
             )
         )
@@ -195,7 +225,7 @@ def run_build_job(
                 state = result["disposition"]
                 if state == "attained":
                     state = "unresolved"
-        _publish_result(host, request, initial, receipt, result, state, error)
+        _publish_result(host, request, initial, receipt, result, state, error, continued_job=continued_job)
         if state == "verified":
             revised_request = host.build_store.read_build_request(
                 receipt.build_request_id
@@ -211,7 +241,7 @@ def run_build_job(
     except asyncio.CancelledError:
         state = "cancelled"
         initial = receipt = host._build_receipt
-        _publish_result(host, request, initial, receipt, None, state, None)
+        _publish_result(host, request, initial, receipt, None, state, None, continued_job=continued_job)
     except Exception as exc:
         state, error = "host_error", _describe_exception(exc)
         host.store.append_event(
