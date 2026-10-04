@@ -296,14 +296,12 @@ def prepare_refinement(
             "coverage": "all original requirement keys; subdivisions need parent admission",
         },
     )
-    projection_ref = data(
-        "return_projection",
-        {
-            "schema_id": "refinement.parent_report.v1",
-            "requirement_catalog_ref": catalog_ref.as_record(),
-            "completion": "all mandatory requirements independently satisfied on one candidate",
-        },
-    )
+    from function_library.refinement_contract import root_return_contract
+    from .report_contract import requirement_address
+
+    projection_ref = data("return_projection", root_return_contract(
+        requirement_address(row) for row in catalog["requirements"]
+    ))
     control_ref = data("campaign_policy", policy)
     body = {
         "parent_assignment_ref": None,

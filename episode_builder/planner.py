@@ -626,7 +626,8 @@ def _planning_deficits(
         for slot_name in slot_names
         for operation in ("build_child", "prepare_request", "receive_result")
     }
-    required_roles = _BASE_BINDING_ROLES | edge_roles
+    report_roles = {f"component.report_{slot_name}" for slot_name in slot_names}
+    required_roles = _BASE_BINDING_ROLES | edge_roles | report_roles
     missing_roles = sorted(required_roles - set(bindings))
     if missing_roles:
         add(
@@ -850,9 +851,35 @@ prompts, admissions, and projections into generated components. Credit owns
 stable identities, result channels, normalization, and marginal dominated
 hypervolume. Rarefaction consumes numerical incidence state. Continuation
 consumes the projected numerical credit band. Parent slots own child request
-and result projection; every receive_result component first applies exact
-child-result correlation admission and then projects on the parent's scale.
-The child owns request admission and its closed result.
+and result projection. The child owns request admission and its closed result.
+
+Design each parent-child edge around the decision the parent will make after
+the child returns. Before launch, the parent's request specifies the child's
+goal, the measurements judging its work, and the information needed for that
+decision. The parent edge first admits the correlated child result. Its reporting
+component synthesizes the requested information grouped by measurement:
+applicable outcomes, meaningful changes, blockers, and limitations. Explain
+what each returned field lets the parent decide and how its value is obtained.
+This synthesis lets the parent steer from the child's findings without
+reconstructing the child's investigation. Keep numerical credit projection
+separate: the parent still computes credit on its own scale.
+
+Specify the dataflow from the synthesized report into the parent's next model
+call. That call uses its declared task inputs and contracted child reports;
+full child histories, audit identities and provenance remain stored for audit.
+An artifact reference identifies stored data; it is not a synthesized finding.
+If a report uses an artifact reference for transport, its consumer resolves
+only the contracted report projection. Apply this reporting boundary to every
+ordinary and repeatable child invocation. A root has no upward reporting
+obligation, but owns the same boundary for each child it invokes.
+For each child slot S, select component.report_S with interface
+episode.report_synthesis and specify its task-specific synthesis. The component
+returns exactly the fields in the ReportContract carried by the child request.
+prepare_request declares that contract before launch. receive_result continues
+to own correlation admission and numerical credit projection. These separate
+functions compose ChildEpisodeUnit(child, receive_result, synthesize_report).
+An approved repeatable call carries its own synthesize_report function; use its
+fixed component.repeatable_S_synthesize_report binding for that call slot.
 
 HandoffPayloadContract declares vocabulary, while the actual values travel in
 request/result records. state_values maps each state name to a nonempty array
@@ -962,8 +989,15 @@ _PLAN_SHAPE = {
             "child_interface": "child.interface",
             "request_payload_contract": HandoffPayloadContract().as_record(),
             "result_payload_contract": HandoffPayloadContract().as_record(),
-            "prepare_request": "request projection code specification",
-            "receive_result": "closed result projection code specification",
+            "prepare_request": (
+                "request projection specifying child goal, measurement contract, "
+                "and decision-relevant return information before launch"
+            ),
+            "receive_result": (
+                "correlation admission and parent-scale credit projection; "
+                "the separate component.report_<slot> specifies synthesis "
+                "and delivery of findings for the parent's next decision"
+            ),
             "build_child": "child factory invocation code specification",
             "basis": "child contract and parent unit",
         }
@@ -990,11 +1024,13 @@ def _plan_shape_for_children(
             "result_payload_contract": record["result_payload_contract"],
             "prepare_request": (
                 "parent-specific request projection producing exactly the "
-                "displayed child request payload contract"
+                "displayed child request payload contract and declaring the "
+                "child goal, measurements and requested return before launch"
             ),
             "receive_result": (
-                "parent-specific result admission and projection consuming "
-                "exactly the displayed child result payload contract"
+                "admit exactly the displayed child result payload contract; "
+                "project credit on the parent's scale. Declare the separate "
+                "report synthesis in component.report_<chosen slot name>"
             ),
             "build_child": "child factory invocation specification",
             "basis": "matching finalized direct_children record",
@@ -1219,7 +1255,8 @@ class EpisodeMaterializationPlanner:
                 "required_base_roles": sorted(_BASE_BINDING_ROLES),
                 "child_edge_roles": (
                     "For each child slot S, declare edge.S.build_child, "
-                    "edge.S.prepare_request, and edge.S.receive_result."
+                    "edge.S.prepare_request, edge.S.receive_result, and "
+                    "component.report_S with interface episode.report_synthesis."
                 ),
                 "additional_component_role_shape": "component.<binding_name>",
                 "required_request_admission_pointer": {
@@ -1253,8 +1290,10 @@ class EpisodeMaterializationPlanner:
                 ),
                 "child_result_correlation": (
                     "edge receive_result is a task-specific wrapper that calls "
-                    "handoff_library.admit_child_result before parent-local "
-                    "credit projection"
+                    "handoff_library.admit_child_result before projecting "
+                    "parent-local credit. The separate component.report_S "
+                    "synthesizes requested findings, describing their decision "
+                    "purpose, measurement meanings, and next-model-input path."
                 ),
                 "numeric_control_rule": (
                     "the host installs architecture_owned_numeric_bindings; "

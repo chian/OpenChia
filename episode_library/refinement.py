@@ -25,6 +25,7 @@ from function_library.refinement import (
     OPEN_SOURCE,
     PREPARE_CHILD,
     RECEIVE_CHILD,
+    REPORT_CHILD,
     REQUEST_SCHEMA,
     SCHEMA,
     refinement_function_library,
@@ -101,6 +102,7 @@ def _design(name, *, launch=False):
             BUILD_EPISODE.bind(
                 "build_episode", arguments={"role": name, "model_type": "refinement"}
             ),
+            *(REPORT_CHILD.bind(f"report_{child}") for child in role.children),
             *guards,
         ),
         child_slots=tuple(
@@ -166,6 +168,8 @@ def execution_bindings(binding):
         ("controller.composer", binding.controller.composer),
         ("controller.credit", binding.controller.credit),
         ("component.build_episode", components["build_episode"]),
+        *((f"component.{name}", selection) for name, selection in components.items()
+          if name.startswith("report_")),
     )
 
 

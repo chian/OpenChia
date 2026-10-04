@@ -9,8 +9,8 @@ Nested communication and tracing are deliberately separate:
 
 * :class:`EpisodeGoal` is the immutable objective at one Episode boundary.
 * :class:`EpisodeRequest` carries that Goal plus one already-admitted closed record.
-* :class:`ChildEpisodeUnit` owns the parent's result projection for one child.
-* :class:`EpisodeUpdate` carries only that projection and method-owned completion.
+* :class:`ChildEpisodeUnit` owns separate credit and report projections for one child.
+* :class:`EpisodeUpdate` separates credit, contracted findings and method-owned completion.
 * :class:`EpisodeRecord` is the complete recursive trace retained for audit.
 
 Sources and parent-unit hooks never receive a child's unprojected result or a
@@ -25,6 +25,7 @@ import hashlib
 import inspect
 import json
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import (
@@ -40,6 +41,7 @@ from typing import (
 
 from .identities import EpisodeRef, UnitRef
 from .runtime import ControllerFactory, ControllerRuntime, Path, Scope
+from .communication import ParentReport, ReportContract
 
 __all__ = [
     "END_EXHAUSTED",
@@ -154,6 +156,14 @@ class ClosedRecord(ABC):
         """Return the closed record's JSON audit projection."""
 
         raise NotImplementedError
+
+    def audit_identifiers(self) -> tuple[str, ...]:
+        """Identify bookkeeping values that must stay out of a parent report.
+
+        Records carrying artifact or correlation identities declare them here.
+        Records containing only task values have no audit identities.
+        """
+        return ()
 
 
 def _require_closed_record(value: Any, name: str) -> ClosedRecord:
@@ -351,16 +361,20 @@ class EpisodeRequest:
 
     goal: EpisodeGoal
     message: ClosedRecord
+    report_contract: Optional[ReportContract] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.goal, EpisodeGoal):
             raise TypeError("EpisodeRequest.goal must be an EpisodeGoal")
         _require_closed_record(self.message, "EpisodeRequest.message")
+        if self.report_contract is not None and not isinstance(self.report_contract, ReportContract):
+            raise TypeError("EpisodeRequest.report_contract must be a ReportContract")
 
     def as_record(self) -> dict[str, Any]:
         return {
             "goal": self.goal.as_record(),
             "message": _record_value(self.message),
+            "report_contract": None if self.report_contract is None else self.report_contract.as_record(),
         }
 
 
@@ -421,6 +435,7 @@ class EpisodeUpdate:
     goal: EpisodeGoal
     completion: EpisodeCompletion
     controller_input: ClosedRecord
+    report: ParentReport
 
     def __post_init__(self) -> None:
         if not isinstance(self.record_id, str) or not self.record_id:
@@ -433,6 +448,8 @@ class EpisodeUpdate:
             self.controller_input,
             "EpisodeUpdate.controller_input",
         )
+        if not isinstance(self.report, ParentReport):
+            raise TypeError("EpisodeUpdate.report must be a synthesized ParentReport")
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -440,6 +457,7 @@ class EpisodeUpdate:
             "goal": self.goal.as_record(),
             "completion": self.completion.as_record(),
             "controller_input": _record_value(self.controller_input),
+            "report": self.report.as_record(),
         }
 
 
@@ -928,6 +946,30 @@ class EpisodeView:
     def goal(self) -> EpisodeGoal:
         return self.request.goal
 
+    @property
+    def child_reports(self) -> tuple[ParentReport, ...]:
+        return tuple(update.report for update in self.updates)
+
+    def model_inputs(self, declared_inputs: Mapping[str, Any], *, reports: tuple[ParentReport, ...]) -> dict[str, Any]:
+        """Deliver only the parent-selected, admitted direct-child reports."""
+        return _model_inputs(declared_inputs, self.child_reports, reports)
+
+
+def _model_inputs(declared_inputs, available, selected):
+    if not isinstance(declared_inputs, Mapping) or "child_reports" in declared_inputs:
+        raise ValueError("child_reports is owned by the method's reporting boundary")
+    if not isinstance(selected, tuple) or any(
+        not any(report is admitted for admitted in available) for report in selected
+    ):
+        raise ValueError("model inputs require reports admitted for this parent")
+    inputs = _record_value(_freeze_json(declared_inputs))
+    for report in available:
+        report.validate_model_inputs(inputs)
+    return {
+        **inputs,
+        "child_reports": [report.as_record() for report in selected],
+    }
+
 
 class UnitSource(Protocol):
     """Return the next unit, ``None``, or a typed :class:`SourceEnd`."""
@@ -1068,6 +1110,7 @@ class Episode:
         if not ctx.path and not ctx.has_run_id:
             ctx.bind_run_id(self.key)
         scope = ctx.enter(self.grain, self.key)
+        ctx._active_episodes[scope] = self
         try:
             record = self._run_loop(ctx, scope)
             if self.on_close is not None:
@@ -1085,6 +1128,7 @@ class Episode:
         if not ctx.path and not ctx.has_run_id:
             ctx.bind_run_id(self.key)
         scope = ctx.enter(self.grain, self.key)
+        ctx._active_episodes[scope] = self
         try:
             record = await self._run_loop_async(ctx, scope)
             if self.on_close is not None:
@@ -1110,6 +1154,7 @@ class Episode:
         if not ctx.path and not ctx.has_run_id:
             ctx.bind_run_id(self.key)
         scope = ctx.enter(self.grain, self.key)
+        ctx._active_episodes[scope] = self
         try:
             item = self.source.next(self._view(ctx, scope, [], unit_offset=starting_unit_index))
             if inspect.isawaitable(item):
@@ -1136,11 +1181,7 @@ class Episode:
             key=self.key,
             path=scope,
             units_consumed=unit_offset + len(records),
-            updates=tuple(
-                record.episode_update
-                for record in records
-                if record.episode_update is not None
-            ),
+            updates=tuple(ctx._child_updates.get(scope, ())),
             controller_state=ctx.runtime.state(scope),
             episode_ref=EpisodeRef(run_id=ctx.require_run_id(), path=scope),
             request=self.request,
@@ -1151,6 +1192,14 @@ class Episode:
             raise ValueError("a nested Episode must carry a child Goal")
         if not ctx.path and self.goal.parent_goal_id:
             raise ValueError("a root Episode Goal may not name a parent Goal")
+        parent = ctx._active_episodes.get(ctx.path)
+        if parent is not None:
+            if not isinstance(self.request.report_contract, ReportContract):
+                raise ValueError("a child requires its parent's reporting contract before execution")
+            if not ctx._child_edges or ctx._child_edges[-1] is not self:
+                raise ValueError("nested execution requires the parent's ChildEpisodeUnit reporting boundary")
+            if self.goal.parent_goal_id != parent.goal.goal_id:
+                raise ValueError("child Goal does not belong to the active parent Episode")
 
     def _validate_child(self, item: Any) -> None:
         if isinstance(item, Episode):
@@ -1390,9 +1439,9 @@ class Episode:
 class ChildEpisodeUnit:
     """A parent-owned invocation edge around one child Episode.
 
-    The child owns ``build_result``. This wrapper owns the only callback that
-    can interpret that closed result for the parent. The unprojected result is
-    retained in the audit record and never enters the running parent view.
+    The child owns ``build_result``. The parent owns separate callbacks for
+    credit projection and report synthesis. The unprojected result is retained
+    in the audit record; model input delivery uses the synthesized report.
     """
 
     child: Episode
@@ -1400,12 +1449,29 @@ class ChildEpisodeUnit:
         [ClosedRecord, EpisodeCompletion, EpisodeRequest],
         ClosedRecord | Awaitable[ClosedRecord],
     ]
+    synthesize_report: Callable[
+        [ClosedRecord, EpisodeCompletion, EpisodeRequest],
+        Mapping[str, Any] | Awaitable[Mapping[str, Any]],
+    ]
 
     def __post_init__(self) -> None:
         if not isinstance(self.child, Episode):
             raise TypeError("ChildEpisodeUnit.child must be an Episode")
         if not callable(self.receive_result):
             raise TypeError("ChildEpisodeUnit.receive_result must be callable")
+        if not callable(self.synthesize_report):
+            raise TypeError("ChildEpisodeUnit.synthesize_report must be callable")
+        if not isinstance(self.child.request.report_contract, ReportContract):
+            raise TypeError("a child invocation requires a parent-owned reporting contract")
+
+    def _admit_report(self, value, child_result, record):
+        identifiers = tuple(dict.fromkeys((
+            record.episode_id,
+            record.goal.goal_id,
+            *self.child.request.message.audit_identifiers(),
+            *child_result.audit_identifiers(),
+        )))
+        return self.child.request.report_contract.admit(value, audit_identifiers=identifiers)
 
     @property
     def label(self) -> str:
@@ -1436,11 +1502,15 @@ class ChildEpisodeUnit:
             controller_input,
             "ChildEpisodeUnit.receive_result()",
         )
+        report = self.synthesize_report(child_result, completion, self.child.request)
+        if inspect.isawaitable(report):
+            raise TypeError("an async report synthesis requires acquire_async()")
         update = EpisodeUpdate(
             record_id=record.episode_id,
             goal=record.goal,
             completion=completion,
             controller_input=controller_input,
+            report=self._admit_report(report, child_result, record),
         )
         return _AcquiredUnit(
             contribution=Contribution(
@@ -1471,11 +1541,15 @@ class ChildEpisodeUnit:
             controller_input,
             "ChildEpisodeUnit.receive_result()",
         )
+        report = self.synthesize_report(child_result, completion, self.child.request)
+        if inspect.isawaitable(report):
+            report = await report
         update = EpisodeUpdate(
             record_id=record.episode_id,
             goal=record.goal,
             completion=completion,
             controller_input=controller_input,
+            report=self._admit_report(report, child_result, record),
         )
         return _AcquiredUnit(
             contribution=Contribution(
@@ -1487,10 +1561,16 @@ class ChildEpisodeUnit:
         )
 
     def acquire(self, ctx: "Context") -> _AcquiredUnit:
-        return self._finish(self.child.run(ctx))
+        with ctx._child_invocation(self.child):
+            acquired = self._finish(self.child.run(ctx))
+        ctx._receive_child_update(acquired.contribution.episode_update)
+        return acquired
 
     async def acquire_async(self, ctx: "Context") -> _AcquiredUnit:
-        return await self._finish_async(await self.child.run_async(ctx))
+        with ctx._child_invocation(self.child):
+            acquired = await self._finish_async(await self.child.run_async(ctx))
+        ctx._receive_child_update(acquired.contribution.episode_update)
+        return acquired
 
 
 class _LeafSource:
@@ -1583,10 +1663,38 @@ class Context:
             raise TypeError("Context.goal_state must implement GoalState")
         self.__goal_state = goal_state
         self._stack: list[Path] = []
+        self._active_episodes: dict[Path, Episode] = {}
+        self._child_edges: list[Episode] = []
+        self._child_updates: dict[Path, list[EpisodeUpdate]] = {}
         self._grains: dict[str, Grain] = {}
         self._run_id: Optional[str] = None
         if run_id is not None:
             self.bind_run_id(run_id)
+
+    def _receive_child_update(self, update: EpisodeUpdate) -> None:
+        if not self.path:
+            raise ValueError("a child report requires an active parent Episode")
+        self._child_updates.setdefault(self.path, []).append(update)
+
+    @contextmanager
+    def _child_invocation(self, child: Episode):
+        if self.path not in self._active_episodes:
+            raise ValueError("a child invocation requires an active parent Episode")
+        self._child_edges.append(child)
+        try:
+            yield
+        finally:
+            self._child_edges.pop()
+
+    @property
+    def child_reports(self) -> tuple[ParentReport, ...]:
+        return tuple(update.report for update in self._child_updates.get(self.path, ()))
+
+    def model_inputs(self, declared_inputs: Mapping[str, Any], *, reports: tuple[ParentReport, ...]) -> dict[str, Any]:
+        """Deliver the reports selected by an active Episode's binding."""
+        if not self.path:
+            raise ValueError("model inputs require an active Episode")
+        return _model_inputs(declared_inputs, self.child_reports, reports)
 
     def _preview_goal(
         self,
@@ -1684,6 +1792,7 @@ class Context:
         if not self._stack or self._stack[-1] != scope:
             raise RuntimeError("episodes must close in nesting order")
         self._stack.pop()
+        self._active_episodes.pop(scope, None)
 
     def transition(self, scope: Scope, mutation: EpochMutation) -> Scope:
         if scope != self.path or len(scope) != 1:

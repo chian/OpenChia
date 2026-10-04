@@ -33,14 +33,8 @@ from method_loop import EpisodeGoal
 from method_loop.identities import EpisodeRef
 
 from .campaign_store import CampaignView
-from .readiness import root_readiness
 from .records import Ref, RefinementRecord
-from .reports import decision_context, report_overview
-from .measure_controls import control_context
-from .grounding import grounding_context
-from .measure_needs import assigned_context, catalog as measure_needs
-from .measure_design import context as measure_design_context
-from .instrument_builds import add_context as instrument_context, relevant_sources
+from .instrument_builds import relevant_sources
 
 
 @dataclass
@@ -312,302 +306,58 @@ class RefinementSession:
         )
         return self.store.commit_attempt(attempt)
 
-    def snapshot(self, call, *, history_query=None):
-        from episode_runtime.records.refinement import assigned_history
-        from .evaluation_experiments import feedback
+    def snapshot(self, call):
         from .runtime_proposals import proposal_schemas
-        from .measures import admitted_measures, authorized_check_refs, evaluation_bindings
-        from .judgment import assessment_status, current_check_states, judgment_purpose
-        from .investigation import catalog, reference_data, visible_findings
-        from .materialization_edits import edit_context
-        from .candidate_source import source_kind
-        from .prerequisites import prerequisite_status
+        from .measures import authorized_check_refs, evaluation_bindings
+        from .judgment import current_check_states, judgment_purpose
         from .evaluation_plan import evaluation_availability, resolve_evaluations
-        from .succession import context_bundle
-        from .measure_groups import declarations, group_definition
+        from .model_inputs import model_inputs
 
-        local = self.store.context(self.campaign_id, call.invocation_id)
         with self.view() as view:
             assignment = call.assignment
             role = assignment.body["role"]
             purpose = judgment_purpose(view, assignment)
-            assessments = [
-                view.read(Ref.from_record(ref), "parent_assessment")
-                for ref in local.body["assessment_refs"]
-            ]
-            measure = (
-                assignment.body["acceptance_measure_ref"]
-                if role in {"parts", "designer"}
-                else assignment.body["local_measure_ref"]
-            )
-            checks = [
-                view.read(ref, "check")
-                for ref in authorized_check_refs(view, self.policy, assignment)
+            measure = assignment.body[
+                "acceptance_measure_ref" if role in {"parts", "designer"}
+                else "local_measure_ref"
             ]
             relevant = [
                 check
-                for check in checks
+                for ref in authorized_check_refs(view, self.policy, assignment)
+                for check in (view.read(ref, "check"),)
                 if check.body["measure_ref"] == measure
                 and check.body["purpose"] == purpose
-                and check.body["requirement_key"]
-                in assignment.body["scope_requirement_keys"]
+                and check.body["requirement_key"] in assignment.body["scope_requirement_keys"]
             ]
             states = {
                 key: status for key, (_, status) in current_check_states(view).items()
             }
-            requirements = [
-                row
-                for row in self.requirements
-                if row["requirement_key"] in assignment.body["scope_requirement_keys"]
-            ]
-            local_ids = {row["local_id"] for row in requirements}
-            static_ids = {
-                row["requirement_key"]
-                for row in requirements
-                if row["evidence_scope"] == "static_materialization"
-            }
-            handoff = self.materialization_handoff
-            static_checks = [
-                row for row in handoff["checks"] if row["requirement_id"] in static_ids
-            ]
-            static_check_ids = {row["check_id"] for row in static_checks}
-            covered = {
-                check.body["requirement_key"]
-                for check in relevant
-                if check.body["mandatory"]
-            }
-            missing_measures = sorted(
-                set(assignment.body["contribution_requirement_keys"]) - covered
-            )
-            child_reports = [
-                row.record
-                for row in view.entries("report")
-                if view.read(
-                    Ref.from_record(row.record.body["assignment_ref"]), "assignment"
-                ).body["parent_assignment_ref"]
-                == assignment.ref.as_record()
-            ][-8:]
-            child_decisions = [
-                {
-                    "report_ref": report.ref.as_record(),
-                    "decision": decision_context(view, Ref.from_record(ref)),
-                }
-                for report in child_reports
-                for ref in report.body["decision_request_refs"]
-            ]
             parent_evaluation = (
-                evaluation_availability(
-                    resolve_evaluations(view, self.policy, assignment, purpose)
-                )
-                if role in {"parts", "designer"}
-                else None
+                evaluation_availability(resolve_evaluations(
+                    view, self.policy, assignment, purpose
+                )) if role in {"parts", "designer"} else None
             )
-            measure_proposals = {
-                row.record.artifact_id.value: row.record
-                for row in view.entries("measure_proposal")
-                if row.record.body["assignment_ref"] == assignment.ref.as_record()
-            }
-            for report in child_reports:
-                for reference in report.body["measure_proposal_refs"]:
-                    record = view.read(Ref.from_record(reference), "measure_proposal")
-                    measure_proposals[record.artifact_id.value] = record
             source_admissions = relevant_sources(
-                view,
-                (
-                    binding
-                    for binding in evaluation_bindings(view, self.policy, assignment)
-                    if binding["measure_ref"] == measure
-                    and binding["purpose"] == purpose
+                view, (
+                    binding for binding in evaluation_bindings(view, self.policy, assignment)
+                    if binding["measure_ref"] == measure and binding["purpose"] == purpose
                 ),
             )
             source_rejected = bool(
                 source_admissions and source_admissions[-1].status == "rejected"
             )
-            investigations = visible_findings(view, assignment)
+            # Loop controls stay on the worker protocol. The model receives
+            # exactly the inputs declared by this Episode, not this envelope.
             context = {
-                "assignment": assignment.as_record(),
-                "test_history": assigned_history(
-                    view, call.invocation_id, history_query
-                ),
-                "goal": self.store.evidence.reference(
-                    Ref.from_record(assignment.body["goal_record_ref"]), self.duet_id
-                ),
-                "requirements": requirements,
-                "materialization_baseline": {
-                    "handoff_ref": {
-                        key: handoff[key] for key in ("artifact_id", "content_hash")
-                    },
-                    "candidate_ref": {
-                        key: handoff["candidate"][key]
-                        for key in ("artifact_id", "content_hash")
-                    },
-                    "scope": handoff["scope"],
-                    "checks": static_checks,
-                    "observations": [
-                        row
-                        for row in handoff["observations"]
-                        if row["check_id"] in static_check_ids
-                    ],
-                    "progress": handoff["progress"],
-                    "progress_definition": handoff["progress_definition"],
-                    "check_definitions": [
-                        row
-                        for row in handoff["check_definitions"]
-                        if row["definition_id"]
-                        in {check["definition_id"] for check in static_checks}
-                    ],
-                    "limitations": handoff["limitations"],
-                },
-                "part_dependencies": [
-                    row
-                    for row in handoff["episode_dependencies"]
-                    if row["parent_local_id"] in local_ids
-                    or row["child_local_id"] in local_ids
-                ],
-                "measurement_gaps": missing_measures,
-                "investigation_needs": catalog(view, self.policy, assignment),
-                "investigation_findings": investigations,
-                "investigation_reference_data": reference_data(
-                    view, self.policy, assignment, investigations
-                ),
-                "child_reports": [report_overview(report) for report in child_reports],
-                "child_decisions": child_decisions,
-                "evaluation_availability": parent_evaluation,
-                "whole_build_readiness": (
-                    root_readiness(view, assignment, self.policy)
-                    if assignment.body["parent_assignment_ref"] is None
-                    else None
-                ),
-                **context_bundle(view, assignment, child_reports),
-                "measure_proposals": [
-                    record.as_record() for record in measure_proposals.values()
-                ],
-                "measure_controls": control_context(
-                    view, (record.ref for record in measure_proposals.values())
-                ),
-                "admitted_measures": [
-                    item.as_record() for item in admitted_measures(view, assignment)
-                ],
-                "measure_admission_policy": self.policy.get("measure_admission"),
-                "measure_groups": [
-                    {"measure_ref": ref.as_record(), "definition": group_definition(*purposes)}
-                    for ref, purposes in declarations(view, self.policy).items()
-                ],
-                "measure_needs": measure_needs(view, assignment, self.policy),
-                **measure_design_context(view, assignment, self.policy),
-                "assigned_prerequisites": assigned_context(view, assignment),
-                **grounding_context(view, assignment, self.policy),
-                "source_admissions": [
-                    {
-                        "source_ref": row.record.ref.as_record(),
-                        "admitted": row.record.body["admitted"],
-                        "receipt": self.store.evidence.reference(
-                            Ref.from_record(row.record.body["build_receipt_ref"]),
-                            self.duet_id,
-                        ),
-                    }
-                    for row in source_admissions[-1:]
-                ],
-                "materialization_findings": [
-                    row
-                    for row in self.materialization["deficits"]
-                    if row["deficit"]["episode_local_id"] is None
-                    or row["deficit"]["episode_local_id"]
-                    in {item["local_id"] for item in requirements}
-                ],
-                "available_measures": [
-                    {
-                        "check_ref": check.ref.as_record(),
-                        "measure_ref": _thaw_json(check.body["measure_ref"]),
-                        "purpose": check.body["purpose"],
-                        "evidence_kind": check.body["evidence_kind"],
-                        "requirement_key": check.body["requirement_key"],
-                    }
-                    for check in checks
-                    if check.body["requirement_key"]
-                    in assignment.body["scope_requirement_keys"]
-                ],
-                "state": local.as_record(),
-                "candidate": view.candidate.as_record(),
-                "candidate_materialization": edit_context(
-                    view, self.policy, assignment
-                ),
-                "checks": [check.as_record() for check in relevant],
+                "inputs": model_inputs(self, view, call),
                 "baseline_required": not source_rejected
                 and (parent_evaluation is None or parent_evaluation["executable"])
-                and any(
-                    states.get(check.artifact_id.value) not in {"pass", "fail"}
-                    for check in relevant
-                ),
+                and any(states.get(check.artifact_id.value) not in {"pass", "fail"}
+                        for check in relevant),
                 "evaluation_purpose": purpose,
                 "proposal_schemas": proposal_schemas(role),
-                "parent_assessments": [
-                    {
-                        "assessment": item.as_record(),
-                        "current_status": assessment_status(view, item),
-                    }
-                    for item in assessments
-                ],
-                "prerequisite_assessments": [
-                    {
-                        "assessment": item.as_record(),
-                        "current_status": prerequisite_status(view, item),
-                    }
-                    for ref in local.body["prerequisite_assessment_refs"]
-                    for item in (
-                        view.read(Ref.from_record(ref), "prerequisite_assessment"),
-                    )
-                ],
-                "source_files": {},
-                "source_kinds": {},
-                "last_feedback": feedback(self, call.feedback_ref)
-                if call.feedback_ref is not None
-                else None,
-                "observations": [
-                    row.record.as_record()
-                    for row in view.entries("check_state")
-                    if row.key in {check.artifact_id.value for check in relevant}
-                ],
-                "recent_units": [
-                    view.read(Ref.from_record(ref)).as_record()
-                    for ref in local.body["recent_unit_refs"]
-                ],
-                "conflicts": [
-                    view.read(Ref.from_record(ref)).as_record()
-                    for ref in local.body["conflict_refs"]
-                ],
-                "lessons": [
-                    view.read(Ref.from_record(ref)).as_record()
-                    for ref in local.body["applicable_lesson_refs"]
-                ],
-                "design_plans": [
-                    row.record.as_record()
-                    for row in view.entries("plan")
-                    if row.record.body["assignment_ref"]
-                    in (
-                        assignment.ref.as_record(),
-                        assignment.body["parent_assignment_ref"],
-                    )
-                ],
             }
-            instrument_context(view, assignment, context)
-            # The model receives the assigned candidate, never arbitrary host paths.
-            candidate = view.candidate
-            readable = set()
-            if role in {"designer", "implementer"}:
-                readable.update(assignment.body["writable_paths"])
-                for check in relevant:
-                    readable.update(check.body["dependency_paths"] or ())
             status = view.entry("invocation", call.invocation_id.value).status
-        for path in sorted(readable.intersection(candidate.body["files"])):
-            context["source_files"][path] = self.store.evidence.builds.read_blob(
-                candidate.body["files"][path]
-            ).decode("utf-8")
-        for local_id, path in context["candidate_materialization"][
-            "source_paths"
-        ].items():
-            if path in context["source_files"]:
-                context["source_kinds"][path] = source_kind(handoff, local_id)
         return {
             "context": context,
             "disposition": "continuing" if status == "active" else status,
@@ -617,15 +367,10 @@ class RefinementSession:
         return {**self.snapshot(call), "proceed": proceed, **values}
 
     def _context(self, call, episode_id, payload):
-        exact(
-            payload,
-            {"role"}
-            | ({"test_history_query"} if "test_history_query" in payload else set()),
-            "refinement context",
-        )
+        exact(payload, {"role"}, "refinement context")
         if payload["role"] != call.assignment.body["role"]:
             raise ValueError("worker requested another role's context")
-        return self.snapshot(call, history_query=payload.get("test_history_query"))
+        return self.snapshot(call)
 
     def _begin_unit(self, call, episode_id, payload):
         self._context(call, episode_id, payload)
@@ -729,6 +474,10 @@ class RefinementSession:
             ):
                 raise ValueError("child is not a ready assignment of this parent")
             child_assignment = child.record
+            from .report_contract import assigned_return_contract
+            from .assignment_choices import assigned_addresses
+            declaration = assigned_return_contract(view, child_assignment)
+            report_requirements = assigned_addresses(self, child_assignment)
         node = self.nodes[role]
         parent_node = self.nodes_by_grain[call.path[-1][0]]
         edge = self.edges[(parent_node.local_id, role)]
@@ -762,6 +511,9 @@ class RefinementSession:
                 "assignment_id": child_assignment.artifact_id.value,
                 "campaign_id": self.campaign_id.value,
                 "result_channel_ids": list(node.result_channel_ids),
+                "return_contract": declaration,
+                "report_goal": goal_data["goal"],
+                "report_requirements": report_requirements,
             },
         )
 
@@ -850,7 +602,9 @@ class RefinementSession:
         child.unit_id = None
         with self.view() as view:
             status = view.entry("invocation", call.invocation_id.value).status
-        return self.reply(call, proceed=status == "active")
+        return self.reply(
+            call, proceed=status == "active", report=report.as_record()["body"]["return_value"],
+        )
 
     def _close_unit(self, call, episode_id, payload):
         self._require_unit(call, payload)

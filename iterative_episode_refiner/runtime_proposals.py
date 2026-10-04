@@ -11,40 +11,36 @@ from function_library.refinement_contract import ROLES
 
 from .records import Ref, logical_path
 from .state_machine import judgment_lineage
+from .report_contract import RETURN_SHAPE, requirement_address, validate_return_contract
+from .assignment_choices import (
+    assigned_addresses, conflict_choice, owned_slices, prerequisite_choice,
+    replacements, requirement_keys,
+)
 
 
 _ASSIGNMENT_SHAPE = {
     "role": "one permitted child role",
     "goal": "precise behavioral contribution, not a file grouping",
-    "contribution_requirement_keys": ["original requirement key"],
-    "owned_slice_keys": ["a parent's declared slice key"],
+    "requirements": ["original specification requirement address"],
     "writable_paths": ["an exact path within the parent's editable scope"],
-    "local_measure_ref": {
-        "artifact_id": "an admitted measure; for role=measure use measure_admission_policy.adequacy_measure_ref exactly",
-        "content_hash": "its exact hash",
-    },
-    "acceptance_measure_ref": {
-        "artifact_id": "an admitted acceptance measure",
-        "content_hash": "its exact hash",
-    },
-    "measure_request": "null except for EstablishMeasure: {purpose, requirement_keys}",
-    "supersedes_assignment_refs": [
-        {
-            "artifact_id": "returned direct-child assignment ID; use [] for new work",
-            "content_hash": "its exact hash",
-        }
-    ],
-    "prerequisite_refs": [
-        {
-            "artifact_id": "returned openchia.refinement.measure_prerequisite artifact ID; not a checking_gap/evaluation/report ID; use [] if none",
-            "content_hash": "its exact hash",
-        }
-    ],
-    "measure_review_ref": "null or omitted unless assigning a Measure's Question child to review an exact check definition reference",
+    "return_contract": RETURN_SHAPE,
+    "measure_request": (
+        "For role=measure, supply {purpose, requirements}. purpose is one literal category: "
+        "local (implementation progress), acceptance (independent part acceptance), "
+        "composition (whole-scope acceptance), or adequacy (instrument quality). "
+        "requirements contains exactly the assignment's requirements. Explain the work in goal. "
+        "For other roles supply null."
+    ),
+    "replace_previous": "true to replace the most recently returned child of this role for these requirements; otherwise false",
+    "prerequisites": [{
+        "kind": "Copy from a returned open_decisions entry marked assignment_prerequisite=true; use [] for new work.",
+        "purpose": "Copy that entry's literal judgment category.",
+        "requirements": ["copy that entry's specification addresses"],
+    }],
 }
 
 _MEASURE_SHAPE = {
-    "requirement_keys": ["the parent's exact requested requirement keys"],
+    "requirements": ["the parent's exact requested specification requirement addresses"],
     "purpose": "the parent's requested local, acceptance, composition or adequacy purpose",
     "oracle_kind": "registered_predicate or independent_execution",
     "oracle_ref": "exact committed reference to the proposed oracle",
@@ -74,7 +70,7 @@ _CHECK_DESIGN_SHAPE = {
     "purpose": "the parent's exact requested purpose",
     "predicate": "exact registered selection: library, function_id, definition_id, interface, arguments (no name)",
     "cases": [{
-        "requirement_key": "original requirement key",
+        "requirement": "original specification requirement address",
         "rationale": "derive expected behavior from the original requirement, not candidate output",
         "expected": "typed input to the selected predicate",
         "observation_path": "exact JSON pointer into the actual execution observation",
@@ -89,11 +85,17 @@ _CHECK_DESIGN_SHAPE = {
 
 
 _RETURN_PREREQUISITE_SHAPE = {
-    "return_prerequisite_ref": {
-        "artifact_id": "exact returned direct-child measure_prerequisite in child_decisions; only when this invocation has a parent",
-        "content_hash": "its exact hash; the host preserves the original need and evidence",
+    "return_prerequisite": {
+        "kind": "returned measurement prerequisite kind",
+        "purpose": "its judgment purpose",
+        "requirements": ["original specification requirement address"],
     }
 }
+
+_FINDING_SHAPE = {"observations": [{
+    "requirement": "specification address from investigation_needs",
+    "observation_path": "its exact observed quantity",
+}]}
 
 
 def proposal_schemas(role):
@@ -104,7 +106,8 @@ def proposal_schemas(role):
             "one_of": [
                 {
                     "assignment": _ASSIGNMENT_SHAPE,
-                    "conflict_ref": "null, or the exact conflict reference for a joint repair",
+                    "conflict": "null, or {kind, requirements} for a returned coordination problem",
+                    "verification_return_contract": RETURN_SHAPE,
                 },
                 _RETURN_PREREQUISITE_SHAPE,
             ],
@@ -115,26 +118,17 @@ def proposal_schemas(role):
                     "plan": {
                         "approach_key": "stable description of this approach",
                         "requirement_mapping": {
-                            "each exact assignment contribution_requirement_keys entry": (
+                            "each assigned contribution requirement address": (
                                 "how the design meets it; include every contribution key "
                                 "and no other keys, including preservation-only keys"
                             )
                         },
                         "intended_change_scope": ["exact editable path"],
-                        "assumption_refs": [],
-                        "proposed_component_refs": [],
                         "dependency_effects": {},
-                        "preservation_measure_refs": [],
-                        "expected_observation_refs": [],
-                        "falsifying_observation_refs": [],
-                        "local_measure_ref": "exact admitted measure for the Implementer's own loop",
                     },
-                    "supersedes_assignment_refs": [
-                        {
-                            "artifact_id": "returned Implementer assignment ID; use [] if none",
-                            "content_hash": "its exact hash",
-                        }
-                    ],
+                    "implementation_return_contract": RETURN_SHAPE,
+                    "verification_return_contract": RETURN_SHAPE,
+                    "replace_previous": "true to replace the latest returned Implementer for this work; otherwise false",
                 },
                 {"prerequisite": _ASSIGNMENT_SHAPE},
                 _RETURN_PREREQUISITE_SHAPE,
@@ -161,13 +155,12 @@ def proposal_schemas(role):
             ],
         },
         "support": {
-            "finding": {"check_keys": ["select exact checks from investigation_needs"]}
+            "finding": _FINDING_SHAPE
         },
         "question": {
             "one_of": [
-                {"finding": {"check_keys": ["select exact checks from investigation_needs"]}},
+                {"finding": _FINDING_SHAPE},
                 {"check_review": {
-                    "definition_ref": "exact check_design.assigned_review_ref",
                     "criteria": {"each exact check_design.review_criteria key": {"satisfied": "boolean", "reason": "specific reasoning against the original requirement and proposed cases"}},
                     "counterexamples": ["counterexample showing the check is inadequate; [] only if none found"],
                     "limitations": ["limits and uncertainties retained even when satisfied"],
@@ -178,12 +171,14 @@ def proposal_schemas(role):
             "one_of": [
                 {"instrument": _MEASURE_SHAPE},
                 {"check_design": _CHECK_DESIGN_SHAPE},
-                {"reviewed_definition_ref": "exact own check_design definition after its Question child has returned a favorable review; host then executes controls and admits or rejects"},
-                {"resume_proposal_ref": "an existing exact measure_proposals reference owned by this assignment; continue selecting its remaining controls"},
+                {"submit_reviewed_design": True},
+                {"resume_instrument": True},
                 {"prerequisite": _ASSIGNMENT_SHAPE},
                 {
                     "prerequisite_request": {
-                        "need_key": "select an exact key from measure_needs"
+                        "kind": "a kind from measure_needs",
+                        "purpose": "its judgment purpose",
+                        "requirements": ["its specification requirement addresses"],
                     }
                 },
             ]
@@ -209,12 +204,9 @@ def proposal_schemas(role):
     return result
 
 
-def assign_child(session, call, draft, producer, *, conflict_ref=None):
-    fields = set(_ASSIGNMENT_SHAPE)
-    for optional in ("supersedes_assignment_refs", "prerequisite_refs", "measure_review_ref"):
-        if optional not in draft:
-            fields.remove(optional)
-    exact(draft, fields, "child assignment proposal")
+def assign_child(session, call, draft, producer, *, conflict_ref=None,
+                 verification_return_contract=None, review_definition=None):
+    exact(draft, set(_ASSIGNMENT_SHAPE), "child assignment proposal")
     parent = call.assignment
     role = draft["role"]
     if role not in ROLES[parent.body["role"]].children:
@@ -222,41 +214,59 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None):
     if not isinstance(draft["goal"], str) or not draft["goal"].strip():
         raise ValueError("child needs a specific behavioral goal")
     need = draft["measure_request"]
+    contribution = requirement_keys(session, parent, draft["requirements"])
     if role == "measure":
-        exact(need, {"purpose", "requirement_keys"}, "parent measure request")
+        exact(need, {"purpose", "requirements"}, "parent measure request")
+        if need["purpose"] not in {"local", "acceptance", "composition", "adequacy"}:
+            raise ValueError(
+                "measure_request.purpose must be one literal category: local, acceptance, "
+                "composition, or adequacy; put the behavioral explanation in goal"
+            )
+        need = {"purpose": need["purpose"], "requirement_keys": requirement_keys(session, parent, need["requirements"])}
         if (
-            need["purpose"] not in {"local", "acceptance", "composition", "adequacy"}
-            or not need["requirement_keys"]
+            not need["requirement_keys"]
             or set(need["requirement_keys"])
-            != set(draft["contribution_requirement_keys"])
+            != set(contribution)
         ):
-            raise ValueError("EstablishMeasure needs the parent's exact judgment scope")
+            raise ValueError("measure_request.requirements must equal the assignment's requirements")
     elif need is not None:
         raise ValueError("measure requests belong to EstablishMeasure assignments")
     from .measure_needs import assignment_prerequisites
+    scope = {
+        requirement_address(row) for row in session.requirements
+        if row["requirement_key"] in parent.body["scope_requirement_keys"]
+    }
+    projection = validate_return_contract(draft["return_contract"], scope)
+    projection_ref = session.put_data("return_projection", projection)
+    if verification_return_contract is not None:
+        verification_return_contract = validate_return_contract(verification_return_contract, scope)
 
     with session.view() as view:
+        selected_prerequisites = [prerequisite_choice(session, view, parent, choice) for choice in draft["prerequisites"]]
         prerequisite_refs = assignment_prerequisites(
             view,
             parent,
-            draft.get("prerequisite_refs", ()),
-            draft["contribution_requirement_keys"],
+            selected_prerequisites,
+            contribution,
         )
+        slices = owned_slices(view, parent, contribution)
+        prior = replacements(view, parent, role, contribution, draft["replace_previous"])
     goal_ref = session.put_data(
         "assigned_goal",
         {
             "goal": draft["goal"],
             "parent_assignment_ref": parent.ref.as_record(),
-            "requirement_keys": draft["contribution_requirement_keys"],
+            "requirement_keys": contribution,
             "producer_ref": producer.as_record(),
             "measure_request": need,
+            "verification_return_contract": verification_return_contract,
             **({"prerequisite_refs": prerequisite_refs} if prerequisite_refs else {}),
-            **({"measure_review_ref": draft["measure_review_ref"]} if draft.get("measure_review_ref") is not None else {}),
+            **({"measure_review_ref": review_definition} if review_definition is not None else {}),
         },
     )
     body = _thaw_json(parent.body)
-    if draft.get("measure_review_ref") is not None:
-        body["input_refs"] = [*body["input_refs"], draft["measure_review_ref"]]
+    if review_definition is not None:
+        body["input_refs"] = [*body["input_refs"], review_definition]
     if prerequisite_refs:
         body["input_refs"] = [
             ref.as_record()
@@ -273,13 +283,18 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None):
         else parent.body["owning_parts_invocation_id"],
         "role": role,
         "goal_record_ref": goal_ref.as_record(),
-        "contribution_requirement_keys": draft["contribution_requirement_keys"],
-        "owned_slice_keys": draft["owned_slice_keys"],
+        "contribution_requirement_keys": contribution,
+        "owned_slice_keys": slices,
         "writable_paths": draft["writable_paths"],
-        "local_measure_ref": draft["local_measure_ref"],
-        "acceptance_measure_ref": draft["acceptance_measure_ref"],
+        "local_measure_ref": (
+            session.policy["measure_admission"]["adequacy_measure_ref"]
+            if role == "measure" else parent.body["acceptance_measure_ref"]
+            if role == "verify" else parent.body["local_measure_ref"]
+        ),
+        "acceptance_measure_ref": parent.body["acceptance_measure_ref"],
+        "return_projection_ref": projection_ref.as_record(),
         "allowed_child_bindings": list(ROLES[role].children),
-        "supersedes_assignment_refs": draft.get("supersedes_assignment_refs", []),
+        "supersedes_assignment_refs": prior,
     })
     body["judgment_lineage"] = judgment_lineage(body)
     if conflict_ref is not None:
@@ -325,43 +340,61 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None):
     return {"role": role, "invocation_id": invocation_id.value}
 
 
-def _inherited_draft(call, role, *, goal, measure=None):
+def _inherited_draft(session, call, role, *, goal, return_contract):
     body = call.assignment.body
     return {
         "role": role,
         "goal": goal,
-        "contribution_requirement_keys": list(body["contribution_requirement_keys"]),
-        "owned_slice_keys": list(body["owned_slice_keys"]),
+        "requirements": assigned_addresses(session, call.assignment),
         "writable_paths": list(body["writable_paths"]) if role == "implementer" else [],
-        "local_measure_ref": _thaw_json(measure or body["local_measure_ref"]),
-        "acceptance_measure_ref": _thaw_json(body["acceptance_measure_ref"]),
+        "return_contract": return_contract,
         "measure_request": None,
-        "supersedes_assignment_refs": [],
+        "replace_previous": False,
+        "prerequisites": [],
     }
 
 
 def verification_assignment(session, call, purpose):
+    from function_library.refinement_contract import verification_return_contract
     role = call.assignment.body["role"]
     expected = "composition" if role == "parts" else "acceptance"
     if role not in {"parts", "designer"} or purpose not in {"baseline", expected}:
         raise ValueError("verification purpose does not belong to this parent")
+    if purpose == "baseline":
+        projection = verification_return_contract(expected, [
+            requirement_address(row) for row in session.requirements
+            if row["requirement_key"] in call.assignment.body["scope_requirement_keys"]
+        ])
+    else:
+        with session.view() as view:
+            children = [row.record for row in view.entries("assignment")
+                        if row.record.invocation_id == call.invocation_id
+                        and row.record.logical_unit_id == call.unit_id
+                        and row.record.body["role"] in {"implementer", "designer", "parts"}]
+            if len(children) != 1:
+                raise ValueError("verification needs this unit's explicit parent return request")
+            goal = view.data(Ref.from_record(children[0].body["goal_record_ref"]))
+            projection = goal["verification_return_contract"]
     return assign_child(
         session,
         call,
         _inherited_draft(
+            session,
             call,
             "verify",
             goal=f"Independently determine {expected} against the parent's unchanged requirements.",
-            measure=call.assignment.body["acceptance_measure_ref"],
+            return_contract=projection,
         ),
         session.contract.producer_ref,
     )
 
 
 def _choose_part(session, call, proposal, producer):
-    if "return_prerequisite_ref" in proposal:
+    if "return_prerequisite" in proposal:
         return _return_prerequisite(session, call, proposal, producer)
-    exact(proposal, {"assignment", "conflict_ref"}, "part choice")
+    exact(proposal, {"assignment", "conflict", "verification_return_contract"}, "part choice")
+    with session.view() as view:
+        conflict = conflict_choice(session, view, call.assignment, proposal["conflict"])
     return session.reply(
         call,
         child=assign_child(
@@ -369,37 +402,43 @@ def _choose_part(session, call, proposal, producer):
             call,
             proposal["assignment"],
             producer,
-            conflict_ref=proposal["conflict_ref"],
+            conflict_ref=conflict,
+            verification_return_contract=proposal["verification_return_contract"],
         ),
     )
 
 
 def _design(session, call, proposal, producer):
-    if "return_prerequisite_ref" in proposal:
+    if "return_prerequisite" in proposal:
         return _return_prerequisite(session, call, proposal, producer)
     if "prerequisite" in proposal:
         return _prerequisite(
             session, call, proposal, producer, {"support", "question", "measure"}
         )
-    fields = {"plan"}
-    if "supersedes_assignment_refs" in proposal:
-        fields.add("supersedes_assignment_refs")
+    fields = {"plan", "implementation_return_contract", "verification_return_contract", "replace_previous"}
     exact(proposal, fields, "design proposal")
     fields = {
         "approach_key",
         "requirement_mapping",
         "intended_change_scope",
-        "assumption_refs",
-        "proposed_component_refs",
         "dependency_effects",
-        "preservation_measure_refs",
-        "expected_observation_refs",
-        "falsifying_observation_refs",
-        "local_measure_ref",
     }
     proposed = exact(proposal["plan"], fields, "design plan")
+    scope = assigned_addresses(session, call.assignment, "scope_requirement_keys")
+    for field in ("implementation_return_contract", "verification_return_contract"):
+        validate_return_contract(proposal[field], scope)
     body = {
         **proposed,
+        "requirement_mapping": {
+            requirement_keys(session, call.assignment, [address])[0]: meaning
+            for address, meaning in proposed["requirement_mapping"].items()
+        },
+        "assumption_refs": [],
+        "proposed_component_refs": [],
+        "preservation_measure_refs": [call.assignment.body["acceptance_measure_ref"]],
+        "expected_observation_refs": [],
+        "falsifying_observation_refs": [],
+        "local_measure_ref": call.assignment.body["local_measure_ref"],
         "assignment_ref": call.assignment.ref.as_record(),
         "acceptance_measure_ref": call.assignment.body["acceptance_measure_ref"],
         "open_need_refs": [],
@@ -407,19 +446,25 @@ def _design(session, call, proposal, producer):
     plan = session.record(call, "design_plan", body, producer=producer)
     session.commit(call, "admit_plan", {"plan": plan.as_record()}, producer=producer)
     draft = _inherited_draft(
+        session,
         call,
         "implementer",
         goal="Implement the parent's admitted approach under its fixed local measure.",
-        measure=proposed["local_measure_ref"],
+        return_contract=proposal["implementation_return_contract"],
     )
     draft["writable_paths"] = list(proposed["intended_change_scope"])
-    draft["supersedes_assignment_refs"] = proposal.get("supersedes_assignment_refs", [])
-    return session.reply(call, child=assign_child(session, call, draft, producer))
+    draft["replace_previous"] = proposal["replace_previous"]
+    return session.reply(call, child=assign_child(
+        session, call, draft, producer,
+        verification_return_contract=proposal["verification_return_contract"],
+    ))
 
 
 def _return_prerequisite(session, call, proposal, producer):
-    exact(proposal, {"return_prerequisite_ref"}, "prerequisite return")
-    session.commit(call, "propose_measure", proposal, producer=producer)
+    exact(proposal, {"return_prerequisite"}, "prerequisite return")
+    with session.view() as view:
+        reference = prerequisite_choice(session, view, call.assignment, proposal["return_prerequisite"])
+    session.commit(call, "propose_measure", {"return_prerequisite_ref": reference}, producer=producer)
     return session.reply(call, proceed=False)
 
 
@@ -502,17 +547,38 @@ def _change(session, call, proposal, producer):
 
 
 def _finding(session, call, proposal, producer):
-    from .investigation import selected_checks
+    from .investigation import needs, selected_checks
 
     if "check_review" in proposal:
-        session.commit(call, "propose_measure", proposal, producer=producer)
+        from .measure_design import assigned_definition
+
+        exact(proposal, {"check_review"}, "check review proposal")
+        review = exact(proposal["check_review"], {"criteria", "counterexamples", "limitations"}, "check review")
+        with session.view() as view:
+            definition = assigned_definition(view, call.assignment)
+            if definition is None:
+                raise ValueError("this Question has no assigned check definition to review")
+        session.commit(call, "propose_measure", {
+            "check_review": {"definition_ref": definition.ref.as_record(), **review},
+        }, producer=producer)
         return session.reply(call, proceed=False)
     exact(proposal, {"finding"}, "investigation proposal")
     finding = exact(
-        proposal["finding"], {"check_keys"}, "investigation observation choice"
+        proposal["finding"], {"observations"}, "investigation observation choice"
     )
     with session.view() as view:
-        selected_checks(view, session.policy, call.assignment, finding["check_keys"])
+        available = needs(view, session.policy, call.assignment)
+        keys = []
+        for choice in finding["observations"]:
+            exact(choice, {"requirement", "observation_path"}, "investigation observation")
+            requirement = requirement_keys(session, call.assignment, [choice["requirement"]])[0]
+            matches = [item["need"]["check_ref"]["artifact_id"] for item in available
+                       if item["need"]["requirement_key"] == requirement
+                       and view.read(Ref.from_record(item["need"]["check_ref"]), "check").body["observation_path"] == choice["observation_path"]]
+            if len(matches) != 1:
+                raise ValueError("investigation choice must identify one assigned requirement and observed quantity")
+            keys.extend(matches)
+        selected_checks(view, session.policy, call.assignment, keys)
     # This records a choice, not a supported finding. Only the common evaluation
     # path obtains observations and projects the parent's fixed decision meaning.
     ref = session.put_data(
@@ -522,7 +588,7 @@ def _finding(session, call, proposal, producer):
             "producer_ref": producer.as_record(),
             "invocation_id": call.invocation_id.value,
             "logical_unit_id": call.unit_id.value,
-            **finding,
+            "check_keys": keys,
         },
     )
     return session.reply(call, proposal_ref=ref.as_record())
@@ -533,8 +599,8 @@ def _measure(session, call, proposal, producer):
 
     handlers = {
         "check_design": propose_design,
-        "reviewed_definition_ref": propose_reviewed_instrument,
-        "resume_proposal_ref": _resume_measure,
+        "submit_reviewed_design": propose_reviewed_instrument,
+        "resume_instrument": _resume_measure,
         "prerequisite": _measure_prerequisite,
         "prerequisite_request": _measure_request,
         "instrument": _measure_instrument,
@@ -545,12 +611,14 @@ def _measure(session, call, proposal, producer):
 
 
 def _resume_measure(session, call, proposal, producer):
-    reference = Ref.from_record(proposal["resume_proposal_ref"])
+    if proposal["resume_instrument"] is not True:
+        raise ValueError("resume_instrument requires an explicit true")
     with session.view() as view:
-        prior = view.entry("measure_proposal", reference.artifact_id.value).record
-        if prior.ref != reference or prior.body["assignment_ref"] != call.assignment.ref.as_record():
-            raise ValueError("continued measure proposal belongs to another assignment")
-    return session.reply(call, proposal_ref=reference.as_record())
+        proposals = [row.record for row in view.entries("measure_proposal")
+                     if row.record.body["assignment_ref"] == call.assignment.ref.as_record()]
+        if not proposals:
+            raise ValueError("this assignment has no instrument proposal to resume")
+    return session.reply(call, proposal_ref=proposals[-1].ref.as_record())
 
 
 def _measure_prerequisite(session, call, proposal, producer):
@@ -558,7 +626,19 @@ def _measure_prerequisite(session, call, proposal, producer):
 
 
 def _measure_request(session, call, proposal, producer):
-    session.commit(call, "propose_measure", proposal, producer=producer)
+    from .measure_needs import catalog
+
+    choice = exact(proposal["prerequisite_request"], {"kind", "purpose", "requirements"}, "measurement need")
+    requirements = requirement_keys(session, call.assignment, choice["requirements"])
+    with session.view() as view:
+        selected = [need for need in catalog(view, call.assignment, session.policy)
+                    if need["kind"] == choice["kind"] and need["purpose"] == choice["purpose"]
+                    and set(need["requirement_keys"]) == set(requirements)]
+    if len(selected) != 1:
+        raise ValueError("measurement request must identify one authorized need by kind, purpose and requirements")
+    session.commit(call, "propose_measure", {
+        "prerequisite_request": {"need_key": selected[0]["need_key"]},
+    }, producer=producer)
     return session.reply(call, proceed=False)
 
 
@@ -569,6 +649,9 @@ def _measure_instrument(session, call, proposal, producer):
         if optional not in proposal["instrument"]:
             fields.remove(optional)
     instrument = exact(proposal["instrument"], fields, "instrument contract")
+    instrument = {key: value for key, value in instrument.items() if key != "requirements"} | {
+        "requirement_keys": requirement_keys(session, call.assignment, instrument["requirements"]),
+    }
     constructed = {}
     if "acquired_grounding" in instrument:
         from .grounding import prepare_acquisitions

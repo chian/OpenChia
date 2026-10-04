@@ -1,4 +1,4 @@
-"""Bounded parent projections over admitted records, never model summaries."""
+"""Durable evidence reports with a separate caller-requested model projection."""
 
 from agent.episode_contracts import OpaqueId
 from agent.duet_store import DuetNotFoundError
@@ -85,55 +85,9 @@ def check_result(view, check, state):
         "counterexample_refs": body["counterexample_refs"],
         "limitation_refs": body["limitation_refs"],
     }
-
-
-def decision_context(view, reference):
-    """Keep a checker gap actionable without copying its complete Run registration."""
-    record = view.read(reference)
-    if record.kind == "measure_prerequisite":
-        from .measure_needs import decision_context as measurement_decision
-
-        return measurement_decision(view, record)
-    if record.kind != "evaluation_run" or "checking_gap" not in record.body:
-        return record.as_record()
-    request = view.read(Ref.from_record(record.body["request_ref"]), "evaluation")
-    return {
-        "record_ref": record.ref.as_record(),
-        "kind": "checking_gap",
-        "request_ref": request.ref.as_record(),
-        "candidate_ref": record.body["candidate_ref"],
-        "build_receipt_ref": record.body["build_receipt_ref"],
-        "measure_ref": request.body["measure_ref"],
-        "check_keys": request.body["check_keys"],
-        "checking_gap": record.body["checking_gap"],
-    }
-
-
 def report_overview(record):
-    """Steering facts, not repeated full observations in every parent reply.
-
-    The immutable report and shared scoped history retain the complete typed
-    outcomes. Repeating their evidence payloads in child reports, preservation
-    findings and current check state can overflow the worker protocol after one
-    completed child. References preserve access without an LLM-written summary.
-    """
-    body = record.as_record()["body"]
-    return {
-        "report_ref": record.ref.as_record(),
-        "source_head_ref": body["complete_index_ref"],
-        **{
-            key: value for key, value in body.items()
-            if key not in {"determinations", "preservation_findings", "complete_index_ref"}
-        },
-        "check_states": [
-            {key: row[key] for key in (
-                "requirement_key", "check_key", "purpose", "outcome", "observation_ref",
-            )}
-            for row in body["determinations"]
-        ],
-        "preservation_check_keys": [row["check_key"] for row in body["preservation_findings"]],
-        "details_query": {"refinement_collection": "reports"},
-    }
+    """Deliver the caller's stored projection, never expand its audit record."""
+    return record.as_record()["body"]["return_value"]
 
 
 def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
@@ -256,10 +210,7 @@ def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
     )
     # The index cursor allows focused retrieval of the complete history. The
     # original observation references survive every parent boundary unchanged.
-    return RefinementRecord(
-        "parent_report",
-        view.campaign_id,
-        {
+    body = {
             "assignment_ref": assignment.ref.as_record(),
             "invocation_id": invocation_id.value,
             "role": assignment.body["role"],
@@ -314,7 +265,14 @@ def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
             "termination": termination,
             "continuation_ref": latest.body["continuation_ref"] if latest else None,
             "complete_index_ref": latest_commit.as_record(),
-        },
+        }
+    from .report_contract import project_return
+
+    body["return_value"] = project_return(view, assignment, body)
+    return RefinementRecord(
+        "parent_report",
+        view.campaign_id,
+        body,
         view.contract.producer_ref,
         tuple(dict.fromkeys(evidence)),
         (latest_commit,),

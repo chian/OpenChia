@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from handoff_library import HandoffPayloadContract
+from method_loop import ReportContract
 
 
 @dataclass(frozen=True)
@@ -23,27 +24,27 @@ ROLES = MappingProxyType({
         "Select a behavioral problem, obtain a child result, and assess its contribution to the whole.",
         "New independently measured whole-scope evidence or admitted coordination knowledge.",
         ("parts", "designer", "support", "question", "measure", "verify"),
-        "Choose work from measured gaps and shared regression history, not the Target Workflow's file or Episode tree. "
-        "Use the Builder handoff's requirement identities, prerequisites and recorded baseline. Its static "
-        "passes are existing achievement, not new credit or proof of behavior; retain behavioral coverage gaps. "
-        "You alone may assign Designers or a proper smaller Parts scope. Combine coupled problems when "
-        "repairs conflict; preserve both original requirements and their evidence. A new child is not progress. "
-        "Use current prerequisite_assessments to avoid repeating resolved questions or measure work; "
-        "these are decision evidence, not proof that the implementation passes. "
-        "Use evaluation_availability and child_decisions to address missing measurement prerequisites. "
-        "Use assignment prerequisite_refs only for returned openchia.refinement.measure_prerequisite "
-        "records. A checking_gap, evaluation or report reference is not a measurement request; use [] "
-        "when no such request was returned. The request specifications are "
-        "reference data, not expanded edit scope or approval to create another workflow. "
-        "At the root, whole_build_readiness covers every mandatory requirement and preservation guard; "
-        "use its gaps to select unfinished work. Child completion does not establish whole-build acceptance. "
-        "An unavailable evaluation is not a failing behavior check or permission to change active criteria. "
-        "For replacement work, name the returned_assignments in supersedes_assignment_refs. Retain their "
-        "requirements, slices and protections; an admitted stronger measure cannot discard old checks. "
-        "Read predecessor_reports as original evidence, not as proof of current acceptance. "
-        "A nested Parts invocation can return an unresolved direct-child measurement prerequisite "
-        "to its own parent using return_prerequisite_ref and the exact child_decisions reference. "
-        "The root cannot use this operation to end the workflow.",
+        "Choose a behavioral problem from measurements, evaluation_availability and child_reports. "
+        "Each requirement is named by its location in the approved specification. Static passes "
+        "establish materialization only; behavioral requirements retain their own coverage. "
+        "Assign a Designer or a proper smaller Parts scope for coupled work, preserving the original "
+        "requirements and protections. Each assignment inherits the established local and acceptance "
+        "measurements. EstablishMeasure designs explicitly requested missing or inadequate measurements. "
+        "Give every child a focused goal and a return_contract: name your next decision, the measurements "
+        "and requirement locations needed for it, and the relevant findings or blockers. A Measure child "
+        "normally returns measurement_findings and open_decisions; a repair child normally returns its "
+        "measured changes and unresolved requirements. Follow-up verification has its own declared "
+        "verification_return_contract. Select only information needed for the next decision. "
+        "Use measurement outcomes and changes to distinguish new evidence, regression, stale evidence "
+        "and missing measurement. Child disposition alone does not establish whole-build acceptance. "
+        "For a returned open_decisions entry marked assignment_prerequisite=true, copy its "
+        "kind, purpose and requirements into prerequisites. Use [] when assigning new work. "
+        "These preserve the original need and grant no additional edit authority. "
+        "replace_previous explicitly replaces the latest returned child of that role for that "
+        "requirement scope, preserving its measurement obligations and numerical lineage. "
+        "Use conflict to coordinate the named kind and requirement scope under this Parts owner. "
+        "A nested Parts can forward a returned measurement need using return_prerequisite; "
+        "the root retains responsibility for resolving or escalating its assigned whole.",
     ),
     "designer": RefinementRole(
         "DesignPart",
@@ -51,23 +52,22 @@ ROLES = MappingProxyType({
         "Admit an approach and local measure, obtain implementation, then independently verify the part.",
         "Evidence-backed improvement under the part's acceptance contract, not design prose.",
         ("implementer", "support", "question", "measure", "verify"),
-        "Own the approach through implementation and independent acceptance. Ground the local coding measure "
-        "in the assigned requirements before coding. You may request a named prerequisite, but cannot create "
-        "another Designer or Parts scope. Use the admitted measures and current prerequisite_assessments "
-        "returned by your children; they do not replace independent acceptance. "
-        "Read child_decisions and evaluation_availability before repeating an unavailable check. "
-        "Keep assigned_prerequisites as original evidence when planning preparation; instrument coding "
-        "still requires an admitted plan, grounded local measure and authorized paths. "
-        "For missing local coverage, request Measure for the missing subset; its admitted checks can "
-        "accumulate in the supplied local measure group alongside existing checks. If a returned "
-        "measurement prerequisite needs a decision outside this assignment, use return_prerequisite_ref "
-        "with its exact child_decisions reference to return it to your parent. This preserves the "
-        "original need and evidence; it is neither progress nor completion. "
-        "A different acceptance contract needs a successor assignment from your owner. "
-        "When a new plan replaces a returned Implementer, include its assignment reference in the "
-        "design proposal's supersedes_assignment_refs. Its prior evidence and measures remain available; "
-        "repeating an old pass under a new measure identity is not new progress. "
-        "Return cross-part problems to your Parts owner with evidence.",
+        "Own the approach through implementation and independent acceptance. Use measurements, "
+        "evaluation_availability and child_reports to select the next action. The inherited local "
+        "measure judges coding progress; independent acceptance retains its original requirements. "
+        "Request EstablishMeasure explicitly for a focused missing or inadequate judgment, naming "
+        "its purpose and requirement locations. Its report should describe admitted coverage, "
+        "control outcomes, limitations and remaining needs using measurement_findings and open_decisions. "
+        "Every prerequisite child receives a goal and return_contract suited to your next decision. "
+        "An implementation plan maps every assigned contribution requirement to its design reasoning. "
+        "Supply implementation_return_contract for local outcomes and changes, and "
+        "verification_return_contract for the independent acceptance information you need. "
+        "These reports remain distinct: local progress is not independent acceptance. "
+        "Use replace_previous to replace your latest returned Implementer for this work. "
+        "Keep earlier obligations through inherited measurements. The design input contains the "
+        "latest approach, while child_reports contains the information requested from completed work. "
+        "Forward an out-of-scope returned measurement need to your parent using return_prerequisite "
+        "with its kind, purpose and requirement locations. Cross-part repair belongs to Parts.",
     ),
     "implementer": RefinementRole(
         "RefineImplementation",
@@ -112,7 +112,7 @@ ROLES = MappingProxyType({
         (),
         "Use the named question and supplied evidence. Identify the observation that separates alternatives. "
         "Select its checks from investigation_needs; the host maps observations to the parent's fixed "
-        "decision meanings. When check_design.assigned_review_ref is supplied, instead review that exact "
+        "decision meanings. When check_design.review_assigned is true, instead review current_design "
         "definition against the original requirements and return check_review for every fixed criterion. "
         "Challenge the expected results, control polarities, observation relevance and limitations. "
         "Check the declared judgment purpose: a local implementation measure can establish necessary "
@@ -140,7 +140,7 @@ ROLES = MappingProxyType({
         "supported observations, then obtain the separate review; do not return grounding_required "
         "merely because no check has been written yet. If the needed observation or authority is "
         "unavailable through those routes, or an authorized instrument must first be built, return "
-        "the applicable exact need_key using prerequisite_request. That is an unresolved request "
+        "the applicable need's kind, purpose and requirements using prerequisite_request. That is an unresolved request "
         "to your owner, not progress, a usable instrument or permission to change its criteria. "
         "When instrument_returns offers an independently accepted checking build, include its exact "
         "spec_ref/report_ref/source_ref as instrument_return in your instrument proposal. Keep the "
@@ -164,7 +164,7 @@ ROLES = MappingProxyType({
         "for that executable predicate, not descriptions of a projector somebody must implement later. "
         "Include requirement-based reasoning, expected observations, justified satisfactory/violating controls "
         "and explicit limitations. A separate Question child reviews the immutable proposal. After "
-        "its return, select reviewed_definition_ref to submit it to host control execution and admission; "
+        "its return, use submit_reviewed_design=true to submit the current design for control execution and admission; "
         "revise any rejected design. You cannot review your own proposal, award credit, or equate "
         "agreement with target correctness. If neither design nor acquisition is authorized, return "
         "the original grounding_required request. That same exact request remains available when "
@@ -184,6 +184,28 @@ ROLES = MappingProxyType({
 })
 
 CHILDREN = MappingProxyType({name: role.children for name, role in ROLES.items()})
+
+# Each Episode declares its working inputs. The method loop supplies child
+# reports through its separate, parent-contracted communication boundary.
+MODEL_INPUT_COMPONENTS = MappingProxyType({
+    "parts": ("measurements", "prerequisites", "coordination"),
+    "designer": ("measurements", "prerequisites", "materialization", "source", "design"),
+    "implementer": ("measurements", "prerequisites", "materialization", "source", "design"),
+    "measure": ("measurements", "prerequisites", "measure_design", "grounding", "investigation"),
+    "question": ("measurements", "prerequisites", "measure_design", "investigation"),
+    "support": ("measurements", "investigation"),
+    "verify": ("measurements",),
+})
+
+INPUT_MEASUREMENTS = MappingProxyType({
+    "parts": ("local", "composition"),
+    "designer": ("local", "acceptance"),
+    "implementer": ("local",),
+    "measure": ("adequacy",),
+    "question": ("question",),
+    "support": ("support",),
+    "verify": (),  # Its parent declares acceptance or composition.
+})
 DISPOSITIONS = (
     "continuing",
     "attained",
@@ -204,6 +226,57 @@ RESULT_PAYLOAD = HandoffPayloadContract(
     state_values={"disposition": DISPOSITIONS[1:]},
     required_state_names=("disposition",),
 )
+
+
+def verification_return_contract(purpose, requirements):
+    """The Parts/Designer loop's declared baseline-verification return."""
+    return {
+        "decision": "Which assigned requirements need work before independent acceptance?",
+        "measurements": [{
+            "name": "Independent requirement evaluation",
+            "purpose": purpose,
+            "requirements": list(requirements),
+        }],
+        "include": ["candidate_changes", "open_decisions"],
+    }
+
+
+def check_review_return_contract():
+    """EstablishMeasure asks its Question child for this check-design review."""
+    return {
+        "decision": "Is this proposed instrument adequate to submit for control execution?",
+        "measurements": [],
+        "include": ["check_review", "open_decisions"],
+    }
+
+
+def child_report_contract(declaration):
+    """Bind the refiner's requested measurements to the shared method boundary."""
+    return ReportContract(
+        decision=declaration["decision"],
+        measurements={item["name"]: {
+            "purpose": item["purpose"], "requirements": item["requirements"],
+        } for item in declaration["measurements"]},
+        information={
+            "role": "The requested child role, to select the next kind of work.",
+            "goal": "The child's assigned question or change, in meaningful text.",
+            "requirements": "Original specification locations addressed by this child.",
+            "return": "The parent's requested measurement outcomes and selected findings.",
+        },
+    )
+
+
+def root_return_contract(requirements):
+    """Duet's return request when starting the complete refinement workflow."""
+    return {
+        "decision": "Is the Target Workflow ready, and which requirements remain unresolved?",
+        "measurements": [{
+            "name": "Whole-workflow acceptance",
+            "purpose": "composition",
+            "requirements": list(requirements),
+        }],
+        "include": ["candidate_changes", "open_decisions"],
+    }
 
 # One transport for every refinement role. Evaluation uses the existing Run
 # executor; neither this protocol nor an Episode provides a replay/test runner.

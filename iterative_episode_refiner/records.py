@@ -321,6 +321,7 @@ RECORD_FIELDS = {
         "decision_request_ref",
     },
     "parent_report": {
+        "return_value",
         "assignment_ref",
         "invocation_id",
         "role",

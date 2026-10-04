@@ -609,8 +609,34 @@ required_module_contract.constructor_signatures.
 
 Every edge receive_result implementation first calls
 handoff_library.admit_child_result with the matching parent request, declared
-RESULT_CHANNEL_IDS, and the exact edge result payload contract. It then
-projects that admitted closed result onto the parent's own credit scale.
+RESULT_CHANNEL_IDS, and the exact edge result payload contract. It projects
+credit on the parent's scale. The separate reporting component implements the
+parent's planned synthesis of the admitted result: the returned information
+answers the decision named before child launch, organized by the requested
+measurements with applicable outcomes, changes, blockers, and limitations.
+The parent uses this compact report to choose its next work without rebuilding
+the child's investigation. Preserve the separate parent-scale credit projection
+and its numerical semantics.
+
+Wire the synthesized report into the parent's declared model inputs. Retain
+full child histories and provenance in audit storage. When an artifact reference
+transports a report, resolve only its contracted projection for model input;
+returning a report ID and later appending the stored audit body does not implement
+the synthesis. The same dataflow applies to ordinary and repeatable child calls.
+Every nested Episode reports under its invoking parent's contract; the root
+has no upward contract and still declares the contracts for its own children.
+Construct every child EpisodeRequest with report_contract=ReportContract(
+decision=the_parent_decision, measurements=the_declared_measurement_meanings,
+information=the_requested_field_meanings). ChildEpisodeUnit requires a separate
+synthesize_report(result, completion, request) callback returning precisely those
+fields. receive_result retains the numerical credit projection. Use
+view.model_inputs(declared_inputs, reports=selected_reports), or the matching
+ctx.model_inputs call inside a compound acquisition unit, to deliver reports
+selected from view.child_reports or ctx.child_reports. Declare the selection
+rule according to the parent's next decision; completed history is audit data,
+not an automatic input. The method also records compound-unit child returns.
+Use component.report_S for a concrete slot's report synthesis and the approved
+component.repeatable_S_synthesize_report for an additional repeatable call.
 
 The module composes the generic method_loop Episode. It declares its prompts
 and every function it uses locally or through an exact reusable library import.
@@ -779,7 +805,9 @@ _MODULE_CONTRACT = {
             "SourceEnd, or None"
         ),
         "Leaf": "Leaf(unit, extract, result, label, accept=None)",
-        "ChildEpisodeUnit": "ChildEpisodeUnit(child, receive_result)",
+        "ChildEpisodeUnit": "ChildEpisodeUnit(child, receive_result, synthesize_report)",
+        "ReportContract": "ReportContract(decision, measurements, information)",
+        "EpisodeRequest": "EpisodeRequest(goal, message, report_contract=None); report_contract is required for every child",
         "ClosedRecord": (
             "admitted boundary base class whose as_record() returns a JSON mapping"
         ),

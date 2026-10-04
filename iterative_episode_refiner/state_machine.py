@@ -99,8 +99,10 @@ def admit_assignment(view, attempt, resolved, assignment, invocation_id):
     from .investigation import require_assignment
     from .succession import require_measures, validate_replacements
     from .measure_needs import validate_assignment_prerequisites
+    from .report_contract import assigned_return_contract
 
     body = assignment.body
+    assigned_return_contract(view, assignment)
     require_assignment(view, resolved.references["policy"], assignment)
     invocation_id = OpaqueId(invocation_id).value
     if body["judgment_lineage"] != judgment_lineage(body):

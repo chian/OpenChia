@@ -20,6 +20,7 @@ from .episode_contract_models import (
 CALL_FUNCTION_FIELDS = (
     "prepare_request",
     "receive_result",
+    "synthesize_report",
     "request_schema",
     "invocation_admission",
     "authority_attenuation",
@@ -33,6 +34,7 @@ class EpisodeRepeatableCallSpec:
     callee_template_local_id: str
     prepare_request: EpisodeFunctionSelectionSpec
     receive_result: EpisodeFunctionSelectionSpec
+    synthesize_report: EpisodeFunctionSelectionSpec
     request_schema: EpisodeFunctionSelectionSpec
     invocation_admission: EpisodeFunctionSelectionSpec
     authority_attenuation: EpisodeFunctionSelectionSpec

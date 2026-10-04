@@ -248,17 +248,6 @@ def unit_prerequisite(view, attempt):
     )
 
 
-def decision_context(view, record):
-    from .measure_design import prerequisite_reviews
-
-    reference = record.body["need"]["instrument_build_ref"]
-    return {
-        **record.as_record(),
-        "prior_check_reviews": prerequisite_reviews(view, record),
-        "instrument_build_specification": view.data(Ref.from_record(reference))
-        if reference
-        else None,
-    }
 
 
 def prerequisite_assignments(view, references):
@@ -331,11 +320,3 @@ def validate_assignment_prerequisites(view, parent, assignment):
         map(Ref.from_record, expected)
     ) <= set(map(Ref.from_record, assignment.body["input_refs"])):
         raise ValueError("assignment loses its original prerequisite input references")
-
-
-def assigned_context(view, assignment):
-    goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
-    return tuple(
-        decision_context(view, view.read(Ref.from_record(ref), "measure_prerequisite"))
-        for ref in goal.get("prerequisite_refs", ())
-    )

@@ -294,7 +294,7 @@ def restore_entry(registration, plan, root_module, goal_state):
     from types import MappingProxyType
     from agent.duet_contracts import canonical_json, content_id
     from handoff_library import ParentRequestAddress, admit_parent_request
-    from method_loop import EpisodeGoal, EpisodeRequest
+    from method_loop import EpisodeGoal, EpisodeRequest, ReportContract
     from method_loop.identities import EpisodeRef
 
     scope = registration.execution_scope
@@ -323,6 +323,10 @@ def restore_entry(registration, plan, root_module, goal_state):
             "saved boundary GoalState differs from reproducible initial state; restoration is required"
         )
     goal = EpisodeGoal.from_record(boundary["entry_request"]["goal"])
+    declared_report = boundary["entry_request"]["report_contract"]
+    report_contract = (
+        None if declared_report is None else ReportContract.from_record(declared_report)
+    )
     if goal.parent_goal_id != boundary["parent_goal_id"]:
         raise ValueError("saved entry Goal differs from its actual parent")
     node = next(node for node in plan.nodes if node.local_id == scope.entry_local_id)
@@ -376,4 +380,4 @@ def restore_entry(registration, plan, root_module, goal_state):
         raise ValueError(
             "reconstructed goal view differs from the exact recorded boundary"
         )
-    return node.local_id, EpisodeRequest(goal, message), path, view
+    return node.local_id, EpisodeRequest(goal, message, report_contract), path, view

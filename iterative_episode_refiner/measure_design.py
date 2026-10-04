@@ -290,84 +290,50 @@ def unit_review(view, attempt):
     )
 
 
-def prerequisite_reviews(view, request):
-    """Give the owner review findings without copying full control fixtures."""
-    from .measure_needs import prerequisite_assignments
-
-    assignments = prerequisite_assignments(view, [request.ref.as_record()])
-    scope = set(request.body["need"]["requirement_keys"])
-    definitions = {
-        row.record.ref: row.record
-        for row in view.entries("measure_definition")
-        if Ref.from_record(row.record.body["assignment_ref"]) in assignments
-        and scope.intersection(
-            case["requirement_key"] for case in row.record.body["design"]["cases"]
-        )
-    }
-    return [
-        {
-            "definition_ref": definition.ref.as_record(),
-            "requirement_keys": [
-                case["requirement_key"] for case in definition.body["design"]["cases"]
-            ],
-            "review": row.record.as_record(),
-        }
-        for row in view.entries("measure_review")
-        if (definition := definitions.get(Ref.from_record(row.record.body["definition_ref"])))
-        is not None
-    ]
 
 
 def context(view, assignment, frozen):
+    """The current instrument under construction, not the design/review history."""
     from function_library.refinement_checks import refinement_check_library
+    from function_library.models import _thaw_json
     from episode_runtime.testing.observations import observation_catalog
-    from .measure_needs import prerequisite_assignments
+    from .report_contract import requirement_address, requirement_catalog
 
     grant = frozen.get("measure_admission")
     if not policy(grant):
         return {}
     selected = assigned_definition(view, assignment)
-    goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
-    predecessors = (
-        prerequisite_assignments(view, goal.get("prerequisite_refs", ()))
-        if assignment.body["role"] == "measure"
-        else set()
-    )
-    scope = set(assignment.body["scope_requirement_keys"])
     definitions = [
-        row.record
-        for row in view.entries("measure_definition")
+        row.record for row in view.entries("measure_definition")
         if row.record.body["assignment_ref"] == assignment.ref.as_record()
-        or (selected and row.record.ref == selected.ref)
-        or (
-            Ref.from_record(row.record.body["assignment_ref"]) in predecessors
-            and {
-                case["requirement_key"]
-                for case in row.record.body["design"]["cases"]
-            } <= scope
-        )
     ]
-    references = {record.ref for record in definitions}
+    current = selected or (definitions[-1] if definitions else None)
+    design = None
+    if current is not None:
+        design = _thaw_json(current.body["design"])
+        catalog = requirement_catalog(view)
+        design["cases"] = [{
+            **{key: value for key, value in case.items() if key != "requirement_key"},
+            "requirement": requirement_address(catalog[case["requirement_key"]]),
+        } for case in design["cases"]]
     return {
         "check_design": {
-            "definitions": [record.as_record() for record in definitions],
-            "reviews": [
-                row.record.as_record()
-                for row in view.entries("measure_review")
-                if Ref.from_record(row.record.body["definition_ref"]) in references
-            ],
-            "assigned_review_ref": selected.ref.as_record() if selected else None,
+            "current_design": design,
+            "review_assigned": selected is not None,
             "review_criteria": list(REVIEW_CRITERIA),
             "available_predicates": [
-                function.as_record()
-                for function in refinement_check_library.functions()
+                function.as_record() for function in refinement_check_library.functions()
             ],
             "available_observations": observation_catalog(),
             "execution_bindings": [
-                item
-                for item in frozen["evaluation_bindings"]
+                item for item in frozen["evaluation_bindings"]
                 if item["purpose"] in {"local", "acceptance", "composition", "adequacy"}
             ],
-            "authority": "Design and review alone earn zero credit. Reviewed expectations are judgments with provenance, not observed target success. Host admission requires executable positive and negative controls. Definitions inherited through prerequisite handoffs are prior attempts, not this assignment's proposals or permission to admit them; their reviews retain the counterexamples a revised design must address.",
+            "authority": (
+                "Propose a requirement-grounded instrument and its controls. A separately assigned "
+                "Question reviews it; executable controls establish its measured adequacy. "
+                "Use the contracted child return to revise the current design or submit it with "
+                "submit_reviewed_design. Prior reviews describe limitations, not target success."
+            ),
         }
     }

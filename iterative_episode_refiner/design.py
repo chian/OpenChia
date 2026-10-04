@@ -20,6 +20,7 @@ from function_library.refinement import (
     ATTENUATE,
     PREPARE_CHILD,
     RECEIVE_CHILD,
+    REPORT_CHILD,
     REQUEST_SCHEMA,
 )
 from function_library.refinement_contract import RESULT_PAYLOAD, ROLES
@@ -93,6 +94,7 @@ def refinement_workflow_spec():
                         RECEIVE_CHILD,
                         arguments={"payload_contract": RESULT_PAYLOAD.as_record()},
                     ),
+                    synthesize_report=_selection(REPORT_CHILD),
                     request_schema=_selection(REQUEST_SCHEMA),
                     invocation_admission=_selection(ADMIT_CALL),
                     authority_attenuation=_selection(ATTENUATE),

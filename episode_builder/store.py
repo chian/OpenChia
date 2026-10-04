@@ -915,8 +915,11 @@ class BuildStore:
             attempt
             for path in sorted((self._records_root / "attempts").iterdir())
             if path.is_file() and path.suffix == ".json"
+            # Select the request before traversing its frozen workflow. An
+            # unrelated historical workflow need not satisfy today's schema.
+            for candidate in (self._read_record("attempts", path.stem, BuildAttempt.from_record),)
+            if candidate.build_request_id.value == expected
             for attempt in (self.read_build_attempt(path.stem),)
-            if attempt.build_request_id.value == expected
         )
         if len(attempts) > 1:
             raise BuildStoreCorruptionError(

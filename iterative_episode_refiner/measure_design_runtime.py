@@ -10,8 +10,21 @@ from .records import Ref
 
 def propose_design(session, call, proposal, producer):
     from .runtime_proposals import _inherited_draft, assign_child
+    from function_library.refinement_contract import check_review_return_contract
+    from .assignment_choices import requirement_keys
 
-    session.commit(call, "propose_measure", proposal, producer=producer)
+    design = proposal["check_design"]
+    cases = []
+    for case in design["cases"]:
+        if "requirement_key" in case:
+            raise ValueError("check design requires specification requirement locations")
+        cases.append({
+            **{key: value for key, value in case.items() if key != "requirement"},
+            "requirement_key": requirement_keys(session, call.assignment, [case["requirement"]])[0],
+        })
+    session.commit(call, "propose_measure", {
+        "check_design": {**design, "cases": cases},
+    }, producer=producer)
     with session.view() as view:
         definitions = [
             row.record
@@ -21,12 +34,15 @@ def propose_design(session, call, proposal, producer):
         ]
     definition = definitions[-1]
     draft = _inherited_draft(
+        session,
         call,
         "question",
         goal="Review this exact proposed check against the original requirement. Challenge expected results, observation relevance and each control's polarity; return criteria, counterexamples and limitations, not target success or credit.",
+        return_contract=check_review_return_contract(),
     )
-    draft["measure_review_ref"] = definition.ref.as_record()
-    return session.reply(call, child=assign_child(session, call, draft, producer))
+    return session.reply(call, child=assign_child(
+        session, call, draft, producer, review_definition=definition.ref.as_record(),
+    ))
 
 
 def project(view, assignment, reference, data):
@@ -120,7 +136,9 @@ def project(view, assignment, reference, data):
 
 
 def propose_reviewed_instrument(session, call, proposal, producer):
-    exact(proposal, {"reviewed_definition_ref"}, "reviewed check selection")
+    exact(proposal, {"submit_reviewed_design"}, "reviewed check selection")
+    if proposal["submit_reviewed_design"] is not True:
+        raise ValueError("submit_reviewed_design requires an explicit true")
     # Pure projection first; writes use the existing content-addressed store
     # outside the read transaction, then ordinary measure admission rechecks it.
     artifacts = []
@@ -130,8 +148,12 @@ def propose_reviewed_instrument(session, call, proposal, producer):
         return CampaignStore.data_reference(session.duet_id, kind, value)
 
     with session.view() as view:
+        definitions = [row.record for row in view.entries("measure_definition")
+                       if row.record.body["assignment_ref"] == call.assignment.ref.as_record()]
+        if not definitions:
+            raise ValueError("this assignment has no check design to submit")
         body = project(
-            view, call.assignment, proposal["reviewed_definition_ref"], collect
+            view, call.assignment, definitions[-1].ref.as_record(), collect
         )
     for kind, value in artifacts:
         session.put_data(kind, value)

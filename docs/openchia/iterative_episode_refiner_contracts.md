@@ -182,9 +182,10 @@ old one; prior evidence is reclassified by the frozen applicability rule, never
 deleted or relabeled as fresh discovery. This occurs at a successor assignment
 boundary, not through a worker changing the active controller epoch.
 
-Current implementation mapping (unexecuted): ordinary child proposals may name
-`supersedes_assignment_refs`; a Designer's plan proposal may name the returned
-Implementers it replaces. These use the existing `assign` operation. Host
+Current model-facing proposals use specification requirement locations and
+`replace_previous: true` to replace the latest returned child of the same role
+and contribution. The admitted assignment retains the exact predecessor
+references internally. These use the existing `assign` operation. Host
 admission requires returned direct children with committed parent reports,
 unchanged authority, and retained scope, contributions, preservation requirements,
 owned slices and protected paths. Ordinary replacement retains the role; the
@@ -204,9 +205,13 @@ language criteria equivalent or withdraw inconvenient checks.
 for both credit admission and numerical observation history. Original receipts,
 evidence and credit rows remain unchanged. Different roles' credit is not copied,
 and this historical projection does not establish current passing check state.
-The context includes bounded original predecessor reports/goals and returned
-direct-child assignments with their admitted measure choices. The current campaign
-history/conflict index remains authoritative. Root replacement and materially
+The parent receives the latest contracted child return for each role and
+requirement scope, including whether it applies to the current candidate and
+whether the child can be replaced. Established local and acceptance measurements
+are inherited. Explicit Measure assignments request new grounded coverage by
+purpose and original requirement location; ordinary continuation does not choose
+measure hashes. The current campaign history/conflict index remains authoritative.
+Root replacement and materially
 different criteria/authority still require the approval boundary; that successor
 handoff is not implemented by this child-assignment path.
 
@@ -465,7 +470,7 @@ and executable positive/negative controls. This is routine refinement, not a
 reason to request another human approval or stop the goal.
 
 New normal-build campaigns freeze `measure_admission.reviewed_designs.version=1`.
-EstablishMeasure may submit `check_design`: exact requirement keys, a registered
+EstablishMeasure may submit `check_design`: original specification requirement locations, a registered
 predicate, expected observations, justified satisfactory/violating controls, an
 authorized execution binding, and limitations. The host records an immutable
 `measure_definition`, then calls the existing ResolveQuestion child to review it.
@@ -473,8 +478,9 @@ The child checks requirement fidelity, observation relevance, expected-result
 justification, control polarities and limitations. Its typed `measure_review`
 returns through the ordinary parent report. Definition and review earn zero credit.
 
-After that separate child returns, EstablishMeasure selects the exact
-`reviewed_definition_ref`. The host projects the reviewed definition into ordinary
+After that separate child returns, EstablishMeasure explicitly submits its current
+design with `submit_reviewed_design: true`. The host resolves the exact immutable
+definition and its returned review, then projects the reviewed definition into ordinary
 grounded cases and uses the shared predicate/control admission code. Self-review,
 unreturned reviews, counterexamples, changed definitions and failing controls
 cannot admit a measure. The publication boundary reconstructs the projection;
@@ -896,16 +902,21 @@ for support they are `applicable`, `inapplicable` or `unresolved`. They express
 bounded advisory conclusions about the named target, never new capabilities or
 enforceable exclusions. An execution failure is not the `fail` predicate outcome.
 
-An assigned child proposes `finding: {check_keys: [...]}`. This is a selection,
+An assigned child proposes `finding: {observations: [{requirement, observation_path}]}`
+using the specification location and observed quantity in its declared investigation
+needs. The host resolves the exact authorized checks. This is a selection,
 not evidence. The host adds required guards and uses the shared evaluation
 service's exact native Target Workflow binding. Source admission and actual Run
 evidence precede predicate evaluation. Only then does `investigation.findings`
 project the parent's fixed outcome meaning. Missing execution, stale evidence,
 contradictions or failing guards cannot produce a resolved finding.
 
-The parent's report and next context carry these findings with original evidence,
-candidate/dependency, measure and environment identities. Selected reference
-bodies are supplied intact as data; the active system prompt is unchanged.
+The durable report retains original evidence, candidate/dependency, measure and
+environment identities. When the parent requests `investigation_findings`, its
+return contains the requirement, decision meaning, applicability, supported state
+and limitations. The specialist's declared investigation input supplies the
+decision, target and applicability data it needs; audit envelopes are not model
+inputs. The active system prompt is unchanged.
 Question resolution may be positive or negative. A rejected guidance candidate
 does not close the guidance need. Repeated conclusions share semantic credit
 history; neither narrative length nor a new child/Run identity is progress.
@@ -1135,7 +1146,9 @@ executable contexts may run. The unit still returns an original unresolved reque
 as `needs_parent_decision`, and the parent report retains all outstanding requests
 from that unit; this does not count as normal completion or substitute
 for a decisive observation. Publication verifies the exact decision reference.
-The parent receives the typed request body beside the child report. Host-derived
+The parent's requested `open_decisions` section supplies gap kind, meaning and
+affected requirement locations. The original request remains in the audit record.
+Host-derived
 availability also prevents automatic baseline verification from repeatedly
 selecting a route already known to be unavailable. Resolving that prerequisite
 does not permit mutation of the active assignment's criteria. General instrument
@@ -1283,10 +1296,10 @@ evaluation is a distinct request with the original history preserved.
 
 These records enter the same decision selection used by unit closure and its
 independent publication validation. The child returns `needs_parent_decision`,
-and the parent gets all outstanding context gaps, including when another case
-successfully executes. Its focused context contains original record/evidence refs,
-candidate, measure, check keys and cause; the complete Run registration stays in
-the durable record. Missing checker authority cannot be repaired by changing an
+and the parent gets the requested outstanding gaps, including when another case
+successfully executes. Its `open_decisions` return contains the cause and affected
+requirements; exact checks, candidate identities, evidence and the complete Run
+registration stay in the durable record. Missing checker authority cannot be repaired by changing an
 active contract, nor can input incompatibility be turned into a passing check.
 This remains unexecuted code, not proof of the complete instrument-building loop.
 
@@ -1355,28 +1368,92 @@ ParentReport = {
   determinations[], changed_dependency_refs[], preservation_findings[],
   relevant_attempt_refs[], lesson_refs[], unresolved_requirement_keys[],
   decision_request_ref | null, continuation_ref, termination,
-  evidence_refs[], complete_index_ref
+  evidence_refs[], complete_index_ref, return_value
 }
 ```
 
-`determinations` contain requirement/check key, exact candidate/measure/environment,
-verdict, evidence scope, and original observation refs. The role-specific registered
-projection admits only the following parent content:
+`determinations` and the other audit fields retain requirement/check keys, exact
+candidate/measure/environment identities, verdicts and original observation
+references. Numerical credit and independent judgment continue to consume that
+evidence. `return_value` is the separate model-facing projection requested by this
+child's parent before dispatch:
 
-| Boundary | Required specialized contents |
-| --- | --- |
-| Implementer -> Designer | Change refs; local milestone/check results; preservation failures/staleness; design/measure challenge |
-| Designer -> Parts | Actual part acceptance; dependency effects; failed approaches relevant to selection; new/coupled design need |
-| Parts -> enclosing Parts | Integrated contribution/composition checks; scope coverage; cross-scope conflict or unresolved dependency |
-| Support search -> caller | Selected/contradictory source refs; supported applicability; uncovered guidance needs |
-| Question -> caller | Resolved distinction; remaining alternatives; decision effect and evidence limits |
-| Measure -> caller | Instrument/adequacy refs; usable domain; build/grounding gap |
-| Verifier -> caller | Requirement determinations; counterexamples; unperformed/stale checks; independence/applicability limits |
+```json
+{
+  "decision": "Does this repair warrant independent acceptance?",
+  "measurements": [
+    {
+      "name": "Local repair outcomes",
+      "purpose": "local",
+      "requirements": ["/episodes/example/parts/node_plan"]
+    }
+  ],
+  "include": ["candidate_changes", "open_decisions"]
+}
+```
 
-These are deterministic views of admitted records, not model summaries. Explanatory
-claims can be attached as untrusted claim refs; they cannot change the verdict.
-In-progress projections use the same records as final reports. Every safe unit
-boundary publishes changes relevant to ancestors even when the child keeps working.
+The requirement locations identify real specification parts or contract fields;
+they are not aliases for artifact hashes. Each named measurement groups outcomes
+by requirement and preserves recorded versus currently applicable statuses,
+unmeasured requirements, scalar observations, limitations, counterexamples and
+comparable changes since assignment. A local result and an independent acceptance
+result remain different measurements. Structured execution evidence stays stored;
+it is not expanded into a parent report merely because it exists.
+
+The parent selects any needed sections: `candidate_changes`,
+`investigation_findings`, `measurement_findings`, `check_review`, and
+`open_decisions`. These provide changed paths, decision findings, measurement
+admission/control results, review reasoning, and actionable blockers respectively.
+The parent report supplies only its declared measurements and sections. It does
+not append child histories, full admissions, source packages or provenance hashes.
+
+Every child path declares a return. Parts explicitly requests a child return and
+the subsequent `verification_return_contract`; Designer separately requests
+`implementation_return_contract` and `verification_return_contract`. Their
+automatic baseline-verification calls use the requesting Episode's declaration in
+`function_library/refinement_contract.py`. EstablishMeasure's automatic Question
+call requests check-review criteria, counterexamples, limitations and open
+decisions. Duet's root return requests whole-workflow acceptance, changes and
+outstanding decisions. These declarations exist before each call.
+
+`MODEL_INPUT_COMPONENTS` in that same Episode contract module declares working
+inputs for each role. `model_inputs.py` delivers current scoped code/design when
+needed, measurements, and the last operation's actionable feedback. It does not
+retrieve a list of stored child reports for the parent. The fixed system
+instructions remain stable across calls.
+
+The shared `method_loop.ReportContract` names the parent's next decision,
+measurement meanings, and required information fields before child launch.
+Every invocation by an active parent requires it; an isolated selected-Episode
+check has no executing ancestor to report to. `ChildEpisodeUnit` separately invokes
+the credit projection and mandatory `synthesize_report` callback. The method
+admits the returned information as a `ParentReport`, checking its exact declared
+fields and rejecting the known correlation/artifact identities carried by the
+child request and result. Rejected identities are not masked or shortened.
+Domain-specific findings and measurement interpretation remain binding functions.
+
+The method collects these returns even when a compound acquisition unit executes
+several children. The refiner binding selects the latest return per role and
+requirement scope and calls `Context.model_inputs(..., reports=selected_reports)`.
+That boundary accepts only report objects admitted for this parent, owns the
+`child_reports` input field, and also checks the declared inputs against known
+child audit identities. Audit records and numerical controller inputs remain
+separate from this model-facing synthesis. Shape/identity checks establish these
+mechanical boundaries; semantic adequacy still requires live verification.
+
+Builder admission checks the actual `ChildEpisodeUnit` constructor, including its
+required synthesis callback. Each concrete slot declares a `component.report_S`
+function; an approved repeatable call declares `synthesize_report` explicitly.
+The root has no upward reporting obligation and retains the same requirements
+for each child it invokes.
+
+`report_contract.py` implements the declared projections; `report_overview` reads
+the stored `return_value` only. Old return-contract shapes and past continuations
+are not migrated or accepted through a compatibility projection. The eight-module
+refiner has passed fresh materialization with these interfaces. Fresh nested
+execution demonstrated distinct parent requests, their corresponding returns,
+and subsequent parent decisions. See `episode_communication.md` for the exact
+events, verification boundary, and remaining target-workflow limitations.
 
 The user-facing MINI review is a projection of this data: requirement/target,
 finding, current status, latest exact evidence and required decision. It does not
@@ -1582,10 +1659,10 @@ Current explicit-entry return (unexecuted): `execute_refinement` returns
 `RefinementRunResult`, a read-only host projection containing the original
 `RunEvidence`, campaign reference, root report, selected candidate, original typed
 decision records and that candidate's admitted-source references. The Episode's
-existing report-ID/disposition handoff remains unchanged. Parent reports add
-optional `child_report_refs` for bounded direct-child results; older v1 reports
-remain readable. The host follows those typed links to expose original decisions
-without synthesizing a narrative or promoting raw audit text to authority.
+existing report-ID/disposition transport handoff remains unchanged. Durable parent
+reports retain `child_report_refs` for direct-child evidence and require the
+contracted `return_value` described in §7.3. Model-input delivery reads that return;
+it does not follow the audit links to expand stored child artifacts.
 
 Both `succeeded` and `blocked` refiner terminal frames must agree with the exact
 published host root report and root Episode identity. `attained` maps to Run
