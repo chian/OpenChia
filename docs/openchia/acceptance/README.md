@@ -47,6 +47,45 @@ host, and native worker checks pass. Live-model acceptance is not yet establishe
   measurement contract. Its `null` fields are unresolved setup inputs, not valid
   artifact references. This checklist is not an ExperimentSpec or TestingContract.
 
+## What this live study must establish about OpenChia
+
+The scheduling task exercises the system, not a hand-repaired demonstration.
+For each failure, inspect the supplied prompt, required return and host check
+together. Distinguish a candidate mistake that the existing loop can repair
+from missing information or an unavailable operation in that loop. Do not fill
+the latter by manually supplying this benchmark's design, code or answers.
+
+Current system-level findings:
+
+- Builder admission requires exact registered controller composer/credit
+  bindings, but the ordinary planning return still asks the model to author
+  those selections. The live initial attempts produced mismatches. The minimum
+  correction to examine is supplying host-owned fixed selections through the
+  same contract used by validation, leaving actual design choices to the model.
+- The plan-mapping check required exact contribution keys while its rejection
+  did not distinguish omissions from preservation-only extras. This is fixed
+  without relaxing the check; live recovery after the fix remains to be observed.
+- The normal-build campaign creates 12 contract-coverage requirements in addition
+  to five static requirements. Its registered grounding currently covers only
+  the scheduling goal, and it supplies no instrument-building or acquisition
+  route for the other coverage requirements. EstablishMeasure can compose
+  available cases, but cannot construct those missing definitions from this
+  setup. The deficit is in the system's preparation/construction interface,
+  not a request for the operator to pre-author eleven benchmark-specific tests.
+
+Minimum information to trace across each nested assignment: the original
+requirement, contribution and preservation scope, what observation would support
+or falsify it, how the measuring instrument is established and checked, and an
+available next operation when one of those inputs is missing. Fixed host facts
+should not become model-authored guesses. A declared return option must have an
+implemented admission route. Rejection must identify the exact missing or
+inconsistent part. Use the existing contract, shared harness and records for
+these connections; do not introduce another runner or a fixed test sequence.
+
+These are implementation findings, not grounds to waive a requirement or call
+an unverified build complete. The current job remains free to make progress
+through its declared loop while the findings are investigated.
+
 ## Target design and review choices
 
 The single root `schedule_reasoner` solves the existing seven-job problem with
