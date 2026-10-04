@@ -1,7 +1,0 @@
-{
-  "subject": "goal_contract",
-  "items": [
-    {"guidance_id": "refiner.goal_contract.faithful_assignment", "version": 1, "title": "Turn a requirement into a faithful assignment", "kind": "specialty_instruction", "subject": "goal_contract", "roles": ["RefineParts", "DesignPart", "EstablishMeasure"], "description": "Trace a behavioral gap to scoped work, local milestones and independent parent acceptance.", "use_when": "A target requirement must be decomposed or made measurable without changing its meaning.", "do_not_use_when": "The approved purpose is ambiguous and no authorized interpretation exists.", "body_path": "instructions/faithful_assignment.md", "source_refs": ["refiner-design-v3"], "validation_status": "design_guidance"},
-    {"guidance_id": "refiner.goal_contract.source_row", "version": 1, "title": "Source-grounded rows are more than valid JSON", "kind": "worked_example", "subject": "goal_contract", "roles": ["RefineParts", "DesignPart", "EstablishMeasure"], "description": "Map a small extraction requirement to identity, exact-span and missing-value checks.", "use_when": "Designing an evidence-linked extraction or table result contract.", "do_not_use_when": "Treating substring occurrence as sufficient proof of subject attribution or general comprehension.", "body_path": "examples/source_row.md", "source_refs": ["source-extraction-reference", "refiner-design-v3"], "validation_status": "illustrative_unexecuted"}
-  ]
-}

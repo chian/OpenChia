@@ -27,7 +27,8 @@ from agent.episode_contracts import (
 from episode_builder._contract_chain import ApprovedBuildRequest
 from episode_builder.service import EpisodeBuilder
 from episode_builder.store import BuildStore
-from episode_library.inquiry import DESIGN, inquiry_contract
+from episode_library.reasoning import DESIGN
+from function_library.epistemic_contract import inquiry_contract
 from episode_library.models import EpisodeReference
 from episode_runtime.contracts import (
     RunEventKind,

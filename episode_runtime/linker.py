@@ -775,7 +775,7 @@ def prepare_source_package(
     )
     baseline = getattr(registration.execution_scope, "learning_baseline", None)
     if baseline is not None:
-        from .testing.reconstruction_source import admit_reasoning_unit_source
+        from .testing_harness.reconstruction_source import admit_reasoning_unit_source
 
         try:
             admission = admit_reasoning_unit_source(

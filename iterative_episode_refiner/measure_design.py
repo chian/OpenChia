@@ -79,7 +79,7 @@ def validate_design(value):
             "requirement and rationale",
             nonempty=True,
         )
-        from episode_runtime.testing.observations import validate_observation_path
+        from episode_runtime.testing_harness.observations import validate_observation_path
 
         validate_observation_path(case["observation_path"])
         if value["predicate"]["function_id"] == "record_conditions_v1":
@@ -296,7 +296,7 @@ def context(view, assignment, frozen):
     """The current instrument under construction, not the design/review history."""
     from function_library.refinement_checks import refinement_check_library
     from function_library.models import _thaw_json
-    from episode_runtime.testing.observations import observation_catalog
+    from episode_runtime.testing_harness.observations import observation_catalog
     from .report_contract import requirement_address, requirement_catalog
 
     grant = frozen.get("measure_admission")

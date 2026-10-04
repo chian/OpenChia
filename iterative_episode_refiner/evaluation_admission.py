@@ -132,7 +132,7 @@ def bind_run(view, attempt, resolved):
     if canonical_json(launch) != canonical_json(expected_launch):
         raise ValueError("validation Run does not use its measure's exact launch input")
     if "experiment_ref" in binding.body:
-        from episode_runtime.testing.contracts import ExperimentSpec
+        from episode_runtime.testing_harness.contracts import ExperimentSpec
 
         experiment = view.data(Ref.from_record(binding.body["experiment_ref"]))
         spec = ExperimentSpec.from_record(experiment["spec"]).as_record()

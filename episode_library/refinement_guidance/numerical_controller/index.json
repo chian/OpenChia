@@ -1,7 +1,0 @@
-{
-  "subject": "numerical_controller",
-  "items": [
-    {"guidance_id": "refiner.numerical_controller.coupled_design", "version": 1, "title": "Design the full numerical controller", "kind": "specialty_instruction", "subject": "numerical_controller", "roles": ["DesignPart", "RefineParts"], "description": "Keep admitted progress, numeric estimation and the continuation rule consistent as one design.", "use_when": "A target's credit, rarefaction, continuation or composition is being repaired.", "do_not_use_when": "Changing the controller judging the currently running refinement assignment.", "body_path": "instructions/coupled_design.md", "source_refs": ["numeric-control-reference", "generic-reasoning-reference", "refiner-design-v3"], "validation_status": "source_inspected"},
-    {"guidance_id": "refiner.numerical_controller.replay_and_stop", "version": 1, "title": "Challenge novelty, replay and stop decisions", "kind": "check_pattern", "subject": "numerical_controller", "roles": ["DesignPart", "EstablishMeasure", "VerifyBehavior"], "description": "Inspect a trace with new facts, duplicates, invalidation, unavailable bands and exact thresholds.", "use_when": "Preparing local and parent checks for a coupled controller repair.", "do_not_use_when": "Using the illustrative trace as estimator calibration or a default-threshold live acceptance receipt.", "body_path": "examples/replay_and_stop.md", "source_refs": ["numeric-control-reference", "refiner-design-v3", "scheduling-live-receipt"], "validation_status": "illustrative_unexecuted"}
-  ]
-}

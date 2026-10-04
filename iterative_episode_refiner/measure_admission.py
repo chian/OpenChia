@@ -8,7 +8,7 @@ from agent.duet_contracts import canonical_json, content_id
 from agent.episode_contracts import OpaqueId
 from function_library.epistemic_contract import exact
 from function_library.refinement_checks import resolve_predicate
-from episode_runtime.testing.judgments import check_controls
+from episode_runtime.testing_harness.judgments import check_controls
 
 from .checking import checker_definition
 from .evaluation_inputs import instrument_context, native_template

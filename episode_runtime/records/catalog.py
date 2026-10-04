@@ -119,7 +119,7 @@ def _verified(row):
 
 def experiment_record_owner(artifacts, spec):
     """Resolve record ownership after the caller has authorized this exact spec."""
-    from episode_runtime.testing.contracts import ExperimentSpec
+    from episode_runtime.testing_harness.contracts import ExperimentSpec
 
     request = ExperimentSpec.from_record(spec)
     row = read_record(artifacts, "dispatch", experiment_id=request.experiment_id)
@@ -352,7 +352,7 @@ def recording_choice(row, *, artifacts, runs):
 
 
 def _measurement(artifacts, experiment_id):
-    from episode_runtime.testing.measurements import saved_measurements
+    from episode_runtime.testing_harness.measurements import saved_measurements
 
     value = saved_measurements(artifacts, experiment_id)
     if value is None:
@@ -589,7 +589,7 @@ def _execution_intent(artifacts, duet_id, binding):
 
 
 def _experiment_intent(artifacts, row, binding):
-    from episode_runtime.testing.contracts import ExperimentSpec
+    from episode_runtime.testing_harness.contracts import ExperimentSpec
 
     subject = row["record"]["plan"].get("subject")
     detail = _subject_summary(subject)
@@ -617,7 +617,7 @@ def _subject_summary(subject):
 
 
 def _instrument_intent(artifacts, row, binding):
-    from episode_runtime.testing.contracts import ExperimentSpec
+    from episode_runtime.testing_harness.contracts import ExperimentSpec
     from episode_runtime.contracts import RunRegistration
 
     value = row["record"]
@@ -710,7 +710,7 @@ def _refinement_intent(artifacts, row, binding):
 
 
 def experiment_overview(artifacts, runs, spec):
-    from episode_runtime.testing.contracts import ExperimentSpec
+    from episode_runtime.testing_harness.contracts import ExperimentSpec
 
     request = ExperimentSpec.from_record(spec)
     result = {
@@ -775,7 +775,7 @@ def experiment_overview(artifacts, runs, spec):
 
 
 def _history_spec(row, owner):
-    from episode_runtime.testing.contracts import ExperimentSpec
+    from episode_runtime.testing_harness.contracts import ExperimentSpec
 
     value = _verified(row)
     spec = ExperimentSpec.from_record(value["spec"])

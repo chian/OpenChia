@@ -113,7 +113,7 @@ def _control(view, entry):
     """Project the existing control admission and shared measured experiment."""
     from .experiments import record_id
     from .outcomes import RequirementOutcome
-    from episode_runtime.testing.contracts import ExperimentSpec
+    from episode_runtime.testing_harness.contracts import ExperimentSpec
 
     observation = entry.record if entry.status == "observed" else None
     binding = entry.record if observation is None else view.read(

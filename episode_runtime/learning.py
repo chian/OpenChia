@@ -102,7 +102,7 @@ class LearningLedger:
         ]
 
     def _sources(self, contract, scope, episode_id, logical_run_id, events, publish, baseline=None):
-        from .testing.learning import measured_sources
+        from .testing_harness.learning import measured_sources
 
         existing = {
             e.payload["artifact"]["artifact_id"]: e.payload["artifact"]

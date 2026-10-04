@@ -29,7 +29,7 @@ def check_result(view, check, state):
         if binding is not None:
             experiment_ref = binding.body.get("experiment_ref")
         if experiment_ref is not None:
-            from episode_runtime.testing.contracts import ExperimentSpec
+            from episode_runtime.testing_harness.contracts import ExperimentSpec
 
             experiment = view.data(Ref.from_record(experiment_ref))
             experiment_id = ExperimentSpec.from_record(experiment["spec"]).experiment_id

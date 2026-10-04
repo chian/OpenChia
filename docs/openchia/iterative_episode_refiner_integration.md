@@ -300,10 +300,12 @@ tool, global learning privilege or model-selected runtime import root is needed.
 
 ## 5. Specialty guidance interface and parallel ownership
 
-The user separately authorized an early Goal 5 content task during Goal 1.
-Its isolated directory is `episode_library/refinement_guidance/`. It is a data
-catalog of versioned guidance, not another Episode/function registry or a Codex
-skill installation. Runtime selection/search remains later integration work.
+The unvalidated Goal 5 guidance catalog was removed on 2026-10-04. The following
+interface remains a design proposal, not an available library or evidence that
+its examples worked. The admission policy allows nano-graphrag references and
+the refiner's validated Episodes and dependencies. This catalog removal does
+not establish validation of every remaining registered design. New examples
+require successful end-to-end execution before admission.
 
 The root index lists subjects only. Subjects have their own compact `index.json`
 and `instructions/` / `examples/` bodies. Initial subjects: general, goal_contract,
@@ -341,14 +343,13 @@ not every task-type directory. Unfamiliar work uses the general route or reports
 missing guidance; it is not forced into the nearest example.
 
 Before child start, only the approved instruction package can enter the fixed
-prompt. Later material is typed reference input. Mark illustrative examples,
-unit-test evidence and actual task-acceptance receipts distinctly. No catalog
-header may upgrade an unexecuted example into a validated result.
+prompt. Later material is typed reference input. Illustrations, mechanism tests
+and partial acceptance receipts do not qualify as proven library examples.
 
 ## 6. Implementation order and safe concurrent work
 
-Recommended main sequence remains **1 -> 2 -> 3 -> 4 -> 6 -> 7**. Goal 5 content
-can proceed now; its resolution/input wiring integrates after shared contracts.
+The original implementation sequence was **1 -> 2 -> 3 -> 4 -> 6 -> 7**.
+Future Goal 5 content must come from validated work, not invented examples.
 
 | Ownership | Files/decisions |
 | --- | --- |
@@ -356,7 +357,7 @@ can proceed now; its resolution/input wiring integrates after shared contracts.
 | Goal 2 main implementation | Campaign state, projections, equivalence and conflict handling; define agreed Python types first |
 | Goal 3, following Goal 2 | Actual protocol, broker, source/linker, recovery and scoped execution integration |
 | Goal 4, following Goal 3 | Executing library Episodes and host-receipt sources using the real boundary |
-| Goal 5 content agent | Only `episode_library/refinement_guidance/` for the current head start; no registry/protocol/host edits |
+| Goal 5 content | Admit examples only from validated work; the unvalidated draft catalog was deleted |
 | Goal 5 later integration | Catalog resolution/search and frozen scoped input, through reviewed interfaces |
 | Goal 6 | Real-path acceptance cases and inspectable receipts; preparation can precede execution |
 | Goal 7 | Legacy boundary rehome and normal build activation, last |

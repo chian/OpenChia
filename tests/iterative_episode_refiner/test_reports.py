@@ -353,7 +353,7 @@ def test_history_uses_indexed_scope_and_cli_pages_without_reconstructing_audit(
     capsys,
 ):
     from episode_runtime.records.refinement import assigned_history
-    from episode_runtime.testing.service import ExperimentService
+    from episode_runtime.testing_harness.service import ExperimentService
     from openchia_cli.episode_test_command import main
 
     store, campaign_id, parent, child, _baseline, _current, _checks, observations = (
@@ -473,7 +473,7 @@ def test_history_uses_indexed_scope_and_cli_pages_without_reconstructing_audit(
 
 def test_history_shares_parent_conflicts_but_filters_child_details(report_campaign):
     from episode_runtime.records.refinement import assigned_history
-    from episode_runtime.testing.service import ExperimentService
+    from episode_runtime.testing_harness.service import ExperimentService
 
     store, campaign_id, parent, child, _baseline, _current, _checks, observations = (
         report_campaign

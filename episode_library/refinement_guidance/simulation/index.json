@@ -1,7 +1,0 @@
-{
-  "subject": "simulation",
-  "items": [
-    {"guidance_id": "refiner.simulation.model_and_evidence", "version": 1, "title": "Separate model, simulator and evidence", "kind": "specialty_instruction", "subject": "simulation", "roles": ["DesignPart", "RefineParts"], "description": "Use exact controls and a predeclared statistical procedure without seed-shopping or model overclaims.", "use_when": "A target generates trajectories or stochastic estimates under a stated model.", "do_not_use_when": "Simulation output is being used to establish the real-world model's validity without external evidence.", "body_path": "instructions/model_and_evidence.md", "source_refs": ["refiner-design-v3"], "validation_status": "design_guidance"},
-    {"guidance_id": "refiner.simulation.two_state", "version": 1, "title": "A two-state simulator with an exact reference", "kind": "worked_example", "subject": "simulation", "roles": ["DesignPart", "EstablishMeasure", "VerifyBehavior"], "description": "Check deterministic transition boundaries and a two-step probability of 5/16.", "use_when": "Designing a small inspectable simulation acceptance case.", "do_not_use_when": "Treating one statistical pass, one seed, or stationary probabilities as proof of transient behavior.", "body_path": "examples/two_state.md", "source_refs": ["refiner-design-v3"], "validation_status": "illustrative_unexecuted"}
-  ]
-}

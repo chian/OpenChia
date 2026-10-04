@@ -13,7 +13,7 @@ from episode_runtime import broker, protocol
 from episode_runtime.contracts import RunEventOrigin, RunTerminalStatus
 from episode_runtime.executor import _HostChannel
 from episode_runtime.exchanges import broker_model_request
-from episode_runtime.testing.recordings import read_recording
+from episode_runtime.testing_harness.recordings import read_recording
 from llm_call_library import ModelTransportResponse
 
 REQUEST = {

@@ -25,7 +25,8 @@ from agent.episode_contracts import (
     OpaqueId,
 )
 from agent.openchia_host import OpenChiaHost
-from episode_library.inquiry import DESIGN, inquiry_contract
+from episode_library.reasoning import DESIGN
+from function_library.epistemic_contract import inquiry_contract
 from episode_library.models import EpisodeReference
 from episode_runtime.records.experiments import read_record
 from episode_runtime.executor import make_systemd_run_executor_factory

@@ -36,7 +36,7 @@ from episode_runtime.http_contracts import http_request_hash, http_response_hash
 from episode_runtime.broker import ScopedModelBroker
 from episode_runtime.store import RunStore
 from episode_runtime.protocol import _thaw_json
-from episode_runtime.testing.recordings import read_recording
+from episode_runtime.testing_harness.recordings import read_recording
 from handoff_library import DuetLaunchRequest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]

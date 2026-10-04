@@ -22,7 +22,7 @@ from episode_runtime.store import RunStoreConflict, RunStoreNotFound
 from episode_runtime.worker import _ProtocolChannel, runtime_collaborators
 from tests.episode_runtime.conftest import claim_store
 from tests.episode_runtime.test_model_request_thaw import REQUEST
-from tests.episode_runtime.testing.refinement_fixture import prepared_refiner
+from tests.episode_runtime.testing_harness.refinement_fixture import prepared_refiner
 
 
 def interrupt(runs, registration):

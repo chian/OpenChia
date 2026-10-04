@@ -15,12 +15,12 @@ from episode_runtime.contracts import RunEventKind, RunEventOrigin, RunTerminalS
 from episode_runtime.protocol import episode_id_for_path
 from episode_runtime.records.catalog import execution_overview, history, inventory
 from episode_runtime.records.experiments import put_record, read_record
-from episode_runtime.testing.contracts import ExperimentSpec
-from episode_runtime.testing.recordings import save_recording
+from episode_runtime.testing_harness.contracts import ExperimentSpec
+from episode_runtime.testing_harness.recordings import save_recording
 from method_loop.identities import UnitRef
 from tests.episode_builder.test_repeatable_call_materialization import build
 from tests.episode_runtime.conftest import claim_store
-from tests.episode_runtime.testing.test_experiment_planning import experiment
+from tests.episode_runtime.testing_harness.test_experiment_planning import experiment
 
 
 @pytest.mark.asyncio

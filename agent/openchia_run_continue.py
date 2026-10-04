@@ -54,7 +54,7 @@ def restore_run(host, baseline):
     intent = read_run_intent(host.store, intent_ref, registration)
     if intent["kind"] != "experiment.launch_intent.v1":
         raise OpenChiaHostError("The saved Run is not an ordinary Duet launch.")
-    from episode_runtime.testing.launches import validate_launch_intent
+    from episode_runtime.testing_harness.launches import validate_launch_intent
 
     validate_launch_intent(host.store, replace(registration, resume_from=None), intent["record"])
     _, launch, _ = resolve_approved_launch(
@@ -65,7 +65,7 @@ def restore_run(host, baseline):
 
 
 async def prepare_continuation(host, executor, previous):
-    from episode_runtime.testing.recovery import recover_stopped_run
+    from episode_runtime.testing_harness.recovery import recover_stopped_run
 
     evidence = await asyncio.to_thread(
         recover_stopped_run, runs=host.run_store, artifacts=host.store,
@@ -86,7 +86,7 @@ def saved_run_status(host, baseline):
     if selected is None:
         return None
     registration, _intent = selected
-    from episode_runtime.testing.recovery import execution_owner_status
+    from episode_runtime.testing_harness.recovery import execution_owner_status
 
     ownership = execution_owner_status(host.store, registration)
     try:

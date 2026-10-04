@@ -12,7 +12,7 @@ from agent.duet_contracts import content_id, digest_record
 from agent.duet_store import DuetStore
 from episode_runtime.contracts import RunEventOrigin, RunTerminalStatus
 from episode_runtime.records.experiments import put_data, put_record
-from episode_runtime.testing.service import ExperimentService
+from episode_runtime.testing_harness.service import ExperimentService
 from iterative_episode_refiner.records import Ref, RefinementRecord
 
 
@@ -227,7 +227,7 @@ def test_recording_choices_show_scoped_context_and_executable_inventory_requests
     from episode_runtime.protocol import episode_id_for_path
     from episode_runtime.records.catalog import recording_choice
     from episode_runtime.records.experiments import read_reference
-    from episode_runtime.testing.recordings import save_recording
+    from episode_runtime.testing_harness.recordings import save_recording
 
     runs, registration, _ = run_store
     owner = registration.duet_id.value
@@ -327,8 +327,8 @@ async def test_experiment_history_returns_owner_preserving_next_query(
     tmp_path, run_store, monkeypatch
 ):
     from tests.episode_builder.test_repeatable_call_materialization import build
-    from tests.episode_runtime.testing.test_experiment_planning import experiment
-    from episode_runtime.testing.contracts import ExperimentSpec
+    from tests.episode_runtime.testing_harness.test_experiment_planning import experiment
+    from episode_runtime.testing_harness.contracts import ExperimentSpec
 
     request, _builds, receipt = await build(tmp_path, ())
     runs, registration, _ = run_store

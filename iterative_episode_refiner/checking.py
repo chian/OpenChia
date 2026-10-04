@@ -14,7 +14,7 @@ from episode_runtime.contracts import RunRegistration, RunTerminalStatus
 from function_library.epistemic_contract import exact
 from handoff_library import DuetLaunchAddress, admit_duet_launch_request
 
-from episode_runtime.testing.inputs import workflow_template
+from episode_runtime.testing_harness.inputs import workflow_template
 from .records import Ref, pointer_parts, project
 
 
@@ -141,7 +141,7 @@ def admitted_build(reader, definition, *, duet_id):
 def validate_checker_entry(inputs, definition, template):
     """Check static payload vocabulary before any target or checker is run."""
     from handoff_library import HandoffPayloadContract
-    from episode_runtime.testing.boundaries import fresh_entry_declaration
+    from episode_runtime.testing_harness.boundaries import fresh_entry_declaration
 
     definition = checker_descriptor(definition)
     entry = definition.get("entry_local_id")
@@ -346,7 +346,7 @@ def prepare_checker_inputs(
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             return unavailable("checker_input_invalid", str(exc))
     from episode_runtime.records.experiments import put_data
-    from episode_runtime.testing.boundaries import fresh_entry_scope
+    from episode_runtime.testing_harness.boundaries import fresh_entry_scope
     from function_library.models import _thaw_json
 
     if input_evidence_ref is None:

@@ -7,7 +7,7 @@ does not grant artifact-store access to the target.
 """
 
 from agent.duet_contracts import FrozenDuetWorkflow
-from episode_runtime.testing.inputs import workflow_template
+from episode_runtime.testing_harness.inputs import workflow_template
 from handoff_library import (
     DuetLaunchAddress,
     admit_duet_launch_request,

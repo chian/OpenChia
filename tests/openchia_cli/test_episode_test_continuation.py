@@ -16,11 +16,11 @@ from agent.episode_launch import resolve_launch
 from agent import secret_scope
 from episode_builder.service import EpisodeBuilder
 from episode_builder.store import BuildStore
-from episode_library.inquiry import inquiry_contract
+from function_library.epistemic_contract import inquiry_contract
 from episode_runtime.continuation import InterruptedRunRef
 from episode_runtime.contracts import RunTerminalStatus
 from episode_runtime.records.experiments import put_data, read_record
-from episode_runtime.testing.contracts import ExperimentSpec
+from episode_runtime.testing_harness.contracts import ExperimentSpec
 from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 from llm_call_library import CallOptions
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
@@ -30,9 +30,9 @@ from tests.episode_runtime.conftest import claim_store, numerical_control
 from tests.episode_runtime.test_reasoning_workflow import (
     _approved_request, _module_response, _plan_response,
 )
-from tests.episode_runtime.testing.launch_fixture import FixtureLaunchHost
-from tests.episode_runtime.testing.test_experiment_planning import experiment
-from tests.episode_runtime.testing.test_measurements import ResultOnlyExecutor
+from tests.episode_runtime.testing_harness.launch_fixture import FixtureLaunchHost
+from tests.episode_runtime.testing_harness.test_experiment_planning import experiment
+from tests.episode_runtime.testing_harness.test_measurements import ResultOnlyExecutor
 
 
 class SuppliedContinuationExecutor(ResultOnlyExecutor):

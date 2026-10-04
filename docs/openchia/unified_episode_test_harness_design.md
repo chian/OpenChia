@@ -551,19 +551,22 @@ three distinct facts: the candidate's measured behavior, what that experiment
 established within its boundaries, and any new host-admitted progress. None is
 substituted for another. Predictions are not editable acceptance predicates.
 
-The implementation lives under `episode_runtime/testing/`, with CLI rendering
-under `openchia_cli/`. It extends the existing runtime package and stores; it
+The testing and replay implementation lives under `episode_runtime/testing_harness/`,
+with CLI rendering under `openchia_cli/`. Its tests and fixtures live under
+`tests/episode_runtime/testing_harness/`. `episode_runtime/` owns Run execution;
+the harness uses that runtime rather than providing a separate runner. It
+extends the existing runtime package and stores; it
 does not add another execution process, authoritative store, function registry, controller
 or core model tool. Role-specific refiner code keeps its assignment/acceptance
 authority, but delegates experimental execution to this shared service.
 
 | Responsibility | Existing owner / integration point |
 | --- | --- |
-| Experimental intent and discoverable vocabulary | `episode_runtime.testing.contracts`, `.schema` |
+| Experimental intent and discoverable vocabulary | `episode_runtime.testing_harness.contracts`, `.schema` |
 | Exact source and boundary preview | `.planning`, `.candidates`; `BuildStore.inspection_inputs_for_receipt`, `WorkflowMaterializationPlan.all_edges`; refinement candidate source projection |
 | Selected invocation execution | `.boundaries` derives saved context from the verified recording; `episode_runtime.scoped.RunScope` binds it into the existing registration; linker and `method_loop.Context` enter at the original nested path without executing ancestors |
 | New typed checker entry | `.boundaries.fresh_entry_scope` derives a new initial-state context from the frozen checker definition; `FreshEntryScope` enters only its already-approved child/subtree through the same worker/linker |
-| Bound-component execution | `.testing.components` resolves the exact role and call inputs; `episode_runtime.components.ComponentScope` is frozen in the same Run registration; linker invokes the registered implementation inside the ordinary worker without starting an Episode |
+| Bound-component execution | `.components` resolves the exact role and call inputs; `episode_runtime.components.ComponentScope` is frozen in the same Run registration; linker invokes the registered implementation inside the ordinary worker without starting an Episode |
 | Shared records and reference verification | `episode_runtime.records.experiments`, also used by `iterative_episode_refiner.evidence.EvidenceReader`; unchanged existing store identities |
 | Human and agent CLI | `openchia_cli.episode_test_command`; installed `openchia test` dispatch |
 | Launch setup | `openchia_cli.episode_launch_setup`; produces the existing `/launch` format and a separate private credential file |
@@ -571,15 +574,15 @@ authority, but delegates experimental execution to this shared service.
 | External HTTP credentials | Existing profile config via `episode_runtime.http_broker.load_egress_config`; `ScopedHttpBroker` enforces approved rules for both host and CLI execution |
 | Refiner reasoning model | `agent.duet_episode_transport`, `OpenChiaHost.refinement_experiment_service`; binds the owning Duet's resolved model/provider route, never the Target Workflow launch; supplied-agent/local-provider integration verified |
 | Real execution and confinement | `episode_runtime.executor`, `.worker`, `.linker`; same admitted package and attested Run boundary |
-| Shared Run dispatch and status | `episode_runtime.testing.execution.RunExecution`, used by `.service.ExperimentService` and refiner execution; `register_build` reuses exact admitted registration |
-| Ordinary human `/run` | `OpenChiaHost.start_run` records `.testing.launches` intent and uses `RunExecution`; the resolved model-launch event binds the exact configuration and registration |
-| Refiner candidate, instrument and reference experiments | `iterative_episode_refiner.evaluation_experiments` supplies assigned sources and checks model proposals, then calls `ExperimentService`; `testing.campaign_criteria` reads the original admitted check; `.campaign_subjects` resolves exact auxiliary source bindings and their campaign ownership |
-| Refiner measure-control experiments | `iterative_episode_refiner.measure_experiments` supplies independently grounded cases for Episode selection; `.testing.control_subjects` validates their checker dependencies through the same service; campaign admission still judges adequacy |
-| Declared measurement dependencies | `.testing.instruments` binds the independently approved checker to the exact experiment and successful target evidence; executes with `RunExecution`, shared recordings and playback; supplied-answer in-process integration verified |
-| In-Episode experiment requests | `function_library.testing.EXPERIMENT_REQUEST`, runtime experiment frames, `.testing.session.ExperimentSession`; delegates to the same `ExperimentService` |
+| Shared Run dispatch and status | `episode_runtime.testing_harness.execution.RunExecution`, used by `.service.ExperimentService` and refiner execution; `register_build` reuses exact admitted registration |
+| Ordinary human `/run` | `OpenChiaHost.start_run` records `.launches` intent and uses `RunExecution`; the resolved model-launch event binds the exact configuration and registration |
+| Refiner candidate, instrument and reference experiments | `iterative_episode_refiner.evaluation_experiments` supplies assigned sources and checks model proposals, then calls `ExperimentService`; `.campaign_criteria` reads the original admitted check; `.campaign_subjects` resolves exact auxiliary source bindings and their campaign ownership |
+| Refiner measure-control experiments | `iterative_episode_refiner.measure_experiments` supplies independently grounded cases for Episode selection; `.control_subjects` validates their checker dependencies through the same service; campaign admission still judges adequacy |
+| Declared measurement dependencies | `.instruments` binds the independently approved checker to the exact experiment and successful target evidence; executes with `RunExecution`, shared recordings and playback; supplied-answer in-process integration verified |
+| In-Episode experiment requests | `function_library.testing.EXPERIMENT_REQUEST`, runtime experiment frames, `.session.ExperimentSession`; delegates to the same `ExperimentService` |
 | Approved testing access | Optional `EpisodeCreationSpec.testing` / `TestingContract`, retained by the existing blueprint/approval/build path; requires the assignable `episode_testing` capability |
 | Testing Episode | `episode_library.testing`, `function_library.testing_source.TestingSource`; chooses service operations inside the existing reasoning loop |
-| Experimental learning | `.testing.learning.measured_sources`, `function_library.testing_admission`; projects committed host measurements and admits exact, deduplicated findings through `LearningLedger` |
+| Experimental learning | `.learning.measured_sources`, `function_library.testing_admission`; projects committed host measurements and admits exact, deduplicated findings through `LearningLedger` |
 | Evidence and recordings | `.recordings` projects existing verified `RunStore` events; `episode_runtime.exchanges` records all five request/reply channels; existing `BuildStore` and `DuetStore` hold references |
 | Exact response playback | `.playback.RecordingCursor`; the ordinary `ScopedModelBroker` and `ScopedHttpBroker` consume it without a live transport |
 | Interrupted-prefix verification | `.reconstruction.ReconstructionCursor`; global exact worker-frame matching over the same recording, no live fallback or continuation authorization |
@@ -963,7 +966,7 @@ continuation. The service and CLI expose the same continuation operation.
 Task 3 is complete. Decisions and target observations are supplied; the native
 test does not establish live-model reasoning or behavioral repair.
 
-`episode_runtime/testing/reconstruction.py` reads the complete interrupted Run
+`episode_runtime/testing_harness/reconstruction.py` reads the complete interrupted Run
 through the same recording projection. Its cursor checks exact worker requests
 (including their original IDs), Episode starts, unit records and Episode returns
 in one global sequence. It returns only the original committed reply, never

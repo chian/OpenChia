@@ -111,7 +111,7 @@ class EvidenceReader:
                 raise ValueError(
                     "Run evidence is outside the admitted evaluation lineage"
                 )
-            from episode_runtime.testing.observations import (
+            from episode_runtime.testing_harness.observations import (
                 is_verified_run_path,
                 resolve_observation,
                 validate_observation_path,

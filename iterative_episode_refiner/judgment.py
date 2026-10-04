@@ -6,7 +6,7 @@ do not execute checks, impersonate a Run, or overwrite the child's observations.
 """
 
 from agent.duet_contracts import canonical_json, content_id
-from episode_runtime.testing.judgments import judge_value
+from episode_runtime.testing_harness.judgments import judge_value
 
 from .records import Ref
 from .state_machine import derived

@@ -11,15 +11,15 @@ from agent.duet_contracts import content_id
 from agent.episode_launch import resolve_launch
 from episode_runtime.protocol import episode_id_for_path
 from episode_runtime.records.experiments import put_data
-from episode_runtime.testing.service import ExperimentService
+from episode_runtime.testing_harness.service import ExperimentService
 from function_library.refinement_contract import CHILDREN
 from iterative_episode_refiner.evaluation_experiments import _receive, _validate
 from iterative_episode_refiner.records import Ref
 from iterative_episode_refiner.runtime import Invocation
 from iterative_episode_refiner.state_machine import judgment_lineage
-from tests.episode_runtime.testing.launch_fixture import FixtureLaunchHost
-from tests.episode_runtime.testing.refinement_fixture import prepared_refiner
-from tests.episode_runtime.testing.test_measurements import ResultOnlyExecutor
+from tests.episode_runtime.testing_harness.launch_fixture import FixtureLaunchHost
+from tests.episode_runtime.testing_harness.refinement_fixture import prepared_refiner
+from tests.episode_runtime.testing_harness.test_measurements import ResultOnlyExecutor
 
 
 def source_deficits(session, invocation_id):

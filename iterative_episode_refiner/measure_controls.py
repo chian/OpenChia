@@ -11,7 +11,7 @@ from agent.duet_contracts import canonical_json, content_id
 from agent.episode_contracts import OpaqueId
 from episode_runtime.contracts import RunRegistration
 from function_library.epistemic_contract import exact
-from episode_runtime.testing.judgments import judge_value
+from episode_runtime.testing_harness.judgments import judge_value
 
 from .checking import admitted_build, checker_definition, prepare_checker_inputs
 from .records import Ref, RefinementRecord, project

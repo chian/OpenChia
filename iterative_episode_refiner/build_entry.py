@@ -6,8 +6,8 @@ answers or treats static admission as complete behavioral acceptance.
 """
 
 from agent.duet_contracts import content_id
-from episode_runtime.testing.contracts import ExperimentSpec
-from episode_runtime.testing.criteria import register_criterion
+from episode_runtime.testing_harness.contracts import ExperimentSpec
+from episode_runtime.testing_harness.criteria import register_criterion
 from episode_runtime.records.experiments import put_data
 from function_library.refinement_checks import EXACT_VALUE
 from function_library.refinement_control import BOUNDED_RAREFACTION, SEMANTIC_YIELD
