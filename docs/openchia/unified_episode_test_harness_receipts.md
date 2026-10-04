@@ -13,6 +13,65 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live Measure inspection, 2026-10-04 16:54 UTC: response received, revision still unusable
+
+Successor Run `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
+committed its reissued model response at event 4, response hash
+`sha256:39b8b17f47165b447950b53ff1353d8d7543792f636403751b2ceb6c2d0ddd02`.
+The response has 63,662 characters and invalid JSON at character 9,509.
+OpenChia rejected it for zero yield and automatically requested another Measure
+iteration at event 14; the next context retains the actual response and exact
+parse error. No manual stage dispatch, candidate edit or replacement Run was
+used. No measure admission or Target Workflow execution occurred.
+
+Direct inspection of the supplied assignment, original check, independent
+review, revisions and host admission code shows:
+
+- All twelve behavioral requirements are assigned together, and admission
+  requires the proposal's requirement set to match exactly.
+- The independent review identified real gaps, including mismatched request
+  hashes, stale receipt selection and missing transition-to-yield linkage.
+  The revised output attempts to correct these; rejection is not evidence that
+  the model ignored the review.
+- Six predecessor revisions (events 799, 810, 821, 832, 843 and 854) and this
+  response all fail JSON parsing. The loop has not produced a usable revision.
+- The latest response explicitly uses the optimality checker on every retained
+  answer to check field encoding, acknowledging a stronger condition than the
+  frozen first-answer acceptance measure.
+
+The development checkout now adds `parse_json` to the existing pure record
+condition language, exposed through registered predicate provenance, with no
+new runner or criterion. Missing data remains inconclusive; malformed or
+nonfinite JSON fails. This allows separate representation and correctness
+checks in subsequent executions. It does not fix proposal syntax or split the
+assignment, is not hot-applied to this Run, and has no live validation claim.
+No additional behavioral tests were run for this preparation.
+Python syntax, JSON document parsing and whitespace checks pass. PR #36 was
+merged and fast-forwarded into the development branch at `2516a9c792`; the live
+checkout and its frozen model binding remain unchanged.
+
+### Live build continuation, 2026-10-04 16:46 UTC: exact Measure request resumed
+
+The same `continue_build()` call progressed to native successor Run
+`run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`.
+Its `run_reconstructed` event 2 records 479 matched worker frames, zero remaining
+frames, no divergence and the original root → Designer → Measure stack. Source
+and current authority were checked, including that the previous executor was
+stopped. The subsequent `model_requested` event reuses the exact interrupted
+request ID and hash
+`sha256:52aa9c2cb75fbc2286a5caea6554dbb01f6ce9ed45f1a850f315da1a25b9f604`.
+No completed historical model calls were resubmitted to reach this point.
+
+Read-only connection observations show incoming bytes increasing from 130,590
+to 139,941 over approximately fourteen seconds, then to 609,134 at 16:46:46 UTC.
+This is actual transport activity, not inference from a pending-request record.
+The new Run has no completed model response or Target Workflow experiment at
+this observation. Reaching the interrupted call demonstrates real nested
+continuation; it does not establish an admitted measure, accepted repair,
+absence of later duplicate credit, or scheduling acceptance. The pinned source
+is unchanged; subsequent PR #35 audit-read optimization and PR #36 review
+corrections are not part of this running execution.
+
 ### Live build continuation, 2026-10-04 16:33 UTC: preparation in progress
 
 The ordinary `OpenChiaHost.continue_build()` entry was invoked once for the saved

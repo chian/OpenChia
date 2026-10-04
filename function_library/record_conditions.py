@@ -5,6 +5,7 @@ exact copy of variable Run identifiers, timestamps or model output. It never
 creates an observation. Missing data stays inconclusive, including under NOT.
 """
 
+import json
 from collections.abc import Mapping
 
 from .epistemic_contract import exact
@@ -17,7 +18,7 @@ CONDITION_LANGUAGE = {
         "literal": "Any finite JSON value, e.g. {literal: 0}.",
         "path": "JSON pointer relative to the current record, e.g. {path: /kind}.",
         "root_path": "JSON pointer relative to the original observed record.",
-        "parent_path": "JSON pointer relative to the record enclosing the current some/every member. In nested quantifiers this names the outer member, allowing exact event-ID or ordinal joins. Unavailable outside a quantifier.",
+        "parent_path": "JSON pointer relative to the record enclosing the current some/every member or parse_json value. In nested quantifiers this names the outer member, allowing exact event-ID or ordinal joins. Unavailable outside these operations.",
     },
     "conditions": {
         "equal": "{op: equal, left: operand, right: operand}; exact JSON types.",
@@ -28,6 +29,7 @@ CONDITION_LANGUAGE = {
         "not": "{op: not, condition: condition}; missing data stays inconclusive.",
         "some": "{op: some, value: operand, condition: condition}; at least one array member satisfies condition. Member becomes current record; root_path is unchanged.",
         "every": "{op: every, value: operand, condition: condition}; all array members satisfy condition. Empty arrays pass; pair with some when presence matters.",
+        "parse_json": "{op: parse_json, value: operand, condition: condition}; decode a JSON-valued string and check the decoded value. Decoded value becomes current record, parent_path names the prior current record, and root_path is unchanged. Missing input is inconclusive; a non-string, invalid JSON, or nonfinite JSON value fails. Representation checks do not establish answer correctness.",
         "predicate": "{op: predicate, value: operand, selection: exact registered refinement.predicate selection, expected: frozen expected value}; delegates an existing predicate, not another record_conditions_v1.",
     },
     "limitations": [
@@ -47,6 +49,7 @@ _FIELDS = {
     "not": {"op", "condition"},
     "some": {"op", "value", "condition"},
     "every": {"op", "value", "condition"},
+    "parse_json": {"op", "value", "condition"},
     "predicate": {"op", "value", "selection", "expected"},
 }
 _TYPES = {
@@ -176,6 +179,20 @@ def _predicate(condition, current, root, parent):
     return {"pass": True, "fail": False, "inconclusive": None}[verdict]
 
 
+def _parse_json(condition, current, root, parent):
+    value = _operand(condition["value"], current, root, parent)
+    if value is _MISSING:
+        return None
+    if not isinstance(value, str):
+        return False
+    try:
+        decoded = json.loads(value)
+        canonical(decoded)
+    except (ValueError, RecursionError):
+        return False
+    return _evaluate(condition["condition"], decoded, root, current)
+
+
 _OPERATIONS = {
     "equal": _comparison,
     "less_equal": _comparison,
@@ -185,6 +202,7 @@ _OPERATIONS = {
     "not": _not,
     "some": _quantified,
     "every": _quantified,
+    "parse_json": _parse_json,
     "predicate": _predicate,
 }
 
