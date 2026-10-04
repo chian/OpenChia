@@ -923,6 +923,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         """Start the complete build → refine → validate job once."""
         from agent.build_refinement import BuildRefinement
         from agent.openchia_build_job import run_build_job
+        from agent.openchia_build_recovery import owner_record
 
         with self._build_lock:
             self._require_no_active_run("a new build")
@@ -966,6 +967,8 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 provenance=DuetProvenance.HUMAN_INPUT.value,
                 record={
                     "build_request_id": request.build_request_id.value,
+                    "owner": owner_record(),
+                    "refiner_binding_ref": refiner.binding.reference,
                     "authority_head_approval_id": (
                         request.authority_approval.approval_id.value
                     ),
@@ -1083,6 +1086,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
     def build_status(self) -> dict[str, Any]:
         """Return live or recovered build state for the current authority head."""
         from agent.openchia_build_job import finalization_for, refinement_links
+        from agent.openchia_build_recovery import unfinished_builder_status
 
         with self._build_lock:
             if self._current_in_memory_build():
@@ -1119,7 +1123,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 }
         baseline = self.workspace.current_baseline()
         if baseline is None:
-            return {
+            return unfinished_builder_status(self, {
                 "state": "not_started",
                 "build_request_id": None,
                 "build_attempt_id": None,
@@ -1130,7 +1134,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 "model_wait": None,
                 "refinement": None,
                 "error": None,
-            }
+            })
         receipt = self.build_store.read_receipt(baseline.build_receipt_id)
         request = self.build_store.read_build_request(
             baseline.build_request_id
@@ -1147,7 +1151,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         state = "unverified" if finalization is None else finalization["state"]
         progress = self._receipt_progress(request, receipt)
         progress["stage"] = state
-        return {
+        return unfinished_builder_status(self, {
             "state": state,
             "build_request_id": job_request.build_request_id.value,
             "build_attempt_id": receipt.build_attempt_id.value,
@@ -1160,7 +1164,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             "model_wait": None,
             "refinement": refinement_links(self, job_request),
             "error": None if finalization is None else finalization["error"],
-        }
+        })
 
     def _runnable_build_context(
         self,

@@ -65,8 +65,12 @@ def continue_build(host):
         ):
             raise OpenChiaHostError("Saved build no longer has the current exact workflow authority.")
         row = read_record(host.store, "build_job", build_request_id=request.build_request_id.value)
-        if row is None or row["duet_id"] != host.identity.duet_id.value:
-            raise OpenChiaHostError("This build has no saved refinement handoff to continue.")
+        if row is None:
+            from agent.openchia_builder_continue import continue_builder
+
+            return continue_builder(host, request)
+        if row["duet_id"] != host.identity.duet_id.value:
+            raise OpenChiaHostError("Saved refinement handoff belongs to another Duet.")
         job = row["record"]
         receipt = host.build_store.read_receipt(OpaqueId(job["initial_build_receipt_id"]))
         if receipt.build_request_id != request.build_request_id:

@@ -162,7 +162,8 @@ def _publish_result(host, request, initial, receipt, result, state, error, *, co
 
 
 async def _execute(
-    host, request, builder, launch, launch_transport, cancel_event, refiner
+    host, request, builder, launch, launch_transport, cancel_event, refiner,
+    *, builder_responses=None, existing_receipt=None,
 ):
     from llm_call_library import model_transport_scope
 
@@ -171,12 +172,17 @@ async def _execute(
             model_request, cancel_event, launch_transport
         )
 
-    with model_transport_scope(build_transport):
-        raw = await builder.build(
-            request,
-            progress_callback=lambda value: host._record_build_progress(request, value),
-            cancel_event=cancel_event,
-        )
+    if existing_receipt is None:
+        with model_transport_scope(build_transport):
+            raw = await builder.build(
+                request,
+                progress_callback=lambda value: host._record_build_progress(request, value),
+                cancel_event=cancel_event,
+            )
+        if builder_responses is not None and not cancel_event.is_set():
+            builder_responses.validate_complete()
+    else:
+        raw = existing_receipt
     receipt = host._correlated_receipt(request, raw)
     baseline = await asyncio.to_thread(
         host._persist_materialized_specification, request, receipt
@@ -202,7 +208,7 @@ async def _execute(
 
 def run_build_job(
     host, request, builder, launch, launch_transport, cancel_event, refiner,
-    *, continuation=None, continued_job=None,
+    *, continuation=None, continued_job=None, builder_responses=None, existing_receipt=None,
 ):
     from agent.openchia_host import _describe_exception
 
@@ -211,7 +217,8 @@ def run_build_job(
     try:
         initial, result = asyncio.run(
             continuation() if continuation is not None else _execute(
-                host, request, builder, launch, launch_transport, cancel_event, refiner
+                host, request, builder, launch, launch_transport, cancel_event, refiner,
+                builder_responses=builder_responses, existing_receipt=existing_receipt,
             )
         )
         receipt = initial
@@ -225,6 +232,10 @@ def run_build_job(
                 state = result["disposition"]
                 if state == "attained":
                     state = "unresolved"
+        if existing_receipt is not None:
+            saved_job = read_record(host.store, "build_job", build_request_id=request.build_request_id.value)
+            if saved_job is not None:
+                continued_job = saved_job["record"]
         _publish_result(host, request, initial, receipt, result, state, error, continued_job=continued_job)
         if state == "verified":
             revised_request = host.build_store.read_build_request(

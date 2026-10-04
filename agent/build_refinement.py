@@ -50,7 +50,9 @@ class BuildRefinement:
             ),
         )
         try:
-            status = await service.continue_interrupted(experiment_id=job["experiment_id"])
+            status = await asyncio.to_thread(service.status, host.store, host.run_store, job["experiment_id"])
+            if status["execution_status"] in {"interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable"}:
+                status = await service.continue_interrupted(experiment_id=job["experiment_id"])
         except asyncio.CancelledError:
             status = await asyncio.to_thread(
                 service.status, host.store, host.run_store, job["experiment_id"]
@@ -88,7 +90,13 @@ class BuildRefinement:
             emitter=RefinerEmitter(call_options=options),
             model_slot_catalog={"refinement": self.binding.record["route"]},
         )
-        receipt = await program.build(request)
+        receipts = await asyncio.to_thread(host.build_store.receipts_for_build_request, request.build_request_id)
+        if receipts:
+            if len(receipts) != 1:
+                raise ValueError("shipped refiner has ambiguous Builder receipts")
+            receipt = receipts[0]
+        else:
+            receipt = await program.build(request)
         if not receipt.materialized:
             raise ValueError(
                 f"shipped refiner failed ordinary source admission: {[d.as_record() for d in receipt.deficits]}"
