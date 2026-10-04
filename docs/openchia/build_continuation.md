@@ -53,8 +53,13 @@ not discharge requirements, assign credit, or weaken acceptance.
 - Learning commits retain their existing request/ordinal idempotency. Experiment
   requests use their existing immutable intents and dispatches. An unanswered
   HTTP operation is **not** blindly repeated: its external outcome requires
-  reconciliation. Concurrent exchange histories and non-reference generated
-  wrappers remain unsupported by reconstruction.
+  reconciliation. Concurrent exchange histories remain unsupported by the
+  serial Episode reconstruction contract.
+- Whole-Run reconstruction supports admitted generated Target Workflow code,
+  not only stock reference wrappers. It regenerates inside the ordinary confined
+  worker, never on the host, and must match every saved protocol frame. Trace
+  divergence fails closed; unrecorded nondeterminism is not restored. Starting a
+  separate experiment at a later unit still requires its stricter source gate.
 - A live or unverifiable old executor cannot be continued. Elapsed time is not
   evidence of process death. Legacy terminal Runs without host ownership events
   still use their exact stopped-worker attestation; new Runs additionally record

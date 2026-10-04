@@ -1,8 +1,9 @@
-"""Admit only reference ABI wrappers for deterministic prefix reconstruction.
+"""Verify exact source for confined whole-Run reconstruction.
 
-This is a deliberately small source language, not a Python equivalence checker.
-The ordinary linker verifies the package and later executes it under confinement;
-this check never activates generated code or invokes generated functions.
+Whole Runs regenerate inside the ordinary confined worker and must match every
+recorded boundary before new effects are admitted. Later-unit experiments need
+the stricter stock-wrapper source language below because they omit the prefix.
+Neither check activates generated code or invokes generated functions on host.
 """
 
 import ast
@@ -525,7 +526,7 @@ def _admit_module(source, *, node, contract, edges):
 
 
 def admit_reconstruction_source(prepared, *, source_package_path, runtime_manifest):
-    """Validate actual source, returning evidence of this narrow supported shape.
+    """Verify exact admitted bytes; the confined worker reconstructs their trace.
 
     The executor owns staged runtime/interpreter verification. Its verified
     manifest must also name this validator's current reference implementation;
@@ -564,15 +565,14 @@ def admit_reconstruction_source(prepared, *, source_package_path, runtime_manife
         source = _read_regular_file(root / module.relative_path, module.module_name)
         if Sha256Digest.of_bytes(source) != module.source_hash:
             raise ValueError("reconstruction wrapper changed after package preparation")
-        family = _admit_module(
-            source,
-            node=node,
-            contract=contracts[node.local_id],
-            edges=tuple(
-                edge
-                for edge in prepared.plan.all_edges
-                if edge.parent_local_id == node.local_id
-            ),
+        contract = contracts[node.local_id]
+        selected = {item["role"]: item for item in node.selected_function_bindings}
+        # Host sessions are required by frozen declarations, not inferred from
+        # executable source text. The ordinary linker/admission already checked
+        # this package; no generated Python is evaluated by this verifier.
+        family = (
+            "refinement" if selected["open_source"]["definition_id"] == refinement.OPEN_SOURCE.definition_id
+            else "testing" if contract.testing is not None else "target"
         )
         modules.append({
             "local_id": node.local_id,
@@ -581,12 +581,13 @@ def admit_reconstruction_source(prepared, *, source_package_path, runtime_manife
         })
     return {
         "schema_version": 1,
-        "kind": "reference_wrapper_reconstruction",
+        "kind": "confined_run_reconstruction",
         "runtime_identity": prepared.registration.runtime_identity.as_record(),
         "manifest_id": prepared.manifest.manifest_id.value,
         "modules": modules,
         "limitations": [
-            "Only exact stock reference wrapper shapes are admitted; arbitrary Python, generated overrides and subclasses are unsupported.",
+            "Exact admitted code regenerates from the original entry in the confined worker; every saved protocol frame must match before live work is authorized.",
+            "Unrecorded nondeterminism is not restored. Observable divergence fails closed; an unanswered external HTTP effect requires reconciliation.",
             "Source admission neither proves the saved prefix nor authorizes continuation; shared reconstruction and host-state admission remain required.",
         ],
     }
