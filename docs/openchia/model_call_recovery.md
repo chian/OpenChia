@@ -11,8 +11,11 @@ still use the approved launch configuration.
 
 ## What happens during a long wait
 
-1. OpenChia records dispatch, response headers and observed response activity.
-   It does not label a silent request queued or computing without server evidence.
+1. OpenChia records dispatch and response headers through supported HTTP event
+   hooks, plus existing stream-progress callbacks where the wire adapter supplies
+   them. Non-streaming calls have only the coarser dispatch/header signals; the
+   transport does not wrap or replace HTTP response streams. It does not label a
+   silent request queued or computing without server evidence.
 2. After the source's inactivity interval, it leaves that request in place and
    starts one small side call using the same endpoint, model and credential.
    The probe contains no workflow prompt, user data or tool access.
@@ -110,9 +113,18 @@ entries. Transport activity is not durable reasoning progress.
 
 Implementation lives in `agent/model_call_recovery.py` and
 `agent/model_call_recovery_policy.py`, called by `invoke_pinned_route` in
-`agent/episode_launch_transport.py`. The existing provider cancellation fence is
-retained. Each attempt owns its HTTP client; cancellation shuts down only that
-client's sockets. SDK cleanup stays on its provider thread, and an unconfirmed
+`agent/episode_launch_transport.py`. Recovery remains at that call boundary.
+The public `auxiliary_client.run_cancellable_provider_call` entry owns cancellation
+registration through the existing provider fence; transport code never inspects
+its private thread-local decision object. The supplied shutdown operation applies
+only to the attempt-owned client and cannot be overwritten by an adapter's
+stream-close hook.
+
+The fence wraps the entire physical `_invoke`, including client construction.
+Preflight cancellation therefore creates no HTTP client. An unconditional outer
+`finally` closes the SDK client, or the raw HTTP client if SDK construction fails,
+on the same provider thread that uses it. Cancellation can request socket shutdown
+from the waiting thread but never transfers descriptor-close ownership. Unconfirmed
 cleanup is reported rather than equating coroutine cancellation with server
 cancellation. Context-preserving daemon ownership avoids hanging process exit on
 an abandoned call in asyncio's default executor.

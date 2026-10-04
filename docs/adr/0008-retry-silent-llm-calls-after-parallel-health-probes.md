@@ -55,6 +55,10 @@ visible in the audit.
 - Implement the decision once in the shared pinned model transport. Builder,
   Refiner, and Target Workflow adapters call it; they do not own separate retry
   loops or health policies.
+- Use supported HTTP event hooks and existing adapter progress callbacks for
+  activity. Do not replace response streams or couple transport code to private
+  auxiliary cancellation decisions. The auxiliary boundary owns its cancellation
+  registration; each physical call unconditionally closes its own client.
 - Cancel only resources owned by the replaced attempt. Local socket shutdown or
   task cancellation does not prove remote cancellation or eliminate duplicate
   billing. Cleanup must not indefinitely block the owning process's shutdown.

@@ -271,8 +271,9 @@ def _captured_aux_cancel_requested(cancel_check: Callable[[], Any]) -> bool:
 class _AuxiliaryCancellationDecision:
     """Atomically choose explicit cancellation or provider timeout per attempt."""
 
-    def __init__(self, source_cancel_check: Callable[[], Any]) -> None:
+    def __init__(self, source_cancel_check: Callable[[], Any], *, on_cancel: Optional[Callable[[], Any]] = None) -> None:
         self._source_cancel_check = source_cancel_check
+        self._on_cancel = on_cancel
         self._lock = threading.Lock()
         self._outcome = "active"
         self._abort_callback: Optional[Callable[[], Any]] = None
@@ -282,7 +283,7 @@ class _AuxiliaryCancellationDecision:
         with self._lock:
             if self._outcome == "active" and _captured_aux_cancel_requested(self._source_cancel_check):
                 self._outcome = "cancelled"
-                abort_callback = self._abort_callback
+                abort_callback = self._on_cancel or self._abort_callback
                 self._abort_callback = None
             cancelled = self._outcome == "cancelled"
         if abort_callback is not None:
@@ -297,6 +298,11 @@ class _AuxiliaryCancellationDecision:
 
         if not callable(callback):
             raise TypeError("auxiliary abort callback must be callable")
+        # A caller with an attempt-owned client supplies one shutdown operation
+        # for the whole request. Adapter stream hooks must not replace it with
+        # a foreign-thread close; legacy shared clients retain their stream hook.
+        if self._on_cancel is not None:
+            return
         invoke_now = False
         with self._lock:
             if self._outcome == "cancelled":
@@ -465,13 +471,17 @@ def aux_stream_deadline(deadline: Optional[float]):
         _aux_stream_deadline.value = previous
 
 
-def _run_protected_sync_provider_call(callback: Callable[[dict[str, Any]], Any], kwargs: dict[str, Any]) -> Any:
+def _run_protected_sync_provider_call(
+    callback: Callable[[dict[str, Any]], Any], kwargs: dict[str, Any],
+    *, on_cancel: Optional[Callable[[], Any]] = None,
+) -> Any:
     """Run one protected provider callback in an attempt-isolated daemon thread.
 
     Aux clients are process-shared and cannot be closed to wake one request, so the callback (incl.
     stream aggregation) runs in a daemon while the owner polls cancellation. Attempt-owned streams
-    register their close operation on the frozen cancellation decision; on cancel the owner unwinds
-    and that physical stream closes without touching the shared client. The daemon owns no
+    register their close operation on the frozen cancellation decision; an explicit ``on_cancel``
+    instead owns wakeup for a caller-owned client. On cancel the owner unwinds without touching
+    another call's client. The daemon owns no
     transcript/commit state and never holds the session lock. Unprotected / no cancel source: direct.
     """
     source_cancel_check = _capture_aux_cancel_check()
@@ -479,7 +489,7 @@ def _run_protected_sync_provider_call(callback: Callable[[dict[str, Any]], Any],
         return callback(kwargs)
     # One linearized outcome per attempt: the host Event is reused/cleared on later turns and
     # the Codex timeout Timer may race owner polling — same lock for both.
-    cancel_check = _AuxiliaryCancellationDecision(source_cancel_check)
+    cancel_check = _AuxiliaryCancellationDecision(source_cancel_check, on_cancel=on_cancel)
     if cancel_check():
         raise AuxiliaryExplicitCancellation()
     # Thread-locals do not cross into the daemon: timing hooks fire from the thread running
@@ -526,6 +536,26 @@ def _run_protected_sync_provider_call(callback: Callable[[dict[str, Any]], Any],
         if exception is not None:
             raise exception
         return outcome.get("result")
+
+
+def run_cancellable_provider_call(
+    callback: Callable[[dict[str, Any]], Any], kwargs: dict[str, Any], *,
+    cancel_event: threading.Event, on_cancel: Callable[[], Any],
+    progress: Optional[Callable[[], None]] = None,
+) -> Any:
+    """Supported boundary for a callback that owns its provider resources.
+
+    The existing attempt fence owns registration and cancellation. The callback
+    creates and unconditionally closes its client on the provider thread;
+    ``on_cancel`` only wakes its in-flight I/O (socket shutdown, never fd close).
+    It must tolerate cancellation before the callback creates any resources.
+    Unlike shared-client adapter stream hooks, this operation cannot be replaced
+    or cleared by an adapter. No client is created on the preflight-cancel path.
+    """
+    if not callable(on_cancel):
+        raise TypeError("on_cancel must be an explicit attempt-owned shutdown operation")
+    with aux_interrupt_protection(cancel_event=cancel_event), aux_progress_hook(progress):
+        return _run_protected_sync_provider_call(callback, kwargs, on_cancel=on_cancel)
 
 
 def _client_declares(client_obj: Any, flag: str) -> bool:
