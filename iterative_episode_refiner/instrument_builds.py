@@ -202,16 +202,34 @@ def is_primary_source(view, source):
     )
 
 
-def relevant_sources(view, measure):
-    return [
-        row
-        for row in view.entries("evaluation_source")
-        if row.record.body["candidate_ref"] == view.candidate.ref.as_record()
-        and view.read(
+def relevant_sources(view, bindings):
+    """Source admission belongs to candidate bytes, not the requesting measure.
+
+    Local repair must see an acceptance check's rejected build of the same
+    candidate. Exact harness and capability references keep other instrument
+    builds out; this does not reuse check outcomes or confer acceptance.
+    """
+    authorized = {
+        (
+            Ref.from_record(binding["harness_ref"]),
+            Ref.from_record(binding["capability_ref"]),
+        )
+        for binding in bindings
+    }
+    sources = []
+    for row in view.entries("evaluation_source"):
+        if row.record.body["candidate_ref"] != view.candidate.ref.as_record():
+            continue
+        request = view.read(
             Ref.from_record(row.record.body["request_ref"]), "evaluation"
-        ).body["measure_ref"]
-        == measure
-    ]
+        )
+        identity = (
+            Ref.from_record(request.body["harness_ref"]),
+            Ref.from_record(request.body["capability_ref"]),
+        )
+        if identity in authorized:
+            sources.append(row)
+    return sources
 
 
 @dataclass(frozen=True)

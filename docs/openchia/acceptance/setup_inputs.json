@@ -1,7 +1,7 @@
 {
   "status": "target_and_launch_approved_build_continuation_in_progress_tester_unapproved",
   "continuation_observation": {
-    "observed_at": "2026-10-04T17:17:37Z",
+    "observed_at": "2026-10-04T17:23:36Z",
     "entry": "OpenChiaHost.continue_build",
     "source_commit": "b6ae19fe9625c70d65df72003c003d744404ff8c",
     "source_checkout": "/home/chia/repos/OpenChia-continue-live-hHDLek30",
@@ -23,7 +23,7 @@
     },
     "reissued_model_request_id": "model_request_a7fe6f13254543b43172c19604cc0016393d92bce35289f0252ded44c4076ea8",
     "reissued_request_hash": "sha256:52aa9c2cb75fbc2286a5caea6554dbb01f6ce9ed45f1a850f315da1a25b9f604",
-    "completed_new_model_responses": 6,
+    "completed_new_model_responses": 7,
     "completed_response": {
       "event_id": "run_event_2895fd3aa076ce07075f1bce90c6c20d97d9404c27f06be7b88f79403cbf69db",
       "event_hash": "sha256:90b889ffb5ec463fe6f7ef263491b0af4f490d89dcd4579dabf355aa05cdd3b0",
@@ -87,7 +87,13 @@
       "implementer_disposition": "needs_parent_decision",
       "implementer_model_edit_calls": 0,
       "replacement_plan_response_sequence": 127,
-      "replacement_plan_pending_host_admission_sequence": 128,
+      "replacement_child_assignment_sequence": 129,
+      "replacement_context_sequence": 136,
+      "replacement_baseline_required": true,
+      "replacement_visible_source_admissions": 0,
+      "replacement_baseline_response_sequence": 140,
+      "replacement_baseline_response_event_hash": "sha256:6a81749201e3454d4de0c23c66775837a46fff3876149cb64019cbfbb5667bf8",
+      "third_plan_response_sequence": 182,
       "source_changed": false
     },
     "target_workflow_experiments": 0,
@@ -99,7 +105,8 @@
     },
     "health_policy": "disabled_by_absence_in_original_frozen_binding",
     "acceptance_pass": false,
-    "prepared_change": "Shared record_conditions.parse_json is prepared in the development checkout, not this pinned Run. It separates JSON representation checks from answer correctness and changes the exact registered predicate identity. The assignment/revision-size problem remains unresolved; no active contract or candidate was changed."
+    "prepared_change": "Shared record_conditions.parse_json is prepared in the development checkout, not this pinned Run. It separates JSON representation checks from answer correctness and changes the exact registered predicate identity. The assignment/revision-size problem remains unresolved; no active contract or candidate was changed.",
+    "prepared_source_admission_change": "Development-only: source admission retrieval matches exact current candidate and authorized harness/capability references instead of the requesting measure. This exposes a rejected acceptance build to local repair without sharing test verdicts, acceptance or credit. Syntax and whitespace checks pass; no live validation, new job, pinned-source edit or candidate repair was performed."
   },
   "current_build_job": {
     "source_commit": "9b5d11574afb4ac384bbadee58debcc2fac74d46",

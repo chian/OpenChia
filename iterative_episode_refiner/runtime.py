@@ -273,7 +273,7 @@ class RefinementSession:
         from episode_runtime.records.refinement import assigned_history
         from .evaluation_experiments import feedback
         from .runtime_proposals import proposal_schemas
-        from .measures import admitted_measures, authorized_check_refs
+        from .measures import admitted_measures, authorized_check_refs, evaluation_bindings
         from .judgment import assessment_status, current_check_states, judgment_purpose
         from .investigation import catalog, reference_data, visible_findings
         from .materialization_edits import edit_context
@@ -368,7 +368,15 @@ class RefinementSession:
                 for reference in report.body["measure_proposal_refs"]:
                     record = view.read(Ref.from_record(reference), "measure_proposal")
                     measure_proposals[record.artifact_id.value] = record
-            source_admissions = relevant_sources(view, measure)
+            source_admissions = relevant_sources(
+                view,
+                (
+                    binding
+                    for binding in evaluation_bindings(view, self.policy, assignment)
+                    if binding["measure_ref"] == measure
+                    and binding["purpose"] == purpose
+                ),
+            )
             source_rejected = bool(
                 source_admissions and source_admissions[-1].status == "rejected"
             )

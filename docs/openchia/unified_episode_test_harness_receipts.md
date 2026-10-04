@@ -13,6 +13,33 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Source-admission visibility correction, 2026-10-04 17:23 UTC: prepared, not live-validated
+
+The same successor Run's replacement Implementer repeats the baseline failure.
+Event 136 shows `baseline_required: true` and an empty `source_admissions` list.
+Event 140 returns `launch_input_invalid` for the missing materialized root;
+its event hash is
+`sha256:6a81749201e3454d4de0c23c66775837a46fff3876149cb64019cbfbb5667bf8`.
+Verify had already recorded source admission
+`refinement_9412ebfee76478960f644953abc8454cc9942ca34f35388e5669662a08467869`,
+with a rejected Builder receipt for the exact same candidate, harness and
+capability. It was omitted solely because acceptance and local repair name
+different measures. Designer response 182 again proposes static-first repair;
+the model cannot override the host's mandatory-baseline branch with prose.
+
+In the development checkout, `instrument_builds.relevant_sources` now selects
+source admissions by exact current candidate and authorized harness/capability
+references. `runtime.snapshot` supplies the current assignment's bindings for
+its measure and purpose. A known rejected source can therefore reach the
+existing repair branch. Test results, acceptance and credit remain separate;
+no new runner, stored record, migration or admission bypass was introduced.
+This addresses the hidden rejection, not every unavailable-baseline case.
+
+Both changed Python files parse and `git diff --check` passes. No tests or new
+live jobs were run. The live checkout remains unchanged and the owner remains
+active; this correction has no live execution claim. No Target Workflow Run or
+acceptance pass has occurred.
+
 ### Live source-repair handoff, 2026-10-04 17:17 UTC: baseline evaluation prevents editing
 
 In the same successor Run, Designer response 72 proposed a concrete source-repair

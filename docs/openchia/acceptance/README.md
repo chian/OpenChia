@@ -32,6 +32,16 @@ Implementer plan in response 127. The job remains active. The evaluation
 preflight and source-admission visibility need examination; no repair to the
 harness or candidate has been applied to the running checkout.
 
+Follow-up at 17:23 UTC: the replacement Implementer repeated the same failure
+at event 140. Its context at 136 had `baseline_required: true` and no visible
+source admissions, although Verify had already recorded a rejected build of
+the same candidate with the same harness and capability. The development
+checkout now shares that source-admission evidence across measures under those
+exact identities. It does not share test verdicts or credit. Python syntax and
+whitespace checks pass; the correction is not live-validated or applied to this
+Run. Designer response 182 proposes another static-first implementation plan;
+no model editing call, changed candidate or Target Workflow Run is established.
+
 Continuation also completed the cancelled Run's missing terminal-evidence
 publication, preserving its 866 events and `cancelled` status. The pinned host
 source is `b6ae19fe9625c70d65df72003c003d744404ff8c`; later audit-read and
