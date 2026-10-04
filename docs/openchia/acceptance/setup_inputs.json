@@ -106,7 +106,15 @@
     "health_policy": "disabled_by_absence_in_original_frozen_binding",
     "acceptance_pass": false,
     "prepared_change": "Shared record_conditions.parse_json is prepared in the development checkout, not this pinned Run. It separates JSON representation checks from answer correctness and changes the exact registered predicate identity. The assignment/revision-size problem remains unresolved; no active contract or candidate was changed.",
-    "prepared_source_admission_change": "Development-only: source admission retrieval matches exact current candidate and authorized harness/capability references instead of the requesting measure. This exposes a rejected acceptance build to local repair without sharing test verdicts, acceptance or credit. Syntax and whitespace checks pass; no live validation, new job, pinned-source edit or candidate repair was performed."
+    "prepared_source_admission_change": "Development-only: source admission retrieval matches exact current candidate and authorized harness/capability references instead of the requesting measure. This exposes a rejected acceptance build to local repair without sharing test verdicts, acceptance or credit. Syntax and whitespace checks pass; no live validation, new job, pinned-source edit or candidate repair was performed.",
+    "continuation_compatibility": {
+      "saved_runtime_manifest_id": "runtime_source_manifest_5d685eb44e02ca89cc4ad24d33e7a9bdc7df4940fe783fa776c6b39dca5c918a",
+      "pinned_checkout_matches_saved_worker_manifest": true,
+      "development_checkout_matches_saved_worker_manifest": false,
+      "changed_worker_files": ["function_library/record_conditions.py"],
+      "baseline_fix_files_in_worker_manifest": [],
+      "limitation": "Read-only inspection with the existing runtime manifest inspector. A continuation with the host-only fix has not been launched or admitted. Preserve the original worker closure; do not substitute the whole development checkout."
+    }
   },
   "current_build_job": {
     "source_commit": "9b5d11574afb4ac384bbadee58debcc2fac74d46",

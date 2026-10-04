@@ -40,6 +40,15 @@ live jobs were run. The live checkout remains unchanged and the owner remains
 active; this correction has no live execution claim. No Target Workflow Run or
 acceptance pass has occurred.
 
+Read-only continuation preparation subsequently compared the existing runtime
+manifest with both checkouts using `inspect_runtime_source_manifest`. The live
+checkout matches; the development checkout differs only at pinned worker file
+`function_library/record_conditions.py`. Neither baseline-fix file belongs to
+the worker manifest. Using the complete development checkout would therefore
+violate exact continuation, while preparing only the host fix on the original
+runtime can retain the saved worker identity. No identity check was weakened,
+current process stopped, or new continuation attempted.
+
 ### Live source-repair handoff, 2026-10-04 17:17 UTC: baseline evaluation prevents editing
 
 In the same successor Run, Designer response 72 proposed a concrete source-repair

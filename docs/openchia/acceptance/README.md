@@ -42,6 +42,15 @@ whitespace checks pass; the correction is not live-validated or applied to this
 Run. Designer response 182 proposes another static-first implementation plan;
 no model editing call, changed candidate or Target Workflow Run is established.
 
+Continuation compatibility inspection: the running checkout still matches the
+saved worker manifest exactly. The development checkout does not, because its
+new `function_library/record_conditions.py` changes a pinned worker file. The
+two-file baseline fix is host-only and touches neither the worker closure nor
+registered predicate identities. Any continuation intended to preserve this
+Measure must retain the original worker bytes rather than use the whole current
+development checkout. This is a read-only compatibility finding, not a completed
+continuation with the fix; the current process has not been interrupted.
+
 Continuation also completed the cancelled Run's missing terminal-evidence
 publication, preserving its 866 events and `cancelled` status. The pinned host
 source is `b6ae19fe9625c70d65df72003c003d744404ff8c`; later audit-read and
