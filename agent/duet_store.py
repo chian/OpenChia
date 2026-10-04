@@ -67,6 +67,7 @@ class DuetStore:
         )
         self._connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self._transaction_depth = 0
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA journal_mode = WAL")
         self._create_schema()
@@ -84,14 +85,27 @@ class DuetStore:
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
-            self._connection.execute("BEGIN IMMEDIATE")
+            depth = self._transaction_depth
+            savepoint = f"duet_nested_{depth}"
+            self._connection.execute(
+                "BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}"
+            )
+            self._transaction_depth += 1
             try:
                 yield self._connection
-            except Exception:
-                self._connection.execute("ROLLBACK")
+            except BaseException:
+                if depth == 0:
+                    self._connection.execute("ROLLBACK")
+                else:
+                    self._connection.execute(f"ROLLBACK TO {savepoint}")
+                    self._connection.execute(f"RELEASE {savepoint}")
                 raise
             else:
-                self._connection.execute("COMMIT")
+                self._connection.execute(
+                    "COMMIT" if depth == 0 else f"RELEASE {savepoint}"
+                )
+            finally:
+                self._transaction_depth -= 1
 
     def _create_schema(self) -> None:
         with self._lock:

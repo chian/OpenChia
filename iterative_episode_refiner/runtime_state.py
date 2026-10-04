@@ -166,10 +166,63 @@ def restore_session(session):
         raise ValueError("host restoration requires an exact interrupted Run")
     runs = session.store.evidence.runs
     validate_resume_registration(runs, registration)
-    cursor = ReconstructionCursor(runs, registration.resume_from.run_id)
+    cursor = ReconstructionCursor(
+        runs, registration.resume_from.run_id, artifacts=session.store.duet_store
+    )
     saved = cursor.host_state
     if saved is None or saved["state"] is None:
+        if cursor.host_unstarted:
+            validate_unstarted_session(session)
+            return
         raise ValueError("interrupted Run has no committed refinement host state")
+    _restore_state(session, saved)
+
+
+def validate_unstarted_session(session):
+    """An empty worker history may start only the campaign's original state."""
+    from episode_runtime.records.experiments import read_record
+
+    claim = read_record(session.store.duet_store, "refinement_job", campaign_id=session.campaign_id.value)
+    if claim is None:
+        raise ValueError("unstarted refinement lacks its original campaign dispatch")
+    with session.view() as view:
+        current = {
+            "campaign_ref": session.contract.ref.as_record(),
+            "candidate_ref": view.candidate.ref.as_record(),
+            "sequence": view.head["sequence"],
+            "latest_commit_id": view.head["latest_commit_id"],
+        }
+        if canonical_json(current) != canonical_json(claim["record"]["starting_state"]):
+            raise ValueError("unstarted refinement campaign changed after dispatch")
+
+
+def restore_terminal_session(session):
+    """Reattach host projection to its own terminal Run, without executing it."""
+    from episode_runtime.contracts import RunEventKind
+    from episode_runtime.testing.recordings import event_reference
+    from episode_runtime.records.host_operations import read_receipt
+
+    runs = session.store.evidence.runs
+    snapshot = runs.read_terminal_snapshot(session.registration.run_id)
+    saved = None
+    for event in snapshot.events:
+        if event.kind is RunEventKind.REFINEMENT_RESPONDED:
+            saved = {"event_ref": event_reference(event), "state": event.payload.get("session_state")}
+        elif event.kind is RunEventKind.REFINEMENT_REQUESTED:
+            receipt = read_receipt(session.store.duet_store, session.registration, event)
+            if receipt is not None:
+                saved = {"event_ref": event_reference(event), "state": receipt["session_state"]}
+    if saved is None or saved["state"] is None:
+        raise ValueError("terminal Run lacks its host projection state")
+    _restore_state(session, saved)
+
+
+def _restore_state(session, saved):
+    from json import loads
+
+    saved = loads(canonical_json(saved))
+    registration = session.registration
+    runs = session.store.evidence.runs
     state = saved["state"]
     producing_registration = runs.read_registration(OpaqueId(saved["event_ref"]["run_id"]))
     exact(state, _STATE_FIELDS, "saved refinement session")

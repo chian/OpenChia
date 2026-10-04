@@ -11,6 +11,7 @@ import pytest
 
 from agent.duet_contracts import content_id
 from agent.episode_launch import resolve_launch
+from episode_runtime.protocol import episode_id_for_path
 from episode_runtime.records.experiments import put_data
 from episode_runtime.testing.service import ExperimentService
 from function_library.models import _thaw_json
@@ -97,10 +98,13 @@ async def test_grounded_control_experiments_accumulate_credit_without_early_admi
         child = Invocation(
             invocation,
             assignment,
-            root.path,
+            (*root.path, (session.nodes["measure"].grain_name, invocation.value)),
             root.goal,
             unit_id=content_id("unit", "negative control"),
         )
+        child_path = [{"grain": grain, "key": key} for grain, key in child.path]
+        child_episode_id = episode_id_for_path(session.registration.logical_run_id, child_path)
+        session.calls[child_episode_id.value] = child
         instrument = {
             key: case[key]
             for key in (
@@ -143,10 +147,11 @@ async def test_grounded_control_experiments_accumulate_credit_without_early_admi
                     session.contract.producer_ref,
                 )
                 assert resumed["proposal_ref"] == proposal_ref
-            prepared = await evaluations.evaluate(
-                session,
-                child,
-                {
+            prepared = await session.exchange(
+                episode_id=child_episode_id,
+                episode_path=child_path,
+                operation="evaluate",
+                payload={
                     "unit_id": child.unit_id.value,
                     "purpose": "adequacy",
                     "proposal_ref": proposal_ref,

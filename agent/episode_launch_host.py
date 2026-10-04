@@ -55,6 +55,33 @@ def resolve_approved_launch(store, duet_id, *, configuration_hash=None, model_ty
     }
 
 
+def resolved_launch_record(launch, *, selection, launch_id, kind, subject_id):
+    """Keep approved routing separate from the environment actually launching it."""
+    from importlib.metadata import PackageNotFoundError, version
+    from openchia_cli.version_info import get_version_info
+
+    source_root = Path(__file__).resolve().parents[1]
+    paths = ("agent/episode_launch.py", "agent/episode_launch_host.py", "agent/episode_launch_transport.py",
+             "agent/model_call_recovery.py", "agent/model_call_recovery_policy.py",
+             "agent/auxiliary_client.py", "agent/codex_responses_adapter.py", "agent/anthropic_adapter.py")
+    code = get_version_info()
+    packages = {}
+    for package in ("openai", "anthropic", "httpx"):
+        try:
+            packages[package] = version(package)
+        except PackageNotFoundError:
+            packages[package] = None
+    return {
+        "launch_id": launch_id, "kind": kind, "subject_id": subject_id,
+        "configuration_hash": launch.configuration_hash, "mode": selection["mode"],
+        "reused_launch_id": selection.get("reused_launch_id"),
+        "configuration": launch.record,
+        "code": {"commit": code.commit, "branch": code.branch, "dirty": code.dirty},
+        "client_packages": packages,
+        "code_hashes": {path: Sha256Digest.of_bytes((source_root / path).read_bytes()).value for path in paths},
+    }
+
+
 class EpisodeLaunchHostMixin:
     def _launch_events(self, kind: str) -> list[dict]:
         return [event["record"] for event in self.store.events(self.identity.duet_id.value)
@@ -250,30 +277,11 @@ class EpisodeLaunchHostMixin:
 
     def _prepare_model_launch(self, kind: str, subject_id: str, *, model_types=()):
         selection, launch = self._require_approved_launch(model_types=model_types)
-        digest = self.build_store.put_blob(launch.public_json.encode())
+        self.build_store.put_blob(launch.public_json.encode())
         launch_id = f"model_launch_{uuid.uuid4().hex}"
-        source_root = Path(__file__).resolve().parents[1]
-        paths = ("agent/episode_launch.py", "agent/episode_launch_host.py", "agent/episode_launch_transport.py",
-                 "agent/model_call_recovery.py", "agent/model_call_recovery_policy.py",
-                 "agent/auxiliary_client.py", "agent/codex_responses_adapter.py", "agent/anthropic_adapter.py")
-        from openchia_cli.version_info import get_version_info
-        from importlib.metadata import PackageNotFoundError, version
-        code = get_version_info()
-        packages = {}
-        for package in ("openai", "anthropic", "httpx"):
-            try:
-                packages[package] = version(package)
-            except PackageNotFoundError:
-                packages[package] = None
-        self._launch_event("model_launch_resolved", {
-            "launch_id": launch_id, "kind": kind, "subject_id": subject_id,
-            "configuration_hash": digest.value, "mode": selection["mode"],
-            "reused_launch_id": selection.get("reused_launch_id"),
-            "configuration": launch.record,
-            "code": {"commit": code.commit, "branch": code.branch, "dirty": code.dirty},
-            "client_packages": packages,
-            "code_hashes": {path: Sha256Digest.of_bytes((source_root / path).read_bytes()).value for path in paths},
-        })
+        self._launch_event("model_launch_resolved", resolved_launch_record(
+            launch, selection=selection, launch_id=launch_id, kind=kind, subject_id=subject_id,
+        ))
         return launch_id, launch
 
     def _model_launch_transport(self, launch_id, launch, **kwargs):

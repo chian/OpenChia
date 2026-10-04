@@ -54,14 +54,10 @@ from episode_builder import (
 )
 from episode_runtime import (
     CredentialSpec,
-    HttpxHostTransport,
     RunEvidence,
     RunRegistration,
     RunStore,
     RunStoreNotFound,
-    RuntimePolicy,
-    ScopedHttpBroker,
-    ScopedModelBroker,
     RunExecutor,
     inspect_runtime_identity,
     load_egress_config,
@@ -923,6 +919,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         """Start the complete build → refine → validate job once."""
         from agent.build_refinement import BuildRefinement
         from agent.openchia_build_job import run_build_job
+        from agent.openchia_build_recovery import owner_record
 
         with self._build_lock:
             self._require_no_active_run("a new build")
@@ -960,12 +957,15 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 daemon=False,
             )
             self._build_thread = worker
+            owner = owner_record()
             self.store.append_event(
                 duet_id=self.identity.duet_id.value,
                 event_type="build_requested",
                 provenance=DuetProvenance.HUMAN_INPUT.value,
                 record={
                     "build_request_id": request.build_request_id.value,
+                    "owner": owner,
+                    "refiner_binding_ref": refiner.binding.reference,
                     "authority_head_approval_id": (
                         request.authority_approval.approval_id.value
                     ),
@@ -976,12 +976,30 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             )
             try:
                 worker.start()
-            except Exception:
+            except Exception as exc:
                 self._build_thread = None
                 self._build_cancel_event = None
                 self._build_state = "host_error"
+                self._build_error = _describe_exception(exc)
+                self._build_progress["stage"] = "host_error"
+                self.store.append_event(
+                    duet_id=self.identity.duet_id.value,
+                    event_type="build_host_failure",
+                    provenance=DuetProvenance.HOST_VALIDATION.value,
+                    record={
+                        "build_request_id": request.build_request_id.value,
+                        "state": "host_error", "owner": owner,
+                        "error": self._build_error,
+                    },
+                )
                 raise
         return self.build_status()
+
+    def continue_build(self) -> dict[str, Any]:
+        """Continue the saved build job without restarting completed work."""
+        from agent.openchia_build_continue import continue_build
+
+        return continue_build(self)
 
     def cancel_build(self) -> bool:
         """Cancel the whole job, including refiner and nested validation Runs."""
@@ -1077,6 +1095,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
     def build_status(self) -> dict[str, Any]:
         """Return live or recovered build state for the current authority head."""
         from agent.openchia_build_job import finalization_for, refinement_links
+        from agent.openchia_build_recovery import unfinished_builder_status
 
         with self._build_lock:
             if self._current_in_memory_build():
@@ -1113,7 +1132,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 }
         baseline = self.workspace.current_baseline()
         if baseline is None:
-            return {
+            return unfinished_builder_status(self, {
                 "state": "not_started",
                 "build_request_id": None,
                 "build_attempt_id": None,
@@ -1124,7 +1143,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 "model_wait": None,
                 "refinement": None,
                 "error": None,
-            }
+            })
         receipt = self.build_store.read_receipt(baseline.build_receipt_id)
         request = self.build_store.read_build_request(
             baseline.build_request_id
@@ -1141,7 +1160,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         state = "unverified" if finalization is None else finalization["state"]
         progress = self._receipt_progress(request, receipt)
         progress["stage"] = state
-        return {
+        return unfinished_builder_status(self, {
             "state": state,
             "build_request_id": job_request.build_request_id.value,
             "build_attempt_id": receipt.build_attempt_id.value,
@@ -1154,7 +1173,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             "model_wait": None,
             "refinement": refinement_links(self, job_request),
             "error": None if finalization is None else finalization["error"],
-        }
+        })
 
     def _runnable_build_context(
         self,
@@ -1380,255 +1399,14 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             return None
 
     def start_run(self) -> dict[str, Any]:
-        """Start one fresh, explicitly requested Run of the current build."""
+        from agent.openchia_run_job import start_run
 
-        with self._build_lock:
-            if self._build_thread is not None and self._build_thread.is_alive():
-                raise OpenChiaHostError(
-                    "an Episode build must finish before an Episode Run"
-                )
-            with self._run_lock:
-                if (
-                    self._run_thread is not None
-                    and self._run_thread.is_alive()
-                ):
-                    raise OpenChiaHostError(
-                        "an Episode Run is already active"
-                    )
-                (
-                    baseline,
-                    request,
-                    attempt,
-                    receipt,
-                    manifest,
-                    plan,
-                    source_package,
-                ) = self._runnable_build_context()
-                launch_request = self._root_launch_request(request, plan)
-                from episode_builder.planner import required_model_types
-                model_types = set()
-                for node in plan.nodes:
-                    try:
-                        model_types.update(required_model_types(node.prompt_specs, node.selected_function_bindings))
-                    except ValueError as exc:
-                        raise OpenChiaHostError(f"Episode {node.local_id}: {exc}") from None
-                self._require_approved_launch(model_types=model_types)
-                executor = self._runtime_executor()
-                runtime_identity = executor.inspect_runtime_identity(
-                    destination_root=self.run_store.runtime_sources_root,
-                )
-                registration = RunRegistration.from_admitted_build(
-                    build_request=request,
-                    build_attempt=attempt,
-                    build_receipt=receipt,
-                    build_manifest=manifest,
-                    launch_request=launch_request,
-                    runtime_identity=runtime_identity,
-                    runtime_policy=RuntimePolicy(),
-                )
-                launch_id, launch = self._prepare_model_launch("run", registration.run_id.value,
-                    model_types=model_types)
-                broker = ScopedModelBroker(self._model_launch_transport(launch_id, launch),
-                    episode_paths={self._model_node_path(node.local_id, plan): node.local_id for node in plan.nodes})
-                http_broker = ScopedHttpBroker(
-                    policy=registration.egress_policy,
-                    credentials=self.egress_credentials,
-                    transport=HttpxHostTransport(),
-                    max_frame_bytes=registration.runtime_policy.max_frame_bytes,
-                )
-                from episode_runtime.testing.execution import RunExecution
-                from episode_runtime.testing.launches import record_launch_intent
+        return start_run(self)
 
-                execution = RunExecution(
-                    artifacts=self.store, builds=self.build_store,
-                    runs=self.run_store, executor=executor,
-                )
-                intent_ref = record_launch_intent(
-                    self.store, registration, launch_id, launch.configuration_hash,
-                )
-                self._run_registration = registration
-                self._run_evidence = None
-                self._run_baseline = None
-                self._run_error = None
-                self._run_cancel_requested = False
-                self._run_loop = None
-                self._run_task = None
-                self._run_state = "starting"
+    def continue_run(self) -> dict[str, Any]:
+        from agent.openchia_run_job import start_run
 
-                def run_worker() -> None:
-                    loop = asyncio.new_event_loop()
-                    task = loop.create_task(
-                        execution.execute(
-                            registration=registration,
-                            source_package_path=source_package,
-                            intent_ref=intent_ref,
-                            model_broker=broker,
-                            http_broker=http_broker,
-                        )
-                    )
-                    with self._run_lock:
-                        self._run_loop = loop
-                        self._run_task = task
-                        if self._run_cancel_requested:
-                            task.cancel()
-                        else:
-                            self._run_state = "running"
-                    evidence: Optional[RunEvidence] = None
-                    error: Optional[str] = None
-                    try:
-                        evidence = loop.run_until_complete(task)
-                    except asyncio.CancelledError:
-                        try:
-                            evidence = self._read_terminal_evidence(
-                                registration
-                            )
-                        except Exception as exc:
-                            error = _describe_exception(exc)
-                    except BaseException as exc:
-                        error = _describe_exception(exc)
-                        try:
-                            evidence = self._read_terminal_evidence(
-                                registration
-                            )
-                        except Exception as evidence_exc:
-                            error = (
-                                f"{error}; evidence: "
-                                f"{type(evidence_exc).__name__}: {evidence_exc}"
-                            )
-                    try:
-                        if evidence is not None:
-                            durable_evidence = self.run_store.read_evidence(
-                                registration.run_id
-                            )
-                            if (
-                                durable_evidence.as_record()
-                                != evidence.as_record()
-                            ):
-                                raise OpenChiaHostError(
-                                    "executor result differs from durable Run evidence"
-                                )
-                            evidence = durable_evidence
-                            with self._run_lock:
-                                self._run_evidence = evidence
-                            recorded_baseline = self._persist_run_evidence(
-                                registration=registration,
-                                baseline=baseline,
-                                evidence=evidence,
-                            )
-                            with self._run_lock:
-                                self._run_baseline = recorded_baseline
-                                self._run_state = (
-                                    evidence.terminal_status.value
-                                )
-                                self._run_error = error
-                            self.store.append_event(
-                                duet_id=self.identity.duet_id.value,
-                                event_type="run_finished",
-                                provenance=(
-                                    DuetProvenance.HOST_VALIDATION.value
-                                ),
-                                record={
-                                    "run_id": registration.run_id.value,
-                                    "registration_hash": (
-                                        registration.registration_hash.value
-                                    ),
-                                    "evidence_id": evidence.evidence_id.value,
-                                    "evidence_hash": evidence.content_hash.value,
-                                    "audit_log_id": (
-                                        evidence.audit_log_id.value
-                                    ),
-                                    "audit_log_hash": (
-                                        evidence.audit_log_hash.value
-                                    ),
-                                    "terminal_status": (
-                                        evidence.terminal_status.value
-                                    ),
-                                    "refinement_baseline_id": (
-                                        recorded_baseline.baseline_id.value
-                                    ),
-                                },
-                            )
-                        else:
-                            with self._run_lock:
-                                cancelled = self._run_cancel_requested
-                                self._run_state = (
-                                    "cancelled_before_claim"
-                                    if cancelled
-                                    else "host_error"
-                                )
-                                self._run_error = error
-                            self.store.append_event(
-                                duet_id=self.identity.duet_id.value,
-                                event_type=(
-                                    "run_cancelled_before_claim"
-                                    if cancelled
-                                    else "run_host_failure"
-                                ),
-                                provenance=(
-                                    DuetProvenance.HOST_VALIDATION.value
-                                ),
-                                record={
-                                    "run_id": registration.run_id.value,
-                                    "registration_hash": (
-                                        registration.registration_hash.value
-                                    ),
-                                    "error": error,
-                                },
-                            )
-                    except Exception as exc:
-                        with self._run_lock:
-                            self._run_state = "host_error"
-                            self._run_error = (
-                                f"{type(exc).__name__}: {exc}"
-                            )
-                    finally:
-                        if not task.done():
-                            task.cancel()
-                            try:
-                                loop.run_until_complete(task)
-                            except BaseException:
-                                pass
-                        loop.close()
-                        with self._run_lock:
-                            self._run_loop = None
-                            self._run_task = None
-                            self._run_thread = None
-
-                worker = threading.Thread(
-                    target=run_worker,
-                    name=f"openchia-run-{registration.run_id.value[-12:]}",
-                    daemon=False,
-                )
-                self._run_thread = worker
-                self.store.append_event(
-                    duet_id=self.identity.duet_id.value,
-                    event_type="run_requested",
-                    provenance=DuetProvenance.HUMAN_INPUT.value,
-                    record={
-                        "intent_ref": intent_ref,
-                        "run_id": registration.run_id.value,
-                        "registration_hash": (
-                            registration.registration_hash.value
-                        ),
-                        "build_request_id": (
-                            registration.build_request_id.value
-                        ),
-                        "build_attempt_id": (
-                            registration.build_attempt_id.value
-                        ),
-                        "build_receipt_id": (
-                            registration.build_receipt_id.value
-                        ),
-                        "manifest_id": registration.manifest_id.value,
-                    },
-                )
-                try:
-                    worker.start()
-                except Exception:
-                    self._run_thread = None
-                    self._run_state = "host_error"
-                    raise
-        return self.run_status()
+        return start_run(self, continuing=True)
 
     def cancel_run(self) -> bool:
         """Cancel the one active executor task without resuming its Run."""
@@ -1744,6 +1522,11 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 evidence=None,
                 error=None,
             )
+        from agent.openchia_run_continue import saved_run_status
+
+        saved = saved_run_status(self, baseline)
+        if saved is not None:
+            return saved
         evidence = self.workspace.evidence_from_baseline(baseline)
         if evidence is None:
             return self._run_status_record(

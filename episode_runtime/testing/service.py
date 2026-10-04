@@ -428,21 +428,25 @@ class ExperimentService:
                 raise asyncio.CancelledError from None
             cancelled = True
         if refinement_session is not None:
-            from iterative_episode_refiner.finalization import finalize_result
-            from iterative_episode_refiner.handoff import attach_review
-            from ..records.experiments import put_record
-
-            result = await asyncio.to_thread(finalize_result, refinement_session, evidence)
-            result = await asyncio.to_thread(attach_review, refinement_session, result)
-            await asyncio.to_thread(
-                put_record, self.artifacts,
-                "refinement_result_attempt" if registration.resume_from is not None else "refinement_result",
-                experiment_id=launch_id,
-                **({"run_id": registration.run_id.value} if registration.resume_from is not None else {}),
-                duet_id=refinement_session.duet_id, record=result.as_record(),
-            )
+            await self._publish_refinement_result(refinement_session, evidence, launch_id)
         if cancelled:
             raise asyncio.CancelledError
+
+    async def _publish_refinement_result(self, session, evidence, experiment_id):
+        from iterative_episode_refiner.finalization import finalize_result
+        from iterative_episode_refiner.handoff import attach_review
+        from ..records.experiments import put_record
+
+        registration = session.registration
+        result = await asyncio.to_thread(finalize_result, session, evidence)
+        result = await asyncio.to_thread(attach_review, session, result)
+        await asyncio.to_thread(
+            put_record, self.artifacts,
+            "refinement_result_attempt" if registration.resume_from is not None else "refinement_result",
+            experiment_id=experiment_id,
+            **({"run_id": registration.run_id.value} if registration.resume_from is not None else {}),
+            duet_id=session.duet_id, record=result.as_record(),
+        )
 
     def _prepare_continuation(self, experiment_id, resume_from):
         from ..continuation import InterruptedRunRef
@@ -500,17 +504,91 @@ class ExperimentService:
 
     async def continue_run(self, *, experiment_id, resume_from):
         """Continue the same experiment and expectations, not a changed candidate."""
+        from ..continuation import InterruptedRunRef
+        from ..records.experiments import execution_attempts
+        from agent.episode_contracts import OpaqueId
+
         if self.executor is None:
             raise ValueError("continuation requires the existing admitted Run executor")
-        prepared = await asyncio.to_thread(self._prepare_continuation, experiment_id, resume_from)
-        if prepared is not None:
-            registration, inputs, launch, package, intent_ref, launch_id, session = prepared
+        reference = InterruptedRunRef.from_record(resume_from)
+        attempts = await asyncio.to_thread(
+            execution_attempts, self.artifacts, None, reference.run_id
+        )
+        history = tuple(OpaqueId(row["record"]["registration"]["run_id"]) for row in attempts)
+        # Selecting immutable histories for reuse is not admission. Preparation
+        # and execution still verify every linkage and current authority.
+        with self.runs.terminal_snapshot_scope(history):
+            prepared = await asyncio.to_thread(self._prepare_continuation, experiment_id, resume_from)
+            if prepared is not None:
+                registration, inputs, launch, package, intent_ref, launch_id, session = prepared
+                await self._execute_registered(
+                    registration, inputs, launch, package, intent_ref,
+                    launch_id=launch_id, refinement_session=session,
+                )
+            result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
+            return await self._finish_measurement(experiment_id, result)
+
+    async def continue_interrupted(self, *, experiment_id):
+        """Recover terminal publication, then continue the latest exact attempt.
+
+        A terminal journal entry is not itself proof that its worker stopped.
+        Publication recovery and ordinary continuation both require the existing
+        executor's exact process-identity check.
+        """
+        from ..continuation import InterruptedRunRef
+        from ..contracts import RunRegistration
+        from ..records.experiments import execution_attempts
+        from .recovery import recover_stopped_run
+
+        dispatch = await asyncio.to_thread(
+            read_record, self.artifacts, "dispatch", experiment_id=experiment_id
+        )
+        if dispatch is None or self.executor is None:
+            raise ValueError("continuation requires an existing experiment and executor")
+        attempts = await asyncio.to_thread(
+            execution_attempts, self.artifacts, None,
+            dispatch["record"]["registration"]["run_id"],
+        )
+        registrations = tuple(
+            RunRegistration.from_record(row["record"]["registration"]) for row in attempts
+        ) or (RunRegistration.from_record(dispatch["record"]["registration"]),)
+        registration = registrations[-1]
+        with self.runs.terminal_snapshot_scope(item.run_id for item in registrations):
+            evidence = await asyncio.to_thread(
+                recover_stopped_run, runs=self.runs, artifacts=self.artifacts,
+                executor=self.executor, registration=registration,
+            ) if attempts else None
+            if evidence is None or evidence.terminal_status.value not in {"interrupted", "cancelled", "resource_limited"}:
+                await self._recover_dispatch(dispatch, registration, evidence)
+                result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
+                return await self._finish_measurement(experiment_id, result)
+            reference = await asyncio.to_thread(InterruptedRunRef.from_run, self.runs, registration.run_id)
+            return await self.continue_run(experiment_id=experiment_id, resume_from=reference.as_record())
+
+    async def _recover_dispatch(self, dispatch, registration, evidence):
+        from .subjects import resolve_subject
+        from .refinement_subjects import make_session
+
+        def prepare():
+            inputs = self.builds.inspection_inputs_for_receipt(registration.build_receipt_id)
+            package = self.builds.verify_source_package(inputs.manifest)
+            request = dispatch["record"]["spec"]
+            subject = resolve_subject(request, inputs=inputs, artifacts=self.artifacts, builds=self.builds, runs=self.runs)
+            refiner = subject is not None and subject["kind"] == "refinement_job"
+            launch = self.duet_binding if refiner else self._resolve_live_launch(request, inputs, duet_id=dispatch["duet_id"])
+            session = make_session(self, subject, registration, package, terminal_recovery=evidence is not None) if refiner else None
+            return inputs, package, launch, session
+
+        inputs, package, launch, session = await asyncio.to_thread(prepare)
+        experiment_id = ExperimentSpec.from_record(dispatch["record"]["spec"]).experiment_id
+        if evidence is None:
             await self._execute_registered(
-                registration, inputs, launch, package, intent_ref,
-                launch_id=launch_id, refinement_session=session,
+                registration, inputs, launch, package,
+                {"artifact_id": dispatch["artifact_id"], "content_hash": dispatch["content_hash"]},
+                launch_id=experiment_id, refinement_session=session,
             )
-        result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
-        return await self._finish_measurement(experiment_id, result)
+        elif session is not None:
+            await self._publish_refinement_result(session, evidence, experiment_id)
 
     async def _finish_measurement(self, experiment_id, result):
         if "evidence_ref" in result:

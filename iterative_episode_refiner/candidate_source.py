@@ -7,7 +7,8 @@ to masquerade as a completed module or a fabricated model response.
 
 import asyncio
 from dataclasses import dataclass, replace
-import secrets
+
+from agent.duet_contracts import content_id
 
 from episode_builder._contract_base import (
     BuildAttempt,
@@ -166,13 +167,15 @@ def _inputs(store, contract, candidate, builder, binding=None):
         and inputs.receipt.materialized
     ):
         return inputs.receipt
-    request = replace(inputs.build_request, request_nonce=secrets.token_hex(32))
+    materializer = _materializer_identity(builder.planner.call_options, builder.emitter.call_options)
+    request = replace(inputs.build_request, request_nonce=content_id("candidate_admission", {
+        "campaign_ref": contract.ref.as_record(), "candidate_ref": candidate.ref.as_record(),
+        "binding": binding, "materializer": materializer.as_record(),
+    }).value)
     attempt = BuildAttempt(
         build_request_id=request.build_request_id,
-        materializer=_materializer_identity(
-            builder.planner.call_options, builder.emitter.call_options
-        ),
-        nonce=secrets.token_hex(32),
+        materializer=materializer,
+        nonce=content_id("source_admission", {"request": request.build_request_id.value}).value.removeprefix("source_admission_"),
     )
     plan = replace(
         projection.plan,
@@ -182,24 +185,29 @@ def _inputs(store, contract, candidate, builder, binding=None):
     return request, attempt, plan, projection
 
 
-async def admit_candidate(store, contract, candidate, builder, binding=None):
+def admit_candidate(store, contract, candidate, builder, binding=None):
     if builder.store is not store.evidence.builds:
         raise ValueError(
             "candidate admission must use the campaign's existing BuildStore"
         )
-    prepared = await asyncio.to_thread(
-        _inputs, store, contract, candidate, builder, binding
-    )
+    prepared = _inputs(store, contract, candidate, builder, binding)
     if not isinstance(prepared, tuple):
         return prepared
     request, attempt, plan, projection = prepared
-    return await builder.admit_sources(
+    receipts = builder.store.receipts_for_build_request(request.build_request_id)
+    if receipts:
+        if len(receipts) != 1 or receipts[0].build_attempt_id != attempt.build_attempt_id:
+            raise ValueError("candidate source admission has conflicting receipts")
+        return receipts[0]
+    # Called on the host transaction thread, never the executor event loop.
+    # Builder writes are content-addressed and independently retry-safe.
+    return asyncio.run(builder.admit_sources(
         build_request=request,
         build_attempt=attempt,
         plan=plan,
         emitted_modules=projection.modules,
         source_deficits=projection.deficits,
-    )
+    ))
 
 
 def materialization_results(evidence, contract, candidate, receipt):

@@ -21,6 +21,7 @@ from .contracts import RunEventKind, RunEventOrigin
 from .http_broker import http_response_bytes
 from .http_contracts import http_request_hash, http_response_hash
 from .protocol import HostFrameType, _thaw_json
+from .host_tasks import commit_local, join_local
 
 
 async def broker_refinement_request(
@@ -56,6 +57,30 @@ async def broker_learning_request(
 async def _broker_operation(
     *, kind, run_store, registration, channel, frame, session
 ):
+    task = asyncio.create_task(_complete_operation(
+        kind=kind, run_store=run_store, registration=registration,
+        channel=channel, frame=frame, session=session,
+    ))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Propagate cancellation to network/nested execution, but join any
+        # synchronous host transaction before terminal publication is allowed.
+        task.cancel()
+        try:
+            await join_local(task, propagate_cancel=False)
+        except asyncio.CancelledError:
+            pass
+        except Exception as error:
+            # A disconnect after the local receipt committed must not turn a
+            # requested cancellation into an uncontinuable failed execution.
+            raise asyncio.CancelledError from error
+        raise
+
+
+async def _complete_operation(
+    *, kind, run_store, registration, channel, frame, session
+):
     from .protocol import ProtocolError
 
     if session is None:
@@ -64,15 +89,24 @@ async def _broker_operation(
     episode_id = OpaqueId(body["episode_id"])
     request = {"operation": body["operation"], "payload": body["payload"]}
     request_hash = digest_record(request).value
-    await asyncio.to_thread(
+    prior_state = (
+        await asyncio.to_thread(session.continuation_state)
+        if kind == "refinement" and not session.initial_state_recorded else None
+    )
+    request_event = await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.WORKER,
         sender_sequence=frame.sender_sequence,
         kind=RunEventKind(kind + "_requested"),
         episode_id=episode_id,
-        payload={**body, "request": request, "request_hash": request_hash},
+        payload={
+            **body, "request": request, "request_hash": request_hash,
+            **({"session_state_before": prior_state} if prior_state is not None else {}),
+        },
     )
+    if kind == "refinement":
+        session.initial_state_recorded = True
     if kind == "learning":
         response = await session(episode_id.value, body["operation"], body["payload"])
     else:
@@ -81,6 +115,7 @@ async def _broker_operation(
             episode_path=body["episode_path"],
             operation=body["operation"],
             payload=body["payload"],
+            **({"request_event": request_event} if kind == "refinement" else {}),
         )
     # The refiner holds admitted parent/child bindings in host memory. Retain
     # that state with the reply, separately from worker-visible result data.
@@ -93,7 +128,7 @@ async def _broker_operation(
     prepared = channel.prepare(HostFrameType(kind + "_response").value, response_body)
     # Frame validation and sequence reservation precede persistence; publication
     # follows it. Neither an oversized reply nor cancellation may orphan the Run.
-    await asyncio.to_thread(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.HOST,
@@ -117,7 +152,7 @@ async def broker_model_request(
     request = admit_model_request(request_record)
     request_hash = model_request_hash(request)
     episode_id = OpaqueId(frame.body["episode_id"])
-    await asyncio.to_thread(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.WORKER,
@@ -142,7 +177,7 @@ async def broker_model_request(
             "response": model_response_record(response),
         },
     )
-    await asyncio.to_thread(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.HOST,
@@ -173,7 +208,7 @@ async def broker_http_request(*, run_store, registration, channel, frame, http_b
     matched = http_broker.match_rule(local_id, request)
     rule_name = None if matched is None else matched.name
     url = urlsplit(str(request["url"]))
-    await asyncio.to_thread(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.WORKER,
@@ -198,7 +233,7 @@ async def broker_http_request(*, run_store, registration, channel, frame, http_b
         HostFrameType.HTTP_RESPONSE.value,
         {"http_request_id": body["http_request_id"], "response": response},
     )
-    await asyncio.to_thread(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.HOST,

@@ -72,9 +72,14 @@ class LearningBroker:
         return contract
 
     async def __call__(self, episode_id, operation, payload):
+        from .host_tasks import join_local
+
         # Journal verification and flock may block; to_thread also preserves
         # the owning request's ContextVars across this host boundary.
-        return await asyncio.to_thread(self._dispatch, episode_id, operation, payload)
+        task = asyncio.create_task(asyncio.to_thread(self._dispatch, episode_id, operation, payload))
+        # The enclosing exchange journals this result before propagating stop;
+        # cancelling a synchronous writer cannot roll back its durable effects.
+        return await join_local(task, propagate_cancel=False)
 
     def _dispatch(self, episode_id, operation, payload):
         episode_id = OpaqueId(episode_id)

@@ -182,7 +182,7 @@ def propose_experiment(evaluations, session, call, proposal, producer):
     )
 
 
-async def execute_experiment(evaluations, session, call, payload):
+async def execute_experiment(evaluations, session, call, payload, *, request_event=None):
     exact(
         payload,
         {"unit_id", "experiment_proposal_ref"},
@@ -213,9 +213,17 @@ async def execute_experiment(evaluations, session, call, payload):
         runtime_policy=evaluations.runtime_policy,
     )
     result = await service.run(spec)
-    return await asyncio.to_thread(
-        _receive, evaluations, session, call, spec, assigned, result
-    )
+    if session.registration.resume_from is not None and result["execution_status"] in {
+        "interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable",
+    }:
+        result = await service.continue_interrupted(experiment_id=spec.experiment_id)
+    task = asyncio.create_task(asyncio.to_thread(
+        session.commit_response, request_event,
+        _receive, evaluations, session, call, spec, assigned, result,
+    ))
+    from episode_runtime.host_tasks import join_local
+
+    return await join_local(task, propagate_cancel=False)
 
 
 def _receive(evaluations, session, call, spec, assigned, result):

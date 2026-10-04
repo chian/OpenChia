@@ -292,6 +292,19 @@ class BuildStore:
             )
         return result
 
+    def build_request_consumed(self, build_request_id: OpaqueId | str) -> bool:
+        """Include a claim published just before its attempt record on a crash."""
+        request = self.read_build_request(build_request_id)
+        path = self._record_path("attempt_claims", request.build_request_id)
+        if not path.exists():
+            return bool(self.attempts_for_build_request(request.build_request_id))
+        with path.open(encoding="utf-8") as stream:
+            claim = json.load(stream)
+        if set(claim) != {"build_request_id", "build_attempt_id"} or claim["build_request_id"] != request.build_request_id.value:
+            raise BuildStoreCorruptionError("Builder attempt claim differs from its request")
+        OpaqueId(claim["build_attempt_id"])
+        return True
+
     def put_build_attempt(self, value: BuildAttempt) -> OpaqueId:
         if not isinstance(value, BuildAttempt):
             raise TypeError("value must be a BuildAttempt")
@@ -299,7 +312,10 @@ class BuildStore:
         if request.build_request_id != value.build_request_id:
             raise ValueError("build attempt names another request")
         with self._lock:
-            if self.attempts_for_build_request(value.build_request_id):
+            existing = self.attempts_for_build_request(value.build_request_id)
+            if existing == (value,):
+                return value.build_attempt_id
+            if existing:
                 raise BuildArtifactConflictError(
                     "an approved build request may be attempted only once; "
                     "mint a fresh request nonce"
@@ -308,19 +324,21 @@ class BuildStore:
                 "attempt_claims",
                 value.build_request_id,
             )
-            if claim_path.exists():
-                raise BuildArtifactConflictError(
-                    "approved build request nonce has already been consumed"
-                )
-            self._publish(
-                claim_path,
-                _canonical_bytes(
-                    {
+            # A crash may publish the claim before the attempt. Identical bytes
+            # may finish that attempt; another attempt still needs a fresh nonce.
+            try:
+                self._publish(
+                    claim_path,
+                    _canonical_bytes({
                         "build_request_id": value.build_request_id.value,
                         "build_attempt_id": value.build_attempt_id.value,
-                    }
-                ),
-            )
+                    }),
+                )
+            except BuildArtifactConflictError as exc:
+                raise BuildArtifactConflictError(
+                    "approved build request nonce has already been consumed by another attempt; "
+                    "mint a fresh request nonce"
+                ) from exc
             return self._put_record(
                 "attempts",
                 value.build_attempt_id,
