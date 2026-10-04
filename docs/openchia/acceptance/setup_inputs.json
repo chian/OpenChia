@@ -1,12 +1,12 @@
 {
   "status": "target_and_launch_approved_build_continuation_in_progress_tester_unapproved",
   "continuation_observation": {
-    "observed_at": "2026-10-04T16:54:47Z",
+    "observed_at": "2026-10-04T17:23:36Z",
     "entry": "OpenChiaHost.continue_build",
     "source_commit": "b6ae19fe9625c70d65df72003c003d744404ff8c",
     "source_checkout": "/home/chia/repos/OpenChia-continue-live-hHDLek30",
     "process_id": 2820540,
-    "state": "measure_response_rejected_automatic_next_iteration_started",
+    "state": "measure_admitted_implementer_baseline_unavailable_designer_replanning",
     "predecessor_run_id": "run_358b0b188f2732c49a60c6d304d8309705e611b325cd6c822d0ad771a1347edf",
     "recovered_terminal_evidence_ref": {
       "artifact_id": "run_evidence_7d1dfe3f5dd7c24b844dd1c0faa74b132c9635d2ff1e141a1244205baeea1fd0",
@@ -23,7 +23,7 @@
     },
     "reissued_model_request_id": "model_request_a7fe6f13254543b43172c19604cc0016393d92bce35289f0252ded44c4076ea8",
     "reissued_request_hash": "sha256:52aa9c2cb75fbc2286a5caea6554dbb01f6ce9ed45f1a850f315da1a25b9f604",
-    "completed_new_model_responses": 1,
+    "completed_new_model_responses": 7,
     "completed_response": {
       "event_id": "run_event_2895fd3aa076ce07075f1bce90c6c20d97d9404c27f06be7b88f79403cbf69db",
       "event_hash": "sha256:90b889ffb5ec463fe6f7ef263491b0af4f490d89dcd4579dabf355aa05cdd3b0",
@@ -34,21 +34,92 @@
       "realized_yield": 0,
       "consecutive_malformed_revisions_after_review": 7
     },
-    "next_automatic_model_request": {
-      "event_sequence": 14,
-      "request_hash": "sha256:626b6561fe0d18d87c7d8f309a3561100dc95f4857214f76cf966ffe31800cb0",
-      "task": "measure"
+    "repaired_check_design_response": {
+      "event_sequence": 15,
+      "event_id": "run_event_7a50263f8f12a53919cfab69f9793b450141f87a0b5f81da7476364ad613651c",
+      "event_hash": "sha256:0cdf4fd1110fc25cd2ccf486e751b35dc2f0416ad3516245d77ff0b9793bd126",
+      "response_hash": "sha256:20fd9b35849d5d114b9266dc88e192db01311d354bc1a98c0cff34889813052a",
+      "characters": 154207,
+      "valid_json": true,
+      "cases": 12,
+      "review_definition_ref": {
+        "artifact_id": "refinement_20222c7321570268a75705b43682dcdffdc235cb1a7d4909a7da5a0440c7f750",
+        "content_hash": "sha256:20222c7321570268a75705b43682dcdffdc235cb1a7d4909a7da5a0440c7f750"
+      },
+      "host_review_assignment_event_sequence": 17,
+      "measure_admitted": true
+    },
+    "measure_admission": {
+      "review_response_event_sequence": 30,
+      "favorable_review_criteria": 5,
+      "selection_response_event_sequence": 51,
+      "admission_event_sequence": 55,
+      "admission_event_hash": "sha256:ccd072ce011b4759bde1e699d39f1c3efcb8d1775ccecbfe287fcf86c8dd6454",
+      "admission_ref": {
+        "artifact_id": "refinement_9fa97053b772331595105166bf3dc58bc7ece4e5e3f394a313ddffabe35c8e73",
+        "content_hash": "sha256:9fa97053b772331595105166bf3dc58bc7ece4e5e3f394a313ddffabe35c8e73"
+      },
+      "measure_ref": {
+        "artifact_id": "refinement_data_5f0122e63ba86e04665673709b5a2b28ac411265073edb371bdc811bcb8ad61e",
+        "content_hash": "sha256:1eb65df272c9b3f2acffe16579286a3f997f0117974ab54cd0545f77e07755a0"
+      },
+      "positive_controls": 13,
+      "negative_controls": 20,
+      "control_outcome_mismatches": 0,
+      "unit_event_sequence": 58,
+      "unit_event_hash": "sha256:b94517d683ccf7252cfe94ee691393d86ef7186c9d855da1dbb097e58d0cbf96",
+      "credit_before": 0,
+      "credit_after": 12,
+      "realized_yield": 12,
+      "disposition": "attained",
+      "limitation": "This completes the assigned Measure work, not Target Workflow implementation or behavioral acceptance."
+    },
+    "implementation_observation": {
+      "first_plan_response_sequence": 72,
+      "child_assignment_sequence": 74,
+      "baseline_evaluation_response_sequence": 85,
+      "evaluation_ref": {
+        "artifact_id": "refinement_c5f4e8d3cdf0dd332ba35208fa87989d09903b8a22fb3e231c4719ba9014f302",
+        "content_hash": "sha256:c5f4e8d3cdf0dd332ba35208fa87989d09903b8a22fb3e231c4719ba9014f302"
+      },
+      "gap_kind": "launch_input_invalid",
+      "gap_detail": "the candidate has no materialized root launch interface",
+      "implementer_disposition": "needs_parent_decision",
+      "implementer_model_edit_calls": 0,
+      "replacement_plan_response_sequence": 127,
+      "replacement_child_assignment_sequence": 129,
+      "replacement_context_sequence": 136,
+      "replacement_baseline_required": true,
+      "replacement_visible_source_admissions": 0,
+      "replacement_baseline_response_sequence": 140,
+      "replacement_baseline_response_event_hash": "sha256:6a81749201e3454d4de0c23c66775837a46fff3876149cb64019cbfbb5667bf8",
+      "third_plan_response_sequence": 182,
+      "source_changed": false
     },
     "target_workflow_experiments": 0,
     "transport_activity": {
-      "observed_at": "2026-10-04T16:46:46Z",
-      "bytes_received": 609134,
-      "milliseconds_since_last_receive": 47,
+      "observed_at": "2026-10-04T17:11:18Z",
+      "bytes_received": 71580,
+      "milliseconds_since_last_receive": 898,
       "limitation": "Incoming network data establishes response activity, not completed reasoning or an admitted measure."
     },
     "health_policy": "disabled_by_absence_in_original_frozen_binding",
     "acceptance_pass": false,
-    "prepared_change": "Shared record_conditions.parse_json is prepared in the development checkout, not this pinned Run. It separates JSON representation checks from answer correctness and changes the exact registered predicate identity. The assignment/revision-size problem remains unresolved; no active contract or candidate was changed."
+    "prepared_change": "Shared record_conditions.parse_json is prepared in the development checkout, not this pinned Run. It separates JSON representation checks from answer correctness and changes the exact registered predicate identity. The assignment/revision-size problem remains unresolved; no active contract or candidate was changed.",
+    "prepared_source_admission_change": "Development-only: source admission retrieval matches exact current candidate and authorized harness/capability references instead of the requesting measure. This exposes a rejected acceptance build to local repair without sharing test verdicts, acceptance or credit. Syntax and whitespace checks pass; no live validation, new job, pinned-source edit or candidate repair was performed.",
+    "continuation_compatibility": {
+      "saved_runtime_manifest_id": "runtime_source_manifest_5d685eb44e02ca89cc4ad24d33e7a9bdc7df4940fe783fa776c6b39dca5c918a",
+      "pinned_checkout_matches_saved_worker_manifest": true,
+      "development_checkout_matches_saved_worker_manifest": false,
+      "changed_worker_files": ["function_library/record_conditions.py"],
+      "baseline_fix_files_in_worker_manifest": [],
+      "prepared_host_checkout": "/home/chia/repos/OpenChia-host-baseline-fix-5dDNZIh6",
+      "prepared_host_commit": "1aab50878e3e0e087f3f20094c1d28c291a26e60",
+      "prepared_host_matches_saved_worker_manifest": true,
+      "prepared_host_source_admission_kind": "reference_wrapper_reconstruction",
+      "prepared_host_admitted_modules": 8,
+      "limitation": "Read-only source admission passes for all eight original refiner modules under the prepared host-only fix. No continuation has been launched; saved-prefix reconstruction, stopped-worker verification and current-authority admission remain required. Do not substitute the whole development checkout."
+    }
   },
   "current_build_job": {
     "source_commit": "9b5d11574afb4ac384bbadee58debcc2fac74d46",

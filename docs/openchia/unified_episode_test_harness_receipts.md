@@ -52,6 +52,135 @@ this live checkout and have static validation only. Initial Builder continuation
 ordinary `/run continue`, and other recovery boundaries were not separately
 exercised by this Run. No new test suite was run for this review.
 
+### Source-admission visibility correction, 2026-10-04 17:23 UTC: prepared, not live-validated
+
+The same successor Run's replacement Implementer repeats the baseline failure.
+Event 136 shows `baseline_required: true` and an empty `source_admissions` list.
+Event 140 returns `launch_input_invalid` for the missing materialized root;
+its event hash is
+`sha256:6a81749201e3454d4de0c23c66775837a46fff3876149cb64019cbfbb5667bf8`.
+Verify had already recorded source admission
+`refinement_9412ebfee76478960f644953abc8454cc9942ca34f35388e5669662a08467869`,
+with a rejected Builder receipt for the exact same candidate, harness and
+capability. It was omitted solely because acceptance and local repair name
+different measures. Designer response 182 again proposes static-first repair;
+the model cannot override the host's mandatory-baseline branch with prose.
+
+In the development checkout, `instrument_builds.relevant_sources` now selects
+source admissions by exact current candidate and authorized harness/capability
+references. `runtime.snapshot` supplies the current assignment's bindings for
+its measure and purpose. A known rejected source can therefore reach the
+existing repair branch. Test results, acceptance and credit remain separate;
+no new runner, stored record, migration or admission bypass was introduced.
+This addresses the hidden rejection, not every unavailable-baseline case.
+
+Both changed Python files parse and `git diff --check` passes. No tests or new
+live jobs were run. The live checkout remains unchanged and the owner remains
+active; this correction has no live execution claim. No Target Workflow Run or
+acceptance pass has occurred.
+
+Read-only continuation preparation subsequently compared the existing runtime
+manifest with both checkouts using `inspect_runtime_source_manifest`. The live
+checkout matches; the development checkout differs only at pinned worker file
+`function_library/record_conditions.py`. Neither baseline-fix file belongs to
+the worker manifest. Using the complete development checkout would therefore
+violate exact continuation, while preparing only the host fix on the original
+runtime can retain the saved worker identity. No identity check was weakened,
+current process stopped, or new continuation attempted.
+
+At 17:31 UTC, isolated preparation produced
+`1aab50878e3e0e087f3f20094c1d28c291a26e60`: the original runtime plus only the
+two host-side changes. The existing manifest inspector finds no worker-byte
+differences, and `admit_reconstruction_source` accepts all eight original refiner
+modules against the actual saved registration/package. This is read-only source
+compatibility evidence, not a new Run, prefix reconstruction or permission to
+continue an active worker. The current live process remains untouched.
+
+### Live source-repair handoff, 2026-10-04 17:17 UTC: baseline evaluation prevents editing
+
+In the same successor Run, Designer response 72 proposed a concrete source-repair
+plan. Host response 74 assigned Implementer
+`refinement_invocation_c82189dc4b47656d946ece1e2e976819993d9e9d838ebe6d9d84db1c2ce2a009`.
+Its mandatory baseline evaluation at 84 returned at 85 with `proceed: false`:
+`launch_input_invalid`, "the candidate has no materialized root launch interface".
+Evaluation record
+`refinement_c5f4e8d3cdf0dd332ba35208fa87989d09903b8a22fb3e231c4719ba9014f302`
+names the unchanged candidate and local measure. The child returned
+`needs_parent_decision` with zero yield, without a model editing call.
+
+The subsequent Verify child used the same evaluation service for the acceptance
+measure. It recorded blocked source admission and missing behavioral coverage,
+not a pass. Designer request 126 contains both children's original decision
+records and the blocked Builder receipt. Response 127 proposes a replacement
+Implementer plan with the same local measure and the prior assignment in
+`supersedes_assignment_refs`. The owner process remains live; no source edit,
+Target Workflow Run or acceptance has occurred.
+
+Read-only tracing identifies two relevant boundaries: evaluation plans group
+static and execution checks under their shared binding, then check the candidate
+root interface before source admission; `relevant_sources` filters admission
+history by measure reference, so an acceptance-measure source rejection is not
+visible through the local measure. This is a system-level repair-path issue to
+resolve, not evidence that the scheduling task is impossible. The live loop has
+not been stopped or patched, and these observations do not establish a fix.
+
+### Live Measure admission, 2026-10-04 17:11 UTC: controls pass and Designer resumes
+
+Successor Run `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
+continued automatically. Question response 30 judged all five check-design
+criteria satisfied, while retaining its stated limitations. Measure response 51
+selected that exact `reviewed_definition_ref`, without rewriting its expectations.
+Host event 55 records admitted measure
+`refinement_9fa97053b772331595105166bf3dc58bc7ece4e5e3f394a313ddffabe35c8e73`.
+Its 33 executable control results all match: 13 expected passes and 20 expected
+failures. The admission has 24 check references and twelve measurement fact keys.
+Event 55's hash is
+`sha256:ccd072ce011b4759bde1e699d39f1c3efcb8d1775ccecbfe287fcf86c8dd6454`.
+
+The independent review alone earned zero. After host admission, unit event 58
+records credit changing from 0 to 12, realized yield 12, twelve semantic fact
+keys, and `attained` for this Measure assignment. Its event hash is
+`sha256:b94517d683ccf7252cfe94ee691393d86ef7186c9d855da1dbb097e58d0cbf96`.
+The child returned through the ordinary report path. Designer request 71 then
+received the admitted measure and resumed its source-repair assignment; request
+hash `sha256:e94a162e7e86558a97e8f05cec311656e7d2a0b85085135312fbea6deab79ed9`.
+
+This is real model-designed measure admission through the shared host path,
+not operator-supplied repair or model-awarded credit. Its control observations
+validate the measuring mechanism; they are not Target Workflow execution
+evidence. The retained format and explanation limitations still apply. No
+Target Workflow experiment or behavioral acceptance is established. No new
+test suite, replacement Run, pinned-source edit or manual stage dispatch was
+performed. At 17:11 UTC the exact owning process remained live with incoming
+data on Designer's model call.
+
+### Live Measure repair, 2026-10-04 17:05 UTC: valid design reaches separate review
+
+The same successor Run
+`run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
+committed response 15 with valid JSON: 154,207 characters and twelve cases,
+response hash
+`sha256:20fd9b35849d5d114b9266dc88e192db01311d354bc1a98c0cff34889813052a`.
+Host response 17 returned `proceed: true` and assigned Question invocation
+`refinement_invocation_56702568c17ddcc3468802d09d79759d1eab926eb3ac2ea176bbc929e7521336`.
+Event 29 requests its independent review of definition
+`refinement_20222c7321570268a75705b43682dcdffdc235cb1a7d4909a7da5a0440c7f750`,
+with request hash
+`sha256:e916f48c4220f9c21cb4cfb06b8812948becffb8387cc127502dd99aef1c64f5`.
+
+The model removed the every-answer optimality condition and explicitly records
+the remaining inability to check later answers' encoded field formats without
+overconstraining them. Other limitations include unexecuted branches and the
+unchecked mathematical validity of explanation prose. Listing limitations does
+not make the check adequate; the separate review is still pending.
+
+The exact owner process remains live. Its review-call connection had received
+116,258 bytes, with incoming data 1,075 milliseconds before observation. This
+shows transport activity, not an admitted result. No new job, manual check repair,
+stage dispatch, test suite or pinned-source edit was performed. There is no
+admitted measure or Target Workflow experiment at this observation. The repeated
+JSON failures ended in this iteration; behavioral acceptance remains open.
+
 ### Live Measure inspection, 2026-10-04 16:54 UTC: response received, revision still unusable
 
 Successor Run `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`

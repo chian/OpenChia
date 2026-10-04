@@ -1,6 +1,6 @@
-# Scheduling acceptance — static source repair demonstrated; behavioral acceptance pending
+# Scheduling acceptance — Measure admitted; Target Workflow acceptance pending
 
-Latest status, 2026-10-04 16:54 UTC: the normal `OpenChiaHost.continue_build()`
+Latest status, 2026-10-04 17:11 UTC: the normal `OpenChiaHost.continue_build()`
 entry has started successor Run
 `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
 for the same saved job and experiment. Event 2 records 479 matched worker frames,
@@ -11,9 +11,51 @@ the completed 63,662-character model response. It is malformed JSON at character
 9,509, in the nested event-provenance condition, and was rejected for zero credit.
 This is the seventh consecutive malformed revision after the same independent
 review. Event 14 is OpenChia's automatic next Measure request, carrying the exact
-rejected response and parse error. There is still no admitted measure or Target
-Workflow experiment. Continuation restored the actual loop; it did not correct
-that loop's repeated check-design failure.
+rejected response and parse error. Response 15 then produced valid JSON: 154,207
+characters and twelve cases. Host response 17 authorized a separate Question
+reviewer; response 30 judged all five design criteria satisfied. Measure response
+51 selected that exact reviewed definition. Host event 55 records admission:
+all 33 executable controls matched their expected outcomes (13 positive and
+20 negative). Event 58 records twelve newly credited measurement facts and
+Measure's `attained` return. Event 71 is Designer's next model request to resume
+source repair, carrying the admitted measure. All of these transitions occurred
+inside the same OpenChia job without manual stage dispatch. This establishes
+measure construction, review, control execution and host admission, not an
+executed or accepted Target Workflow. The same owner remains live.
+
+Follow-up at 17:17 UTC: Designer's plan reached Implementer, but its required
+baseline evaluation returned `launch_input_invalid`: the candidate has no
+materialized root launch interface. Implementer returned without a model edit.
+The independent Verify child recorded the rejected source and missing acceptance
+coverage. Designer received both exact decisions and proposed a replacement
+Implementer plan in response 127. The job remains active. The evaluation
+preflight and source-admission visibility need examination; no repair to the
+harness or candidate has been applied to the running checkout.
+
+Follow-up at 17:23 UTC: the replacement Implementer repeated the same failure
+at event 140. Its context at 136 had `baseline_required: true` and no visible
+source admissions, although Verify had already recorded a rejected build of
+the same candidate with the same harness and capability. The development
+checkout now shares that source-admission evidence across measures under those
+exact identities. It does not share test verdicts or credit. Python syntax and
+whitespace checks pass; the correction is not live-validated or applied to this
+Run. Designer response 182 proposes another static-first implementation plan;
+no model editing call, changed candidate or Target Workflow Run is established.
+
+Continuation compatibility inspection: the running checkout still matches the
+saved worker manifest exactly. The development checkout does not, because its
+new `function_library/record_conditions.py` changes a pinned worker file. The
+two-file baseline fix is host-only and touches neither the worker closure nor
+registered predicate identities. Any continuation intended to preserve this
+Measure must retain the original worker bytes rather than use the whole current
+development checkout. This is a read-only compatibility finding, not a completed
+continuation with the fix; the current process has not been interrupted.
+At 17:31 UTC, preparation produced commit
+`1aab50878e3e0e087f3f20094c1d28c291a26e60` in a separate checkout. It contains
+only the two host fixes on the original runtime. The worker manifest matches,
+and existing reconstruction source admission accepts all eight original refiner
+modules. Actual continuation and stopped-worker/current-authority checks remain
+unperformed; no second job was launched.
 
 Continuation also completed the cancelled Run's missing terminal-evidence
 publication, preserving its 866 events and `cancelled` status. The pinned host
@@ -27,9 +69,12 @@ behavioral requirements together; check-design admission requires exactly that
 set. The input is 391,195 characters across its system/user messages, not a
 measured token count. The revisions address real review findings (request hashes,
 final-receipt selection and admitted-transition linkage), but regenerate the
-whole check bundle. The latest revision also applies the optimality predicate to
+whole check bundle. The malformed revision applied the optimality predicate to
 every retained answer to check JSON field encoding, expressly acknowledging that
-this is stricter than the frozen first-answer correctness criterion. These are
+this is stricter than the frozen first-answer correctness criterion. Valid
+response 15 removes that stronger condition and explicitly retains the gap in
+checking later answers' encoded field formats. It also retains the limitation
+that the predicate does not certify the explanation's mathematical validity. These are
 system-interface findings, not evidence that the Target Workflow has failed its
 scheduling task. Generic JSON decoding has now been prepared in the development
 checkout's shared record-condition predicate so representation and correctness

@@ -292,6 +292,16 @@ to task 4. A reuse lead always needs the exact experiment preview; it is not a
 promise that a replay will match. New execution adapters must project their
 records through these views, not introduce role-specific history formats.
 
+Source admission is shared evidence about exact candidate bytes, not a result
+owned by one measure. Refiner context retrieves prior source admissions for the
+current candidate and the assignment's authorized harness/capability references,
+even when another measure requested the build. This lets Implementer see a
+rejected build recorded during parent acceptance and attempt a repair without
+first running the source that was rejected. Different candidates or execution
+bindings are not substituted. Runtime inputs and test verdicts remain bound to
+their original experiments; sharing a source receipt grants no acceptance or
+credit and does not bypass subsequent source admission.
+
 Code navigation is by responsibility:
 
 | Change | Owner |
