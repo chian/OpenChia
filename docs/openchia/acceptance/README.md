@@ -23,6 +23,15 @@ inside the same OpenChia job without manual stage dispatch. This establishes
 measure construction, review, control execution and host admission, not an
 executed or accepted Target Workflow. The same owner remains live.
 
+Follow-up at 17:17 UTC: Designer's plan reached Implementer, but its required
+baseline evaluation returned `launch_input_invalid`: the candidate has no
+materialized root launch interface. Implementer returned without a model edit.
+The independent Verify child recorded the rejected source and missing acceptance
+coverage. Designer received both exact decisions and proposed a replacement
+Implementer plan in response 127. The job remains active. The evaluation
+preflight and source-admission visibility need examination; no repair to the
+harness or candidate has been applied to the running checkout.
+
 Continuation also completed the cancelled Run's missing terminal-evidence
 publication, preserving its 866 events and `cancelled` status. The pinned host
 source is `b6ae19fe9625c70d65df72003c003d744404ff8c`; later audit-read and

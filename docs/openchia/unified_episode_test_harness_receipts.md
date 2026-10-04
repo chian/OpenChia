@@ -13,6 +13,34 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live source-repair handoff, 2026-10-04 17:17 UTC: baseline evaluation prevents editing
+
+In the same successor Run, Designer response 72 proposed a concrete source-repair
+plan. Host response 74 assigned Implementer
+`refinement_invocation_c82189dc4b47656d946ece1e2e976819993d9e9d838ebe6d9d84db1c2ce2a009`.
+Its mandatory baseline evaluation at 84 returned at 85 with `proceed: false`:
+`launch_input_invalid`, "the candidate has no materialized root launch interface".
+Evaluation record
+`refinement_c5f4e8d3cdf0dd332ba35208fa87989d09903b8a22fb3e231c4719ba9014f302`
+names the unchanged candidate and local measure. The child returned
+`needs_parent_decision` with zero yield, without a model editing call.
+
+The subsequent Verify child used the same evaluation service for the acceptance
+measure. It recorded blocked source admission and missing behavioral coverage,
+not a pass. Designer request 126 contains both children's original decision
+records and the blocked Builder receipt. Response 127 proposes a replacement
+Implementer plan with the same local measure and the prior assignment in
+`supersedes_assignment_refs`. The owner process remains live; no source edit,
+Target Workflow Run or acceptance has occurred.
+
+Read-only tracing identifies two relevant boundaries: evaluation plans group
+static and execution checks under their shared binding, then check the candidate
+root interface before source admission; `relevant_sources` filters admission
+history by measure reference, so an acceptance-measure source rejection is not
+visible through the local measure. This is a system-level repair-path issue to
+resolve, not evidence that the scheduling task is impossible. The live loop has
+not been stopped or patched, and these observations do not establish a fix.
+
 ### Live Measure admission, 2026-10-04 17:11 UTC: controls pass and Designer resumes
 
 Successor Run `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
