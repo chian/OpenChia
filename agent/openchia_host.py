@@ -54,14 +54,10 @@ from episode_builder import (
 )
 from episode_runtime import (
     CredentialSpec,
-    HttpxHostTransport,
     RunEvidence,
     RunRegistration,
     RunStore,
     RunStoreNotFound,
-    RuntimePolicy,
-    ScopedHttpBroker,
-    ScopedModelBroker,
     RunExecutor,
     inspect_runtime_identity,
     load_egress_config,
@@ -1394,6 +1390,11 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
 
         return start_run(self)
 
+    def continue_run(self) -> dict[str, Any]:
+        from agent.openchia_run_job import start_run
+
+        return start_run(self, continuing=True)
+
     def cancel_run(self) -> bool:
         """Cancel the one active executor task without resuming its Run."""
 
@@ -1508,6 +1509,11 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 evidence=None,
                 error=None,
             )
+        from agent.openchia_run_continue import saved_run_status
+
+        saved = saved_run_status(self, baseline)
+        if saved is not None:
+            return saved
         evidence = self.workspace.evidence_from_baseline(baseline)
         if evidence is None:
             return self._run_status_record(

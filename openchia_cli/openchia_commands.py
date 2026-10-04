@@ -20,7 +20,7 @@ _HELP_TEXT = (
     "  /bg DUET_ID episode [edit|diff] browse or edit its Workspace\n"
     "  /bg DUET_ID status|approve|decline inspect or decide authority\n"
     "  /bg DUET_ID build [status|continue] start, inspect or continue its build job\n"
-    "  /bg DUET_ID run [status] run or inspect its materialization\n"
+    "  /bg DUET_ID run [status|continue] run, inspect or continue its materialization\n"
     "  /bg DUET_ID evidence [RUN_ID] inspect terminal evidence\n"
     "  /bg DUET_ID logs [RUN_ID] inspect the terminal audit log\n"
     "  /bg DUET_ID cancel|close cancel owned work or close its context\n"
@@ -41,6 +41,7 @@ _HELP_TEXT = (
     "  /bg DUET_ID launch ... configure that background Duet independently\n"
     "  /run              explicitly run the admitted materialization\n"
     "  /run status       inspect the current Run state\n"
+    "  /run continue     continue the saved Target Workflow Run\n"
     "  /run evidence [ID] inspect validated terminal Run evidence\n"
     "  /logs [RUN_ID]    inspect a validated terminal Run audit log\n"
     "  /stop             cancel every OpenChia-owned turn, build, and Run\n"
@@ -163,6 +164,7 @@ class OpenChiaCommandMixin:
     }
     _run_command_dispatch = {
         "": "_run_start",
+        "continue": "_run_continue",
         "status": "_run_show_status",
         "evidence": "_run_show_evidence",
     }
@@ -257,7 +259,7 @@ class OpenChiaCommandMixin:
 
     def _run_start(self, parts: tuple[str, ...]) -> None:
         if parts:
-            self._print_openchia("Usage: /run [status|evidence [RUN_ID]]")
+            self._print_openchia("Usage: /run [status|continue|evidence [RUN_ID]]")
             return
         try:
             run = self._episode_host().start_run()
@@ -269,9 +271,23 @@ class OpenChiaCommandMixin:
             self._print_openchia(f"Run did not start: {exc}")
         self._refresh_openchia()
 
+    def _run_continue(self, parts: tuple[str, ...]) -> None:
+        if len(parts) != 1:
+            self._print_openchia("Usage: /run continue")
+            return
+        try:
+            run = self._episode_host().continue_run()
+            self._print_openchia(
+                f"Continuation requested for saved Run {run['run_id']}. "
+                "Use /run status to inspect recovery and execution."
+            )
+        except Exception as exc:
+            self._print_openchia(f"Run continuation did not start: {exc}")
+        self._refresh_openchia()
+
     def _run_show_status(self, parts: tuple[str, ...]) -> None:
         if len(parts) != 1:
-            self._print_openchia("Usage: /run [status|evidence [RUN_ID]]")
+            self._print_openchia("Usage: /run [status|continue|evidence [RUN_ID]]")
             return
         try:
             status = self._episode_host().run_status()
@@ -283,7 +299,7 @@ class OpenChiaCommandMixin:
 
     def _run_show_evidence(self, parts: tuple[str, ...]) -> None:
         if len(parts) > 2:
-            self._print_openchia("Usage: /run [status|evidence [RUN_ID]]")
+            self._print_openchia("Usage: /run [status|continue|evidence [RUN_ID]]")
             return
         run_id = parts[1] if len(parts) == 2 else None
         try:
@@ -304,7 +320,7 @@ class OpenChiaCommandMixin:
         action = parts[0].lower() if parts else ""
         handler_name = self._run_command_dispatch.get(action)
         if handler_name is None:
-            self._print_openchia("Usage: /run [status|evidence [RUN_ID]]")
+            self._print_openchia("Usage: /run [status|continue|evidence [RUN_ID]]")
             return True
         getattr(self, handler_name)(parts)
         return True
