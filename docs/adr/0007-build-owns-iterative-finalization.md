@@ -1,4 +1,4 @@
-# ADR 0007: OpenChia owns build → refine → validate after one start
+# ADR 0007: OpenChia owns the full build → refine → validate cycle after one start
 
 Status: Accepted
 
@@ -15,15 +15,17 @@ independent acceptance through this entry point are not yet demonstrated.
 The scheduling acceptance attempt stopped after initial materialization failed.
 The operator then considered manually repairing the output and launching another
 build. That is not OpenChia's intended workflow and does not exercise its refiner.
-An explicit experimental refiner entry point exists, but the normal build entry
-point does not hand its results to it.
+At that point, an explicit experimental refiner entry point existed, but the
+normal build entry point did not hand its results to it.
 
 ## Decision
 
 **OpenChia must own the full build → refine → validate cycle after one start.**
 
 After the initial approval and launch setup, the user starts `/build` once.
-OpenChia then performs these transitions itself:
+That starts one job covering the initial build, all routine refinement and
+validation, and the final acceptance decision. OpenChia performs these
+transitions itself:
 
 1. Run the initial Builder attempt.
 2. Pass its result directly to the IterativeEpisodeRefiner, including partial
@@ -35,6 +37,11 @@ OpenChia then performs these transitions itself:
    user command, routine approval or coding-assistant intervention.
 6. Return the independently accepted build, or an explicit unresolved,
    interrupted or cancelled result. Never call an unfinished build complete.
+
+A failed Builder attempt or failed validation supplies evidence for the next
+refinement decision. Failure alone must not end the job or require the user or
+coding assistant to launch the refiner, issue another build command, repair the
+code, or start validation. OpenChia owns those actions within the approved job.
 
 A candidate needing no repair proceeds directly to validation; it must not be
 changed merely to demonstrate iteration.

@@ -27,13 +27,23 @@ testing-launch fixture currently fails because it has no owning Duet binding;
 the fixture must follow the complete lifecycle, not bypass refinement. See the
 receipt log for that separate **1 failed** result.
 
-**Still unfinished:** the default normal-build campaign imports Builder static
-checks, but does not yet supply the parent with the behavioral measure-admission
-inputs needed to discharge original contract coverage. Connect that through the
-existing parent/Measure/harness design, not a benchmark-specific bypass or a
-static-pass substitute. Then verify automatic repair and final acceptance on the
-approved scheduling task through one normal start. Final compatibility also
-remains open. Do not ask for routine iteration approval again.
+The normal-build policy now supplies a frozen grant for registered requirement
+grounding functions. `measure_preparation` uses only the original approved task
+to make cases available to the existing Measure child. The first source covers
+the exact scheduling goal and derives controls with the independent exhaustive
+solver. No check is installed or credited merely by making it available. Other
+contract fields and unfamiliar tasks remain explicit gaps; this is not a general
+prose-to-oracle implementation. A changed problem does not inherit these cases.
+The Measure-to-parent return also fixes a missing argument that previously
+raised instead of recording the parent's useful new measurement decision.
+
+**Still unfinished:** incorporate newly admitted measures into the parent's
+whole-build acceptance contract without weakening or silently changing it;
+establish measures for the remaining original requirements; then verify automatic
+repair and final acceptance through one normal start. Static admission is not a
+substitute. Final compatibility remains open. Do not ask for routine iteration
+approval again. Focused validation of the new preparation/return is recorded in
+the receipt log; it is not a live repair receipt.
 
 ## Earlier checkpoint: systemd 255 and native nested continuation, 2026-10-03
 

@@ -52,8 +52,8 @@ def call():
     )
 
 
-async def build(tmp_path, calls):
-    request = _approved_request(tmp_path, repeatable_calls=calls)
+async def build(tmp_path, calls, *, workflow=None):
+    request = _approved_request(tmp_path, repeatable_calls=calls, workflow=workflow)
     store = BuildStore(tmp_path)
 
     async def model(request):

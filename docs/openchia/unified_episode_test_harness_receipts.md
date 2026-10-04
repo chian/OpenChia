@@ -13,6 +13,41 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Registered task grounding and Measure-to-parent return, 2026-10-03
+
+The canonical runner passed **7 tests across four files in 77.2 seconds**, retries
+disabled: `tests/episode_runtime/testing/test_registered_measure_preparation.py`,
+`test_measure_control_experiments.py`, `test_scheduling_measure.py` in that same
+directory, and `tests/agent/test_build_refinement_job.py`. Ruff and
+`git diff --check` also pass. No live model call was made for this receipt.
+
+The new integration test approves/builds the scheduling fixture, prepares the
+campaign through the normal preparation code, and gets its measurement cases
+from the registered source and original requirements. It does not supply the
+expected optimum or controls. The independent exhaustive solver supplies those;
+Measure uses the existing proposal/admission route and common control judgments.
+A forged expected-answer case is rejected with no checks or facts admitted.
+The valid case distinguishes positive, infeasible, suboptimal and empty-answer
+controls. Its typed return gives the parent a useful new measurement decision,
+not whole-build acceptance. A second case changes the approved worker count:
+the familiar benchmark ID alone does not make the source applicable.
+
+The parent-return regression was reproduced by restoring the old `_fact_keys`
+call: **1 failed, 1 deselected in 13.4 seconds**, with a missing `proposal`
+argument while closing the parent unit. Restoring the fix gives the passing
+combined result above. The initial focused run passed **2 tests in 24.5 seconds**.
+
+The existing independent-checker controls and supplied-answer scheduling tests
+remain green. Normal-build failed-attempt handoff/cancellation still passes
+through the real systemd worker, and materialized-build handoff passes in-process.
+Those use supplied model responses. The new measurement test exercises host
+admission, parent return and credit, not autonomous reasoning or target execution.
+
+**Still unverified/incomplete:** whole-build adoption of newly admitted measures,
+measurement coverage beyond the supported scheduling goal, and live autonomous
+repair through one start. The older launch-fixture compatibility failure below
+has not been retested or fixed by this change. The goal is not complete.
+
 ### Normal build → refiner handoff and cancellation, 2026-10-03
 
 The canonical runner passed **12 tests across four files in 67.7 seconds**, with

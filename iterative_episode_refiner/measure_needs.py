@@ -16,7 +16,9 @@ def admission_policy(policy):
     if grant is None:
         return None
     fields = {"adequacy_measure_ref", "grounding_refs"}
-    fields.update(set(grant) & {"instrument_build_refs", "acquisition_refs"})
+    fields.update(
+        set(grant) & {"instrument_build_refs", "acquisition_refs", "source_function_refs"}
+    )
     exact(grant, fields, "measure admission authority")
     Ref.from_record(grant["adequacy_measure_ref"])
     for key in fields - {"adequacy_measure_ref"}:

@@ -8,7 +8,11 @@ that job lifecycle; `agent/build_refinement.py` connects the existing refiner to
 the shared experiment service. Failed-build handoff/cancellation pass in a native
 systemd worker with supplied model responses; materialized-build handoff passes
 in-process. Autonomous repair and full behavioral acceptance from this
-entry point remain unverified. The dated checkpoint sections below are historical.
+entry point remain unverified. Normal-build measurement preparation now makes
+registered task-derived cases available to Measure; its first source is the exact
+scheduling goal, not arbitrary prose. Measure admission and return to the parent
+are checked, but whole-build use of new measures and remaining requirement
+coverage are unfinished. The dated checkpoint sections below are historical.
 
 2026-10-02 checkpoint: the user closed the bounded Goals 2–4 coding assignment as
 complete, not stalled or blocked. Execution validation, unified testing/replay,

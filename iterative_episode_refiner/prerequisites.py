@@ -42,7 +42,7 @@ def _measure_results(view, assignment, report):
         )
         # Criterion/instrument combinations, not the child's scalar or grouping
         # choices, identify the useful new decision available to this parent.
-        facts = _fact_keys(view, checks, admission.body["evaluation_binding"])
+        facts = _fact_keys(view, checks, admission.body["evaluation_binding"], proposal)
         yield {
             "decision": {
                 "kind": "measure_available",

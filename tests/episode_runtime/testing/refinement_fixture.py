@@ -371,6 +371,8 @@ async def prepared_refiner(
     independent_checker=False,
     independent_measure=False,
     campaign_source_kind=None,
+    target_workflow=None,
+    registered_grounding=False,
 ):
     from agent.duet_contracts import DuetIdentity, content_id, digest_record
     from agent.duet_service import DuetService
@@ -388,6 +390,7 @@ async def prepared_refiner(
         start_refinement,
     )
     from iterative_episode_refiner.runtime import RefinementSession
+    from iterative_episode_refiner.measure_preparation import build_measure_policy
     from iterative_episode_refiner.records import RefinementRecord
     from iterative_episode_refiner.service import IterativeEpisodeRefiner
     from iterative_episode_refiner.workspace import RefinementWorkspace
@@ -397,7 +400,7 @@ async def prepared_refiner(
     )
     from tests.episode_runtime.testing.test_scoped_execution import LinkedExecutor
 
-    target, builds, receipt = await build(tmp_path, ())
+    target, builds, receipt = await build(tmp_path, (), workflow=target_workflow)
     refiner, refiner_receipt = await build_refiner(tmp_path, builds)
     checker = (
         await build_checker(tmp_path, builds)
@@ -719,6 +722,7 @@ async def prepared_refiner(
             "policy",
             {
                 **measure_policy,
+                **({"measure_admission": build_measure_policy(data)} if registered_grounding else {}),
                 **({
                     "investigation_need_refs": [data("source_need", {
                         "need_key": "inspect-independent-source",
@@ -759,7 +763,7 @@ async def prepared_refiner(
                             "bind_measure_control",
                             "observe_measure_control",
                         ]
-                        if independent_measure
+                        if independent_measure or registered_grounding
                         else []
                     ),
                 ],

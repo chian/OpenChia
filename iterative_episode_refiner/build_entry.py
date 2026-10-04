@@ -13,6 +13,7 @@ from function_library.refinement_checks import EXACT_VALUE
 from function_library.refinement_control import BOUNDED_RAREFACTION, SEMANTIC_YIELD
 
 from .preparation import prepare_refinement, start_refinement
+from .measure_preparation import build_measure_policy
 
 
 def selection(function):
@@ -66,6 +67,7 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
         "campaign_policy",
         {
             "check_refs": [],
+            "measure_admission": build_measure_policy(data),
             "numeric_control": refiner.build_request.frozen_workflow.workflow.episodes[
                 0
             ].contract.numeric_control.as_record(),

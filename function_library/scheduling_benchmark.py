@@ -145,3 +145,82 @@ def check_optimal_schedule(*, observed, expected):
         return "fail"
     actual = max(starts[job] + value["duration"] for job, value in JOBS.items())
     return "pass" if actual == claimed and not violations(starts) else "fail"
+
+
+def ground_requirement(*, workflow, requirement):
+    """Ground only the exact approved problem, without examining a candidate.
+
+    This source covers the schedule answer, not the remaining Episode contract.
+    Different tasks need their own grounded instrument; substring matching or a
+    model's assertion that two problems are equivalent would be insufficient.
+    """
+    from .epistemic_schemas import canonical
+    from .refinement_checks import OPTIMAL_SCHEDULE
+
+    if (
+        requirement.get("evidence_scope") != "contract_coverage"
+        or requirement.get("field") != "goal"
+        or requirement.get("approved_value") != PROBLEM
+        or len(workflow["episodes"]) != 1
+    ):
+        return None
+    node = workflow["episodes"][0]
+    if (
+        node["local_id"] != requirement["local_id"]
+        or node["workflow_parent_local_id"] is not None
+        or node["contract"]["goal"] != PROBLEM
+    ):
+        return None
+    epistemic = node["contract"].get("epistemic")
+    environment = {
+        "benchmark_id": BENCHMARK_ID,
+        "lasers": 1,
+        "preemptive": False,
+        "time_domain": "nonnegative_integer",
+        "workers": 2,
+    }
+    problem = {**environment, "jobs": JOBS}
+    if (
+        not epistemic
+        or canonical(epistemic["environment"]) != canonical(environment)
+        or not any(
+            item["kind"] == "problem_specification"
+            and canonical(item["observation"]) == canonical(problem)
+            for item in epistemic["evidence"]
+        )
+    ):
+        return None
+    optimum, witness = optimal_schedule()
+
+    def answer(starts, completion):
+        return {
+            "schedule": json.dumps(starts, sort_keys=True),
+            "makespan": str(completion),
+            "optimality_argument": "Control fixture; explanation is not a proof certificate.",
+        }
+
+    predicate = OPTIMAL_SCHEDULE.bind("entry").as_record()
+    predicate.pop("name")
+    return {
+        "predicate": predicate,
+        "expected": {"benchmark_id": BENCHMARK_ID},
+        "observation_path": "/payload/typed_status/workflow_result/admitted_problem_frontier/0/fields",
+        "positive_controls": [answer(witness, optimum)],
+        "negative_controls": [
+            answer({job: 0 for job in JOBS}, optimum),
+            answer({job: start + 1 for job, start in witness.items()}, optimum + 1),
+            {},
+        ],
+        "input_domain": problem,
+        "observation_schema": {
+            "schedule": "string",
+            "makespan": "string",
+            "optimality_argument": "string",
+        },
+        "independence": "Exhaustive solver receives only the approved problem, never the candidate answer.",
+        "limitations": [
+            "Covers feasibility and optimality for this exact integer-start problem only.",
+            "Explanation text is retained, not certified as a mathematical proof.",
+            "Does not establish the Episode's credit, continuation, capabilities or other contract fields.",
+        ],
+    }

@@ -190,6 +190,18 @@ def prepare_refinement(
         specification, request.frozen_workflow.workflow, handoff, handoff_ref
     )
     catalog_ref = data("requirement_catalog", catalog)
+    from .measure_preparation import prepare_grounding
+
+    policy = prepare_grounding(
+        data=data,
+        read_data=lambda ref: store.evidence.reference(ref, duet_id),
+        policy=policy,
+        catalog=catalog,
+        catalog_ref=catalog_ref,
+        workflow=request.frozen_workflow.workflow.as_record(),
+        workflow_ref=workflow_ref,
+        environment_ref=environment_ref,
+    )
     requirement_keys = [row["requirement_key"] for row in catalog["requirements"]]
     checks = tuple(
         RefinementRecord.from_record(

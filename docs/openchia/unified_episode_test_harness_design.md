@@ -13,6 +13,24 @@ the host's verified-build result permits success. This integration is work
 toward Task 4, not a replacement for its live repair/acceptance requirement.
 Historical checkpoint statements below describe the code and evidence then.
 
+Normal-build measurement preparation now has a frozen source grant as well as
+the Builder's static checks. `function_library/refinement_grounding.py` uses the
+existing `FunctionLibrary` to register exact requirement-grounding functions;
+`iterative_episode_refiner/measure_preparation.py` projects their evidence into
+the existing grounded-case schema before the campaign is frozen. Sources receive
+the original approved workflow and requirement, never candidate answers. The
+Measure child selects cases in its existing `measure_grounding` context and
+uses the existing proposal/admission/control path. Availability alone installs
+no check and earns no credit. There is no additional runner or replay interface.
+
+The initial source covers only the exact seven-job scheduling goal, using the
+independent solver in `function_library/scheduling_benchmark.py`. A changed goal,
+environment or unsupported routing yields no match. Other requirements stay
+unresolved. This does not replace independent checker construction for unfamiliar
+tasks, make static checks behavioral, or prove the full normal-build cycle.
+Parent acceptance of newly admitted measures and remaining requirement coverage
+are still unfinished parts of that cycle.
+
 **Terminology and execution decision (2026-10-03):** the workflow being built,
 refined and tested is the **Target Workflow**; `candidate_ref` identifies an
 exact candidate revision. The refiner is separate.
