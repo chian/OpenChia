@@ -487,7 +487,7 @@ EPISODE_CREATION_BLUEPRINT_SCHEMA = {
         "testing": testing_contract_schema(),
         "epistemic": {
             "type": "object",
-            "description": "Optional exact reasoning policy: required for reasoning.generic and reasoning.inquiry. Evidence is human-approved source data. Components are exact registered epistemic selections.",
+            "description": "Optional exact reasoning policy: required for Episodes selecting epistemic functions. Evidence is human-approved source data. Components are exact registered epistemic selections.",
             "properties": {
                 "goal_class": {"type": "string"}, "domain": {"type": "string"},
                 "allowed_actions": {"type": "array", "items": {"type": "string"}},

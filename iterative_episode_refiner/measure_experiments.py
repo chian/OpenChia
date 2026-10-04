@@ -3,8 +3,8 @@
 from agent.duet_contracts import canonical_json, content_id
 from agent.episode_contracts import OpaqueId
 from episode_runtime.records.experiments import put_data
-from episode_runtime.testing.contracts import ExperimentSpec
-from episode_runtime.testing.control_subjects import control_subject
+from episode_runtime.testing_harness.contracts import ExperimentSpec
+from episode_runtime.testing_harness.control_subjects import control_subject
 from function_library.epistemic_contract import exact
 from function_library.models import _thaw_json
 

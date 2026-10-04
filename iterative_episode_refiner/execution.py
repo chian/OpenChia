@@ -9,7 +9,7 @@ receipt or unresolved gaps. It does not initiate successor approval or productio
 
 import asyncio
 
-from episode_runtime.testing.execution import RunExecution
+from episode_runtime.testing_harness.execution import RunExecution
 
 from .runtime import RefinementSession
 from .outcome import RefinementRunResult

@@ -159,7 +159,7 @@ def restore_session(session):
     state. This does not authorize the worker or turn prefix matching into a
     permission to resume. The executor must still admit its activation boundary.
     """
-    from episode_runtime.testing.reconstruction import ReconstructionCursor
+    from episode_runtime.testing_harness.reconstruction import ReconstructionCursor
 
     registration = session.registration
     if registration.resume_from is None:
@@ -199,7 +199,7 @@ def validate_unstarted_session(session):
 def restore_terminal_session(session):
     """Reattach host projection to its own terminal Run, without executing it."""
     from episode_runtime.contracts import RunEventKind
-    from episode_runtime.testing.recordings import event_reference
+    from episode_runtime.testing_harness.recordings import event_reference
     from episode_runtime.records.host_operations import read_receipt
 
     runs = session.store.evidence.runs

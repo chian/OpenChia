@@ -11,10 +11,10 @@ from agent.duet_contracts import canonical_json
 from agent.episode_contracts import OpaqueId
 from agent.duet_store import DuetNotFoundError
 from episode_runtime.records.experiments import read_reference
-from episode_runtime.testing.contracts import ExperimentSpec
-from episode_runtime.testing.planning import preview_experiment
-from episode_runtime.testing.schema import MODES, SCOPES
-from episode_runtime.testing.service import ExperimentService
+from episode_runtime.testing_harness.contracts import ExperimentSpec
+from episode_runtime.testing_harness.planning import preview_experiment
+from episode_runtime.testing_harness.schema import MODES, SCOPES
+from episode_runtime.testing_harness.service import ExperimentService
 from function_library.epistemic_contract import exact
 from function_library.models import _thaw_json
 
@@ -100,7 +100,7 @@ def _assigned(evaluations, session, call, reference):
 
 
 def _authorize_reuse(session, spec, target):
-    from episode_runtime.testing.campaign_subjects import validate_campaign_reuse
+    from episode_runtime.testing_harness.campaign_subjects import validate_campaign_reuse
 
     validate_campaign_reuse(
         spec, artifacts=session.store.evidence.duets, owner=session.duet_id,
@@ -383,7 +383,7 @@ def feedback(session, reference):
         }
     if row["kind"] != "refinement.experiment_result.v1":
         return value
-    from episode_runtime.testing.measurements import saved_measurements
+    from episode_runtime.testing_harness.measurements import saved_measurements
 
     measurement = saved_measurements(
         session.store.evidence.duets, value["experiment_id"]

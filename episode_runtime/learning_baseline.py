@@ -34,8 +34,8 @@ class LearningBaseline:
 
 
 def _source_history(runs, source, unit_ref, selected_event_ref):
-    from .testing.recordings import event_reference, read_recording
-    from .testing.units import verified_unit_prefix
+    from .testing_harness.recordings import event_reference, read_recording
+    from .testing_harness.units import verified_unit_prefix
     from .learning_integrity import validate_learning_commit
     from .store import RunStoreNotFound
 

@@ -7,9 +7,9 @@ from episode_builder.reference import EpisodeReferenceResolver
 from episode_builder.service import EpisodeBuilder
 from episode_runtime.contracts import RuntimePolicy
 from episode_runtime.records.experiments import put_data, put_record, read_record
-from episode_runtime.testing.execution import register_build
-from episode_runtime.testing.inputs import workflow_template
-from episode_runtime.testing.service import ExperimentService
+from episode_runtime.testing_harness.execution import register_build
+from episode_runtime.testing_harness.inputs import workflow_template
+from episode_runtime.testing_harness.service import ExperimentService
 from iterative_episode_refiner.build_entry import build_experiment, prepare_build
 from iterative_episode_refiner.campaign_store import CampaignStore
 from iterative_episode_refiner.evaluation import RefinementEvaluations

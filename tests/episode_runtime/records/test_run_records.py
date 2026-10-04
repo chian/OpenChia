@@ -179,7 +179,7 @@ def test_inventory_pins_prefix_and_selector_without_reading_audit(run_store, mon
     assert [row["unit_ref"] for row in units["items"]] == [first_unit.as_record()]
     assert units["items"][0]["event_ref"] == first_unit_ref
     assert units["items"][0]["has_controller_step"]
-    from episode_runtime.testing.recordings import event_reference
+    from episode_runtime.testing_harness.recordings import event_reference
 
     first_prefix = units["items"][0]["reconstruction_prefix"]
     assert first_prefix["status"] == "located"

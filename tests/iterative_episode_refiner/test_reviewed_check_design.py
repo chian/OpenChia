@@ -18,8 +18,8 @@ from iterative_episode_refiner.records import Ref
 from iterative_episode_refiner.runtime import Invocation
 from iterative_episode_refiner.runtime_proposals import _finding, _measure, assign_child
 from tests.episode_runtime.conftest import run_store as run_store
-from tests.episode_runtime.testing.refinement_fixture import prepared_refiner
-from tests.episode_runtime.testing.test_registered_measure_preparation import (
+from tests.episode_runtime.testing_harness.refinement_fixture import prepared_refiner
+from tests.episode_runtime.testing_harness.test_registered_measure_preparation import (
     scheduling_blueprint,
 )
 

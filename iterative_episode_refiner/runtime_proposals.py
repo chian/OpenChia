@@ -99,7 +99,7 @@ _FINDING_SHAPE = {"observations": [{
 
 
 def proposal_schemas(role):
-    from episode_runtime.testing.schema import experiment_schema
+    from episode_runtime.testing_harness.schema import experiment_schema
 
     schemas = {
         "choose_part": {

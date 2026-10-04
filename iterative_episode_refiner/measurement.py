@@ -3,8 +3,8 @@
 from agent.duet_contracts import canonical_json, content_id, digest_record
 from agent.duet_store import DuetConflictError
 from function_library.epistemic_contract import exact, names
-from episode_runtime.testing.judgments import judge_value
-from episode_runtime.testing.observations import (
+from episode_runtime.testing_harness.judgments import judge_value
+from episode_runtime.testing_harness.observations import (
     is_verified_run_path,
     observation_receipt,
     validate_observation_path,

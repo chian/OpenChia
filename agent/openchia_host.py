@@ -282,7 +282,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
     def refinement_experiment_service(self, *, refiner_build_receipt_id, evaluations):
         """Bind an explicit experiment to the owning Duet's refiner model route."""
         from agent.duet_episode_transport import DuetEpisodeBinding, required_slots
-        from episode_runtime.testing.service import ExperimentService
+        from episode_runtime.testing_harness.service import ExperimentService
 
         if evaluations.builder.store is not self.build_store or evaluations.executor.run_store is not self.run_store:
             raise OpenChiaHostError("Refiner evaluations must use this host's existing Builder and Run stores")

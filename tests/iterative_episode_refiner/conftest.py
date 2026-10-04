@@ -12,7 +12,7 @@ from iterative_episode_refiner.campaign_store import CampaignView
 from iterative_episode_refiner.records import RefinementRecord
 from iterative_episode_refiner.state_machine import judgment_lineage
 from tests.episode_runtime.conftest import claim_store
-from tests.episode_runtime.testing.refinement_fixture import prepared_refiner
+from tests.episode_runtime.testing_harness.refinement_fixture import prepared_refiner
 
 
 class CampaignFixture:

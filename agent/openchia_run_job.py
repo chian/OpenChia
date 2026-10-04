@@ -76,8 +76,8 @@ def start_run(host, *, continuing=False) -> dict[str, Any]:
                 transport=HttpxHostTransport(),
                 max_frame_bytes=registration.runtime_policy.max_frame_bytes,
             )
-            from episode_runtime.testing.execution import RunExecution
-            from episode_runtime.testing.launches import record_launch_intent
+            from episode_runtime.testing_harness.execution import RunExecution
+            from episode_runtime.testing_harness.launches import record_launch_intent
 
             execution = RunExecution(
                 artifacts=host.store, builds=host.build_store,

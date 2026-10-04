@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 from agent.duet_contracts import canonical_json
-from episode_runtime.testing.contracts import ExperimentSpec
-from episode_runtime.testing.schema import vocabulary
+from episode_runtime.testing_harness.contracts import ExperimentSpec
+from episode_runtime.testing_harness.schema import vocabulary
 from .episode_launch_setup import setup_launch
 
 
@@ -36,7 +36,7 @@ def _validate(args):
 def _preview(args):
     from agent.duet_store import DuetStore
     from episode_builder.store import BuildStore
-    from episode_runtime.testing.planning import preview_experiment
+    from episode_runtime.testing_harness.planning import preview_experiment
     from episode_runtime.store import RunStore
 
     duet_path = Path(args.duet_store).expanduser()
@@ -58,7 +58,7 @@ def _preview(args):
 
 def _recording(args):
     from episode_runtime.store import RunStore
-    from episode_runtime.testing.recordings import read_recording, recording_summary
+    from episode_runtime.testing_harness.recordings import read_recording, recording_summary
 
     root = Path(args.run_store).expanduser()
     if not root.is_dir():
@@ -67,7 +67,7 @@ def _recording(args):
     result = value if args.include_content else recording_summary(value)
     if args.save:
         from agent.duet_store import DuetStore
-        from episode_runtime.testing.recordings import save_recording
+        from episode_runtime.testing_harness.recordings import save_recording
 
         if args.duet_store is None or not Path(args.duet_store).expanduser().is_file():
             raise ValueError(
@@ -109,8 +109,8 @@ def _register_launch(args):
 def _boundary(args):
     from agent.duet_store import DuetStore
     from episode_runtime.store import RunStore
-    from episode_runtime.testing.boundaries import capture_boundary
-    from episode_runtime.testing.units import capture_unit_boundary
+    from episode_runtime.testing_harness.boundaries import capture_boundary
+    from episode_runtime.testing_harness.units import capture_unit_boundary
 
     if not Path(args.duet_store).is_file() or not Path(args.run_store).is_dir():
         raise ValueError("boundary capture requires existing source stores")
@@ -125,7 +125,7 @@ def _boundary(args):
 def _register_measure(args):
     from agent.duet_store import DuetStore
     from episode_builder.store import BuildStore
-    from episode_runtime.testing.criteria import register_criterion
+    from episode_runtime.testing_harness.criteria import register_criterion
 
     with DuetStore(args.duet_store) as artifacts:
         return register_criterion(
@@ -150,7 +150,7 @@ def _run(args):
     from episode_builder.store import BuildStore
     from episode_runtime.executor_selection import make_run_executor_factory
     from episode_runtime.store import RunStore
-    from episode_runtime.testing.service import ExperimentService
+    from episode_runtime.testing_harness.service import ExperimentService
 
     plan = _preview(args)
     if not plan["resolved"]:
@@ -187,8 +187,8 @@ def _run(args):
 def _status(args):
     from agent.duet_store import DuetStore
     from episode_runtime.store import RunStore
-    from episode_runtime.testing.service import ExperimentService
-    from episode_runtime.testing.execution import RunExecution
+    from episode_runtime.testing_harness.service import ExperimentService
+    from episode_runtime.testing_harness.execution import RunExecution
 
     with DuetStore(args.duet_store) as artifacts:
         if args.run_id:
@@ -205,7 +205,7 @@ def _continue(args):
     from episode_runtime.executor_selection import make_run_executor_factory
     from episode_runtime.store import RunStore
     from episode_runtime.records.experiments import read_record
-    from episode_runtime.testing.service import ExperimentService
+    from episode_runtime.testing_harness.service import ExperimentService
 
     reference = InterruptedRunRef.from_record(
         json.loads(Path(args.resume_from).read_text(encoding="utf-8-sig"))
@@ -237,7 +237,7 @@ def _continue(args):
 def _history(args):
     from agent.duet_store import DuetStore
     from episode_runtime.store import RunStore
-    from episode_runtime.testing.service import ExperimentService
+    from episode_runtime.testing_harness.service import ExperimentService
 
     query = {key: getattr(args, key) for key in (
         "kind", "limit", "after", "experiment_id", "run_id",
@@ -269,7 +269,7 @@ def _inventory(args):
     from agent.duet_store import DuetStore
     from agent.episode_contracts import OpaqueId
     from episode_runtime.store import RunStore
-    from episode_runtime.testing.service import ExperimentService
+    from episode_runtime.testing_harness.service import ExperimentService
 
     runs = RunStore(args.run_store)
     query = {key: getattr(args, key) for key in ("kind", "episode_id", "after", "limit") if getattr(args, key) is not None}
@@ -300,7 +300,7 @@ def _inventory(args):
 
 def _compare(args):
     from agent.duet_store import DuetStore
-    from episode_runtime.testing.comparison import compare_experiments
+    from episode_runtime.testing_harness.comparison import compare_experiments
 
     with DuetStore(args.duet_store) as artifacts:
         return compare_experiments(artifacts, args.before, args.after)

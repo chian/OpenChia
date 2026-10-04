@@ -25,17 +25,18 @@ from agent.episode_contracts import (
     OpaqueId,
 )
 from agent.openchia_host import OpenChiaHost
-from episode_library.inquiry import DESIGN as INQUIRY, inquiry_contract
+from episode_library.reasoning import DESIGN as INQUIRY
+from function_library.epistemic_contract import inquiry_contract
 from episode_library.models import EpisodeReference
 from episode_library.testing import (
     DESIGN as TESTING,
     testing_learning_contract as learning_contract,
 )
 from episode_runtime.contracts import RunEventKind
-from episode_runtime.testing.contracts import ExperimentSpec
-from episode_runtime.testing.criteria import register_criterion
-from episode_runtime.testing.execution import RunExecution
-from episode_runtime.testing.launches import validate_launch_intent
+from episode_runtime.testing_harness.contracts import ExperimentSpec
+from episode_runtime.testing_harness.criteria import register_criterion
+from episode_runtime.testing_harness.execution import RunExecution
+from episode_runtime.testing_harness.launches import validate_launch_intent
 from episode_runtime.records.experiments import record_id
 from episode_runtime.records.experiments import put_data
 from function_library.refinement_checks import EXACT_VALUE
@@ -45,8 +46,8 @@ from tests.episode_runtime.test_reasoning_workflow import (
     _module_response,
     _plan_response,
 )
-from tests.episode_runtime.testing.test_experiment_planning import experiment
-from tests.episode_runtime.testing.test_scoped_execution import LinkedExecutor
+from tests.episode_runtime.testing_harness.test_experiment_planning import experiment
+from tests.episode_runtime.testing_harness.test_scoped_execution import LinkedExecutor
 
 
 class HostExecutor(LinkedExecutor):

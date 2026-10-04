@@ -33,14 +33,14 @@ from episode_runtime.identity import (
 )
 from episode_runtime.records.experiments import put_data
 from episode_runtime.store import RunStoreNotFound
-from episode_runtime.testing.service import ExperimentService
+from episode_runtime.testing_harness.service import ExperimentService
 from iterative_episode_refiner.records import Ref
 from llm_call_library import ModelTransportResponse
 from tests.episode_runtime.test_reasoning_workflow import _approved_request
-from tests.episode_runtime.testing.launch_fixture import FixtureLaunchHost
-from tests.episode_runtime.testing.refinement_fixture import prepared_refiner
-from tests.episode_runtime.testing.test_measurements import ResultOnlyExecutor
-from tests.episode_runtime.testing.test_refinement_job_experiments import job_spec
+from tests.episode_runtime.testing_harness.launch_fixture import FixtureLaunchHost
+from tests.episode_runtime.testing_harness.refinement_fixture import prepared_refiner
+from tests.episode_runtime.testing_harness.test_measurements import ResultOnlyExecutor
+from tests.episode_runtime.testing_harness.test_refinement_job_experiments import job_spec
 
 
 def experiment_proposal(target):

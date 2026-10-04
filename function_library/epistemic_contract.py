@@ -130,3 +130,31 @@ class EpistemicContract:
     def from_record(cls, value: object) -> "EpistemicContract":
         record = exact(value, set(cls.__dataclass_fields__), "epistemic contract")
         return cls(**record)
+
+
+def inquiry_contract(
+    *, goal_class, domain, environment, evidence=(), scope_tier="episode"
+):
+    """Construct a problem-discovery policy without registering an Episode."""
+    from .epistemic import default_components
+
+    return EpistemicContract(
+        goal_class=goal_class,
+        domain=domain,
+        allowed_actions=INQUIRY_ACTIONS,
+        environment=environment,
+        assumptions=(),
+        required_fields=(
+            "statement",
+            "defined_terms",
+            "scope",
+            "boundary_conditions",
+            "claimed_unknown",
+            "why_it_matters",
+            "prior_art_separation",
+        ),
+        required_evidence=("support", "counterevidence", "prior_art"),
+        components=default_components(),
+        scope_tier=scope_tier,
+        evidence=evidence,
+    )

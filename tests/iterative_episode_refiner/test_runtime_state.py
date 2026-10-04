@@ -28,8 +28,8 @@ from iterative_episode_refiner.runtime_proposals import _inherited_draft, assign
 from method_loop import EpisodeRequest
 from llm_call_library import ModelTransportResponse
 from tests.episode_runtime.conftest import claim_store
-from tests.episode_runtime.testing.refinement_fixture import prepared_refiner
-from tests.episode_runtime.testing.test_host_exchange_recordings import PacketWriter
+from tests.episode_runtime.testing_harness.refinement_fixture import prepared_refiner
+from tests.episode_runtime.testing_harness.test_host_exchange_recordings import PacketWriter
 from tests.episode_runtime.test_model_request_thaw import REQUEST
 
 

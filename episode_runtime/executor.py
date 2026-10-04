@@ -730,7 +730,7 @@ class _RunExecutorBase:
         )
         reconstruction = None
         if registration.resume_from is not None:
-            from .testing.reconstruction_host import prepare_reconstruction
+            from .testing_harness.reconstruction_host import prepare_reconstruction
             from .executor_lifecycle import verify_stopped_executor
 
             reconstruction = await asyncio.to_thread(

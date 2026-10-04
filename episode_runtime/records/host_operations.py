@@ -11,7 +11,7 @@ from .experiments import put_record, read_record
 
 
 def commit_receipt(artifacts, registration, event, response, session_state):
-    from episode_runtime.testing.recordings import event_reference
+    from episode_runtime.testing_harness.recordings import event_reference
 
     record = {
         "request_event_ref": event_reference(event),
@@ -29,7 +29,7 @@ def commit_receipt(artifacts, registration, event, response, session_state):
 
 
 def read_receipt(artifacts, registration, event):
-    from episode_runtime.testing.recordings import event_reference
+    from episode_runtime.testing_harness.recordings import event_reference
 
     row = read_record(
         artifacts, "host_operation", run_id=registration.run_id.value,

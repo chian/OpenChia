@@ -1222,7 +1222,7 @@ next work includes:
    An unavailable capability is an explicit unverified requirement, not permission
    to replace this evidence with an in-process substitute.
 
-Goal 5 guidance content is preserved separately in
-`episode_library/refinement_guidance/`; its runtime consumption is not yet proven.
+The unvalidated Goal 5 guidance catalog was removed on 2026-10-04. It is not
+available as library input; future examples require end-to-end execution evidence.
 Goals 6–7 remain outside this assignment. The legacy refiner service remains
 unchanged; its presence is not evidence that the executing refiner is complete.

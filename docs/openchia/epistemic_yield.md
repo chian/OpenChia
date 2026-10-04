@@ -35,8 +35,7 @@ executor can resume an arbitrary terminated process.
 
 ### Decision
 
-Add a generic reasoning reference and an inquiry reference using shared,
-registered primitives. Freeze schema, projector, admission, yield, scope,
+Use shared registered reasoning primitives. Freeze schema, projector, admission, yield, scope,
 action set, evidence criteria and environmental assumptions in the approved
 contract. Local and explicitly authorized workflow learning share the Run
 ledger; domain/global promotion is rejected pending its own approval workflow.
@@ -56,11 +55,14 @@ and model-authored scalar ratings never enter numerical control directly.
 
 ## Delivered library and runtime surface
 
-The catalog entries are `reasoning.generic` and `reasoning.inquiry`. Neither is
-a new Episode runtime class. `episode_library.inquiry.inquiry_contract` builds
-the frozen problem-discovery configuration; use `EpistemicContract` directly
-for other reasoning goals. Attach it as `EpisodeCreationSpec.epistemic` and
-select the corresponding library reference in the Duet architecture.
+The catalog still includes `reasoning.generic` and `reasoning.testing`; registration
+alone does not establish end-to-end validation or a refiner dependency. Neither
+is a new Episode runtime class. The
+unvalidated standalone inquiry entry has been removed. The existing
+`function_library.epistemic_contract.inquiry_contract` helper constructs its policy;
+use `EpistemicContract` directly for other tasks. Attach the policy as
+`EpisodeCreationSpec.epistemic`. A declared contract does not establish a
+validated library example.
 
 The optional contract freezes the allowed action classes, goal/domain,
 environment and assumptions, required formulation fields and evidence classes,

@@ -4,6 +4,11 @@ Return to the [current guide](unified_episode_test_harness_design.md).
 These chronological receipts preserve what each run did and did not establish.
 They do not replace the goal's end-to-end acceptance requirements.
 
+**Directory rename, 2026-10-04:** current harness code is in
+`episode_runtime/testing_harness/`, and its tests and fixtures are in
+`tests/episode_runtime/testing_harness/`. Paths below and in saved acceptance
+artifacts retain their historical names; the rename is not a new execution receipt.
+
 **2026-10-03 checkpoint clarification:** "Target Workflow" now names the scoped
 workflow being built and tested, distinct from the refiner and from a candidate
 revision. The revised [ADR 0005](../adr/0005-target-workflow-execution-backends.md)
