@@ -66,13 +66,16 @@ class RunExecution:
     @staticmethod
     def status(artifacts, runs, run_id):
         run_id = OpaqueId(run_id) if isinstance(run_id, str) else run_id
-        attempts = execution_attempts(artifacts, runs, run_id)
+        attempts = execution_attempts(artifacts, None, run_id)
         if not attempts:
             return {
                 "run_id": run_id.value, "candidate_verdict": "unmeasured",
                 "execution_status": "not_dispatched",
             }
-        statuses = [RunExecution._physical_status(artifacts, runs, row) for row in attempts]
+        history = tuple(OpaqueId(row["record"]["registration"]["run_id"]) for row in attempts)
+        with runs.terminal_snapshot_scope(history):
+            attempts = execution_attempts(artifacts, runs, run_id)
+            statuses = [RunExecution._physical_status(artifacts, runs, row) for row in attempts]
         return {
             **statuses[-1],
             "logical_run_id": attempts[0]["record"]["registration"]["run_id"],

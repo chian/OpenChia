@@ -104,12 +104,12 @@ def read_recording(
     run_id = OpaqueId(run_id) if isinstance(run_id, str) else run_id
     registration = runs.read_registration(run_id)
     try:
-        runs.read_evidence(run_id)
+        snapshot = runs.read_terminal_snapshot(run_id)
     except RunStoreNotFound:
         events = runs.read_committed_prefix(run_id)
         terminal_evidence_available = False
     else:
-        events = runs.read_audit_log(run_id)
+        events = snapshot.events
         terminal_evidence_available = True
     if through_event_ref is not None:
         match = next(

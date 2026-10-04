@@ -499,17 +499,29 @@ class ExperimentService:
 
     async def continue_run(self, *, experiment_id, resume_from):
         """Continue the same experiment and expectations, not a changed candidate."""
+        from ..continuation import InterruptedRunRef
+        from ..records.experiments import execution_attempts
+        from agent.episode_contracts import OpaqueId
+
         if self.executor is None:
             raise ValueError("continuation requires the existing admitted Run executor")
-        prepared = await asyncio.to_thread(self._prepare_continuation, experiment_id, resume_from)
-        if prepared is not None:
-            registration, inputs, launch, package, intent_ref, launch_id, session = prepared
-            await self._execute_registered(
-                registration, inputs, launch, package, intent_ref,
-                launch_id=launch_id, refinement_session=session,
-            )
-        result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
-        return await self._finish_measurement(experiment_id, result)
+        reference = InterruptedRunRef.from_record(resume_from)
+        attempts = await asyncio.to_thread(
+            execution_attempts, self.artifacts, None, reference.run_id
+        )
+        history = tuple(OpaqueId(row["record"]["registration"]["run_id"]) for row in attempts)
+        # Selecting immutable histories for reuse is not admission. Preparation
+        # and execution still verify every linkage and current authority.
+        with self.runs.terminal_snapshot_scope(history):
+            prepared = await asyncio.to_thread(self._prepare_continuation, experiment_id, resume_from)
+            if prepared is not None:
+                registration, inputs, launch, package, intent_ref, launch_id, session = prepared
+                await self._execute_registered(
+                    registration, inputs, launch, package, intent_ref,
+                    launch_id=launch_id, refinement_session=session,
+                )
+            result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
+            return await self._finish_measurement(experiment_id, result)
 
     async def continue_interrupted(self, *, experiment_id):
         """Recover terminal publication, then continue the latest exact attempt.
@@ -534,14 +546,18 @@ class ExperimentService:
         )
         if not attempts:
             raise ValueError("experiment has no admitted execution to continue")
-        registration = RunRegistration.from_record(attempts[-1]["record"]["registration"])
+        registrations = tuple(
+            RunRegistration.from_record(row["record"]["registration"]) for row in attempts
+        )
+        registration = registrations[-1]
         claim = await asyncio.to_thread(self.runs.read_claim, registration.run_id)
         await verify_stopped_executor(self.executor, claim)
         # This existing store method only publishes artifacts for an already
         # committed terminal head. It never invents a terminal state.
-        await asyncio.to_thread(self.runs.complete_terminal_publication, registration.run_id)
-        reference = await asyncio.to_thread(InterruptedRunRef.from_run, self.runs, registration.run_id)
-        return await self.continue_run(experiment_id=experiment_id, resume_from=reference.as_record())
+        with self.runs.terminal_snapshot_scope(item.run_id for item in registrations):
+            await asyncio.to_thread(self.runs.complete_terminal_publication, registration.run_id)
+            reference = await asyncio.to_thread(InterruptedRunRef.from_run, self.runs, registration.run_id)
+            return await self.continue_run(experiment_id=experiment_id, resume_from=reference.as_record())
 
     async def _finish_measurement(self, experiment_id, result):
         if "evidence_ref" in result:

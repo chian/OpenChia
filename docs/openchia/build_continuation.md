@@ -60,6 +60,23 @@ recovery/admission. `testing/reconstruction*.py` verify the existing journal.
 `runtime_state.py` restores nested refinement host state. No second runner or
 response ledger is introduced.
 
+Terminal history is verified once per named predecessor during a continuation
+operation, then shared across preparation, reconstruction and ancestor reads.
+`RunStore.terminal_snapshot_scope(run_ids)` bounds this reuse to explicit Run IDs
+and the owning operation; nested host calls and `asyncio.to_thread` share it.
+`read_terminal_snapshot` returns immutable evidence and events together. Reuse
+checks the registration, claim and evidence identities again but does not reread
+every historical event/chunk. The snapshot is discarded when the operation exits.
+Current approval, campaign and active-prefix reads are never cached.
+
+For a fresh independent integrity audit, call
+`RunStore.verify_terminal_snapshot(run_id)`: it always rereads and verifies all
+event files and terminal audit chunks, even inside a snapshot scope. An integrity
+failure invalidates that scope's retained snapshot. `refresh_run_record` uses
+this fresh path. Ordinary status inspection has its own short-lived scope;
+high-frequency monitoring can use the existing maintained `read_run_record`
+view, which is not a substitute for independent evidence verification.
+
 The initial Builder stage uses `agent/openchia_build_recovery.py` to read the
 existing `BuildCallEvidenceRecorder` records. A successor request/attempt is linked
 through the shared record registry; its previous attempt and cancelled receipt
