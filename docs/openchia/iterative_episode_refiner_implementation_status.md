@@ -35,6 +35,7 @@ Worktree: `OpenChia-iterative-refiner`, branch `feat/iterative-episode-refiner`,
 based on merged OpenChia main `9980990488089f4c53bfe4c61f3054312ed70db8`
 (PR #31). The branch was fast-forwarded without creating a commit, and the
 unfinished edits were reconciled with the merge. A pre-update copy is at
+<!-- no-tmp: ok — historical recovery archive location, not a scratch-path instruction. -->
 `/tmp/openchia-refiner-pr31.J2BS5g/unfinished-work.tar` on this development host.
 
 ## Historical tracking at the end of coding — not an active work queue
@@ -1001,6 +1002,7 @@ checks remain part of campaign operation, not a separate replay service.
 The unused refiner receipt-outbox scaffolding was also removed; later unified
 replay must not depend on an unconnected refiner-only reconciliation path.
 Removed work is recoverable from
+<!-- no-tmp: ok — historical recovery archive location, not a scratch-path instruction. -->
 `/tmp/openchia-refiner-ablation.fx25zH/removed-work.tar` on this development host.
 
 The immediate deliverable is the registered Episode structure and its common

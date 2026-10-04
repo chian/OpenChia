@@ -34,18 +34,29 @@ def requested_jobs(host):
     ]
 
 
-def require_owner_stopped(host, job):
+def builder_owner_status(host, job):
     from openchia_cli.active_sessions import _pid_liveness
 
-    finished = any(
-        event["event_type"] in {"build_finished", "build_host_failure"}
-        and event["record"]["build_request_id"] == job["build_request_id"]
+    finished = [
+        event
         for event in host.store.events(host.identity.duet_id.value)
-    )
+        if event["event_type"] in {"build_finished", "build_host_failure"}
+        and event["record"]["build_request_id"] == job["build_request_id"]
+    ]
     if finished:
-        return
+        final = finished[-1]
+        return {
+            "state": "finished",
+            "build_state": final["record"].get("state", "host_error"),
+            "event_sequence": final["sequence"],
+        }
     owner = job.get("owner")
-    if owner is None or _pid_liveness(owner["pid"], owner["process_start_time"]) is not False:
+    live = None if owner is None else _pid_liveness(owner["pid"], owner["process_start_time"])
+    return {"state": {True: "live", False: "stopped", None: "unknown"}[live]}
+
+
+def require_owner_stopped(host, job):
+    if builder_owner_status(host, job)["state"] not in {"finished", "stopped"}:
         raise ValueError("Previous Builder owner is live or unverifiable; it cannot be restarted.")
 
 
@@ -66,14 +77,22 @@ def unfinished_builder_status(host, current):
         if event["event_type"] == "build_progress"
         and event["record"]["build_request_id"] == request_id
     ]
+    ownership = builder_owner_status(host, job)
+    state = ownership.get("build_state") or {
+        "stopped": "interrupted", "live": "building", "unknown": "ownership_unknown",
+    }[ownership["state"]]
     return {
-        **current, "state": "interrupted", "build_request_id": request_id,
+        **current, "state": state, "build_request_id": request_id,
         "build_attempt_id": None if not attempts else attempts[0].build_attempt_id.value,
         "build_receipt_id": None if not receipts else receipts[0].receipt_id.value,
         "materialized_specification_id": None, "refinement_baseline_id": None,
-        "progress": host._empty_progress("interrupted") if not progress else progress[-1],
+        "progress": host._empty_progress(state) if not progress else progress[-1],
         "refinement": None, "error": None,
-        "continuation": {"command": "/build continue", "stage": "builder", "owner_verification_required": True},
+        "ownership": ownership,
+        "continuation": {
+            "command": "/build continue", "stage": "builder", "owner_verification_required": True,
+            "owner_check_passed": ownership["state"] in {"finished", "stopped"},
+        },
     }
 
 

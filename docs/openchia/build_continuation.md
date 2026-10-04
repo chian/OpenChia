@@ -47,6 +47,11 @@ not discharge requirements, assign credit, or weaken acceptance.
   ownership and model binding, using its existing call evidence. Refiner setup
   can reuse a completed shipped-program build and idempotent campaign preparation.
   A partial shipped-program build without a terminal receipt remains unsupported.
+- Builder successor links and their `build_requested` event commit before the
+  successor's `model_launch_resolved` event. A crash between those writes leaves
+  a discoverable successor with no exact launch receipt; continuation rejects
+  it. Recovery of that publication gap is not implemented. The initial Builder
+  and refiner setup therefore do not yet support quitting at every boundary.
 - A final Run whose refiner result was already committed can finish publishing
   its build result without another Run. A completed Run lacking that refiner
   result still needs terminal host-state reconciliation.
@@ -91,10 +96,31 @@ New jobs record the owning process's PID **and creation time** and the frozen
 owning-Duet binding before starting their thread. A Builder with no terminal
 receipt is discoverable in `/build status`. Continuation requires its previous
 owner to be stopped or its job finalization to have committed; unknown liveness
-is not assumed safe. Legacy Builder jobs without recorded ownership/binding
+is not assumed safe. A second CLI reports `building` when the exact recorded
+owner is live, `ownership_unknown` when it cannot verify the owner, and
+`interrupted` only after it verifies the owner stopped without finalization.
+A committed `build_finished`/`build_host_failure` supplies its actual terminal
+state. This is process/finalization evidence, not a claim that the Builder is
+making progress. Legacy Builder jobs without recorded ownership/binding
 cannot be continued across this boundary. This restriction does not apply to a
 legacy refiner whose existing Run attestation and experiment already bind them.
 
-Static syntax and diff checks are not live acceptance. The existing interrupted
-real build is the acceptance subject; its continuation outcome must be recorded
-separately after the normal public command is exercised.
+## Recorded live evidence and remaining validation
+
+The normal `OpenChiaHost.continue_build()` call at pinned source
+`b6ae19fe9625c70d65df72003c003d744404ff8c` completed missing terminal publication
+and started successor Run
+`run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`.
+It reconstructed 479 worker frames with no divergence, restored the nested
+root → Designer → Measure stack, and reissued the exact pending request. Its
+response committed at event 4; the host rejected malformed JSON for zero yield
+and automatically requested the next Measure iteration at event 14.
+
+That pinned checkout includes the initial continuation commit `daeaa271d3`, not
+Builder continuation `5091e7f844`, scoped terminal snapshots `6948119d57`, or
+subsequent readiness corrections. Those later changes have static checks only;
+their live behavior is not established by this Run. This receipt demonstrates
+real nested continuation, not successful refinement or Target Workflow
+acceptance. The [shared chronological receipts](unified_episode_test_harness_receipts.md)
+retain the exact observations and limits. No additional tests or live jobs were
+started for the readiness review.
