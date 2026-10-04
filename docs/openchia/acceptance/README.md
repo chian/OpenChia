@@ -1,12 +1,21 @@
 # Scheduling acceptance — static source repair demonstrated; behavioral acceptance pending
 
-Latest status, 2026-10-04: the user requested cancellation after model call 48
+Latest status, 2026-10-04 16:33 UTC: the normal `OpenChiaHost.continue_build()`
+entry is active against the same saved job and experiment. It has completed the
+cancelled Run's missing terminal-evidence publication, preserving its 866 events
+and `cancelled` status. No new physical Run is registered yet; continuation and
+behavioral acceptance are not yet demonstrated. The pinned host source is
+`b6ae19fe9625c70d65df72003c003d744404ff8c`, combining continuation support with
+the reviewed health transport. The saved model binding predates health policies,
+so exact restoration leaves probing disabled for this continuation.
+
+Predecessor status: the user requested cancellation after model call 48
 remained unanswered. The Run is durably `cancelled` at event 865 (866 events;
 48 model requests, 47 responses). The exact systemd worker is inactive. Caller
 cleanup did not finish normally; after stopping that worker, the caller required
 SIGTERM and exited 143. A finalized build-job result is not confirmed. No
-replacement has started. Builder/Refiner continuation and model-call health
-recovery are being developed separately; neither is demonstrated by this Run.
+replacement had started at cancellation. Continuation and model-call health
+recovery are separate changes; neither is demonstrated by the cancelled Run.
 There is no acceptance pass.
 
 Attempt history, 2026-10-04: one normal `OpenChiaHost.start_build` started

@@ -1,5 +1,21 @@
 {
-  "status": "target_and_launch_approved_refiner_run_cancelled_tester_unapproved",
+  "status": "target_and_launch_approved_build_continuation_in_progress_tester_unapproved",
+  "continuation_observation": {
+    "observed_at": "2026-10-04T16:33:14Z",
+    "entry": "OpenChiaHost.continue_build",
+    "source_commit": "b6ae19fe9625c70d65df72003c003d744404ff8c",
+    "source_checkout": "/home/chia/repos/OpenChia-continue-live-hHDLek30",
+    "process_id": 2820540,
+    "state": "preparing_exact_continuation",
+    "predecessor_run_id": "run_358b0b188f2732c49a60c6d304d8309705e611b325cd6c822d0ad771a1347edf",
+    "recovered_terminal_evidence_ref": {
+      "artifact_id": "run_evidence_7d1dfe3f5dd7c24b844dd1c0faa74b132c9635d2ff1e141a1244205baeea1fd0",
+      "content_hash": "sha256:94692e0bff312657ad558a9319df2f4f90332b1e38f7cc341c848f5365e8469b"
+    },
+    "new_physical_run_id": null,
+    "health_policy": "disabled_by_absence_in_original_frozen_binding",
+    "acceptance_pass": false
+  },
   "current_build_job": {
     "source_commit": "9b5d11574afb4ac384bbadee58debcc2fac74d46",
     "source_worktree_changes": [

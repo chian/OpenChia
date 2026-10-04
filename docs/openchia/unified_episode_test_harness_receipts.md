@@ -13,6 +13,28 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live build continuation, 2026-10-04 16:33 UTC: preparation in progress
+
+The ordinary `OpenChiaHost.continue_build()` entry was invoked once for the saved
+job and experiment below, using pinned source
+`b6ae19fe9625c70d65df72003c003d744404ff8c`. No fresh Builder attempt or campaign
+was manually substituted. Its owner process remains active. The existing
+RunStore has completed the predecessor's terminal-evidence publication:
+`run_evidence_7d1dfe3f5dd7c24b844dd1c0faa74b132c9635d2ff1e141a1244205baeea1fd0`,
+hash `sha256:94692e0bff312657ad558a9319df2f4f90332b1e38f7cc341c848f5365e8469b`.
+The compact `openchia test run-record` view is now current and still records
+866 events, 48 model requests, 47 responses and `cancelled`, with the same
+terminal event/hash. No successor worker is registered at this observation.
+
+This establishes interrupted terminal-publication recovery, not successful
+execution continuation, Target Workflow correctness or acceptance. The host
+includes the reviewed health transport, but restores the original model binding
+without adding its new default policy; this historical execution has probes
+disabled. Live health recovery remains unverified. The running checkout is not
+being edited. The five CLI JSON input readers were separately corrected in the
+development checkout for UTF-8 BOM compatibility; the repository Windows-footgun
+check passes, with no additional behavioral suite run.
+
 ### Live one-start retry with rejected-output feedback and event comparisons, 2026-10-04 UTC: operator-cancelled
 
 Latest status: the user requested stopping the unanswered model call 48.
@@ -20,7 +42,7 @@ Cancellation was requested at 16:01:40 UTC. The Run committed `cancelled` at
 event 865: 866 events, 48 model requests and 47 responses. The exact systemd
 worker was stopped and verified inactive. Caller cleanup did not finish
 normally; SIGTERM was required and the caller exited 143. A finalized build-job
-result is not confirmed. No replacement has started, and there is no acceptance
+result was not confirmed. No replacement had started at cancellation, and there is no acceptance
 pass. Separate continuation and health-recovery work does not retroactively
 change this evidence. The following records describe the attempt before that
 cancellation.
