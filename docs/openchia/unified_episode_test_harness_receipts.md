@@ -13,6 +13,45 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live continuation, 2026-10-04: pending host request restored, original invalid proposal rejected
+
+The normal `OpenChiaHost.continue_build()` call at pinned source
+`e807de71018e6c5469cccc2f2eb1d6b7e1c716c8` started
+`run_b13f71313a8bf041d41992874ee795bdbd5c8d0cbb3604025c5897c91ccfe4db`.
+The existing executor recorded:
+
+- Event 2: 672 matched worker frames, zero remaining frames, no divergence;
+  the saved root → Designer stack was restored.
+- Event 3: the exact pending `propose` request from predecessor
+  `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`,
+  event 346, with request hash
+  `sha256:3cd7d1767d64a0942b2f4842033ae5921381009a92cec086da27310541d52948`.
+- Event 4: `invalid`, with
+  `proposal is not this Episode's committed model response`.
+
+Inspection of the predecessor request and model history establishes that its
+`raw_response` was already empty and its producer ID had no corresponding model
+response. The refiner submitted that invalid proposal before cancellation:
+its source checked `raw_response is None`, but a failed structured completion
+defaults to `raw_response = ""`. This is the refiner's failed-call handling
+defect, owned by PR #33, not a failure to reconstruct producer provenance.
+
+The campaign head remains sequence 290,
+`refinement_e29aaea0b743a47304f2a5312bfbeafada6a3680194f63ea7b19a543db1395a5`.
+No proposal, host completion receipt or credit was admitted. No completed model
+call was repeated by this successor. Its terminal `invalid` evidence is retained;
+PR #35 adds no exception to retry invalid Runs and makes no scheduling-success
+claim. Continuation correctly restored the pending request and preserved the
+host's admission checks.
+
+The pinned source includes shared lifecycle fixes through `ca611ab4e9` and
+repeated-cancellation joining `446e6cc019`. It preserves the original worker
+closure rather than changing frozen code. Later response-disconnect handling
+`283847eac4` and UI notification lock-order correction `766f65c033` are not in
+this live checkout and have static validation only. Initial Builder continuation,
+ordinary `/run continue`, and other recovery boundaries were not separately
+exercised by this Run. No new test suite was run for this review.
+
 ### Live Measure inspection, 2026-10-04 16:54 UTC: response received, revision still unusable
 
 Successor Run `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`

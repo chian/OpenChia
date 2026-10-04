@@ -1,4 +1,4 @@
-# Continuing an interrupted build job
+# Continuing interrupted Duet-owned work
 
 In the original Duet, use `/build continue`; use `/build status` to inspect it.
 For an ordinary Target Workflow Run, use `/run continue` and `/run status`.
@@ -44,6 +44,10 @@ not discharge requirements, assign credit, or weaken acceptance.
 - Exact admitted source, worker runtime, inputs, approvals, model binding and
   campaign state must remain available. Changed code/contracts are not hidden
   inside the same execution.
+- `invalid` is not an interruption. Continuation does not repair an invalid
+  request, invent producer evidence, or relabel a failed execution so it can be
+  retried. Such a defect must be fixed in the owning implementation and admitted
+  as a new execution when its frozen source changes.
 - Local Refiner changes and their host reply/state receipt share one Duet
   transaction. Reconstruction uses that receipt if the Run response is missing.
   With no receipt, the saved campaign head must still match before the exact
@@ -143,11 +147,33 @@ root → Designer → Measure stack, and reissued the exact pending request. Its
 response committed at event 4; the host rejected malformed JSON for zero yield
 and automatically requested the next Measure iteration at event 14.
 
-That pinned checkout includes the initial continuation commit `daeaa271d3`, not
-Builder continuation `5091e7f844`, scoped terminal snapshots `6948119d57`, or
-subsequent readiness corrections. Those later changes have static checks only;
-their live behavior is not established by this Run. This receipt demonstrates
-real nested continuation, not successful refinement or Target Workflow
-acceptance. The [shared chronological receipts](unified_episode_test_harness_receipts.md)
-retain the exact observations and limits. No additional tests or live jobs were
-started for the readiness review.
+That first checkout includes the initial continuation commit `daeaa271d3`, not
+the later Builder, snapshot or lifecycle corrections.
+
+A second normal `continue_build()` call at pinned source
+`e807de71018e6c5469cccc2f2eb1d6b7e1c716c8` started
+`run_b13f71313a8bf041d41992874ee795bdbd5c8d0cbb3604025c5897c91ccfe4db`.
+Event 2 records 672 matched worker frames, zero remaining frames and no
+divergence. Event 3 dispatches the exact pending `propose` request from the
+cancelled predecessor's event 346. Event 4 records `invalid`:
+`proposal is not this Episode's committed model response`.
+
+The predecessor already contained an empty `raw_response` and a producer ID
+with no corresponding committed model response. This is a refiner failed-call
+handling defect, not provenance lost during continuation: `propose` checked
+only for `None`, while the failed completion result defaults to an empty string.
+The host rejected the restored request, with no admitted proposal, no credit,
+and no campaign-head change. The invalid Run and both cancelled predecessors
+remain unchanged. PR #33 owns that refiner defect; PR #35 does not weaken
+producer verification or add an exception for continuing invalid Runs.
+
+The second pinned source includes lifecycle work through `ca611ab4e9` and
+repeated-cancellation joining `446e6cc019`, with the original worker source
+closure preserved byte-for-byte. Later response-disconnect handling
+`283847eac4` and UI notification lock-order correction `766f65c033` have static
+checks only. The live executions establish nested reconstruction, pending model
+and host-request dispatch, and preservation of admission checks. They do not
+exercise every Builder/public Run recovery boundary or establish successful
+refinement or Target Workflow acceptance. No test suite was run for this review.
+The [shared chronological receipts](unified_episode_test_harness_receipts.md)
+retain these observations and limits.
