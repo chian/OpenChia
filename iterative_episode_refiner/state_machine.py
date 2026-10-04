@@ -233,10 +233,16 @@ def _admit_plan(view, attempt, resolved):
         assignment.body["writable_paths"]
     ):
         raise ValueError("plan expands the assignment's editable scope")
-    if set(body["requirement_mapping"]) != set(
-        assignment.body["contribution_requirement_keys"]
-    ):
-        raise ValueError("plan must cover the assigned contribution")
+    required = set(assignment.body["contribution_requirement_keys"])
+    provided = set(body["requirement_mapping"])
+    if provided != required:
+        raise ValueError(
+            "plan requirement_mapping must contain exactly the assigned "
+            f"contribution_requirement_keys: missing={sorted(required - provided)!r}, "
+            f"unexpected={sorted(provided - required)!r}. "
+            "Keep preservation-only requirements separate; do not add them "
+            "to requirement_mapping."
+        )
     if body["acceptance_measure_ref"] != assignment.body["acceptance_measure_ref"]:
         raise ValueError("plan cannot redefine the parent's acceptance measure")
     from .measures import require_implementation_measure

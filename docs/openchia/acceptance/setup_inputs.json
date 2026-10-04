@@ -1,8 +1,9 @@
 {
-  "status": "target_and_launch_approved_one_start_build_refining_tester_unapproved",
+  "status": "target_and_launch_approved_build_cancelled_for_feedback_fix_tester_unapproved",
   "current_build_job": {
     "source_commit": "899ff4a220d8a42f497b1ad55f2b2b7d09d02dce",
-    "state_at_observation": "refining",
+    "state_at_observation": "cancelled",
+    "cancellation_reason": "Correct misleading host feedback: both rejected Designer plans contained all contribution keys plus one preservation-only key. No candidate repair or final acceptance occurred.",
     "build_request_id": "build_request_c83fa094bd72734af5604677e45dd990212511f6c0e2a5ba4c9a2e8257e2a722",
     "initial_build_receipt_id": "build_receipt_69fc4b020becd3ddba3484324e9208dc560002fa17c10295e36cf0d55e426bad",
     "campaign_ref": {

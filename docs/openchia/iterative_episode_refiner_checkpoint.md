@@ -32,8 +32,10 @@ claiming that source admission establishes acceptance.
 A live job from `899ff4a220` now demonstrates automatic failed-build handoff to
 the native refiner with the actual owning Duet configuration. The parent repaired
 a rejected assignment proposal through its normal next unit and entered its
-Designer child. At this checkpoint the job is still running; no candidate repair
-or final acceptance has been demonstrated. Exact IDs are in
+Designer child. The job was cancelled after two plans hit a misleading host
+rejection: both contained all contribution keys plus one preservation-only key.
+Feedback now identifies missing and unexpected keys without changing admission.
+No candidate repair or final acceptance has been demonstrated. Exact IDs are in
 `acceptance/setup_inputs.json` and the receipt log.
 
 The normal-build policy now supplies a frozen grant for registered requirement

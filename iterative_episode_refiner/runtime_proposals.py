@@ -29,10 +29,16 @@ _ASSIGNMENT_SHAPE = {
     },
     "measure_request": "null except for EstablishMeasure: {purpose, requirement_keys}",
     "supersedes_assignment_refs": [
-        "exact returned direct-child assignment references, or empty for new work"
+        {
+            "artifact_id": "returned direct-child assignment ID; use [] for new work",
+            "content_hash": "its exact hash",
+        }
     ],
     "prerequisite_refs": [
-        "original returned measurement-request references to route into this work"
+        {
+            "artifact_id": "original returned measurement-request ID; use [] if none",
+            "content_hash": "its exact hash",
+        }
     ],
 }
 
@@ -78,7 +84,10 @@ def proposal_schemas(role):
                     "plan": {
                         "approach_key": "stable description of this approach",
                         "requirement_mapping": {
-                            "original requirement key": "how the design meets it"
+                            "each exact assignment contribution_requirement_keys entry": (
+                                "how the design meets it; include every contribution key "
+                                "and no other keys, including preservation-only keys"
+                            )
                         },
                         "intended_change_scope": ["exact editable path"],
                         "assumption_refs": [],
@@ -90,7 +99,10 @@ def proposal_schemas(role):
                         "local_measure_ref": "exact admitted measure for the Implementer's own loop",
                     },
                     "supersedes_assignment_refs": [
-                        "returned Implementer assignments replaced by this plan, or empty"
+                        {
+                            "artifact_id": "returned Implementer assignment ID; use [] if none",
+                            "content_hash": "its exact hash",
+                        }
                     ],
                 },
                 {"prerequisite": _ASSIGNMENT_SHAPE},

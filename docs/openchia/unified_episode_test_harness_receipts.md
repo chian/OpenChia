@@ -13,6 +13,32 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live Designer feedback defect and cancellation, 2026-10-03
+
+The one-start job below reached its Designer after the Parts Episode corrected
+an invalid assignment-reference proposal through the normal loop. The Designer
+then proposed two plans. Each covered all 16 assigned contribution keys and
+included one extra, preservation-only key. Both were rejected with "plan must
+cover the assigned contribution," although neither omitted a contribution key.
+The missing/extra distinction matters to the next repair decision.
+
+The operator cancelled the whole job before changing host code. The durable
+job result records `cancelled` and no verified build. No operator changed the
+candidate, waived admission, or manually launched another stage. This proves
+automatic handoff and feedback-driven proposal correction, not source repair
+or independently accepted target behavior.
+
+The focused regression reproduced the misleading error before the fix:
+**2 failed in 23.1 seconds**, with retries disabled. The fix retains exact-key
+equality but reports both missing and unexpected keys. Proposal guidance also
+shows complete artifact-reference objects instead of suggesting ID strings.
+The canonical post-fix run passed **13 tests across three files in 67.9 seconds**,
+retries disabled: `test_plan_feedback.py`, `test_campaign_state.py` and
+`test_control_integrity.py` under `tests/iterative_episode_refiner`. Corrected
+plans admit without changing candidate code or earning credit from plan admission
+alone. These are host feedback/admission checks, not live acceptance. Ruff and
+`git diff --check` pass.
+
 ### Ordinary launch compatibility after automatic refinement, 2026-10-03
 
 The old launch fixture failed on the current tree (**1 failed in 2.9 seconds**)
