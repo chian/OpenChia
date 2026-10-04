@@ -1,4 +1,15 @@
-# Scheduling acceptance — target approved; testing Episode pending
+# Scheduling acceptance — one-start build in progress; testing Episode pending
+
+Current attempt, 2026-10-03: the ordinary `OpenChiaHost.start_build` entry was
+called once from commit `899ff4a220`, with a fully initialized owning Duet using
+its configured `gpt-5.6-sol-900k` route and `xhigh` reasoning effort. The Target
+Workflow retains its separate approved launch file. The initial Builder attempt
+failed source planning; OpenChia automatically entered the shipped refiner in a
+native systemd worker. No operator launched that next stage or repaired its code.
+The job is still running; this is not a completed repair or acceptance receipt.
+Current job and Run identities appear in `current_build_job` in
+[setup_inputs.json](setup_inputs.json). The earlier failed attempt below is
+retained as historical evidence, not the current job's status.
 
 The human approved the exact scheduling Target Workflow and designated launch
 configuration on 2026-10-03. Their hashes and actual approval/store references
@@ -6,7 +17,7 @@ are recorded in [setup_inputs.json](setup_inputs.json). The ordinary host record
 the approvals in a separate workspace and started real Builder calls. The testing
 Episode is not yet approved. These files describe setup; the authority store,
 Builder receipts and Run records are the authoritative evidence. The first build
-is now terminal **blocked**, with no emitted module and no Target Workflow Run.
+ended **blocked**, with no emitted module and no Target Workflow Run.
 See the [live-build receipt](../unified_episode_test_harness_receipts.md#approved-live-build-first-attempt-blocked-2026-10-03).
 
 The acceptance workspace is `/home/chia/repos/OpenChia-acceptance-0RN3r9BH`.

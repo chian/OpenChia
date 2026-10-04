@@ -1,5 +1,21 @@
 {
-  "status": "target_and_launch_approved_initial_build_blocked_tester_unapproved",
+  "status": "target_and_launch_approved_one_start_build_refining_tester_unapproved",
+  "current_build_job": {
+    "source_commit": "899ff4a220d8a42f497b1ad55f2b2b7d09d02dce",
+    "state_at_observation": "refining",
+    "build_request_id": "build_request_c83fa094bd72734af5604677e45dd990212511f6c0e2a5ba4c9a2e8257e2a722",
+    "initial_build_receipt_id": "build_receipt_69fc4b020becd3ddba3484324e9208dc560002fa17c10295e36cf0d55e426bad",
+    "campaign_ref": {
+      "artifact_id": "refinement_07e9534f35f5a6acf47073d17b51c1e32fd0c7eafcdfdd92c5d0fd7399eec3ff",
+      "content_hash": "sha256:07e9534f35f5a6acf47073d17b51c1e32fd0c7eafcdfdd92c5d0fd7399eec3ff"
+    },
+    "experiment_id": "experiment_142e3745046a5c506369045ba4e43323bf4723ea6edbb605590fbb9521fd9d32",
+    "refiner_run_id": "run_e0a83dce815f8e0bbd664236b1d10c8d9466b4a054bf3528c183838c5ff44b38",
+    "duet_model": "gpt-5.6-sol-900k",
+    "duet_reasoning_effort": "xhigh",
+    "executor": "systemd",
+    "verified_build_ref": null
+  },
   "workspace": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH",
   "target_session_id": "schedule-acceptance-20261003-target",
   "approved_workflow_hash": "sha256:943d549e9c1ac27d016a1f51018aa7156e420558562ab59021111122356e4ee8",

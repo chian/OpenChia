@@ -13,6 +13,35 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live one-start build reaches the native refiner, 2026-10-03
+
+From clean source commit `899ff4a220`, the ordinary `OpenChiaHost.start_build`
+entry started build request
+`build_request_c83fa094bd72734af5604677e45dd990212511f6c0e2a5ba4c9a2e8257e2a722`.
+The owning Duet is a fully initialized `AIAgent`, bound through `bind_duet`,
+using the existing conversational configuration (`gpt-5.6-sol-900k`, `xhigh`).
+The Target Workflow and its Builder retain their separately approved launch.
+Only the build start and status inspection were operator calls; no operator
+launched the refiner, supplied a model answer, or edited the candidate.
+
+The real initial Builder response failed planning: generated binding 5 did not
+use the required pre-emission `generated` identifier. The retained receipt is
+`build_receipt_69fc4b020becd3ddba3484324e9208dc560002fa17c10295e36cf0d55e426bad`,
+with zero emitted modules. OpenChia automatically advanced the same job to
+refinement and started native systemd Run
+`run_e0a83dce815f8e0bbd664236b1d10c8d9466b4a054bf3528c183838c5ff44b38`
+through experiment
+`experiment_142e3745046a5c506369045ba4e43323bf4723ea6edbb605590fbb9521fd9d32`.
+The committed Run prefix shows the initial verification child completing and
+the parent issuing its first live model request. At this observation the job
+is still running; no repaired or independently accepted build is claimed.
+
+An earlier invocation in this session passed the reasoning configuration helper
+arguments incorrectly. It was cancelled before refiner execution, preserving
+`build_request_cc7421893aa9af574d0d4d7ea679876b031e7e0f0cade0c3ee1fc8edd5329e0b`
+as a cancelled job. That operator setup error is not acceptance evidence. The
+corrected invocation above preserves the actual Duet reasoning configuration.
+
 ### Admitted checks reach parent validation, 2026-10-03
 
 The canonical runner passed **9 tests across five files in 123.5 seconds**,
