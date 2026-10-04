@@ -71,6 +71,10 @@ async def _broker_operation(
             await join_local(task, propagate_cancel=False)
         except asyncio.CancelledError:
             pass
+        except Exception as error:
+            # A disconnect after the local receipt committed must not turn a
+            # requested cancellation into an uncontinuable failed execution.
+            raise asyncio.CancelledError from error
         raise
 
 
