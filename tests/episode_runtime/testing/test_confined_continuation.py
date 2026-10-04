@@ -33,6 +33,8 @@ from episode_runtime.store import RunStore
 from episode_runtime.testing.execution import RunExecution, register_build
 from episode_runtime.testing.inputs import workflow_template
 from episode_runtime.testing.launches import record_launch_intent
+from episode_runtime.testing.reconstruction import ReconstructionCursor, ReconstructionError
+from function_library.models import _thaw_json
 from llm_call_library import CallOptions
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
 from tests.episode_runtime.conftest import numerical_control
@@ -46,8 +48,9 @@ from tests.episode_runtime.testing.launch_fixture import FixtureLaunchHost
 
 @pytest.mark.platforms("linux")
 @pytest.mark.asyncio
-async def test_confined_continuation_preserves_committed_calls_and_credit(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("corrupt_reply", [False, True], ids=["matching", "divergent"])
+async def test_confined_continuation_preserves_credit_and_rejects_divergent_worker_requests(
+    tmp_path, monkeypatch, corrupt_reply
 ):
     runtime_dir = Path("/run/user") / str(os.getuid())
     if (runtime_dir / "bus").exists():
@@ -193,6 +196,38 @@ async def test_confined_continuation_preserves_committed_calls_and_credit(
         assert (await verify_stopped_executor(executor, old_claim))["stopped"]
 
         resumed = replace(registration, resume_from=InterruptedRunRef.from_run(runs, registration.run_id))
+        if corrupt_reply:
+            accept = ReconstructionCursor.accept
+            injected = []
+
+            def altered_historical_reply(cursor, frame):
+                reply = accept(cursor, frame)
+                if frame.frame_type == "learning_request" and frame.body["operation"] == "retrieve" and not injected:
+                    # Fault-inject the host's replay reply, not the immutable
+                    # audit or worker source. The actual confined worker must
+                    # then generate a different next model request.
+                    changed = _thaw_json(reply.body)
+                    changed["response"]["next_ordinal"] += 1
+                    injected.append(frame.body["request_id"])
+                    return replace(reply, body=changed)
+                return reply
+
+            monkeypatch.setattr(ReconstructionCursor, "accept", altered_historical_reply)
+            with pytest.raises(ReconstructionError, match="reconstruction_diverged"):
+                await asyncio.wait_for(execution.execute(registration=resumed, **arguments), 240)
+            assert len(injected) == 1
+            rejected = runs.read_evidence(resumed.run_id)
+            suffix = runs.read_audit_log(resumed.run_id)
+            assert rejected.terminal_status is RunTerminalStatus.INVALID
+            assert not any(event.kind in {
+                RunEventKind.RUN_RECONSTRUCTED, RunEventKind.MODEL_REQUESTED,
+                RunEventKind.LEARNING_COMMITTED, RunEventKind.HTTP_REQUESTED,
+            } for event in suffix)
+            assert calls == [(0, "selection"), (0, "execution")]
+            assert runs.read_audit_log(registration.run_id) == old_audit
+            assert runs.read_evidence(registration.run_id) == old_evidence
+            assert (await verify_stopped_executor(executor, runs.read_claim(resumed.run_id)))["stopped"]
+            return
         final = await asyncio.wait_for(execution.execute(registration=resumed, **arguments), 240)
         assert final.terminal_status is RunTerminalStatus.SUCCEEDED, final.typed_status
         result = final.typed_status["workflow_result"]
@@ -208,7 +243,16 @@ async def test_confined_continuation_preserves_committed_calls_and_credit(
         gates = [event.payload for event in suffix if event.kind is RunEventKind.RUN_RECONSTRUCTED]
         assert len(gates) == 1
         assert gates[0]["resume_from"] == resumed.resume_from.as_record()
-        assert {row["family"] for row in gates[0]["source_admission"]["modules"]} == {"reasoning"}
+        source_admission = gates[0]["source_admission"]
+        assert source_admission["kind"] == "confined_run_reconstruction"
+        assert source_admission["manifest_id"] == registration.manifest_id.value
+        assert source_admission["runtime_identity"] == registration.runtime_identity.as_record()
+        # A reasoning Episode is ordinary admitted Target Workflow code, not
+        # a privileged source family with its own continuation engine.
+        assert {row["family"] for row in source_admission["modules"]} == {"target"}
+        assert {row["local_id"] for row in source_admission["modules"]} == {
+            node.local_id for node in inputs.plan.nodes
+        }
         assert gates[0]["activation_admission"]["previous_executor"]["stopped"]
         assert gates[0]["activation_admission"]["current_authority"]["launch_approval_ref"]
         assert not any(event.kind is RunEventKind.EPISODE_STARTED for event in suffix)

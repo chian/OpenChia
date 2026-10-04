@@ -6,6 +6,11 @@ import json
 from typing import Any
 
 
+ACTIVE_BUILD_STATES = frozenset({"starting", "continuing", "building", "refining", "validating", "cancel_requested"})
+ACTIVE_RUN_STATES = frozenset({"starting", "continuing", "running", "cancel_requested"})
+RESUMABLE_RUN_STATES = frozenset({"interrupted", "resource_limited", "cancelled", "cancelled_before_claim"})
+
+
 _HELP_TEXT = (
     "OpenChia controls:\n"
     "  /episode          browse Architecture and Materialized Specification\n"
@@ -88,7 +93,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
     counts = progress.get("counts") or {}
     run = status.get("run") or {}
     run_state = str(run.get("state") or "not_started")
-    if build_state in {"starting", "continuing", "building", "refining", "validating", "cancel_requested"}:
+    if build_state in ACTIVE_BUILD_STATES:
         emitted = int(counts.get("episodes_emitted") or 0)
         total = int(counts.get("episodes_total") or 0)
         stage = str(progress.get("stage") or build_state)
@@ -107,17 +112,22 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
             f" · {emitted}/{total} · {stage}"
         )
     if build_state == "verified":
-        if run_state in {"starting", "running", "cancel_requested"}:
+        if run_state in ACTIVE_RUN_STATES:
             return (
                 f"Architecture r{revision} · approved\n"
                 f"Run · {run_state} · /run status · /stop"
             )
-        if run_state in {"succeeded", "failed", "cancelled"}:
+        if run_state in RESUMABLE_RUN_STATES:
+            return (
+                f"Architecture r{revision} · approved\n"
+                f"Run · {run_state} · /run status · /run continue"
+            )
+        if run_state in {"succeeded", "failed", "invalid", "blocked"}:
             return (
                 f"Architecture r{revision} · approved\n"
                 f"Run · {run_state} · /run evidence · /logs"
             )
-        if run_state in {"cancelled_before_claim", "host_error"}:
+        if run_state in {"ownership_unknown", "host_error"}:
             return (
                 f"Architecture r{revision} · approved\n"
                 f"Run · {run_state} · /run status"

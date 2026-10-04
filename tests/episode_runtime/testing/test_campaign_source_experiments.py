@@ -217,7 +217,7 @@ async def test_campaign_source_requires_episode_experiment_and_preserves_its_ide
         })
         await host(child_id, child, "begin_unit", {"role": "support"})
         finding = _finding(session, child, {"finding": {"check_keys": [check.artifact_id.value]}}, session.contract.producer_ref)
-        prepared = await evaluations.evaluate(session, child, {
+        prepared = await host(child_id, child, "evaluate", {
             "unit_id": child.unit_id.value, "purpose": "support",
             "proposal_ref": finding["proposal_ref"],
         })
@@ -303,7 +303,7 @@ async def test_campaign_source_requires_episode_experiment_and_preserves_its_ide
         assert evaluations.executor.calls == 0
         source_calls = []
 
-        def source_model(route, key, call, cancel, progress):
+        def source_model(route, key, call, cancel, progress, activity=None, *, report_client):
             prompt = json.loads(call.messages[-1]["content"])
             source_calls.append(prompt)
             response = attempt() if "selected_action" in prompt else {
@@ -314,7 +314,7 @@ async def test_campaign_source_requires_episode_experiment_and_preserves_its_ide
 
         monkeypatch.setattr("agent.episode_launch_transport._invoke", source_model)
         payload = {"unit_id": child.unit_id.value, "experiment_proposal_ref": admitted["experiment_proposal_ref"]}
-        received = await evaluations.evaluate(session, child, payload)
+        received = await host(child_id, child, "evaluate", payload)
         result = received["experiment_result"]
         assert result["execution_status"] == "succeeded", result
         assert result["candidate_verdict"] == "pass", result["measurement"]
@@ -359,7 +359,7 @@ async def test_campaign_source_requires_episode_experiment_and_preserves_its_ide
                 query={"kind": "units"},
             )
         calls_before = len(source_calls)
-        again = await evaluations.evaluate(session, child, payload)
+        again = await host(child_id, child, "evaluate", payload)
         assert again["experiment_result"] == result
         assert len(source_calls) == calls_before and evaluations.executor.calls == 1
         assert ExperimentService.status(artifacts, runs, spec.experiment_id)["run_id"] == result["run_id"]

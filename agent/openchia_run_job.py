@@ -113,7 +113,9 @@ def start_run(host, *, continuing=False) -> dict[str, Any]:
                 provenance=DuetProvenance.HUMAN_INPUT.value,
                 record={
                     "registration": registration.as_record(),
-                    "owner": owner_record(),
+                    # A continuation request is not ownership of its predecessor.
+                    # RunExecution acquires the successor's fenced lease.
+                    "requester" if continuing else "owner": owner_record(),
                     "intent_ref": intent_ref,
                     "run_id": registration.run_id.value,
                     "registration_hash": (

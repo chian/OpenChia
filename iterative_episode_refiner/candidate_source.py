@@ -175,7 +175,7 @@ def _inputs(store, contract, candidate, builder, binding=None):
     attempt = BuildAttempt(
         build_request_id=request.build_request_id,
         materializer=materializer,
-        nonce=content_id("source_admission", {"request": request.build_request_id.value}).value,
+        nonce=content_id("source_admission", {"request": request.build_request_id.value}).value.removeprefix("source_admission_"),
     )
     plan = replace(
         projection.plan,

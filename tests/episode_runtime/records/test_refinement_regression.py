@@ -9,6 +9,7 @@ import pytest
 
 from agent.duet_contracts import content_id
 from agent.episode_launch import resolve_launch
+from episode_runtime.protocol import episode_id_for_path
 from episode_runtime.records.experiments import put_data
 from episode_runtime.testing.service import ExperimentService
 from function_library.refinement_contract import CHILDREN
@@ -131,13 +132,16 @@ async def test_admitted_cross_child_regression_is_visible_without_audit_reconstr
             session.commit(
                 parent, "enter_child", {"invocation_id": invocation_id.value}
             )
-            return Invocation(
+            call = Invocation(
                 invocation_id,
                 assignment,
-                parent.path,
+                (*parent.path, (session.nodes[role].grain_name, invocation_id.value)),
                 parent.goal,
                 unit_id=content_id("unit", invocation_id.value),
             )
+            path = [{"grain": grain, "key": key} for grain, key in call.path]
+            session.calls[episode_id_for_path(session.registration.logical_run_id, path).value] = call
+            return call
 
         designer = child(root, "designer", 0, keys)
         plan = session.record(
@@ -193,10 +197,12 @@ async def test_admitted_cross_child_regression_is_visible_without_audit_reconstr
             session.commit(active, "apply_change", {"change": change.as_record()})
             with session.view() as view:
                 candidates.append(view.candidate.ref.as_record())
-            prepared = await session.evaluations.evaluate(
-                session,
-                active,
-                {
+            path = [{"grain": grain, "key": key} for grain, key in active.path]
+            prepared = await session.exchange(
+                episode_id=episode_id_for_path(session.registration.logical_run_id, path),
+                episode_path=path,
+                operation="evaluate",
+                payload={
                     "unit_id": active.unit_id.value,
                     "purpose": "local",
                 },

@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from agent.build_refinement import BuildRefinement
 from agent.duet_contracts import DuetProvenance, content_id
-from agent.episode_launch_host import resolve_approved_launch
+from agent.episode_launch_host import resolve_approved_launch, resolved_launch_record
 from agent.openchia_build_continue import restore_binding
 from agent.openchia_build_job import run_build_job
 from agent.openchia_build_recovery import BuilderResponses, owner_record, requested_jobs, require_owner_stopped
@@ -53,6 +53,13 @@ def continue_builder(host, predecessor):
     responses = None if existing is not None else BuilderResponses(host, builder, predecessor, live, request)
     if existing is None:
         host.build_store.put_build_request(request)
+        # One successor request has one launch identity even if publication is
+        # retried. Its environment facts describe this host, not its predecessor.
+        launch_id = content_id("model_launch", {"build_request_id": request.build_request_id.value}).value
+        launch_record = resolved_launch_record(
+            launch, selection=launches[0], launch_id=launch_id,
+            kind="build", subject_id=request.build_request_id.value,
+        )
         link = {
             "predecessor_build_request_id": predecessor.build_request_id.value,
             "build_request_id": request.build_request_id.value,
@@ -76,8 +83,7 @@ def continue_builder(host, predecessor):
                 "event_type": "model_launch_resolved",
                 "provenance": DuetProvenance.HOST_VALIDATION.value,
                 "record": {
-                    **launches[0], "subject_id": request.build_request_id.value,
-                    "launch_id": content_id("model_launch", {"build_request_id": request.build_request_id.value}).value,
+                    **launch_record,
                     "continued_from_launch_id": launches[0]["launch_id"],
                 },
             }),
@@ -87,7 +93,7 @@ def continue_builder(host, predecessor):
         )
         if not created:
             return host.build_status()
-        live.launch_id = content_id("model_launch", {"build_request_id": request.build_request_id.value}).value
+        live.launch_id = launch_id
     host._build_request = request
     host._build_attempt_id = None if existing is None else existing.build_attempt_id
     host._build_receipt, host._build_baseline = existing, host.workspace.current_baseline()

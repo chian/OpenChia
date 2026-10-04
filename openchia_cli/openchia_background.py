@@ -85,6 +85,17 @@ class OpenChiaBackgroundDuetsMixin:
             from openchia_cli.cli_model_switch_mixin import stored_session_route
             from openchia_cli.runtime_provider import resolve_runtime_provider
 
+            raw = session_meta.get("model_config")
+            try:
+                saved_config = json.loads(raw) if isinstance(raw, str) else raw
+            except json.JSONDecodeError as exc:
+                raise ValueError("The background Duet's saved model configuration is invalid JSON.") from exc
+            if saved_config is None:
+                saved_config = {}
+            if not isinstance(saved_config, dict):
+                raise ValueError("The background Duet's saved model configuration must be an object.")
+            # This new agent has no current route. Empty values prevent the
+            # shared resolver from treating the foreground route as restored.
             saved = stored_session_route(session_meta, current_model="", current_provider="")
             if saved is None:
                 raise ValueError("The background Duet has no saved model route.")
@@ -94,8 +105,6 @@ class OpenChiaBackgroundDuetsMixin:
             )
             if api_mode:
                 runtime["api_mode"] = api_mode
-            raw = session_meta.get("model_config") or {}
-            saved_config = json.loads(raw) if isinstance(raw, str) else raw
             route = {"model": model, "runtime": runtime,
                      "request_overrides": saved_config.get("request_overrides")}
         runtime = route["runtime"]
@@ -360,6 +369,8 @@ class OpenChiaBackgroundDuetsMixin:
         self._run_background_duet_turn(context, prompt)
 
     def _list_background_duets(self) -> None:
+        from .openchia_commands import ACTIVE_BUILD_STATES, ACTIVE_RUN_STATES, RESUMABLE_RUN_STATES
+
         with self._background_duets_lock:
             contexts = sorted(
                 self._background_duets.values(),
@@ -388,20 +399,12 @@ class OpenChiaBackgroundDuetsMixin:
             build_state = str(
                 (host_status.get("build") or {}).get("state") or "not_started"
             )
-            if not running and run_state in {
-                "starting",
-                "running",
-                "cancel_requested",
-            }:
+            if not running and run_state in ACTIVE_RUN_STATES:
                 state = f"run:{run_state}"
-            elif not running and build_state in {
-                "starting",
-                "building",
-                "refining",
-                "validating",
-                "cancel_requested",
-            }:
+            elif not running and build_state in ACTIVE_BUILD_STATES:
                 state = f"build:{build_state}"
+            elif not running and run_state in RESUMABLE_RUN_STATES | {"ownership_unknown", "host_error"}:
+                state = f"run:{run_state}"
             if context.last_error:
                 state = "error"
             queued = len(context.pending_prompts)
@@ -409,6 +412,10 @@ class OpenChiaBackgroundDuetsMixin:
             lines.append(
                 f"  #{context.ordinal} {context.duet_id} · {state}{queue_note} · {duet_state}"
             )
+            if state == f"run:{run_state}" and run_state in RESUMABLE_RUN_STATES:
+                lines.append(f"    /bg {context.duet_id} run continue · /bg {context.duet_id} run status")
+            elif state == "run:ownership_unknown":
+                lines.append(f"    /bg {context.duet_id} run status")
         lines.append("Continue one with: /bg DUET_ID send TEXT")
         self._print_openchia("\n".join(lines))
 

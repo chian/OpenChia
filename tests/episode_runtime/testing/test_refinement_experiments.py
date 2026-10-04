@@ -18,6 +18,7 @@ from episode_runtime.records.experiments import put_data, read_record
 from episode_runtime.testing.contracts import ExperimentSpec
 from episode_runtime.testing.service import ExperimentService
 from iterative_episode_refiner.execution import execute_refinement
+from iterative_episode_refiner.runtime import RefinementSession
 from llm_call_library.transport import ModelTransportResponse
 from function_library.scheduling_benchmark import optimal_schedule, violations
 from tests.episode_runtime.conftest import oid
@@ -94,17 +95,17 @@ async def test_refiner_designs_shared_experiment_and_parent_receives_measured_fa
             session.registration.build_receipt_id
         )
         proposals, parent_prompts = [], []
-        evaluate = evaluations.evaluate
+        exchange = RefinementSession.exchange
         repeated = []
 
-        async def resend_request(session, call, payload):
-            first = await evaluate(session, call, payload)
-            if "experiment_proposal_ref" not in payload:
+        async def resend_request(session, **arguments):
+            first = await exchange(session, **arguments)
+            if arguments["operation"] != "evaluate" or "experiment_proposal_ref" not in arguments["payload"]:
                 return first
             with session.view() as view:
                 head = dict(view.head)
             calls = evaluations.executor.calls
-            second = await evaluate(session, call, payload)
+            second = await exchange(session, **arguments)
             assert second == first
             assert evaluations.executor.calls == calls
             with session.view() as view:
@@ -116,7 +117,7 @@ async def test_refiner_designs_shared_experiment_and_parent_receives_measured_fa
             repeated.append(second["experiment_result"]["experiment_id"])
             return second
 
-        evaluations.evaluate = resend_request
+        monkeypatch.setattr(RefinementSession, "exchange", resend_request)
 
         async def refiner_model(request):
             prompt = json.loads(request.messages[-1]["content"])

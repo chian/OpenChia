@@ -126,16 +126,20 @@ def _publish_result(host, request, initial, receipt, result, state, error, *, co
     receipts = {
         item.receipt_id.value for item in (initial, receipt) if item is not None
     }
+    run_id = None if continued_job is None else latest_job_run(host, continued_job)
+    # Setup can be cancelled before the first dispatch. Publish the initial
+    # receipt-to-job result then, never an attempt indexed by a nonexistent Run.
+    per_attempt = continued_job is not None and run_id is not None
     artifacts = []
     for receipt_id in sorted(receipts):
         artifacts.append(artifact_fields(
-            "build_job_result" if continued_job is None else "build_job_result_attempt",
+            "build_job_result_attempt" if per_attempt else "build_job_result",
             duet_id=host.identity.duet_id.value,
             build_receipt_id=receipt_id,
-            **({} if continued_job is None else {"run_id": latest_job_run(host, continued_job)}),
+            **({"run_id": run_id} if per_attempt else {}),
             record=record,
         ))
-        if continued_job is not None and read_record(
+        if per_attempt and read_record(
             host.store, "build_job_result", build_receipt_id=receipt_id
         ) is None:
             # A crash can precede the initial job's report; a newly accepted
@@ -252,6 +256,10 @@ def run_build_job(
     except asyncio.CancelledError:
         state = "cancelled"
         initial = receipt = host._build_receipt
+        if existing_receipt is not None:
+            saved_job = read_record(host.store, "build_job", build_request_id=request.build_request_id.value)
+            if saved_job is not None:
+                continued_job = saved_job["record"]
         _publish_result(host, request, initial, receipt, None, state, None, continued_job=continued_job)
     except Exception as exc:
         state, error = "host_error", _describe_exception(exc)

@@ -3,6 +3,11 @@
 In the original Duet, use `/build continue`; use `/build status` to inspect it.
 For an ordinary Target Workflow Run, use `/run continue` and `/run status`.
 For an already open background Duet, use `/bg DUET_ID build continue`.
+Reopening a saved background Duet restores its own model route, not the foreground
+Duet's current route. Credentials are resolved from current provider configuration;
+they are not stored in the session. Invalid saved configuration is reported without
+rewriting the session. `/run status` and background listings distinguish active
+continuation, resumable interruption and unknown ownership.
 `/build` still starts a new job. Continuing preserves completed work and does not
 create a replacement for an already worked refinement campaign.
 
@@ -11,6 +16,10 @@ restores its original Duet model binding with current owning-Duet credentials,
 and resolves the original approved Target Workflow launch configuration. The
 refiner's route and the Target Workflow's launch remain separate. Stored route
 policies are preserved, including absence of a newer recovery policy.
+Each new Builder successor launch records the current host commit, dirty state,
+client package versions and transport source hashes. Only the approved routing
+configuration is reused, never the predecessor's host-environment attestation.
+The successor launch ID is deterministic for retry-safe publication.
 
 The shared execution service verifies that the previous execution owner released
 its exact lease (or its PID and creation time are no longer live), and that the
@@ -35,6 +44,9 @@ affect OpenChia state. Provider-side exactly-once billing is not promised.
 Job results are append-only per physical attempt. A continued success must still
 produce the same independently verified build receipt; continuation itself does
 not discharge requirements, assign credit, or weaken acceptance.
+Cancellation before the first Run dispatch publishes a job result without inventing
+a Run ID or per-Run result. The continuation request records its requester; only
+the execution service's fenced lease establishes ownership of the successor Run.
 
 ## Supported boundaries and current limits
 
@@ -54,6 +66,10 @@ not discharge requirements, assign credit, or weaken acceptance.
   request can run. Local source admission uses deterministic, idempotent Builder
   identities; committed receipts are reused. Nested validation Runs remain
   outside this transaction and reconcile through their own shared dispatches.
+  Source admission still holds the Duet write transaction during local validation,
+  hashing and package publication. This preserves the existing reply/state crash
+  boundary but can delay status reads and contend with another process's writer.
+  Shortening that transaction is deferred, not claimed solved by continuation.
 - Learning commits retain their existing request/ordinal idempotency. Experiment
   requests use their existing immutable intents and dispatches. An unanswered
   HTTP operation is **not** blindly repeated: its external outcome requires
@@ -93,6 +109,9 @@ response ledger is introduced.
 `records/host_operations.py` stores only the host transaction's completion receipt
 in the existing shared artifact registry. `DuetStore.transaction` uses nested
 savepoints, so existing campaign admissions and that receipt commit together.
+An uncaught exception or cancellation rolls back the outer transaction, including
+successful nested writes. If the caller catches an inner exception, only that
+savepoint is rolled back and the outer transaction may continue and commit.
 The common exchange path joins local writer threads before terminal cancellation;
 network/nested execution remains cancellable through the existing executor.
 
@@ -177,6 +196,31 @@ closure preserved byte-for-byte. Later response-disconnect handling
 checks only. The live executions establish nested reconstruction, pending model
 and host-request dispatch, and preservation of admission checks. They do not
 exercise every Builder/public Run recovery boundary or establish successful
-refinement or Target Workflow acceptance. No test suite was run for this review.
+refinement or Target Workflow acceptance. These live receipts predate the focused
+review-follow-up checks below.
 The [shared chronological receipts](unified_episode_test_harness_receipts.md)
 retain these observations and limits.
+
+## Scoped review follow-up verification
+
+The focused follow-up passed **36 tests across 11 files**, with no skips, through
+`scripts/run_tests.sh` using the isolated test environment. Coverage includes:
+
+- The four displaced refinement evaluation files now use `RefinementSession.exchange`,
+  including experiment dispatch and repeated-request checks. This exposed and fixed
+  a deterministic candidate-admission nonce that incorrectly included its ID prefix.
+- Real SQLite nested rollback/commit invariants, claim-before-attempt recovery,
+  current launch provenance and cancellation-result publication.
+- Real background `AIAgent` construction and saved-route reopening, malformed
+  configuration reporting, and foreground/background continuation status rendering.
+  The constructor check also covers removal of the unsupported `auth_mode` and
+  `cache_scope` constructor arguments present before this PR.
+- Both matching and divergent reconstruction through actual Linux systemd-confined
+  workers. Fault injection changes one in-memory replay response; the resulting
+  mismatched worker request is rejected as `invalid` before activation, a new model
+  call or credit. Original audit and evidence remain unchanged.
+
+These are continuation infrastructure checks, not another live reasoning acceptance
+run. Supplied model responses in the harness do not establish refinement quality.
+Other OS validation, transaction-duration redesign and PR #33's refinement acceptance
+remain outside this follow-up. Ruff and whitespace checks passed for the changed set.

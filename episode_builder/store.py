@@ -324,15 +324,21 @@ class BuildStore:
                 "attempt_claims",
                 value.build_request_id,
             )
-            self._publish(
-                claim_path,
-                _canonical_bytes(
-                    {
+            # A crash may publish the claim before the attempt. Identical bytes
+            # may finish that attempt; another attempt still needs a fresh nonce.
+            try:
+                self._publish(
+                    claim_path,
+                    _canonical_bytes({
                         "build_request_id": value.build_request_id.value,
                         "build_attempt_id": value.build_attempt_id.value,
-                    }
-                ),
-            )
+                    }),
+                )
+            except BuildArtifactConflictError as exc:
+                raise BuildArtifactConflictError(
+                    "approved build request nonce has already been consumed by another attempt; "
+                    "mint a fresh request nonce"
+                ) from exc
             return self._put_record(
                 "attempts",
                 value.build_attempt_id,
