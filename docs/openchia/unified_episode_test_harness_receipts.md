@@ -13,6 +13,87 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live Measure inspection, 2026-10-04 16:54 UTC: response received, revision still unusable
+
+Successor Run `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
+committed its reissued model response at event 4, response hash
+`sha256:39b8b17f47165b447950b53ff1353d8d7543792f636403751b2ceb6c2d0ddd02`.
+The response has 63,662 characters and invalid JSON at character 9,509.
+OpenChia rejected it for zero yield and automatically requested another Measure
+iteration at event 14; the next context retains the actual response and exact
+parse error. No manual stage dispatch, candidate edit or replacement Run was
+used. No measure admission or Target Workflow execution occurred.
+
+Direct inspection of the supplied assignment, original check, independent
+review, revisions and host admission code shows:
+
+- All twelve behavioral requirements are assigned together, and admission
+  requires the proposal's requirement set to match exactly.
+- The independent review identified real gaps, including mismatched request
+  hashes, stale receipt selection and missing transition-to-yield linkage.
+  The revised output attempts to correct these; rejection is not evidence that
+  the model ignored the review.
+- Six predecessor revisions (events 799, 810, 821, 832, 843 and 854) and this
+  response all fail JSON parsing. The loop has not produced a usable revision.
+- The latest response explicitly uses the optimality checker on every retained
+  answer to check field encoding, acknowledging a stronger condition than the
+  frozen first-answer acceptance measure.
+
+The development checkout now adds `parse_json` to the existing pure record
+condition language, exposed through registered predicate provenance, with no
+new runner or criterion. Missing data remains inconclusive; malformed or
+nonfinite JSON fails. This allows separate representation and correctness
+checks in subsequent executions. It does not fix proposal syntax or split the
+assignment, is not hot-applied to this Run, and has no live validation claim.
+No additional behavioral tests were run for this preparation.
+Python syntax, JSON document parsing and whitespace checks pass. PR #36 was
+merged and fast-forwarded into the development branch at `2516a9c792`; the live
+checkout and its frozen model binding remain unchanged.
+
+### Live build continuation, 2026-10-04 16:46 UTC: exact Measure request resumed
+
+The same `continue_build()` call progressed to native successor Run
+`run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`.
+Its `run_reconstructed` event 2 records 479 matched worker frames, zero remaining
+frames, no divergence and the original root → Designer → Measure stack. Source
+and current authority were checked, including that the previous executor was
+stopped. The subsequent `model_requested` event reuses the exact interrupted
+request ID and hash
+`sha256:52aa9c2cb75fbc2286a5caea6554dbb01f6ce9ed45f1a850f315da1a25b9f604`.
+No completed historical model calls were resubmitted to reach this point.
+
+Read-only connection observations show incoming bytes increasing from 130,590
+to 139,941 over approximately fourteen seconds, then to 609,134 at 16:46:46 UTC.
+This is actual transport activity, not inference from a pending-request record.
+The new Run has no completed model response or Target Workflow experiment at
+this observation. Reaching the interrupted call demonstrates real nested
+continuation; it does not establish an admitted measure, accepted repair,
+absence of later duplicate credit, or scheduling acceptance. The pinned source
+is unchanged; subsequent PR #35 audit-read optimization and PR #36 review
+corrections are not part of this running execution.
+
+### Live build continuation, 2026-10-04 16:33 UTC: preparation in progress
+
+The ordinary `OpenChiaHost.continue_build()` entry was invoked once for the saved
+job and experiment below, using pinned source
+`b6ae19fe9625c70d65df72003c003d744404ff8c`. No fresh Builder attempt or campaign
+was manually substituted. Its owner process remains active. The existing
+RunStore has completed the predecessor's terminal-evidence publication:
+`run_evidence_7d1dfe3f5dd7c24b844dd1c0faa74b132c9635d2ff1e141a1244205baeea1fd0`,
+hash `sha256:94692e0bff312657ad558a9319df2f4f90332b1e38f7cc341c848f5365e8469b`.
+The compact `openchia test run-record` view is now current and still records
+866 events, 48 model requests, 47 responses and `cancelled`, with the same
+terminal event/hash. No successor worker is registered at this observation.
+
+This establishes interrupted terminal-publication recovery, not successful
+execution continuation, Target Workflow correctness or acceptance. The host
+includes the reviewed health transport, but restores the original model binding
+without adding its new default policy; this historical execution has probes
+disabled. Live health recovery remains unverified. The running checkout is not
+being edited. The five CLI JSON input readers were separately corrected in the
+development checkout for UTF-8 BOM compatibility; the repository Windows-footgun
+check passes, with no additional behavioral suite run.
+
 ### Live one-start retry with rejected-output feedback and event comparisons, 2026-10-04 UTC: operator-cancelled
 
 Latest status: the user requested stopping the unanswered model call 48.
@@ -20,7 +101,7 @@ Cancellation was requested at 16:01:40 UTC. The Run committed `cancelled` at
 event 865: 866 events, 48 model requests and 47 responses. The exact systemd
 worker was stopped and verified inactive. Caller cleanup did not finish
 normally; SIGTERM was required and the caller exited 143. A finalized build-job
-result is not confirmed. No replacement has started, and there is no acceptance
+result was not confirmed. No replacement had started at cancellation, and there is no acceptance
 pass. Separate continuation and health-recovery work does not retroactively
 change this evidence. The following records describe the attempt before that
 cancellation.
@@ -32,8 +113,13 @@ finished. Attempt
 `build_attempt_b13c99713da8d9ef939a4ab98b981e508edd809d7ab5781e6528941f3dd11362`
 produced receipt
 `build_receipt_32331f0147a3d66bc89752be5e0424ae48d31f3f505fc23c6b796511fb928428`,
-with two findings, zero Episodes planned and zero modules emitted. Exact diagnoses
-are not yet recorded here. The materialized specification is
+with two findings, zero Episodes planned and zero modules emitted. The findings
+are `planning_failed` (`prompt_specs[0].response_contract must be non-empty text`)
+and `missing_module`. Committed model-call evidence
+`build_model_call_1043fdc99e1ed22fe015a7b187cddaa07fcd7889d34046ce6c2a77f48f1c71ad`
+retains the unadmitted response: both prompt response contracts are JSON-schema
+objects, not the strings required by plan admission. This is a plan-format
+failure, not a scheduling correctness verdict. The materialized specification is
 `materialized_specification_cb245a4678041ace3674f3f268364e0224cf6ef8e42aa12d7f017171731b790b`,
 the baseline is
 `refinement_baseline_f9dc85a7e79b057856499bf1d5407110885d7e75070d7b793a65977856bbdf71`,

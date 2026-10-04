@@ -1293,6 +1293,34 @@ the optimality argument. Those require their own adequate measurements. Choose
 the pointer for the actual typed return; do not assume this illustrative field
 exists in every Episode result.
 
+For JSON encoded inside a string-valued result field, the registered
+`record_conditions_v1` language also provides `parse_json`. For example, this
+condition checks only that an observed record's `schedule` field encodes an
+object:
+
+```json
+{
+  "op": "parse_json",
+  "value": {"path": "/schedule"},
+  "condition": {"op": "type", "value": {"path": ""}, "expected": "object"}
+}
+```
+
+Nested conditions inspect the decoded value; `parent_path` addresses the
+original containing record and `root_path` retains the original observation.
+Missing fields are inconclusive. Non-string, malformed or nonfinite JSON fails.
+Use ordinary nested type/comparison conditions to check further requirements,
+such as an integer greater than or equal to zero. This does not repair malformed
+model output, change stored evidence, or establish schedule feasibility or
+optimality. Do not use a correctness predicate merely to check representation:
+that can impose stronger requirements than the assigned contract.
+
+The language is exposed in predicate provenance through the same `describe`
+catalog and Measure input. This addition changes the exact predicate definition
+identity; it cannot be silently substituted into an existing frozen selection.
+It is prepared for subsequent executions, not demonstrated by the currently
+pinned acceptance Run.
+
 Registration returns `requirement_ref` and `measure_ref`. Put those exact references
 into an experiment's `requirements`, alongside its predicted `expected` and
 `falsifying` text. Predictions are separate from the criterion's `expected_value`.

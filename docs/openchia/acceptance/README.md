@@ -1,19 +1,59 @@
 # Scheduling acceptance — static source repair demonstrated; behavioral acceptance pending
 
-Latest status, 2026-10-04: the user requested cancellation after model call 48
+Latest status, 2026-10-04 16:54 UTC: the normal `OpenChiaHost.continue_build()`
+entry has started successor Run
+`run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
+for the same saved job and experiment. Event 2 records 479 matched worker frames,
+zero remaining frames and no divergence, with the original root → Designer →
+Measure stack restored. Event 3 reissues the exact unanswered Measure request:
+its request hash matches the predecessor's pending request. Event 4 now contains
+the completed 63,662-character model response. It is malformed JSON at character
+9,509, in the nested event-provenance condition, and was rejected for zero credit.
+This is the seventh consecutive malformed revision after the same independent
+review. Event 14 is OpenChia's automatic next Measure request, carrying the exact
+rejected response and parse error. There is still no admitted measure or Target
+Workflow experiment. Continuation restored the actual loop; it did not correct
+that loop's repeated check-design failure.
+
+Continuation also completed the cancelled Run's missing terminal-evidence
+publication, preserving its 866 events and `cancelled` status. The pinned host
+source is `b6ae19fe9625c70d65df72003c003d744404ff8c`; later audit-read and
+health-transport revisions are not applied to this running checkout. The saved
+model binding predates health policies, so exact restoration leaves probing
+disabled for this continuation.
+
+Reading the actual prompt and output shows that the parent assigned all twelve
+behavioral requirements together; check-design admission requires exactly that
+set. The input is 391,195 characters across its system/user messages, not a
+measured token count. The revisions address real review findings (request hashes,
+final-receipt selection and admitted-transition linkage), but regenerate the
+whole check bundle. The latest revision also applies the optimality predicate to
+every retained answer to check JSON field encoding, expressly acknowledging that
+this is stricter than the frozen first-answer correctness criterion. These are
+system-interface findings, not evidence that the Target Workflow has failed its
+scheduling task. Generic JSON decoding has now been prepared in the development
+checkout's shared record-condition predicate so representation and correctness
+can be tested separately. It is not active in this Run, does not repair malformed
+proposal JSON, and does not solve the broad assignment/revision problem.
+
+Predecessor status: the user requested cancellation after model call 48
 remained unanswered. The Run is durably `cancelled` at event 865 (866 events;
 48 model requests, 47 responses). The exact systemd worker is inactive. Caller
 cleanup did not finish normally; after stopping that worker, the caller required
 SIGTERM and exited 143. A finalized build-job result is not confirmed. No
-replacement has started. Builder/Refiner continuation and model-call health
-recovery are being developed separately; neither is demonstrated by this Run.
+replacement had started at cancellation. Continuation and model-call health
+recovery are separate changes; neither is demonstrated by the cancelled Run.
 There is no acceptance pass.
 
 Attempt history, 2026-10-04: one normal `OpenChiaHost.start_build` started
 `build_request_f909ff82826ee4882064ba7b425d83278be6ca9aafc6d6e5bd38a45ad9f0613d`
 after the preceding Run and caller cleanup finished. Builder reported two
-findings, with zero Episodes planned or modules emitted; their exact diagnoses
-are not yet recorded here. The same start automatically entered native Run
+findings, with zero Episodes planned or modules emitted: `planning_failed`
+because `prompt_specs[0].response_contract` was an object instead of nonempty
+text, and `missing_module`. The committed model response contains JSON-schema
+objects in both prompt response-contract fields; this is a plan-format failure,
+not evidence that the approved scheduling problem lacks a solution. The same
+start automatically entered native Run
 `run_358b0b188f2732c49a60c6d304d8309705e611b325cd6c822d0ad771a1347edf`.
 It entered refinement. A 49,474-character check-design response failed JSON parsing;
 the following repair context contains that exact rejected output, marked
@@ -59,10 +99,11 @@ cancellation, restart, source edit or extra test had yet been performed.
 The subsequent cancellation is recorded above. No measure was admitted, source repaired, or Target
 Workflow experiment run; there is no acceptance pass. Generic `parse_json` and
 guidance separating immediate child contribution from whole-parent acceptance,
-and bounded, scoped retrieval of prior review findings are prepared across four
-files only in a separate repair checkout. Historical findings are not current
-admission. The changes are untested, not integrated, and not active or demonstrated
-in this Run; no gate, credit or criterion is changed.
+and bounded, scoped retrieval of prior review findings were initially prepared
+across four files in a separate repair checkout. Historical findings are not current
+admission. The JSON-decoding addition is now also in the development checkout;
+the other three changes remain unintegrated. None is active or demonstrated in
+this Run; no gate, credit or criterion in the Run is changed.
 The approved Target Workflow and model configuration are unchanged. No candidate
 edits, check expectations or thresholds were supplied manually. Only Ruff and
 whitespace checks preceded the new real cycle; no tests were run.

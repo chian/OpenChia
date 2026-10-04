@@ -304,7 +304,7 @@ class ExperimentService:
             raise ValueError(
                 "launch_ref must name a resolved launch; use openchia test register-launch"
             )
-        launch = resolve_launch(launch_record["requested_spec"])
+        launch = resolve_launch(launch_record["requested_spec"], frozen_record=launch_record)
         if launch.record != launch_record:
             raise ValueError(
                 "launch settings changed; register a new launch and fork the experiment"
@@ -326,6 +326,7 @@ class ExperimentService:
             duet_id or inputs.build_request.frozen_workflow.duet_id.value,
             configuration_hash=launch.configuration_hash,
             model_types=required,
+            frozen_record=launch_record,
         )
         return launch
 

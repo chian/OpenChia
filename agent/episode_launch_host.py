@@ -11,7 +11,7 @@ from agent.episode_launch import LaunchConfigurationError, read_launch_spec, res
 from agent.episode_launch_transport import LaunchModelTransport
 
 
-def resolve_approved_launch(store, duet_id, *, configuration_hash=None, model_types=()):
+def resolve_approved_launch(store, duet_id, *, configuration_hash=None, model_types=(), frozen_record=None):
     """Resolve the current human-approved launch for any host execution entry."""
     events = store.events(duet_id)
     selections = [event for event in events if event["event_type"] == "launch_configuration_selected"]
@@ -22,7 +22,19 @@ def resolve_approved_launch(store, duet_id, *, configuration_hash=None, model_ty
     spec = selection["spec"]
     if selection["mode"] == "resolve":
         spec = read_launch_spec(spec["source_file"])
-    launch = resolve_launch(spec)
+    if frozen_record is None and configuration_hash is not None:
+        recorded = [
+            event["record"]["configuration"] for event in events
+            if event["event_type"] == "model_launch_resolved"
+            and event["record"]["configuration_hash"] == configuration_hash
+        ]
+        if recorded:
+            frozen_record = recorded[-1]
+    if frozen_record is not None:
+        frozen_hash = Sha256Digest.of_bytes(canonical_json(frozen_record).encode()).value
+        if configuration_hash is None or frozen_hash != configuration_hash:
+            raise LaunchConfigurationError("Frozen launch record requires its exact requested configuration hash")
+    launch = resolve_launch(spec, frozen_record=frozen_record)
     if (
         not approvals
         or approvals[-1]["provenance"] != DuetProvenance.HUMAN_APPROVAL.value
@@ -242,6 +254,7 @@ class EpisodeLaunchHostMixin:
         launch_id = f"model_launch_{uuid.uuid4().hex}"
         source_root = Path(__file__).resolve().parents[1]
         paths = ("agent/episode_launch.py", "agent/episode_launch_host.py", "agent/episode_launch_transport.py",
+                 "agent/model_call_recovery.py", "agent/model_call_recovery_policy.py",
                  "agent/auxiliary_client.py", "agent/codex_responses_adapter.py", "agent/anthropic_adapter.py")
         from openchia_cli.version_info import get_version_info
         from importlib.metadata import PackageNotFoundError, version

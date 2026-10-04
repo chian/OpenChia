@@ -1,5 +1,55 @@
 {
-  "status": "target_and_launch_approved_refiner_run_cancelled_tester_unapproved",
+  "status": "target_and_launch_approved_build_continuation_in_progress_tester_unapproved",
+  "continuation_observation": {
+    "observed_at": "2026-10-04T16:54:47Z",
+    "entry": "OpenChiaHost.continue_build",
+    "source_commit": "b6ae19fe9625c70d65df72003c003d744404ff8c",
+    "source_checkout": "/home/chia/repos/OpenChia-continue-live-hHDLek30",
+    "process_id": 2820540,
+    "state": "measure_response_rejected_automatic_next_iteration_started",
+    "predecessor_run_id": "run_358b0b188f2732c49a60c6d304d8309705e611b325cd6c822d0ad771a1347edf",
+    "recovered_terminal_evidence_ref": {
+      "artifact_id": "run_evidence_7d1dfe3f5dd7c24b844dd1c0faa74b132c9635d2ff1e141a1244205baeea1fd0",
+      "content_hash": "sha256:94692e0bff312657ad558a9319df2f4f90332b1e38f7cc341c848f5365e8469b"
+    },
+    "new_physical_run_id": "run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f",
+    "reconstruction": {
+      "event_id": "run_event_f6b98b95e41540bd9d7d346a510fe531ce648cf4cf84c35e0c3f2287292f1c1e",
+      "event_hash": "sha256:5260c177ab224d7a37893412917c8e43d5b62a856cad21e63c2b88b5c14a7fa3",
+      "matched_worker_frames": 479,
+      "remaining_worker_frames": 0,
+      "divergence": null,
+      "active_stack": ["root", "designer", "measure"]
+    },
+    "reissued_model_request_id": "model_request_a7fe6f13254543b43172c19604cc0016393d92bce35289f0252ded44c4076ea8",
+    "reissued_request_hash": "sha256:52aa9c2cb75fbc2286a5caea6554dbb01f6ce9ed45f1a850f315da1a25b9f604",
+    "completed_new_model_responses": 1,
+    "completed_response": {
+      "event_id": "run_event_2895fd3aa076ce07075f1bce90c6c20d97d9404c27f06be7b88f79403cbf69db",
+      "event_hash": "sha256:90b889ffb5ec463fe6f7ef263491b0af4f490d89dcd4579dabf355aa05cdd3b0",
+      "response_hash": "sha256:39b8b17f47165b447950b53ff1353d8d7543792f636403751b2ceb6c2d0ddd02",
+      "characters": 63662,
+      "admitted": false,
+      "reason": "Expecting ',' delimiter: line 1 column 9510 (char 9509)",
+      "realized_yield": 0,
+      "consecutive_malformed_revisions_after_review": 7
+    },
+    "next_automatic_model_request": {
+      "event_sequence": 14,
+      "request_hash": "sha256:626b6561fe0d18d87c7d8f309a3561100dc95f4857214f76cf966ffe31800cb0",
+      "task": "measure"
+    },
+    "target_workflow_experiments": 0,
+    "transport_activity": {
+      "observed_at": "2026-10-04T16:46:46Z",
+      "bytes_received": 609134,
+      "milliseconds_since_last_receive": 47,
+      "limitation": "Incoming network data establishes response activity, not completed reasoning or an admitted measure."
+    },
+    "health_policy": "disabled_by_absence_in_original_frozen_binding",
+    "acceptance_pass": false,
+    "prepared_change": "Shared record_conditions.parse_json is prepared in the development checkout, not this pinned Run. It separates JSON representation checks from answer correctness and changes the exact registered predicate identity. The assignment/revision-size problem remains unresolved; no active contract or candidate was changed."
+  },
   "current_build_job": {
     "source_commit": "9b5d11574afb4ac384bbadee58debcc2fac74d46",
     "source_worktree_changes": [
@@ -55,7 +105,27 @@
       "episodes_planned": 0,
       "modules_emitted": 0,
       "deficit_count": 2,
-      "diagnostic_details": null
+      "diagnostic_details": [
+        {
+          "code": "planning_failed",
+          "detail": "admission-rejected: ValueError: prompt_specs[0].response_contract must be non-empty text",
+          "episode_local_id": "schedule_reasoner",
+          "field_path": "goal"
+        },
+        {
+          "code": "missing_module",
+          "detail": "no emitted module covers this frozen Episode",
+          "episode_local_id": "schedule_reasoner",
+          "field_path": "modules"
+        }
+      ],
+      "planning_response_observation": {
+        "evidence_id": "build_model_call_1043fdc99e1ed22fe015a7b187cddaa07fcd7889d34046ce6c2a77f48f1c71ad",
+        "raw_response_hash": "sha256:b79d1def5c1d1fbdf8f3aeb27471d54a158465c213c0277a4cdcca1730a9cbbc",
+        "response_contract_types": ["object", "object"],
+        "required_type": "nonempty string",
+        "interpretation": "Both prompt response contracts were supplied as JSON-schema objects. The failed admission is a materialization-plan format failure, not a scheduling verdict. No response was manually repaired."
+      }
     },
     "materialized_specification_id": "materialized_specification_cb245a4678041ace3674f3f268364e0224cf6ef8e42aa12d7f017171731b790b",
     "baseline_id": "refinement_baseline_f9dc85a7e79b057856499bf1d5407110885d7e75070d7b793a65977856bbdf71",
@@ -101,7 +171,7 @@
       "execution_bindings": 3,
       "claim_limit": "Only this specific check-design/review context is confirmed absent, not all other history."
     },
-    "prepared_change_not_in_current_run": "Four files are changed only in the separate repair checkout: function_library/record_conditions.py adds generic parse_json; function_library/refinement_contract.py and iterative_episode_refiner/runtime_proposals.py clarify immediate child contribution versus whole-parent acceptance and coherent measurement scope; iterative_episode_refiner/measure_design.py prepares typed prior_review_findings from existing campaign records and committed child reports, scoped to the same Parts owner, authority, purpose and exact requirement set. Retrieval is bounded to eight original review entries with omitted_count and definition/predicate/binding refs, not full control fixtures or an LLM summary. Historical findings are not current authority or admission. All four changes are untested, unintegrated, inactive in main and undemonstrated by this Run; no gate, credit or criterion changes.",
+    "prepared_change_not_in_current_run": "Originally four changes were prepared in the separate repair checkout. The generic parse_json addition in function_library/record_conditions.py is now also in the development branch, with syntax checking but no live validation. The other three changes remain unintegrated: function_library/refinement_contract.py and iterative_episode_refiner/runtime_proposals.py clarify immediate child contribution versus whole-parent acceptance and coherent measurement scope; iterative_episode_refiner/measure_design.py prepares typed prior_review_findings from existing campaign records and committed child reports, scoped to the same Parts owner, authority, purpose and exact requirement set. Retrieval is bounded to eight original review entries with omitted_count and definition/predicate/binding refs, not full control fixtures or an LLM summary. Historical findings are not current authority or admission. None of these changes is active or demonstrated in this Run; no active gate, credit or criterion changes.",
     "recent_format_rejections": [
       {"response_event": 282, "characters": 96379, "json_error_character": 44074, "rejection_event": 284, "credit": 0},
       {"response_event": 293, "characters": 87089, "json_error_character": 37665, "rejection_event": 295, "credit": 0},

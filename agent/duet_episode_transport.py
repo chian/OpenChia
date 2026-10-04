@@ -78,6 +78,9 @@ class DuetEpisodeBinding:
         reasoning = getattr(agent, "reasoning_config", None)
         if reasoning is not None:
             route["reasoning"] = dict(reasoning)
+        from agent.model_call_recovery_policy import resolve_recovery_policy
+
+        route["recovery"] = resolve_recovery_policy(route)
         record = {
             "schema_version": 1,
             "owner_duet_id": owner_duet_id,
@@ -142,7 +145,8 @@ class DuetEpisodeTransport:
         self.record_attempt({**receipt, "state": "started"})
         try:
             text, actual_model = await invoke_pinned_route(
-                route, self.binding.api_key, request, self.cancel, lambda: None
+                route, self.binding.api_key, request, self.cancel, lambda: None,
+                record_activity=lambda details: self.record_attempt({**receipt, **details}),
             )
         except asyncio.CancelledError:
             self.record_attempt({
