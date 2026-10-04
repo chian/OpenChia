@@ -20,7 +20,7 @@ def _describe(_args):
 
 
 def _spec(args):
-    return ExperimentSpec(Path(args.spec).read_text(encoding="utf-8"))
+    return ExperimentSpec(Path(args.spec).read_text(encoding="utf-8-sig"))
 
 
 def _validate(args):
@@ -129,7 +129,7 @@ def _register_measure(args):
 
     with DuetStore(args.duet_store) as artifacts:
         return register_criterion(
-            json.loads(Path(args.file).read_text(encoding="utf-8")),
+            json.loads(Path(args.file).read_text(encoding="utf-8-sig")),
             artifacts=artifacts,
             builds=BuildStore(args.build_store),
             duet_id=args.duet_id,
@@ -208,7 +208,7 @@ def _continue(args):
     from episode_runtime.testing.service import ExperimentService
 
     reference = InterruptedRunRef.from_record(
-        json.loads(Path(args.resume_from).read_text(encoding="utf-8"))
+        json.loads(Path(args.resume_from).read_text(encoding="utf-8-sig"))
     )
     if not Path(args.duet_store).expanduser().is_file() or any(
         not Path(path).expanduser().is_dir()
@@ -246,7 +246,7 @@ def _history(args):
     if args.query is not None:
         if query:
             raise ValueError("use --query or individual history flags, not both")
-        query = json.loads(Path(args.query).read_text(encoding="utf-8"))
+        query = json.loads(Path(args.query).read_text(encoding="utf-8-sig"))
     with DuetStore(args.duet_store) as artifacts:
         return ExperimentService.history(
             artifacts, RunStore(args.run_store), duet_id=args.duet_id,
@@ -278,7 +278,7 @@ def _inventory(args):
     if args.query is not None:
         if query:
             raise ValueError("use --query or individual query flags, not both")
-        query = json.loads(Path(args.query).read_text(encoding="utf-8"))
+        query = json.loads(Path(args.query).read_text(encoding="utf-8-sig"))
     if args.run_id is not None:
         owner = runs.read_registration(OpaqueId(args.run_id)).duet_id.value
         return ExperimentService.inventory(
