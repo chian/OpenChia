@@ -138,6 +138,21 @@ class DuetStore:
                         REFERENCES approvals(approval_id)
                 );
 
+                CREATE INDEX IF NOT EXISTS artifact_history_page
+                    ON artifacts(duet_id, kind, created_at DESC, artifact_id DESC);
+                CREATE INDEX IF NOT EXISTS artifact_episode_history
+                    ON artifacts(duet_id, kind,
+                        json_extract(record_json, '$.episode_id'),
+                        created_at DESC, artifact_id DESC);
+                CREATE INDEX IF NOT EXISTS artifact_recording_history
+                    ON artifacts(duet_id, kind,
+                        json_extract(record_json, '$.registration_ref.run_id'),
+                        created_at DESC, artifact_id DESC);
+                CREATE INDEX IF NOT EXISTS artifact_experiment_history
+                    ON artifacts(duet_id, kind,
+                        json_extract(record_json, '$.experiment_id'),
+                        created_at DESC, artifact_id DESC);
+
                 CREATE TABLE IF NOT EXISTS refinement_cycles (
                     refinement_id TEXT PRIMARY KEY,
                     duet_id TEXT NOT NULL,
@@ -402,6 +417,45 @@ class DuetStore:
             raise DuetConflictError(
                 f"latest {kind} artifact changed concurrently"
             )
+
+    def artifact_page(
+        self, *, duet_id: str, kinds: tuple[str, ...], limit: int = 20,
+        after: str | None = None, episode_id: str | None = None,
+        recording_run_id: str | None = None,
+        experiment_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Bounded indexed history; no journal scans or decoding unrelated rows."""
+        if not kinds or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("artifact history needs kinds and a limit from 1 to 100")
+        terms = ["duet_id = ?", "kind IN (" + ",".join("?" for _ in kinds) + ")"]
+        values: list[Any] = [duet_id, *kinds]
+        for path, selected in (
+            ("$.episode_id", episode_id),
+            ("$.registration_ref.run_id", recording_run_id),
+            ("$.experiment_id", experiment_id),
+        ):
+            if selected is not None:
+                terms.append(f"json_extract(record_json, '{path}') = ?")
+                values.append(selected)
+        with self._lock:
+            if after is not None:
+                cursor = self._connection.execute(
+                    "SELECT created_at FROM artifacts WHERE " + " AND ".join(terms)
+                    + " AND artifact_id = ?", (*values, after),
+                ).fetchone()
+                if cursor is None:
+                    raise ValueError("history cursor is outside the selected owner or record kinds")
+                terms.append("(created_at < ? OR (created_at = ? AND artifact_id < ?))")
+                values.extend((cursor["created_at"], cursor["created_at"], after))
+            rows = self._connection.execute(
+                "SELECT * FROM artifacts WHERE " + " AND ".join(terms)
+                + " ORDER BY created_at DESC, artifact_id DESC LIMIT ?",
+                (*values, limit + 1),
+            ).fetchall()
+        return {
+            "items": [self._artifact(row) for row in rows[:limit]],
+            "next_cursor": rows[limit - 1]["artifact_id"] if len(rows) > limit else None,
+        }
 
     def artifacts_by_kind(
         self,

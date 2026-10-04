@@ -1,0 +1,3 @@
+# These worked examples are source-controlled guidance, not generated artifacts.
+!*/examples/
+!*/examples/*.md

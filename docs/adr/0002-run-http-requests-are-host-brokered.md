@@ -4,6 +4,10 @@ Status: Accepted
 
 Implementation: implemented in chian/OpenChia#11 (closes #8).
 
+Related: [ADR 0005](0005-target-workflow-execution-backends.md) supports container
+and systemd execution, with containers as the Target Workflow Run default.
+Both preserve this record's host-brokered requests and host-only credentials.
+
 ## Context
 
 An Episode Run executes in a worker with no network. The systemd backend sets `PrivateNetwork=yes`, the container backend passes `--network none`, and the worker's seccomp filter denies `socket` and `connect`. The only channel out of the sandbox is the stdin/stdout frame pipe to the host.

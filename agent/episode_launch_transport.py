@@ -132,6 +132,19 @@ def _codex_response(client, real, kwargs, progress):
                            choices=[SimpleNamespace(message=SimpleNamespace(content="".join(text)))])
 
 
+async def invoke_pinned_route(route, key, request, cancel, progress):
+    """Call one already-resolved route without provider or account discovery."""
+    from agent.auxiliary_client import AuxiliaryExplicitCancellation
+
+    if cancel.is_set():
+        raise asyncio.CancelledError
+    try:
+        return await asyncio.to_thread(_invoke, route, key, request, cancel, progress)
+    except (AuxiliaryExplicitCancellation, asyncio.CancelledError):
+        cancel.set()
+        raise asyncio.CancelledError from None
+
+
 class LaunchModelTransport:
     def __init__(self, launch: ResolvedLaunch, *, launch_id: str,
                  record_attempt: Callable[[dict], None], cancel_event: threading.Event | None = None,
@@ -144,8 +157,6 @@ class LaunchModelTransport:
         self._record = launch.record
 
     async def __call__(self, request: ModelTransportRequest) -> ModelTransportResponse:
-        from agent.auxiliary_client import AuxiliaryExplicitCancellation
-
         record = self._record
         spec = record["resolved_spec"]
         role = request.call_role or "run"
@@ -173,9 +184,9 @@ class LaunchModelTransport:
             started = time.monotonic()
             self.record_attempt({**receipt, "state": "started", "controls": controls})
             try:
-                text, actual_model = await asyncio.to_thread(
-                    _invoke, route, self.launch.credentials[name], request, self.cancel, self.progress)
-            except (AuxiliaryExplicitCancellation, asyncio.CancelledError):
+                text, actual_model = await invoke_pinned_route(
+                    route, self.launch.credentials[name], request, self.cancel, self.progress)
+            except asyncio.CancelledError:
                 self.cancel.set()
                 self.record_attempt({**receipt, "state": "cancelled", "elapsed_seconds": time.monotonic() - started})
                 raise asyncio.CancelledError from None

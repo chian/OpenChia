@@ -1,0 +1,7 @@
+{
+  "subject": "reasoning",
+  "items": [
+    {"guidance_id": "refiner.reasoning.supported_answer", "version": 1, "title": "Design reasoning around an inspectable answer", "kind": "specialty_instruction", "subject": "reasoning", "roles": ["DesignPart", "RefineParts"], "description": "Separate answer form, evidence, falsification and acceptance from model confidence.", "use_when": "A target must reason to a supported conclusion or an explicit unresolved question.", "do_not_use_when": "The assignment requires deterministic calculation only, or evidence is missing but certainty is demanded.", "body_path": "instructions/supported_answer.md", "source_refs": ["generic-reasoning-reference", "refiner-design-v3"], "validation_status": "source_inspected"},
+    {"guidance_id": "refiner.reasoning.resource_schedule", "version": 1, "title": "Seven-job schedule with a checkable optimum", "kind": "worked_example", "subject": "reasoning", "roles": ["DesignPart", "EstablishMeasure", "VerifyBehavior"], "description": "A real recorded answer reaches makespan 14, with separate feasibility and optimality checks.", "use_when": "Designing inspectable constraint reasoning and independent acceptance; not running this exact benchmark blind.", "do_not_use_when": "Claiming shipped-default stopping, isolated transport, generic refiner success, or independent solving after exposing this answer.", "body_path": "examples/resource_schedule.md", "source_refs": ["scheduling-oracle-reference", "scheduling-live-receipt"], "validation_status": "recorded_live_case"}
+  ]
+}

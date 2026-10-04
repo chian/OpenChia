@@ -9,7 +9,7 @@ from function_library.epistemic_schemas import canonical, identity
 from .contracts import RunEventKind, RunEventOrigin
 
 
-def validate_learning_commit(*, events, origin, episode_id, payload):
+def validate_learning_commit(*, events, origin, episode_id, payload, baseline=None):
     if origin is not RunEventOrigin.HOST_LEARNING or episode_id is None:
         raise ValueError("only the host learning boundary may commit operative state")
     exact(
@@ -39,8 +39,13 @@ def validate_learning_commit(*, events, origin, episode_id, payload):
         for e in events
         if e.kind is RunEventKind.LEARNING_COMMITTED and e.episode_id == episode_id
     ]
-    if receipt["ordinal"] != len(prior_commits):
+    inherited = () if baseline is None else baseline.history
+    if receipt["ordinal"] != len(inherited) + len(prior_commits):
         raise ValueError("learning commits cannot repeat or skip a unit")
+    if baseline is not None:
+        opened = [event for event in events if event.kind is RunEventKind.LEARNING_OPENED and event.episode_id == episode_id]
+        if len(opened) != 1 or canonical(opened[0].payload) != canonical(baseline.policy):
+            raise ValueError("saved learning cannot change its admitted policy")
     audits = [
         e
         for e in events
@@ -75,7 +80,7 @@ def validate_learning_commit(*, events, origin, episode_id, payload):
             for e in reversed(events)
             if e.kind is RunEventKind.LEARNING_COMMITTED
         ),
-        {"records": []},
+        {"records": []} if baseline is None else baseline.state,
     )
     replay = {r["record_id"]: r for r in prior_state["records"]}
     touched = set()
@@ -142,11 +147,12 @@ def validate_learning_commit(*, events, origin, episode_id, payload):
         for key in measurement["identity_ids"]
     ):
         raise ValueError("equivalent knowledge cannot earn credit twice")
-    before = sum(
+    before = (0 if baseline is None else baseline.inherited_credit) + sum(
         e.payload["receipt"]["measurement"]["realized_yield"] for e in prior_commits
     )
     if (
         measurement["credit_before"] != before
         or measurement["credit_after"] != before + realized
+        or (baseline is not None and measurement.get("inherited_credit") != baseline.inherited_credit)
     ):
         raise ValueError("learning credit update does not match durable history")

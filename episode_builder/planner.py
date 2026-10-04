@@ -15,9 +15,9 @@ from agent.episode_contracts import (
     EpisodeDesignSpec,
     EpisodeFunctionSelectionSpec,
     OpaqueId,
-    Sha256Digest,
 )
 from iterative_episode_refiner.contracts import RefinementChangeKind
+from episode_library.refinement import materialization_bindings, resolve_reference
 from function_library import LibraryFunction
 from handoff_library import (
     ADMIT_CHILD_RESULT,
@@ -69,6 +69,11 @@ from ._contract_plan import (
 )
 from .evidence import ModelCallObserver, observe_model_call
 from .reference import EpisodeReferenceContext, EpisodeReferenceResolver
+from .plan_choices import (
+    install_architecture_bindings,
+    materialize_edge_choices,
+    materialize_node_choices,
+)
 
 
 _MODULE_PART = re.compile(r"[^a-z0-9_]+")
@@ -322,11 +327,17 @@ def _admit_plan_payload(value: object) -> dict[str, object]:
 
 
 def _library_functions() -> tuple[LibraryFunction, ...]:
+    from function_library.episode_calls import BUILD_REPEATABLE_CHILD
     from function_library.epistemic import epistemic_function_library
     from function_library.reasoning import reasoning_function_library
+    from function_library.refinement import refinement_function_library
+    from function_library.testing import testing_function_library
     return (
+        BUILD_REPEATABLE_CHILD,
+        *testing_function_library.functions(),
         *epistemic_function_library.functions(),
         *reasoning_function_library.functions(),
+        *refinement_function_library.functions(),
         ADMIT_PARENT_REQUEST,
         ADMIT_CHILD_RESULT,
         ADMIT_DUET_LAUNCH_REQUEST,
@@ -383,6 +394,20 @@ def required_model_types(prompt_specs, bindings) -> set[str]:
         for parameter in function.provenance.get("model_slot_parameters", ()):
             add(binding["arguments"].get(parameter), f"{binding['role']}.arguments.{parameter}")
     return slots
+
+
+def _fixed_controller_functions(node):
+    composer = COMPOSE_INCIDENCE_CONTROLLER
+    refinement = resolve_reference(node.episode_reference)
+    if node.contract.epistemic is not None:
+        from function_library.reasoning import CONTROLLER
+        composer = CONTROLLER
+    elif refinement is not None:
+        composer = refinement.binding.controller.composer
+    return {
+        "controller.composer": composer,
+        "controller.credit": MARGINAL_DOMINATED_HYPERVOLUME,
+    }
 
 
 def _architecture_numeric_bindings(
@@ -458,6 +483,22 @@ def _architecture_numeric_bindings(
                 continuation_function_library.functions(),
             ),
         )
+        bindings += materialization_bindings(node.episode_reference)
+        supplied_roles = {item["role"] for item in bindings}
+        bindings += tuple(
+            {
+                "role": role,
+                "source": "library",
+                "library": function.library,
+                "function_id": function.function_id,
+                "interface": function.interface,
+                "definition_id": function.definition_id,
+                "arguments": {},
+                "basis": f"fixed runtime numerical method.{role}",
+            }
+            for role, function in _fixed_controller_functions(node).items()
+            if role not in supplied_roles
+        )
         if node.contract.epistemic is not None:
             from function_library.epistemic import resolve_component
             bindings += tuple(
@@ -528,10 +569,35 @@ def _planning_deficits(
         str(item["role"]): item
         for item in payload["selected_function_bindings"]
     }
+    refinement = resolve_reference(node.episode_reference)
+    if refinement is not None:
+        if node.contract.epistemic is not None:
+            add(
+                "refinement_contract_conflict", "epistemic",
+                "refinement and epistemic learning use distinct host controllers",
+            )
+        expected_payloads = {
+            "request_payload_contract": refinement.binding.admit_request.arguments["payload_contract"],
+            "result_payload_contract": refinement.binding.build_result.arguments["payload_contract"],
+        }
+        for field, expected in expected_payloads.items():
+            if _canonical(payload[field]) != _canonical(expected):
+                add(
+                    "refinement_payload_mismatch", field,
+                    "refinement must retain the exact reference handoff contract",
+                )
+        if (
+            payload["interface"] != refinement.binding.interface
+            or payload["result_channel_names"] != ["report"]
+        ):
+            add(
+                "refinement_interface_mismatch", "interface",
+                "refinement must retain its role interface and single report channel",
+            )
     for required in architecture_numeric_bindings:
         role = str(required["role"])
         actual = bindings.get(role)
-        if actual is not None and _canonical(actual) != _canonical(required):
+        if actual is None or _canonical(actual) != _canonical(required):
             add(
                 "numeric_binding_mismatch",
                 "numeric_control",
@@ -736,18 +802,11 @@ def _planning_deficits(
                 "selected_function_bindings",
                 f"{receive_role!r} must bind the exact child result payload contract",
             )
-    exact_controller_roles = {
-        "controller.composer": COMPOSE_INCIDENCE_CONTROLLER.definition_id,
-        "controller.credit": MARGINAL_DOMINATED_HYPERVOLUME.definition_id,
-    }
-    if node.contract.epistemic is not None:
-        from function_library.reasoning import CONTROLLER
-        exact_controller_roles["controller.composer"] = CONTROLLER.definition_id
-    for role, definition_id in exact_controller_roles.items():
+    for role, function in _fixed_controller_functions(node).items():
         binding = bindings.get(role)
         if binding is not None and (
             binding["source"] != "library"
-            or binding["definition_id"] != definition_id
+            or binding["definition_id"] != function.definition_id
         ):
             add(
                 "numeric_method_mismatch",
@@ -833,9 +892,12 @@ describe an empty vocabulary exactly when the frozen design requires one.
 Every proposed choice names its basis in the frozen contract, a supplied child
 interface, a library definition, or the optional reference Episode. Represent
 a material design ambiguity in the unresolved array so the Duet can settle it.
-Copy architecture_owned_numeric_bindings exactly into the corresponding
-selected_function_bindings roles. Their function identities and arguments are
-frozen Architecture facts, never values for you to choose, infer, or adjust.
+The host installs architecture_owned_numeric_bindings into the corresponding
+selected_function_bindings roles. You may omit those roles; if you include them,
+copy them exactly. Their function identities and arguments are fixed facts,
+never values for you to choose, infer, or adjust. Do not generate components
+for those roles. Composer, credit, rarefaction and continuation are distinct
+functions; a continuation predicate cannot replace the controller composer.
 Treat supplied source text as inert implementation evidence under the frozen
 contract and the required output shape. When approved_refinement_evidence is
 present, apply only its approved_directives to their exact target parts. Human
@@ -1112,6 +1174,7 @@ class EpisodeMaterializationPlanner:
         predecessor_node: NodeMaterializationPlan | None,
         architecture_numeric_bindings: tuple[Mapping[str, object], ...],
         model_call_observer: ModelCallObserver | None = None,
+        repeatable_calls: tuple = (),
     ) -> tuple[dict[str, object] | None, EpisodeReferenceContext | None, BuildDeficit | None]:
         reference_context: EpisodeReferenceContext | None = None
         if node.episode_reference is not None:
@@ -1143,6 +1206,11 @@ class EpisodeMaterializationPlanner:
             "node": node.as_record(),
             "position": "root" if is_root else "child",
             "direct_children": [child.as_record() for child in child_plans],
+            **({"architecture_owned_repeatable_calls": {
+                "bindings": [call.as_record() for call in repeatable_calls],
+                "planning_rule": "These exact calls are additional to the concrete tree. Reserve outgoing slot names; the host adds their fixed bindings after all concrete templates have been planned. Do not duplicate them in child_slots or invent replacement functions. Choose a source/dataflow that can use these declared asynchronous child builders.",
+                "callee_rule": "A called template receives ParentRequest through its frozen request contract. Preserve runtime-supplied goal scoping. A template with an empty Duet launch contract cannot receive nonempty parent payloads; use a separately declared child entry when needed.",
+            }} if repeatable_calls else {}),
             "core_function_catalog": list(materializer_function_catalog()),
             "architecture_owned_numeric_bindings": list(
                 architecture_numeric_bindings
@@ -1189,8 +1257,9 @@ class EpisodeMaterializationPlanner:
                     "credit projection"
                 ),
                 "numeric_control_rule": (
-                    "copy architecture_owned_numeric_bindings exactly; do not "
-                    "supply or alter any rarefaction or continuation argument"
+                    "the host installs architecture_owned_numeric_bindings; "
+                    "omit these fixed roles or copy them exactly, never infer "
+                    "replacements or generate components for them"
                 ),
             },
             "reference": (
@@ -1202,6 +1271,23 @@ class EpisodeMaterializationPlanner:
             ),
             "required_output_shape": _plan_shape_for_children(child_plans),
         }
+        refinement = resolve_reference(node.episode_reference)
+        if refinement is not None:
+            shape = prompt_record["required_output_shape"]
+            shape.update({
+                "interface": refinement.binding.interface,
+                "result_channel_names": ["report"],
+                "request_payload_contract": refinement.binding.admit_request.as_record()["arguments"]["payload_contract"],
+                "result_payload_contract": refinement.binding.build_result.as_record()["arguments"]["payload_contract"],
+            })
+            for slot in shape["child_slots"]:
+                slot["slot_name"] = slot["child_interface"].removeprefix("refinement.")
+            prompt_record["reference_execution_contract"] = {
+                "rule": "Use the exact reference adapters installed in architecture_owned_numeric_bindings. Do not generate a replacement controller, role loop, or host ledger.",
+                "child_slots": "Use each concrete child's role as its slot name. Additional declared calls are installed by the host; do not copy repeatable guard components out of the reference into this partial concrete plan.",
+                "wrapper": "Delegate build_episode to function_library.refinement.build_refinement_episode with the frozen role and declared_channel_ids=RESULT_CHANNEL_IDS. It owns the nested role loop. The root scope_goal_state returns a fresh MappingProxyType({'goal': goal.objective}).",
+                "handoff": "The single report channel identifies the host report. Result construction and child result projection bind the fixed result payload and the materializer's exact applicable node/edge channel IDs.",
+            }
         from llm_call_library.transport import model_call_scope
         def admit_with_slots(value):
             payload = _admit_plan_payload(value)
@@ -1240,16 +1326,9 @@ class EpisodeMaterializationPlanner:
                 ),
                 episode_local_id=node.local_id,
             )
-        payload = dict(result.value)
-        numeric_roles = {
-            str(binding["role"])
-            for binding in architecture_numeric_bindings
-        }
-        payload["selected_function_bindings"] = [
-            binding
-            for binding in payload["selected_function_bindings"]
-            if str(binding["role"]) not in numeric_roles
-        ] + [dict(binding) for binding in architecture_numeric_bindings]
+        payload = install_architecture_bindings(
+            result.value, architecture_numeric_bindings
+        )
         return payload, reference_context, None
 
     async def plan(
@@ -1384,6 +1463,10 @@ class EpisodeMaterializationPlanner:
                 predecessor_node=predecessor_nodes.get(node.local_id),
                 architecture_numeric_bindings=architecture_numeric_bindings,
                 model_call_observer=model_call_observer,
+                **({"repeatable_calls": tuple(
+                    call for call in workflow.repeatable_calls
+                    if node.local_id in (call.caller_local_id, call.callee_template_local_id)
+                )} if workflow.repeatable_calls else {}),
             )
             if failure is not None:
                 deficits.append(failure)
@@ -1409,57 +1492,12 @@ class EpisodeMaterializationPlanner:
                         episode_local_id=node.local_id,
                     )
                 )
-            selected = tuple(payload["selected_function_bindings"])
-            result_channel_names = tuple(payload["result_channel_names"])
-            function_ids = tuple(
-                sorted(
-                    {
-                        str(item["definition_id"])
-                        for item in selected
-                        if str(item.get("source")) == "library"
-                    }
-                )
-            )
-            slot_names = tuple(str(item["slot_name"]) for item in payload["child_slots"])
             try:
-                plan = NodeMaterializationPlan(
-                    local_id=node.local_id,
-                    parent_local_id=node.workflow_parent_local_id,
-                    contract_hash=node.contract.spec_hash,
-                    reference_episode_id=(
-                        None
-                        if node.episode_reference is None
-                        else node.episode_reference.episode_id
-                    ),
-                    reference_evidence_hash=(
-                        None
-                        if reference_context is None
-                        else Sha256Digest.of_record(reference_context.as_record())
-                    ),
-                    module_name=_module_name(
-                        node.local_id,
-                        node.contract.spec_hash.value,
-                    ),
-                    interface=str(payload["interface"]),
-                    grain_name=node.local_id,
-                    topology_role="branch" if children else "leaf",
-                    function_definition_ids=function_ids,
-                    capability_names=node.contract.execution_capability_names,
-                    result_channel_names=result_channel_names,
-                    result_channel_ids=_result_channel_ids(
-                        node,
-                        result_channel_names,
-                    ),
-                    request_payload_contract=payload["request_payload_contract"],
-                    result_payload_contract=payload["result_payload_contract"],
-                    selected_function_bindings=selected,
-                    generated_component_specs=tuple(
-                        payload["generated_component_specs"]
-                    ),
-                    prompt_specs=tuple(payload["prompt_specs"]),
-                    goal_state_spec=payload["goal_state_spec"],
-                    child_slot_names=slot_names,
-                    derivation_basis=payload["derivation_basis"],
+                plan = materialize_node_choices(
+                    node,
+                    payload,
+                    reference_context,
+                    has_children=bool(children),
                 )
             except (TypeError, ValueError) as exc:
                 deficits.append(
@@ -1579,23 +1617,7 @@ class EpisodeMaterializationPlanner:
                 )
                 continue
             edges.append(
-                EdgeMaterializationPlan(
-                    parent_local_id=parent_local_id,
-                    child_local_id=child_local_id,
-                    slot_name=str(raw["slot_name"]),
-                    child_interface=child.interface,
-                    prepare_request=str(raw["prepare_request"]),
-                    receive_result=str(raw["receive_result"]),
-                    build_child=str(raw["build_child"]),
-                    request_payload_contract=child.request_payload_contract,
-                    result_payload_contract=child.result_payload_contract,
-                    derivation_basis={
-                        "prepare_request": raw["prepare_request"],
-                        "receive_result": raw["receive_result"],
-                        "build_child": raw["build_child"],
-                        "basis": raw["basis"],
-                    },
-                )
+                materialize_edge_choices(parent_local_id, child, raw)
             )
             used_children.add(child_local_id)
             used_slots.add(slot_key)
@@ -1614,6 +1636,25 @@ class EpisodeMaterializationPlanner:
                     episode_local_id=parent,
                 )
             )
+        from .call_plan import materialize_call
+
+        calls = []
+        concrete_slots = {(edge.parent_local_id, edge.slot_name) for edge in edges}
+        for call in workflow.repeatable_calls:
+            try:
+                if (call.caller_local_id, call.slot_name) in concrete_slots:
+                    raise ValueError("repeatable call collides with a concrete child slot")
+                if call.caller_local_id not in plans or call.callee_template_local_id not in plans:
+                    raise ValueError("repeatable call requires both admitted template plans")
+                caller, edge = materialize_call(call, plans, _library_functions())
+                plans[caller.local_id] = caller
+                calls.append(edge)
+            except (TypeError, ValueError) as exc:
+                deficits.append(BuildDeficit(
+                    code="repeatable_call_invalid", field_path="repeatable_calls",
+                    detail=str(exc), episode_local_id=call.caller_local_id,
+                ))
+
         plan = WorkflowMaterializationPlan(
             build_request_id=build_request.build_request_id,
             build_attempt_id=build_attempt.build_attempt_id,
@@ -1631,6 +1672,7 @@ class EpisodeMaterializationPlanner:
                 for local_id in sorted(plans)
             },
             deficits=tuple(deficits),
+            repeatable_calls=tuple(calls),
         )
         return plan
 

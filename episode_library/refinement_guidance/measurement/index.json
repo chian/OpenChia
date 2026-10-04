@@ -1,0 +1,7 @@
+{
+  "subject": "measurement",
+  "items": [
+    {"guidance_id": "refiner.measurement.grounded_checks", "version": 1, "title": "Build a measure that rejects the wrong thing", "kind": "role_instruction", "subject": "measurement", "roles": ["EstablishMeasure", "VerifyBehavior", "DesignPart", "RefineParts"], "description": "Ground expected behavior and distinguish instrument adequacy, local progress and parent acceptance.", "use_when": "A task needs a concrete measure or an existing measure gives misleading passes.", "do_not_use_when": "Authorizing a coder to edit protected checks or deriving truth solely from the candidate.", "body_path": "instructions/grounded_checks.md", "source_refs": ["refiner-design-v3"], "validation_status": "design_guidance"},
+    {"guidance_id": "refiner.measurement.negative_controls", "version": 1, "title": "Scheduling checks that a plausible answer can fail", "kind": "check_pattern", "subject": "measurement", "roles": ["EstablishMeasure", "VerifyBehavior", "DesignPart"], "description": "Use concrete omitted-job, precedence, capacity and optimality counterexamples to challenge a checker.", "use_when": "Establishing that a scheduling instrument measures its stated requirements.", "do_not_use_when": "Treating finite negative controls as universal proof of checker correctness or leaking protected acceptance answers.", "body_path": "examples/negative_controls.md", "source_refs": ["scheduling-oracle-reference", "scheduling-live-receipt", "refiner-design-v3"], "validation_status": "illustrative_unexecuted"}
+  ]
+}

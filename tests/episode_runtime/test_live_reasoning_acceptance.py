@@ -29,9 +29,9 @@ from handoff_library import DuetLaunchRequest
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
 from llm_call_library import CallOptions
 
-from conftest import claim_store, numerical_control, oid
-from scheduling_benchmark import JOBS, PROBLEM, optimal_schedule, violations
-from test_reasoning_workflow import _approved_request, _module_response, _plan_response
+from .conftest import claim_store, numerical_control, oid
+from function_library.scheduling_benchmark import JOBS, PROBLEM, optimal_schedule, violations
+from .test_reasoning_workflow import _approved_request, _module_response, _plan_response
 
 
 def test_independent_schedule_oracle():

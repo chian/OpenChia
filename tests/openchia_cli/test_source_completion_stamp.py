@@ -36,6 +36,11 @@ def _completion_dependencies(monkeypatch, maintenance):
 
 def test_successful_source_completion_writes_checkout_identity(tmp_path, monkeypatch):
     root = _repo(tmp_path)
+    runtime_checks = []
+    monkeypatch.setattr(
+        "openchia_cli.doctor_episode_runtime.check_episode_runtime",
+        lambda should_fix: runtime_checks.append(should_fix),
+    )
 
     def maintenance(**_kwargs):
         assert not (root / "install-stamp.json").exists()
@@ -44,6 +49,7 @@ def test_successful_source_completion_writes_checkout_identity(tmp_path, monkeyp
     _completion_dependencies(monkeypatch, maintenance)
 
     assert complete_source_checkout(root, desktop=False, assume_yes=True)
+    assert runtime_checks == [False]  # Unattended install checks, never changes policy.
     assert (root / "install-stamp.json").is_file()
 
 

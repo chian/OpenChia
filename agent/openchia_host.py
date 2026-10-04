@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from dataclasses import dataclass
 import json
 import logging
@@ -76,8 +77,8 @@ from llm_call_library import (
     ModelTier,
     ModelTransportRequest,
     ModelTransportResponse,
-    model_transport_scope,
 )
+from function_library.testing_contract import CAPABILITY as TESTING_CAPABILITY
 
 
 logger = logging.getLogger(__name__)
@@ -186,7 +187,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         self.egress_hosts, self.egress_credentials = _operator_egress_ceiling()
         self.service = DuetService(
             self.store,
-            allowed_episode_capabilities=(),
+            allowed_episode_capabilities=(TESTING_CAPABILITY,),
             allowed_egress_hosts=self.egress_hosts,
             egress_credential_names=tuple(sorted(self.egress_credentials)),
         )
@@ -210,6 +211,8 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         self._build_lock = threading.RLock()
         self._build_thread: Optional[threading.Thread] = None
         self._build_cancel_event: Optional[threading.Event] = None
+        self._build_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._build_refinement_task: Optional[asyncio.Task] = None
         self._build_state = "not_started"
         self._build_progress = self._empty_progress("not_started")
         self._build_request: Optional[ApprovedBuildRequest] = None
@@ -279,6 +282,26 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         bound._duet_launch_proposer = self.propose_launch
         self._duet_agent = bound
         return bound
+
+    def refinement_experiment_service(self, *, refiner_build_receipt_id, evaluations):
+        """Bind an explicit experiment to the owning Duet's refiner model route."""
+        from agent.duet_episode_transport import DuetEpisodeBinding, required_slots
+        from episode_runtime.testing.service import ExperimentService
+
+        if evaluations.builder.store is not self.build_store or evaluations.executor.run_store is not self.run_store:
+            raise OpenChiaHostError("Refiner evaluations must use this host's existing Builder and Run stores")
+        inputs = self.build_store.inspection_inputs_for_receipt(refiner_build_receipt_id)
+        if not inputs.receipt.materialized:
+            raise OpenChiaHostError("Refiner experiments require an admitted refiner build")
+        binding = DuetEpisodeBinding.from_bound_agent(
+            artifacts=self.store, owner_duet_id=self.identity.duet_id.value,
+            agent=self._duet_agent, model_types=required_slots(inputs),
+        )
+        return ExperimentService(
+            artifacts=self.store, builds=self.build_store, runs=self.run_store,
+            executor=evaluations.executor, http_credentials=self.egress_credentials,
+            duet_binding=binding, refinement_evaluations=evaluations,
+        )
 
     def _run_is_active(self) -> bool:
         with self._run_lock:
@@ -897,7 +920,9 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         )
 
     def start_build(self) -> dict[str, Any]:
-        """Start one fresh, inert build attempt for current approved authority."""
+        """Start the complete build → refine → validate job once."""
+        from agent.build_refinement import BuildRefinement
+        from agent.openchia_build_job import run_build_job
 
         with self._build_lock:
             self._require_no_active_run("a new build")
@@ -906,6 +931,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             request = self._approved_build_request()
             launch_id, launch = self._prepare_model_launch("build", request.build_request_id.value)
             builder = self._builder_for(request, launch)
+            refiner = BuildRefinement(self)
             cancel_event = threading.Event()
             launch_transport = self._model_launch_transport(launch_id, launch, cancel_event=cancel_event)
             self.build_store.put_build_request(request)
@@ -926,90 +952,10 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 request.frozen_workflow.workflow.episodes
             )
 
-            def build_worker() -> None:
-                receipt: Optional[BuildReceipt] = None
-                try:
-                    async def build_transport(
-                        model_request: ModelTransportRequest,
-                    ) -> ModelTransportResponse:
-                        return await self._builder_model_transport(
-                            model_request,
-                            cancel_event,
-                            launch_transport,
-                        )
-
-                    async def materialize() -> BuildReceipt:
-                        with model_transport_scope(build_transport):
-                            return await builder.build(
-                                request,
-                                progress_callback=lambda value: (
-                                    self._record_build_progress(request, value)
-                                ),
-                                cancel_event=cancel_event,
-                            )
-
-                    result = asyncio.run(materialize())
-                    receipt = self._correlated_receipt(request, result)
-                    with self._build_lock:
-                        self._build_receipt = receipt
-                        self._build_attempt_id = receipt.build_attempt_id
-                    baseline = self._persist_materialized_specification(
-                        request,
-                        receipt,
-                    )
-                    with self._build_lock:
-                        self._build_baseline = baseline
-                        self._build_state = receipt.status
-                        self._build_progress = self._receipt_progress(
-                            request,
-                            receipt,
-                        )
-                    self.store.append_event(
-                        duet_id=self.identity.duet_id.value,
-                        event_type="build_finished",
-                        provenance=DuetProvenance.HOST_VALIDATION.value,
-                        record={
-                            "build_request_id": request.build_request_id.value,
-                            "build_attempt_id": receipt.build_attempt_id.value,
-                            "build_receipt_id": receipt.receipt_id.value,
-                            "status": receipt.status,
-                            "materialized_specification_id": (
-                                baseline.materialized_specification_id.value
-                            ),
-                            "refinement_baseline_id": baseline.baseline_id.value,
-                        },
-                    )
-                except Exception as exc:
-                    error = _describe_exception(exc)
-                    with self._build_lock:
-                        self._build_state = "host_error"
-                        self._build_error = error
-                    self.store.append_event(
-                        duet_id=self.identity.duet_id.value,
-                        event_type="build_host_failure",
-                        provenance=DuetProvenance.HOST_VALIDATION.value,
-                        record={
-                            "build_request_id": request.build_request_id.value,
-                            "build_attempt_id": (
-                                None
-                                if self._build_attempt_id is None
-                                else self._build_attempt_id.value
-                            ),
-                            "build_receipt_id": (
-                                None if receipt is None else receipt.receipt_id.value
-                            ),
-                            "error": error,
-                        },
-                    )
-                finally:
-                    with self._build_lock:
-                        self._build_model_call_active = False
-                        self._build_model_call_token = None
-                        self._build_thread = None
-                        self._build_cancel_event = None
-
+            context = contextvars.copy_context()
             worker = threading.Thread(
-                target=build_worker,
+                target=context.run,
+                args=(run_build_job, self, request, builder, launch, launch_transport, cancel_event, refiner),
                 name=f"openchia-build-{request.build_request_id.value[-12:]}",
                 daemon=False,
             )
@@ -1038,7 +984,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         return self.build_status()
 
     def cancel_build(self) -> bool:
-        """Signal cancellation to the active Builder and its model request."""
+        """Cancel the whole job, including refiner and nested validation Runs."""
 
         with self._build_lock:
             worker = self._build_thread
@@ -1052,6 +998,9 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             if cancel_event.is_set():
                 return True
             cancel_event.set()
+            if (self._build_loop is not None and self._build_refinement_task is not None
+                    and not self._build_refinement_task.done()):
+                self._build_loop.call_soon_threadsafe(self._build_refinement_task.cancel)
             self._build_state = "cancel_requested"
             request_id = (
                 None
@@ -1127,6 +1076,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
 
     def build_status(self) -> dict[str, Any]:
         """Return live or recovered build state for the current authority head."""
+        from agent.openchia_build_job import finalization_for, refinement_links
 
         with self._build_lock:
             if self._current_in_memory_build():
@@ -1158,6 +1108,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     ),
                     "progress": json.loads(canonical_json(self._build_progress)),
                     "model_wait": self._build_model_wait(),
+                    "refinement": refinement_links(self, request),
                     "error": self._build_error,
                 }
         baseline = self.workspace.current_baseline()
@@ -1171,6 +1122,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 "refinement_baseline_id": None,
                 "progress": self._empty_progress("not_started"),
                 "model_wait": None,
+                "refinement": None,
                 "error": None,
             }
         receipt = self.build_store.read_receipt(baseline.build_receipt_id)
@@ -1182,18 +1134,26 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             or receipt.build_request_id != request.build_request_id
         ):
             raise OpenChiaHostError("recovered build chain is stale")
+        finalization = finalization_for(self, receipt)
+        job_request = request if finalization is None else self.build_store.read_build_request(
+            OpaqueId(finalization["build_request_id"])
+        )
+        state = "unverified" if finalization is None else finalization["state"]
+        progress = self._receipt_progress(request, receipt)
+        progress["stage"] = state
         return {
-            "state": receipt.status,
-            "build_request_id": request.build_request_id.value,
+            "state": state,
+            "build_request_id": job_request.build_request_id.value,
             "build_attempt_id": receipt.build_attempt_id.value,
             "build_receipt_id": receipt.receipt_id.value,
             "materialized_specification_id": (
                 baseline.materialized_specification_id.value
             ),
             "refinement_baseline_id": baseline.baseline_id.value,
-            "progress": self._receipt_progress(request, receipt),
+            "progress": progress,
             "model_wait": None,
-            "error": None,
+            "refinement": refinement_links(self, job_request),
+            "error": None if finalization is None else finalization["error"],
         }
 
     def _runnable_build_context(
@@ -1476,6 +1436,16 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     transport=HttpxHostTransport(),
                     max_frame_bytes=registration.runtime_policy.max_frame_bytes,
                 )
+                from episode_runtime.testing.execution import RunExecution
+                from episode_runtime.testing.launches import record_launch_intent
+
+                execution = RunExecution(
+                    artifacts=self.store, builds=self.build_store,
+                    runs=self.run_store, executor=executor,
+                )
+                intent_ref = record_launch_intent(
+                    self.store, registration, launch_id, launch.configuration_hash,
+                )
                 self._run_registration = registration
                 self._run_evidence = None
                 self._run_baseline = None
@@ -1488,9 +1458,10 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 def run_worker() -> None:
                     loop = asyncio.new_event_loop()
                     task = loop.create_task(
-                        executor.execute(
+                        execution.execute(
                             registration=registration,
                             source_package_path=source_package,
+                            intent_ref=intent_ref,
                             model_broker=broker,
                             http_broker=http_broker,
                         )
@@ -1634,6 +1605,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                     event_type="run_requested",
                     provenance=DuetProvenance.HUMAN_INPUT.value,
                     record={
+                        "intent_ref": intent_ref,
                         "run_id": registration.run_id.value,
                         "registration_hash": (
                             registration.registration_hash.value

@@ -308,7 +308,7 @@ def _episode_architecture_submit(agent, args: dict, ctx: InlineToolContext) -> A
         revision = _absent_draft_field(args.get("expected_revision"))
         note_ids = args.get("human_note_ids")
         if not isinstance(candidate, Mapping):
-            raise ValueError("candidate workflow Architecture must be an object")
+            raise ValueError("proposed Target Workflow Architecture must be an object")
         if (artifact_id is None) != (content_hash is None) or (
             artifact_id is None
         ) != (revision is None):
@@ -466,7 +466,7 @@ def _episode_refinement_request(agent, args: dict, ctx: InlineToolContext) -> An
         if not isinstance(baseline_id, str) or not baseline_id.strip():
             raise ValueError("baseline_id must be a non-empty opaque identity")
         if not isinstance(candidate, Mapping):
-            raise ValueError("candidate workflow Architecture must be an object")
+            raise ValueError("proposed Target Workflow Architecture must be an object")
         if (
             not isinstance(note_ids, list)
             or not note_ids

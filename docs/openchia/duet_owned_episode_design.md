@@ -1,5 +1,11 @@
 # Duet-owned Episode design
 
+This page describes the existing lifecycle. The finalized design for the proposed
+active designer Episode is recorded separately in the
+[IterativeEpisodeRefiner principles](iterative_episode_refiner_principles.md)
+and [Episode/nesting design](iterative_episode_refiner_episodes.md).
+Those design documents do not change the authority or behavior described here.
+
 The Duet is the human and conversational LLM working together through a host
 that preserves identity and authority. It owns the complete Workflow
 Architecture. The Duet is not an Episode, and the conversational LLM cannot

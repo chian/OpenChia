@@ -4,6 +4,7 @@ import asyncio
 from contextvars import ContextVar
 import json
 from pathlib import Path
+import sys
 import threading
 
 import pytest
@@ -12,6 +13,7 @@ from episode_builder.service import EpisodeBuilder
 from episode_builder.store import BuildStore
 from episode_runtime import executor as executor_module
 from episode_runtime.broker import ScopedModelBroker
+from episode_runtime.http_broker import ScopedHttpBroker
 from episode_runtime.contracts import RunEventKind, RunEventOrigin, RunRegistration
 from episode_runtime.executor import ExecutorResources, SystemdRunExecutor
 from episode_runtime.learning_broker import LearningBroker
@@ -23,8 +25,8 @@ from handoff_library import DuetLaunchRequest
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
 from llm_call_library import CallOptions
 
-from conftest import claim_store, oid
-from test_reasoning_workflow import _approved_request, _module_response, _plan_response
+from .conftest import claim_store, oid
+from .test_reasoning_workflow import _approved_request, _module_response, _plan_response
 
 pytestmark = [pytest.mark.platforms("linux"), pytest.mark.asyncio]
 
@@ -87,6 +89,8 @@ async def test_invalid_package_cannot_leave_an_unclaimed_registration(
         run_store=store,
         repository_root=Path(__file__).resolve().parents[2],
         resources=ExecutorResources(None, None, 100, None, 100000),
+        python_runtime_root=Path(sys.base_prefix).resolve()
+        if executor_module._hidden_by_protect_home(Path(sys.executable).resolve()) else None,
     )
     # This probe covers preflight ordering, not interpreter attestation.
     monkeypatch.setattr(
@@ -99,11 +103,18 @@ async def test_invalid_package_cannot_leave_an_unclaimed_registration(
     async def no_model(call):
         raise AssertionError("preflight must not call a model")
 
+    async def no_http(**kwargs):
+        raise AssertionError("preflight must not make an HTTP call")
+
     with pytest.raises(RuntimeLinkError, match="omits"):
         await executor.execute(
             registration=registration,
             source_package_path=package,
             model_broker=ScopedModelBroker(no_model, episode_paths={}),
+            http_broker=ScopedHttpBroker(
+                policy=registration.egress_policy, credentials={}, transport=no_http,
+                max_frame_bytes=registration.runtime_policy.max_frame_bytes,
+            ),
         )
     with pytest.raises(RunStoreNotFound):
         store.read_registration(registration.run_id)

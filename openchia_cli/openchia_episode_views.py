@@ -1094,7 +1094,7 @@ class MaterializedSpecificationViewModel(_EpisodeTreeViewModel):
                 f"{name} target is not anchored to the projected Materialized Specification"
             )
         if target.episode_local_id != episode_local_id:
-            raise ValueError(f"{name} target Episode identity differs from its row")
+            raise ValueError(f"{name} Target Workflow Episode identity differs from its row")
         return target
 
     def _part(

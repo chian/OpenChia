@@ -1,0 +1,145 @@
+{
+  "status": "target_and_launch_approved_system_gap_identified_tester_unapproved",
+  "current_build_job": {
+    "source_commit": "7222da1a2167018d8ba486793f6b3774318ba3bc",
+    "state_at_observation": "cancelled",
+    "run_terminal_status": "cancelled",
+    "cancellation_reason": "The live Designer requested missing measurement coverage. EstablishMeasure returned grounding_required, but the normal-build policy supplied no applicable construction or acquisition route. Cancelled before changing system code; no candidate edits or accepted repair.",
+    "build_request_id": "build_request_2f512662e164f8a9f46cad98a884254b94180cefd01c0450fe767be405855f32",
+    "initial_build_receipt_id": "build_receipt_83028c19946fe7e368664b00a71a06ceffcac62d8800b3b48511739d9d786846",
+    "campaign_ref": {
+      "artifact_id": "refinement_e13ebd4be416466c397e3aba99c068ead92aa83025dd99a7cc3620e078e336ee",
+      "content_hash": "sha256:e13ebd4be416466c397e3aba99c068ead92aa83025dd99a7cc3620e078e336ee"
+    },
+    "experiment_id": "experiment_c25d2a8b6bd00b97ef9ab4782cc8f570a38763ec6b765db41e1aeac3d6bfb1a3",
+    "refiner_run_id": "run_11c36b0e256340542a5ed70b287e99e90d04b933b2b6a13c224c4ff70c866d89",
+    "duet_model": "gpt-5.6-sol-900k",
+    "duet_reasoning_effort": "xhigh",
+    "executor": "systemd",
+    "verified_build_ref": null
+  },
+  "previous_build_jobs": [{
+    "source_commit": "899ff4a220d8a42f497b1ad55f2b2b7d09d02dce",
+    "state_at_observation": "cancelled",
+    "cancellation_reason": "Correct misleading host feedback: both rejected Designer plans contained all contribution keys plus one preservation-only key. No candidate repair or final acceptance occurred.",
+    "build_request_id": "build_request_c83fa094bd72734af5604677e45dd990212511f6c0e2a5ba4c9a2e8257e2a722",
+    "initial_build_receipt_id": "build_receipt_69fc4b020becd3ddba3484324e9208dc560002fa17c10295e36cf0d55e426bad",
+    "campaign_ref": {
+      "artifact_id": "refinement_07e9534f35f5a6acf47073d17b51c1e32fd0c7eafcdfdd92c5d0fd7399eec3ff",
+      "content_hash": "sha256:07e9534f35f5a6acf47073d17b51c1e32fd0c7eafcdfdd92c5d0fd7399eec3ff"
+    },
+    "experiment_id": "experiment_142e3745046a5c506369045ba4e43323bf4723ea6edbb605590fbb9521fd9d32",
+    "refiner_run_id": "run_e0a83dce815f8e0bbd664236b1d10c8d9466b4a054bf3528c183838c5ff44b38",
+    "duet_model": "gpt-5.6-sol-900k",
+    "duet_reasoning_effort": "xhigh",
+    "executor": "systemd",
+    "verified_build_ref": null
+  }],
+  "workspace": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH",
+  "target_session_id": "schedule-acceptance-20261003-target",
+  "approved_workflow_hash": "sha256:943d549e9c1ac27d016a1f51018aa7156e420558562ab59021111122356e4ee8",
+  "approved_launch_configuration_hash": "sha256:bf78eb6a086f548162461ad984798746b9fa3d66f3643a3b374230af745d16ac",
+  "target_architecture_file": "schedule_target.blueprint.json",
+  "launch_file": "/home/chia/repos/OpenChia-iterative-refiner/launch_default.json",
+  "available_model_slots": [
+    "reasoning",
+    "fast",
+    "non_reasoning"
+  ],
+  "selected_model_slots": {
+    "builder_planning": "reasoning",
+    "builder_emission": "reasoning",
+    "action_selection": "reasoning",
+    "action_execution": "reasoning"
+  },
+  "stores": {
+    "duet_store": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH/home/openchia/authority.sqlite3",
+    "build_store": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH/home/openchia/episode_builder",
+    "run_store": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH/home/openchia/episode_runs"
+  },
+  "target": {
+    "duet_id": "duet_22df0a845acc970447f313fd30a9d22d400ebbbf8f05d4b5aa9a260b501670b1",
+    "workflow_approval_id": "approval_fabb8d6c437b115d7c24a08384a3e27bb16c9b78fd19a8e6e674d25958c6e40e",
+    "candidate_ref": null,
+    "build_receipt_ref": {
+      "artifact_id": "build_receipt_2edf155b421f3efcb8e6dd3f181a023b39534f803143284a1bb77dc2986ce8ea",
+      "content_hash": "sha256:2edf155b421f3efcb8e6dd3f181a023b39534f803143284a1bb77dc2986ce8ea"
+    },
+    "build_status": "blocked",
+    "materialized": false,
+    "environment_ref": {
+      "artifact_id": "experiment_data_2eee8d769598e40a4a790ea7f49fd46343a71738f45442f31a770fa5c1854828",
+      "content_hash": "sha256:74b5d2d3abc55ba3f4aebf2951e6bd2ed3c2fbe37d46fed04ff7f45b93ad390e"
+    },
+    "launch_ref": {
+      "artifact_id": "experiment_data_4f611b46421cb65341a216be858a3df0085ae50a89c70a756ecf8a8d38c9f49a",
+      "content_hash": "sha256:bf78eb6a086f548162461ad984798746b9fa3d66f3643a3b374230af745d16ac"
+    },
+    "campaign_ref": null
+  },
+  "criterion": {
+    "predicate": {
+      "library": "refinement_checks",
+      "function_id": "optimal_resource_schedule_v1",
+      "interface": "refinement.predicate",
+      "definition_id": "function_e1c3be076eb84e844b45610226f1522ad6ee37924c5bbc50786f877178ce88eb",
+      "arguments": {}
+    },
+    "requirement_key": "feasible_optimal_schedule",
+    "expected_value": {
+      "benchmark_id": "seven_job_resource_schedule_v1"
+    },
+    "observation_path": "/workflow_result/result/admitted_problem_frontier/0/body/fields",
+    "scope": {
+      "kind": "workflow",
+      "entry_local_id": "schedule_reasoner",
+      "included_local_ids": [
+        "schedule_reasoner"
+      ],
+      "component_definition_id": null,
+      "unit_label": null,
+      "invocation_path": []
+    },
+    "accepted_modes": [
+      "live_fresh"
+    ],
+    "input_payload": {},
+    "grounding_refs": [{
+      "artifact_id": "experiment_data_b74a8cdceb52515b28f5af97b1eb86b5f1d9d01941023ee1edf757f9b5ed00bc",
+      "content_hash": "sha256:26bc0d5cee151521989fdb9744edea821a5bd9f8da9631434823d5aaccf56bec"
+    }],
+    "positive_controls": null,
+    "negative_controls": null,
+    "requirement_ref": null,
+    "measure_ref": null,
+    "limitations": [
+      "Measures the first admitted frontier answer, not every frontier entry.",
+      "Checks schedule feasibility and optimality; explanation text remains unverified prose.",
+      "One fixed problem does not establish general reasoning ability, nested replay, continuation, or refiner repair."
+    ]
+  },
+  "tester": {
+    "duet_id": null,
+    "episode_reference": {
+      "episode_id": "episode_c46c6f21c93d943a342a51e0d097d360f397817839c48a30f4592e5fb4779d6a"
+    },
+    "target_access": null,
+    "architecture_blueprint": null,
+    "workflow_approval_id": null,
+    "build_receipt_ref": null,
+    "launch_ref": null,
+    "required_capability": "episode_testing",
+    "proposed_scope_kinds": [
+      "workflow"
+    ],
+    "proposed_modes": [
+      "live_fresh"
+    ],
+    "unresolved": "Build a separate exact TestingContract only after target, criterion and launch references exist. Freeze its own numerical controller in the later human-reviewed Architecture; do not reuse target authority."
+  },
+  "unresolved_controls": {
+    "candidate_ref": null,
+    "build_receipt_ref": null,
+    "status": "Independent positive/negative measurement controls do not substitute for a genuinely executed broken/correct candidate. Those exact candidate builds and access references remain to be prepared and reviewed."
+  }
+}

@@ -86,7 +86,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
     counts = progress.get("counts") or {}
     run = status.get("run") or {}
     run_state = str(run.get("state") or "not_started")
-    if build_state in {"starting", "building", "cancel_requested"}:
+    if build_state in {"starting", "building", "refining", "validating", "cancel_requested"}:
         emitted = int(counts.get("episodes_emitted") or 0)
         total = int(counts.get("episodes_total") or 0)
         stage = str(progress.get("stage") or build_state)
@@ -100,11 +100,11 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
                 wait_text = f"wait {elapsed}"
         return (
             f"Architecture r{revision} · approved\n"
-            f"Builder · /stop"
+            f"Build job · /stop"
             f"{' · ' + wait_text if wait_text else ''}"
             f" · {emitted}/{total} · {stage}"
         )
-    if build_state == "materialized":
+    if build_state == "verified":
         if run_state in {"starting", "running", "cancel_requested"}:
             return (
                 f"Architecture r{revision} · approved\n"
@@ -122,7 +122,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
             )
         return (
             f"Architecture r{revision} · approved\n"
-            "Materialized Specification ready · /episode · /run"
+            "Target Workflow verified · /episode · /run"
         )
     if build_state == "blocked":
         deficits = int(counts.get("blocking_deficits") or 0)
@@ -130,7 +130,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
             f"Architecture r{revision} · approved\n"
             f"Build {build_state} · {deficits} deficits · /episode · /build"
         )
-    if build_state in {"host_error", "cancelled"}:
+    if build_state in {"host_error", "cancelled", "unresolved", "yield_exhausted_unresolved", "unverified", "interrupted", "resource_limited", "invalid"}:
         return (
             f"Architecture r{revision} · approved\n"
             f"Build {build_state} · /build status"

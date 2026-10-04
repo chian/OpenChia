@@ -53,9 +53,12 @@ CREDENTIAL_KINDS = frozenset({"bearer_token_file"})
 
 _HEADER_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _SCHEME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]*$")
-_CREDENTIAL_HEADER_FORBIDDEN = frozenset(
-    {"host", "content-length", "transfer-encoding", "connection"}
-)
+_CREDENTIAL_HEADER_FORBIDDEN = frozenset({
+    "host",
+    "content-length",
+    "transfer-encoding",
+    "connection",
+})
 _CREDENTIAL_FIELDS = frozenset({"kind", "path", "header", "scheme"})
 _EGRESS_FIELDS = frozenset({"allowed_hosts", "credentials"})
 _MAX_RESPONSE_HEADER_VALUE_CHARS = 8192
@@ -139,17 +142,17 @@ def load_egress_config(
         raise ValueError("openchia.egress must be a mapping")
     unknown = set(egress) - _EGRESS_FIELDS
     if unknown:
-        raise ValueError(f"openchia.egress has unknown keys {sorted(map(str, unknown))!r}")
+        raise ValueError(
+            f"openchia.egress has unknown keys {sorted(map(str, unknown))!r}"
+        )
     raw_hosts = egress.get("allowed_hosts") or ()
     if isinstance(raw_hosts, (str, bytes)) or not isinstance(raw_hosts, (list, tuple)):
         raise ValueError("openchia.egress.allowed_hosts must be a list of hostnames")
     hosts = tuple(
-        sorted(
-            {
-                validate_egress_host(item, "openchia.egress.allowed_hosts entry")
-                for item in raw_hosts
-            }
-        )
+        sorted({
+            validate_egress_host(item, "openchia.egress.allowed_hosts entry")
+            for item in raw_hosts
+        })
     )
     raw_credentials = egress.get("credentials") or {}
     if not isinstance(raw_credentials, Mapping):
@@ -239,16 +242,19 @@ class HttpxHostTransport:
     ) -> tuple[int, Mapping[str, str], bytes]:
         from tools.url_safety import create_ssrf_safe_async_client
 
-        async with create_ssrf_safe_async_client(
-            follow_redirects=False,
-            timeout=timeout,
-            trust_env=False,
-        ) as client, client.stream(
-            method,
-            url,
-            headers=dict(headers),
-            content=body,
-        ) as response:
+        async with (
+            create_ssrf_safe_async_client(
+                follow_redirects=False,
+                timeout=timeout,
+                trust_env=False,
+            ) as client,
+            client.stream(
+                method,
+                url,
+                headers=dict(headers),
+                content=body,
+            ) as response,
+        ):
             status = int(response.status_code)
             raw_headers = list(response.headers.multi_items())
             admitted = _admitted_headers(raw_headers)
@@ -309,17 +315,15 @@ def _record(
     body: Optional[str] = None,
     body_encoding: Optional[str] = None,
 ) -> dict[str, object]:
-    return admit_http_response(
-        {
-            "outcome": outcome,
-            "status": status,
-            "headers": dict(headers or {}),
-            "body": body,
-            "body_encoding": body_encoding,
-            "reason": reason,
-            "rule": None if rule is None else rule.name,
-        }
-    )
+    return admit_http_response({
+        "outcome": outcome,
+        "status": status,
+        "headers": dict(headers or {}),
+        "body": body,
+        "body_encoding": body_encoding,
+        "reason": reason,
+        "rule": None if rule is None else rule.name,
+    })
 
 
 class _CredentialUnavailable(Exception):
@@ -401,6 +405,7 @@ class ScopedHttpBroker:
         credentials: Mapping[str, CredentialSpec],
         transport: HostHttpTransport,
         max_frame_bytes: int,
+        recording=None,
     ) -> None:
         self.policy = _frozen_policy(policy)
         if not isinstance(credentials, Mapping) or any(
@@ -409,9 +414,21 @@ class ScopedHttpBroker:
         ):
             raise TypeError("credentials must map names to their CredentialSpec")
         self.credentials = MappingProxyType(dict(credentials))
-        if not callable(transport):
+        from .broker import RecordedResponses
+
+        if recording is not None:
+            if (
+                not isinstance(recording, RecordedResponses)
+                or transport is not None
+                or credentials
+            ):
+                raise TypeError(
+                    "recorded HTTP calls require a recording, no credentials and no live transport"
+                )
+        elif not callable(transport):
             raise TypeError("transport must implement HostHttpTransport")
         self.transport = transport
+        self.recording = recording
         if (
             isinstance(max_frame_bytes, bool)
             or not isinstance(max_frame_bytes, int)
@@ -423,6 +440,13 @@ class ScopedHttpBroker:
 
     def request_count(self, local_id: str, rule_name: str) -> int:
         return self._counts.get((local_id, rule_name), 0)
+
+    def response_provenance(self):
+        return (
+            {}
+            if self.recording is None
+            else {"reused_from": self.recording.latest_provenance}
+        )
 
     def _match(
         self,
@@ -476,8 +500,13 @@ class ScopedHttpBroker:
         *,
         local_id: str,
         request: object,
+        episode_path: object = None,
     ) -> dict[str, object]:
         record = admit_http_request(request)
+        if self.recording is not None:
+            # The recording admission binds the exact egress policy and frame
+            # limits. This branch never reads credentials or reaches transport.
+            return self.recording.take("http", record, episode_path)
         method = str(record["method"])
         parts = urlsplit(str(record["url"]))
         rule = self._match(local_id, record)

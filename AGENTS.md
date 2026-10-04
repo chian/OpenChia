@@ -17,12 +17,28 @@ approve the complete nested Episode workflow. The host freezes that exact
 workflow. EpisodeBuilder later materializes explicit task-specific modules;
 only an admitted build can enter the separate isolated Run boundary. Each task
 Episode executes only its predeclared topology and contract. The
-IterativeEpisodeRefiner binds exact human notes and validated evidence to the
-approved baseline, then returns a successor proposal through the Duet for a new
-human approval. There is no persistent head Episode or intermediate design
-authority.
+IterativeEpisodeRefiner owns repair and validation after the initial Builder
+attempt. OpenChia must own the full build → refine → validate cycle after one
+start; routine repairs within the approved goal do not require another command
+or approval. Changes outside that grant return through the Duet for approval.
+Active Runs retain their exact frozen contracts. See ADR 0007 for the bounded
+iteration authority and completion requirements. There is no persistent head
+Episode or independent intermediate approval authority.
 Inherited Hermes capabilities remain extended primarily through **plugins and
 skills**, not by growing the core.
+
+The IterativeEpisodeRefiner uses the owning Duet's model/provider configuration.
+The Target Workflow's launch configuration governs its test Runs, not the refiner.
+Shared execution must preserve that distinction; see
+`docs/openchia/episode_launch_configuration.md` for the routing contract.
+
+**Naming:** use **Target Workflow** for the scoped Episode workflow being designed,
+built, refined, tested or executed. Use `target_workflow` in code for that concept.
+The IterativeEpisodeRefiner works on it; it is not the Target Workflow. A
+**candidate revision** is one particular implementation state (`candidate_ref`),
+not another name for the workflow. An Episode is a node within the Target
+Workflow; a Run is one execution. Preserve those distinctions in code, prompts,
+CLI text and documentation; do not rename immutable historical artifact fields.
 
 Two invariants shape almost every design decision and are the lens for reviewing any change:
 
