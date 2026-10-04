@@ -1,5 +1,8 @@
 # Model-call health and recovery
 
+Design decision: [ADR 0008 — Retry silent LLM calls after a successful parallel
+health probe](../adr/0008-retry-silent-llm-calls-after-parallel-health-probes.md).
+
 Builder, IterativeEpisodeRefiner and Target Workflow model calls share the
 existing pinned transport. Recovery stays inside one logical model call; it
 does not restart the workflow or grant Episode credit. The refiner still uses
