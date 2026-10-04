@@ -12,8 +12,12 @@ There is no acceptance pass.
 Attempt history, 2026-10-04: one normal `OpenChiaHost.start_build` started
 `build_request_f909ff82826ee4882064ba7b425d83278be6ca9aafc6d6e5bd38a45ad9f0613d`
 after the preceding Run and caller cleanup finished. Builder reported two
-findings, with zero Episodes planned or modules emitted; their exact diagnoses
-are not yet recorded here. The same start automatically entered native Run
+findings, with zero Episodes planned or modules emitted: `planning_failed`
+because `prompt_specs[0].response_contract` was an object instead of nonempty
+text, and `missing_module`. The committed model response contains JSON-schema
+objects in both prompt response-contract fields; this is a plan-format failure,
+not evidence that the approved scheduling problem lacks a solution. The same
+start automatically entered native Run
 `run_358b0b188f2732c49a60c6d304d8309705e611b325cd6c822d0ad771a1347edf`.
 It entered refinement. A 49,474-character check-design response failed JSON parsing;
 the following repair context contains that exact rejected output, marked

@@ -55,7 +55,27 @@
       "episodes_planned": 0,
       "modules_emitted": 0,
       "deficit_count": 2,
-      "diagnostic_details": null
+      "diagnostic_details": [
+        {
+          "code": "planning_failed",
+          "detail": "admission-rejected: ValueError: prompt_specs[0].response_contract must be non-empty text",
+          "episode_local_id": "schedule_reasoner",
+          "field_path": "goal"
+        },
+        {
+          "code": "missing_module",
+          "detail": "no emitted module covers this frozen Episode",
+          "episode_local_id": "schedule_reasoner",
+          "field_path": "modules"
+        }
+      ],
+      "planning_response_observation": {
+        "evidence_id": "build_model_call_1043fdc99e1ed22fe015a7b187cddaa07fcd7889d34046ce6c2a77f48f1c71ad",
+        "raw_response_hash": "sha256:b79d1def5c1d1fbdf8f3aeb27471d54a158465c213c0277a4cdcca1730a9cbbc",
+        "response_contract_types": ["object", "object"],
+        "required_type": "nonempty string",
+        "interpretation": "Both prompt response contracts were supplied as JSON-schema objects. The failed admission is a materialization-plan format failure, not a scheduling verdict. No response was manually repaired."
+      }
     },
     "materialized_specification_id": "materialized_specification_cb245a4678041ace3674f3f268364e0224cf6ef8e42aa12d7f017171731b790b",
     "baseline_id": "refinement_baseline_f9dc85a7e79b057856499bf1d5407110885d7e75070d7b793a65977856bbdf71",

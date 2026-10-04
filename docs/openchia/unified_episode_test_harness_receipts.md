@@ -32,8 +32,13 @@ finished. Attempt
 `build_attempt_b13c99713da8d9ef939a4ab98b981e508edd809d7ab5781e6528941f3dd11362`
 produced receipt
 `build_receipt_32331f0147a3d66bc89752be5e0424ae48d31f3f505fc23c6b796511fb928428`,
-with two findings, zero Episodes planned and zero modules emitted. Exact diagnoses
-are not yet recorded here. The materialized specification is
+with two findings, zero Episodes planned and zero modules emitted. The findings
+are `planning_failed` (`prompt_specs[0].response_contract must be non-empty text`)
+and `missing_module`. Committed model-call evidence
+`build_model_call_1043fdc99e1ed22fe015a7b187cddaa07fcd7889d34046ce6c2a77f48f1c71ad`
+retains the unadmitted response: both prompt response contracts are JSON-schema
+objects, not the strings required by plan admission. This is a plan-format
+failure, not a scheduling correctness verdict. The materialized specification is
 `materialized_specification_cb245a4678041ace3674f3f268364e0224cf6ef8e42aa12d7f017171731b790b`,
 the baseline is
 `refinement_baseline_f9dc85a7e79b057856499bf1d5407110885d7e75070d7b793a65977856bbdf71`,
