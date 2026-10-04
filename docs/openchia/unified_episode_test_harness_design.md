@@ -28,8 +28,19 @@ independent solver in `function_library/scheduling_benchmark.py`. A changed goal
 environment or unsupported routing yields no match. Other requirements stay
 unresolved. This does not replace independent checker construction for unfamiliar
 tasks, make static checks behavioral, or prove the full normal-build cycle.
-Parent acceptance of newly admitted measures and remaining requirement coverage
-are still unfinished parts of that cycle.
+Normal builds now declare local and acceptance measure groups before the campaign
+starts. `iterative_episode_refiner/measure_groups.py` projects admitted checks into
+those groups without changing predicates, guards, scope, instruments or original
+check records. Publication independently re-derives these projections through
+the existing admission validator. Scoped parents and verifiers see the same group
+members through ordinary check discovery and the shared harness. Each request
+still binds an exact check set, and omission is rejected. Grouping itself earns
+no duplicate adequacy credit and supplies no passing observations.
+
+Finalization follows the exact used checks back to their original measure
+admissions and controls, retaining source measures and limitations as well as the
+group identity. This connects newly admitted criteria to parent evaluation; it
+does not establish remaining requirement coverage or successful final acceptance.
 
 **Terminology and execution decision (2026-10-03):** the workflow being built,
 refined and tested is the **Target Workflow**; `candidate_ref` identifies an

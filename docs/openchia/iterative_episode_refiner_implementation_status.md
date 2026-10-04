@@ -10,9 +10,10 @@ systemd worker with supplied model responses; materialized-build handoff passes
 in-process. Autonomous repair and full behavioral acceptance from this
 entry point remain unverified. Normal-build measurement preparation now makes
 registered task-derived cases available to Measure; its first source is the exact
-scheduling goal, not arbitrary prose. Measure admission and return to the parent
-are checked, but whole-build use of new measures and remaining requirement
-coverage are unfinished. The dated checkpoint sections below are historical.
+scheduling goal, not arbitrary prose. Measure admission, parent return and exact
+grouping into the parent's declared measures are connected. Remaining requirement
+coverage and a successful whole-build acceptance are unproven. The dated checkpoint
+sections below are historical.
 
 2026-10-02 checkpoint: the user closed the bounded Goals 2–4 coding assignment as
 complete, not stalled or blocked. Execution validation, unified testing/replay,

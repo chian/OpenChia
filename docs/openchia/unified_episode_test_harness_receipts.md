@@ -13,6 +13,40 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Admitted checks reach parent validation, 2026-10-03
+
+The canonical runner passed **9 tests across five files in 123.5 seconds**,
+retries disabled: `test_registered_measure_preparation.py`,
+`test_campaign_measurements.py`, `test_measure_control_experiments.py`,
+`test_refinement_experiments.py` under `tests/episode_runtime/testing`, and
+`tests/agent/test_build_refinement_job.py`.
+
+Normal-build campaigns now declare local and acceptance measure groups before
+refinement starts. Admission retains the original check and projects it into
+the matching group with the same predicate, controls, execution binding, guards
+and evidence. Parent validation discovers those checks through the existing
+evaluation resolver and shared experiment service. It rejects omission of a
+new mandatory check; earlier requests retain their original exact check sets.
+Grouping earns no additional adequacy credit. Final provenance follows the used
+checks back to the original measure admission and its controls and limitations.
+
+The new integration case uses independently derived scheduling controls and
+supplied target answers. The common measurement service reports the correct
+answer as passing and an infeasible answer as failing under the parent's group.
+Neither measurement grants parent acceptance by itself. This is measurement
+integration, not execution of the supplied answers by a candidate or live repair.
+The existing native handoff/cancellation limits below still apply.
+
+An initial focused run failed because group bindings were mixed into the source
+measure's binding list. The existing record validator rejected that mismatch.
+The fix preserves that validator and derives group bindings from the admitted
+projected checks. Focused reruns passed **3 tests in 39.0 seconds**, then **3 in
+42.9 seconds** after adding the shared-service measurement case.
+
+Remaining gaps include measurement coverage beyond the exact scheduling goal,
+live autonomous repair/acceptance through one start, and the older launch-fixture
+compatibility failure. This receipt does not establish whole-build acceptance.
+
 ### Registered task grounding and Measure-to-parent return, 2026-10-03
 
 The canonical runner passed **7 tests across four files in 77.2 seconds**, retries

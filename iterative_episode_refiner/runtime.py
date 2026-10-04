@@ -279,6 +279,7 @@ class RefinementSession:
         from .prerequisites import prerequisite_status
         from .evaluation_plan import evaluation_availability, resolve_evaluations
         from .succession import context_bundle
+        from .measure_groups import declarations, group_definition
 
         local = self.store.context(self.campaign_id, call.invocation_id)
         with self.view() as view:
@@ -435,6 +436,10 @@ class RefinementSession:
                     item.as_record() for item in admitted_measures(view, assignment)
                 ],
                 "measure_admission_policy": self.policy.get("measure_admission"),
+                "measure_groups": [
+                    {"measure_ref": ref.as_record(), "definition": group_definition(*purposes)}
+                    for ref, purposes in declarations(view, self.policy).items()
+                ],
                 "measure_needs": measure_needs(view, assignment, self.policy),
                 "assigned_prerequisites": assigned_context(view, assignment),
                 **grounding_context(view, assignment, self.policy),

@@ -13,6 +13,7 @@ from iterative_episode_refiner.campaign_store import CampaignView
 from iterative_episode_refiner.checking import checker_definition
 from iterative_episode_refiner.evaluation_inputs import native_template
 from iterative_episode_refiner.measures import bindings_for_check
+from iterative_episode_refiner.measure_groups import declarations, member_bindings
 from iterative_episode_refiner.records import Ref, RefinementRecord
 
 from ..records.experiments import read_reference
@@ -40,6 +41,7 @@ def admitted_check(view, requirement):
 def check_bindings(view, check):
     policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
     bindings = list(policy["evaluation_bindings"])
+    grouped = Ref.from_record(check.body["measure_ref"]) in declarations(view, policy)
     for entry in view.entries("measure"):
         admitted = entry.record.body
         if entry.status != "admitted" or check.ref.as_record() not in admitted["check_refs"]:
@@ -47,6 +49,8 @@ def check_bindings(view, check):
         if admitted["evaluation_binding"] is not None:
             bindings.append(admitted["evaluation_binding"])
         bindings.extend(admitted.get("evaluation_bindings", ()))
+        if grouped:
+            bindings.extend(member_bindings(((check, entry.record),)))
     return bindings_for_check(bindings, check)
 
 

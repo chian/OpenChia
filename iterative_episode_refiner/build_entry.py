@@ -14,6 +14,7 @@ from function_library.refinement_control import BOUNDED_RAREFACTION, SEMANTIC_YI
 
 from .preparation import prepare_refinement, start_refinement
 from .measure_preparation import build_measure_policy
+from .measure_groups import group_definition
 
 
 def selection(function):
@@ -41,16 +42,8 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
         },
     )
     environment = data("environment", runtime.as_record())
-    local = data(
-        "local_measure", {"purpose": "local", "basis": "Original requirement evidence"}
-    )
-    acceptance = data(
-        "acceptance_measure",
-        {
-            "purpose": "acceptance",
-            "basis": "Independent checks of the original requirements",
-        },
-    )
+    local = data("local_measure", group_definition("local"))
+    acceptance = data("acceptance_measure", group_definition("acceptance", "composition"))
     target = host.build_store.read_build_request(baseline.build_request_id)
     workflow = data("target_workflow", target.frozen_workflow.as_record())
     harness = data(
@@ -68,6 +61,7 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
         {
             "check_refs": [],
             "measure_admission": build_measure_policy(data),
+            "measure_group_refs": [local.as_record(), acceptance.as_record()],
             "numeric_control": refiner.build_request.frozen_workflow.workflow.episodes[
                 0
             ].contract.numeric_control.as_record(),

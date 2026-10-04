@@ -37,13 +37,17 @@ prose-to-oracle implementation. A changed problem does not inherit these cases.
 The Measure-to-parent return also fixes a missing argument that previously
 raised instead of recording the parent's useful new measurement decision.
 
-**Still unfinished:** incorporate newly admitted measures into the parent's
-whole-build acceptance contract without weakening or silently changing it;
-establish measures for the remaining original requirements; then verify automatic
-repair and final acceptance through one normal start. Static admission is not a
-substitute. Final compatibility remains open. Do not ask for routine iteration
-approval again. Focused validation of the new preparation/return is recorded in
-the receipt log; it is not a live repair receipt.
+The parent's declared measure groups now include admitted checks with their exact
+criteria, instruments and original-check links. Existing static checks remain;
+the verifier cannot omit a newly admitted member. Grouping is not another credit
+event or a passing observation. Finalization retains the original measure/control
+provenance rather than treating the group label as its own oracle.
+
+**Still unfinished:** establish measures for the remaining original requirements,
+then verify automatic repair and final acceptance through one normal start.
+Static admission is not a substitute. Final compatibility remains open. Do not
+ask for routine iteration approval again. Focused validation is recorded in the
+receipt log; it is not a live repair or final-acceptance receipt.
 
 ## Earlier checkpoint: systemd 255 and native nested continuation, 2026-10-03
 

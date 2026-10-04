@@ -373,6 +373,7 @@ async def prepared_refiner(
     campaign_source_kind=None,
     target_workflow=None,
     registered_grounding=False,
+    grouped_measures=False,
 ):
     from agent.duet_contracts import DuetIdentity, content_id, digest_record
     from agent.duet_service import DuetService
@@ -391,6 +392,7 @@ async def prepared_refiner(
     )
     from iterative_episode_refiner.runtime import RefinementSession
     from iterative_episode_refiner.measure_preparation import build_measure_policy
+    from iterative_episode_refiner.measure_groups import group_definition
     from iterative_episode_refiner.records import RefinementRecord
     from iterative_episode_refiner.service import IterativeEpisodeRefiner
     from iterative_episode_refiner.workspace import RefinementWorkspace
@@ -479,8 +481,8 @@ async def prepared_refiner(
                 "refiner_approval": refiner.workflow_approval.as_record(),
             },
         )
-        local = data("local_measure", {"purpose": "local"})
-        acceptance = data("acceptance_measure", {"purpose": "independent acceptance"})
+        local = data("local_measure", group_definition("local") if grouped_measures else {"purpose": "local"})
+        acceptance = data("acceptance_measure", group_definition("acceptance", "composition") if grouped_measures else {"purpose": "independent acceptance"})
         workflow_ref = data("target_workflow", target.frozen_workflow.as_record())
         checker_ref = None
         if checker is not None:
@@ -723,6 +725,7 @@ async def prepared_refiner(
             {
                 **measure_policy,
                 **({"measure_admission": build_measure_policy(data)} if registered_grounding else {}),
+                **({"measure_group_refs": [local.as_record(), acceptance.as_record()]} if grouped_measures else {}),
                 **({
                     "investigation_need_refs": [data("source_need", {
                         "need_key": "inspect-independent-source",

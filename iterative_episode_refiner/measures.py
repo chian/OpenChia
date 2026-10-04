@@ -39,6 +39,8 @@ def admitted_measures(view, assignment):
 
 
 def authorized_check_refs(view, policy, assignment):
+    from .measure_groups import admitted_members
+
     return tuple(
         dict.fromkeys(
             [Ref.from_record(item) for item in policy["check_refs"]]
@@ -47,12 +49,17 @@ def authorized_check_refs(view, policy, assignment):
                 for measure in admitted_measures(view, assignment)
                 for item in measure.body["check_refs"]
             ]
+            + [check.ref for check, _ in admitted_members(view, policy, assignment)]
         )
     )
 
 
 def evaluation_bindings(view, policy, assignment):
+    from .measure_groups import admitted_members, member_bindings
+
     bindings = list(policy["evaluation_bindings"])
+    bindings.extend(member_bindings(admitted_members(view, policy, assignment)))
+    bindings = list({canonical_json(binding): binding for binding in bindings}.values())
     known = {canonical_json(binding) for binding in bindings}
     for measure in admitted_measures(view, assignment):
         contexts = measure.body.get("evaluation_bindings", ())

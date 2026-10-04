@@ -221,6 +221,7 @@ def grounded_cases(view, proposal, policy):
 
 def _admitted_checks(view, attempt, proposal, measure_ref, policy):
     from .instrument_return import return_evidence
+    from .measure_groups import project_admitted_checks
 
     body = proposal.body
     cases, bindings, selection = grounded_cases(view, proposal, policy)
@@ -265,7 +266,7 @@ def _admitted_checks(view, attempt, proposal, measure_ref, policy):
                     "observation_path": grounding["observation_path"],
                     **(
                         {"execution_binding": grounding["execution_binding"]}
-                        if len(bindings) > 1
+                        if len(bindings) > 1 or policy.get("measure_group_refs")
                         else {}
                     ),
                 },
@@ -287,17 +288,19 @@ def _admitted_checks(view, attempt, proposal, measure_ref, policy):
             *acquired.provenance_refs,
         ])
     )
+    admitted_bindings = tuple(
+        {
+            **binding,
+            "measure_ref": measure_ref.as_record(),
+            "purpose": body["purpose"],
+        }
+        for _, binding in sorted(bindings.items())
+    )
+    checks = project_admitted_checks(view, policy, checks, admitted_bindings)
     return (
         checks,
         results,
-        tuple(
-            {
-                **binding,
-                "measure_ref": measure_ref.as_record(),
-                "purpose": body["purpose"],
-            }
-            for _, binding in sorted(bindings.items())
-        ),
+        admitted_bindings,
         tuple(dict.fromkeys((*evidence, *execution_evidence))),
     )
 

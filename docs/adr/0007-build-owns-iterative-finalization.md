@@ -22,10 +22,11 @@ normal build entry point did not hand its results to it.
 
 **OpenChia must own the full build → refine → validate cycle after one start.**
 
-After the initial approval and launch setup, the user starts `/build` once.
-That starts one job covering the initial build, all routine refinement and
-validation, and the final acceptance decision. OpenChia performs these
-transitions itself:
+After the initial approval and launch setup, one `/build` command starts the
+whole job. OpenChia—not the user or a coding assistant—starts the Builder,
+starts the IterativeEpisodeRefiner, runs validation, and returns validation
+failures to the refiner. It must not stop between these stages to wait for
+another command or routine approval. The required sequence is:
 
 1. Run the initial Builder attempt.
 2. Pass its result directly to the IterativeEpisodeRefiner, including partial
@@ -65,6 +66,13 @@ active or historical contract.
 Changing the original goal, weakening acceptance criteria or expanding execution
 authority is not a small improvement. Such changes remain outside the refinement
 grant. Do not manufacture human-approval events for host-authorized iterations.
+
+The job also authorizes establishing checks for the original requirements. Its
+local and acceptance measures declare this accumulation rule before refinement
+starts. A newly admitted check is added with its original criterion, controls,
+limits and evidence; it cannot replace or remove an earlier mandatory check.
+Each validation request fixes the exact checks it will run. Earlier results are
+not rewritten, and a pass from before a new check existed does not satisfy it.
 
 ### One lifecycle and one execution system
 

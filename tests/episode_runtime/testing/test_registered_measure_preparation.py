@@ -16,11 +16,14 @@ from agent.episode_blueprints import workflow_spec_from_blueprint
 from agent.episode_contracts import OpaqueId
 from function_library.models import _thaw_json
 from iterative_episode_refiner.measure_admission import definition
+from iterative_episode_refiner.measure_controls import final_control_rows
+from iterative_episode_refiner.evaluation_plan import resolve_evaluations
 from iterative_episode_refiner.readiness import root_readiness
 from iterative_episode_refiner.records import Ref
 from iterative_episode_refiner.runtime import Invocation
 from iterative_episode_refiner.runtime_proposals import _measure, assign_child
 from tests.episode_runtime.testing.refinement_fixture import prepared_refiner
+from tests.episode_runtime.testing.test_measurements import ResultOnlyExecutor
 
 
 def scheduling_blueprint():
@@ -31,10 +34,98 @@ def scheduling_blueprint():
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+async def assert_shared_group_measurement(session, check, case, tmp_path):
+    """Use the shared service on supplied answers; no candidate execution claim."""
+    from agent.episode_launch import resolve_launch
+    from episode_runtime.records.experiments import put_data
+    from episode_runtime.testing.contracts import ExperimentSpec
+    from episode_runtime.testing.service import ExperimentService
+    from tests.episode_runtime.testing.launch_fixture import FixtureLaunchHost
+    from tests.episode_runtime.testing.test_experiment_planning import experiment
+
+    artifacts, builds = session.store.evidence.duets, session.store.evidence.builds
+    with session.view() as view:
+        receipt = view.data(
+            Ref.from_record(session.contract.body["initial_build_receipt_ref"])
+        )
+        candidate = view.candidate
+        cases = [
+            (view.data(Ref.from_record(case[field][0]))["observed"], outcome)
+            for field, outcome in (
+                ("positive_control_refs", "pass"),
+                ("negative_control_refs", "fail"),
+            )
+        ]
+    inputs = builds.inspection_inputs_for_receipt(receipt["receipt_id"])
+    launch = resolve_launch({
+        "project": "grouped-measure-fixture",
+        "project_root": str(tmp_path),
+        "env_files": [],
+        "routes": {
+            "local": {
+                "provider": "custom",
+                "model": "unused",
+                "base_url": "http://localhost:9999/v1",
+                "api_mode": "chat_completions",
+                "auth": {"kind": "none"},
+            }
+        },
+        "model_slots": {"selector": "local", "executor": "local"},
+        "builder_slots": {"planning": "selector", "emission": "executor"},
+    })
+    FixtureLaunchHost(artifacts, builds, session.duet_id).approve_fixture(launch)
+    raw = experiment(artifacts, inputs.build_request, inputs.receipt)
+    raw.update(
+        candidate_ref=candidate.ref.as_record(),
+        campaign_ref=session.contract.ref.as_record(),
+        environment_ref=dict(session.contract.body["environment_ref"]),
+        launch_ref=put_data(artifacts, session.duet_id, "launch", launch.record),
+        requirements=[
+            {
+                "requirement_ref": check.ref.as_record(),
+                "measure_ref": _thaw_json(check.body["measure_ref"]),
+                "expected": "A feasible optimal schedule passes the original check.",
+                "falsifying": "An infeasible answer fails, regardless of its explanation.",
+            }
+        ],
+    )
+    raw["scope"].update(
+        entry_local_id=inputs.plan.root_local_id,
+        included_local_ids=[node.local_id for node in inputs.plan.nodes],
+    )
+    executor = session.evaluations.executor
+    service = ExperimentService(
+        artifacts=artifacts, builds=builds, runs=executor.run_store, executor=executor
+    )
+    for answer, expected in cases:
+        raw["question"] = (
+            f"Does this supplied {expected} control retain its judgment through the parent group?"
+        )
+        executor.result = {
+            "workflow_result": {
+                "admitted_problem_frontier": [{"fields": _thaw_json(answer)}]
+            }
+        }
+        spec = ExperimentSpec.from_record(raw)
+        preview = service.preview(spec)
+        assert preview["resolved"], preview["gaps"]
+        assert preview["measurements"][0]["eligible"]
+        result = await service.run(spec)
+        assert result["candidate_verdict"] == expected
+        assert (
+            result["measurement"]["outcomes"][0]["measure_ref"]
+            == check.body["measure_ref"]
+        )
+        assert not result["measurement"]["acceptance"]["admitted"]
+        assert not result["measurement"]["progress"]["admitted"]
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize("purpose", ["local", "composition"])
 async def test_measure_uses_original_task_grounding_and_returns_admitted_evidence_to_parent(
     tmp_path,
     run_store,
+    purpose,
 ):
     workflow = workflow_spec_from_blueprint(scheduling_blueprint())
     async with prepared_refiner(
@@ -42,6 +133,8 @@ async def test_measure_uses_original_task_grounding_and_returns_admitted_evidenc
         run_store[1].runtime_identity,
         target_workflow=workflow,
         registered_grounding=True,
+        grouped_measures=purpose == "composition",
+        executor_type=ResultOnlyExecutor if purpose == "composition" else None,
     ) as session:
         root = session.calls[session.root_id]
         root.unit_id = content_id(
@@ -53,13 +146,14 @@ async def test_measure_uses_original_task_grounding_and_returns_admitted_evidenc
         choices = [
             row
             for row in context["measure_grounding"]
-            if row["case"]["purpose"] == "local"
+            if row["case"]["purpose"] == purpose
         ]
         assert choices
         case = _thaw_json(choices[0]["case"])
         key = case["requirement_key"]
         with session.view() as view:
             baseline = view.candidate.ref.as_record()
+            initial_checks = {row.record.ref for row in view.entries("check")}
             assert not view.entries("measure")
             assert not view.entries("credit")
             assert not any(
@@ -89,7 +183,7 @@ async def test_measure_uses_original_task_grounding_and_returns_admitted_evidenc
                 "acceptance_measure_ref": _thaw_json(
                     root.assignment.body["acceptance_measure_ref"]
                 ),
-                "measure_request": {"purpose": "local", "requirement_keys": [key]},
+                "measure_request": {"purpose": purpose, "requirement_keys": [key]},
             },
             session.contract.producer_ref,
         )
@@ -199,6 +293,115 @@ async def test_measure_uses_original_task_grounding_and_returns_admitted_evidenc
             assert assessments[0].body["decision"]["kind"] == "measure_available"
             assert assessments[0].body["decision"]["requirement_keys"] == (key,)
             assert root_readiness(view, root.assignment, session.policy)["gaps"]
+            if purpose == "composition":
+                # Same frozen parent measure now contains the admitted criterion;
+                # neither the old static checks nor their identities were lost.
+                readiness = root_readiness(view, root.assignment, session.policy)
+                checks = [
+                    view.read(Ref.from_record(ref), "check")
+                    for ref in readiness["check_refs"]
+                ]
+                grouped = next(
+                    check for check in checks if check.body["requirement_key"] == key
+                )
+                assert (
+                    grouped.body["measure_ref"]
+                    == root.assignment.body["acceptance_measure_ref"]
+                )
+                original = view.read(
+                    Ref.from_record(grouped.body["origin_refs"][-1]), "check"
+                )
+                assert original.body["measure_ref"] == measure.as_record()
+                assert all(
+                    grouped.body[field] == original.body[field]
+                    for field in (
+                        "predicate_ref",
+                        "expected",
+                        "purpose",
+                        "guard_keys",
+                        "execution_binding",
+                        "requirement_key",
+                        "dependency_paths",
+                        "grounding_refs",
+                        "observation_path",
+                    )
+                )
+                assert initial_checks <= {
+                    row.record.ref for row in view.entries("check")
+                }
+                assert any(
+                    gap["code"] == "acceptance_not_current_pass"
+                    and key in gap["requirement_keys"]
+                    for gap in readiness["gaps"]
+                )
+                admissions, controls = final_control_rows(
+                    view, [grouped.ref.as_record()]
+                )
+                assert admissions == [decision.ref.as_record()]
+                assert not controls  # This oracle is pure, not a checker Run.
+                assert (
+                    len(decision.body["fact_keys"]) == 1
+                )  # Grouping adds no adequacy credit.
+
+        if purpose == "composition":
+            await assert_shared_group_measurement(session, grouped, case, tmp_path)
+            # The independently assigned verifier must include the new check;
+            # an old static-only request cannot stand in for its full judgment.
+            root.unit_id = content_id("unit", "parent requests independent acceptance")
+            from iterative_episode_refiner.runtime_proposals import (
+                verification_assignment,
+            )
+
+            chosen = verification_assignment(session, root, "composition")
+            session.commit(
+                root, "enter_child", {"invocation_id": chosen["invocation_id"]}
+            )
+            with session.view() as view:
+                assignment = view.entry("invocation", chosen["invocation_id"]).record
+                plans = resolve_evaluations(
+                    view, session.policy, assignment, "composition"
+                )
+                assert grouped.ref in {
+                    check.ref for plan in plans for check in plan["checks"]
+                }
+            verifier = Invocation(
+                OpaqueId(chosen["invocation_id"]),
+                assignment,
+                root.path,
+                root.goal,
+                unit_id=content_id("unit", "evaluate grouped criterion"),
+            )
+            _, requests = session.evaluations._requests(
+                session,
+                verifier,
+                {
+                    "unit_id": verifier.unit_id.value,
+                    "purpose": "composition",
+                },
+            )
+            request = next(
+                request
+                for request, _ in requests
+                if grouped.artifact_id.value in request.body["check_keys"]
+            )
+            omitted = session.record(
+                verifier,
+                "evaluation",
+                {
+                    **request.body,
+                    "check_keys": [
+                        check
+                        for check in request.body["check_keys"]
+                        if check != grouped.artifact_id.value
+                    ],
+                },
+            )
+            with pytest.raises(ValueError, match="omits checks"):
+                session.commit(
+                    verifier, "request_evaluation", {"request": omitted.as_record()}
+                )
+            with session.view() as view:
+                assert view.read(request.ref, "evaluation") == request
 
 
 @pytest.mark.asyncio

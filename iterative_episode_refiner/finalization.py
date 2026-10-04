@@ -274,10 +274,19 @@ def finalize_result(session, evidence):
                 for check in checks
             }.values()
         )
-        measure_admission_refs, control_rows = final_control_rows(view, measure_refs)
+        measure_admission_refs, control_rows = final_control_rows(
+            view, readiness["check_refs"]
+        )
         admissions = [
             view.read(Ref.from_record(ref), "measure_admission")
             for ref in measure_admission_refs
+        ]
+        measure_refs = [
+            ref.as_record()
+            for ref in dict.fromkeys(map(
+                Ref.from_record,
+                [*measure_refs, *(item.body["measure_ref"] for item in admissions)],
+            ))
         ]
         grounding_observations = {}
         for admission in admissions:

@@ -386,13 +386,15 @@ def control_context(view, proposal_refs):
     return results[-12:]
 
 
-def final_control_rows(view, measure_refs):
+def final_control_rows(view, check_refs):
     """Retain the original adequacy evidence for each used admitted measure."""
-    selected = set(map(Ref.from_record, measure_refs))
+    selected = set(map(Ref.from_record, check_refs))
     admissions = {}
     for entry in view.entries("measure"):
         reference = Ref.from_record(entry.record.body["measure_ref"])
-        if entry.status == "admitted" and reference in selected:
+        if entry.status == "admitted" and selected.intersection(
+            map(Ref.from_record, entry.record.body["check_refs"])
+        ):
             admissions.setdefault(reference, entry.record)
     rows = []
     for admission in admissions.values():
