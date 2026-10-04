@@ -76,7 +76,11 @@ def validate_launch_spec(value: object) -> dict[str, Any]:
         raise LaunchConfigurationError("routes must name at least one model configuration")
     for name, raw in routes.items():
         _text(name, "route name")
-        route = _fields(raw, {"provider", "model", "base_url", "api_mode", "auth"}, {"reasoning", "fallbacks"}, f"route {name}")
+        route = _fields(raw, {"provider", "model", "base_url", "api_mode", "auth"}, {"reasoning", "fallbacks", "recovery"}, f"route {name}")
+        if "recovery" in route:
+            from agent.model_call_recovery_policy import ModelCallRecoveryPolicy
+
+            ModelCallRecoveryPolicy.from_dict(route["recovery"])
         for key in ("provider", "model", "base_url", "api_mode"):
             _text(route[key], f"route {name}.{key} (literal launch setting)")
         auth = _fields(route["auth"], {"kind"}, {"env", "account"}, "auth")
@@ -174,9 +178,15 @@ def _codex_login_token(path: Path) -> str:
     return token.strip()
 
 
-def resolve_launch(spec: Mapping[str, Any]) -> ResolvedLaunch:
+def resolve_launch(spec: Mapping[str, Any], *, frozen_record=None) -> ResolvedLaunch:
     """Snapshot explicit file/env inputs. No provider discovery or network calls."""
     spec = validate_launch_spec(spec)
+    from agent.model_call_recovery_policy import resolve_recovery_policy
+    from openchia_cli.config import load_config_readonly
+
+    if frozen_record is not None and canonical_json(spec) != canonical_json(frozen_record["requested_spec"]):
+        raise LaunchConfigurationError("Selected launch settings differ from the frozen launch")
+    recovery_config = load_config_readonly() if frozen_record is None else None
     root = Path(spec["project_root"]).expanduser().resolve(strict=True)
     if not root.is_dir():
         raise LaunchConfigurationError("project_root must be a directory")
@@ -202,6 +212,16 @@ def resolve_launch(spec: Mapping[str, Any]) -> ResolvedLaunch:
         for key in ("provider", "model", "base_url", "api_mode"):
             provenance[f"routes.{name}.{key}"] = spec.get("source_file", "selected_launch")
         route["base_url"] = _endpoint(route["base_url"])
+        recovery_key = f"routes.{name}.recovery"
+        if frozen_record is None:
+            route["recovery"] = resolve_recovery_policy(route, config=recovery_config)
+            provenance[recovery_key] = (
+                spec.get("source_file", "selected_launch") if "recovery" in spec["routes"][name]
+                else "profile_source_policy_or_builtin_default"
+            )
+        elif "recovery" in frozen_record["resolved_spec"]["routes"][name]:
+            route["recovery"] = dict(frozen_record["resolved_spec"]["routes"][name]["recovery"])
+            provenance[recovery_key] = frozen_record["sources"][recovery_key]
         if route["provider"] == "auto":
             raise LaunchConfigurationError("launch routes require a concrete provider")
         if route["api_mode"] not in {"chat_completions", "codex_responses", "anthropic_messages"}:
@@ -239,6 +259,8 @@ def resolve_launch(spec: Mapping[str, Any]) -> ResolvedLaunch:
     # Values used as credentials cannot accidentally become public model/endpoint fields.
     public = {"requested_spec": spec, "resolved_spec": resolved, "sources": provenance}
     encoded = canonical_json(public)
+    if frozen_record is not None and encoded != canonical_json(frozen_record):
+        raise LaunchConfigurationError("Launch resolution differs from its frozen nonsecret configuration")
     if any(secret and secret in encoded for secret in credentials.values()):
         raise LaunchConfigurationError("a credential value also appears in public launch settings")
     return ResolvedLaunch(encoded, credentials)

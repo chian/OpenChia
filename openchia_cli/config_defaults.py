@@ -30,6 +30,9 @@ def _aux(timeout, *, reasoning_effort=True, **extra):
 DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
+    # Exact provider/base_url (optionally model) recovery overrides, frozen at
+    # Episode launch/binding creation. No new prompt or per-iteration dialog.
+    "model_call_recovery": {"sources": []},
     "fallback_providers": [],
     # min_switch_reset_seconds: opt-in (0 = off). When a rate-limited primary declares a reset
     # sooner than this many seconds, stay on it (the retry backoff rides out the window) instead

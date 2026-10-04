@@ -38,26 +38,56 @@ def provider_failure(exc, route):
 
 
 def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
-            cancel: threading.Event, progress: Callable[[], None]):
+            cancel: threading.Event, progress: Callable[[], None], activity=None):
     import httpx
     from openai import OpenAI, Omit
     from agent.auxiliary_client import (
         AnthropicAuxiliaryClient, CodexAuxiliaryClient,
+        AuxiliaryExplicitCancellation, _capture_aux_cancel_check,
         _apply_required_codex_headers, _run_protected_sync_provider_call,
         aux_interrupt_protection, aux_progress_hook,
         extract_content_or_reasoning, scoped_runtime_main,
     )
 
     def strip_auth(outgoing: httpx.Request) -> None:
+        if cancel.is_set():
+            raise AuxiliaryExplicitCancellation()
         if key is None:
             outgoing.headers.pop("authorization", None)
             outgoing.headers.pop("x-api-key", None)
+
+        if activity is not None:
+            activity.observe("request_dispatched")
+
+    class ObservedStream(httpx.SyncByteStream):
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __iter__(self):
+            for chunk in self.stream:
+                if chunk and activity is not None:
+                    activity.observe("receiving_response_bytes")
+                yield chunk
+
+        def close(self):
+            self.stream.close()
+
+    def received_headers(response: httpx.Response) -> None:
+        if cancel.is_set():
+            response.close()
+            raise AuxiliaryExplicitCancellation()
+        if activity is not None:
+            activity.observe(
+                "response_headers_received",
+                request_id=response.headers.get("x-request-id") or response.headers.get("request-id"),
+            )
+            response.stream = ObservedStream(response.stream)
 
     # Explicit transport ownership also prevents ambient proxies from changing
     # the destination. Each call owns its client, so cancellation cannot close
     # another project's connection.
     http = httpx.Client(trust_env=False, timeout=None, follow_redirects=False,
-                        event_hooks={"request": [strip_auth]})
+                        event_hooks={"request": [strip_auth], "response": [received_headers]})
     mode = route["api_mode"]
     if mode == "anthropic_messages":
         from anthropic import Anthropic, Omit as AnthropicOmit
@@ -99,21 +129,38 @@ def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
             kwargs["_reasoning_config"] = reasoning
         else:
             kwargs["reasoning_effort"] = reasoning["effort"] if reasoning["enabled"] else "none"
-    try:
-        with (aux_interrupt_protection(cancel_event=cancel), aux_progress_hook(progress),
-              scoped_runtime_main({"provider": route["provider"], "model": route["model"],
-                                   "base_url": route["base_url"], "api_mode": mode})):
-            def create(payload):
+    with (aux_interrupt_protection(cancel_event=cancel), aux_progress_hook(progress),
+          scoped_runtime_main({"provider": route["provider"], "model": route["model"],
+                               "base_url": route["base_url"], "api_mode": mode})):
+        def create(payload):
+            from agent.agent_runtime_helpers import force_close_tcp_sockets
+
+            decision = _capture_aux_cancel_check()
+            register_abort = getattr(decision, "register_abort", None)
+            clear_abort = getattr(decision, "clear_abort", None)
+            try:
+                if callable(register_abort):
+                    # Shutdown is safe from the cancelling thread. Releasing
+                    # TLS file descriptors belongs to this SDK-owning thread.
+                    register_abort(lambda: force_close_tcp_sockets(real))
+                if cancel.is_set():
+                    raise AuxiliaryExplicitCancellation()
                 if mode == "codex_responses":
                     return _codex_response(client, real, payload, progress)
                 return client.chat.completions.create(**payload)
+            finally:
+                if callable(clear_abort):
+                    clear_abort()
+                try:
+                    real.close()
+                finally:
+                    if activity is not None:
+                        activity.provider_finished.set()
 
-            response = _run_protected_sync_provider_call(create, kwargs)
-            from agent.aux_accounting import record_aux_usage
-            record_aux_usage(response, request.task, provider=route["provider"], base_url=route["base_url"])
-            return extract_content_or_reasoning(response) or "", str(getattr(response, "model", "") or route["model"])
-    finally:
-        real.close()
+        response = _run_protected_sync_provider_call(create, kwargs)
+        from agent.aux_accounting import record_aux_usage
+        record_aux_usage(response, request.task, provider=route["provider"], base_url=route["base_url"])
+        return extract_content_or_reasoning(response) or "", str(getattr(response, "model", "") or route["model"])
 
 
 def _codex_response(client, real, kwargs, progress):
@@ -148,15 +195,50 @@ def _codex_response(client, real, kwargs, progress):
                            choices=[SimpleNamespace(message=SimpleNamespace(content="".join(text)))])
 
 
-async def invoke_pinned_route(route, key, request, cancel, progress):
+async def invoke_pinned_route(route, key, request, cancel, progress, *, record_activity=lambda record: None):
     """Call one already-resolved route without provider or account discovery."""
     from agent.auxiliary_client import AuxiliaryExplicitCancellation
+    from agent.model_call_recovery import supervise_model_call
 
-    if cancel.is_set():
-        raise asyncio.CancelledError
+    async def invoke_attempt(attempt_request, attempt_cancel, activity):
+        from agent.memory_provider import spawn_context_thread
+
+        loop = asyncio.get_running_loop()
+        result = loop.create_future()
+
+        def publish(value=None, error=None):
+            if result.done():
+                return
+            if isinstance(error, AuxiliaryExplicitCancellation):
+                result.cancel()
+            elif error is not None:
+                result.set_exception(error)
+            else:
+                result.set_result(value)
+
+        def run():
+            value = error = None
+            try:
+                value = _invoke(route, key, attempt_request, attempt_cancel, activity.progress, activity)
+            except BaseException as exc:
+                error = exc
+            # A cancelled caller need not keep asyncio's default executor alive
+            # while an SDK cleans up. Late callbacks cannot publish a result.
+            try:
+                loop.call_soon_threadsafe(publish, value, error)
+            except RuntimeError:
+                if not loop.is_closed():
+                    raise
+
+        spawn_context_thread(run, name="openchia-model-attempt").start()
+        return await result
+
     try:
-        return await asyncio.to_thread(_invoke, route, key, request, cancel, progress)
-    except (AuxiliaryExplicitCancellation, asyncio.CancelledError):
+        return await supervise_model_call(
+            route=route, request=request, cancel=cancel, progress=progress,
+            record=record_activity, invoke=invoke_attempt,
+        )
+    except asyncio.CancelledError:
         cancel.set()
         raise asyncio.CancelledError from None
 
@@ -201,7 +283,8 @@ class LaunchModelTransport:
             self.record_attempt({**receipt, "state": "started", "controls": controls})
             try:
                 text, actual_model = await invoke_pinned_route(
-                    route, self.launch.credentials[name], request, self.cancel, self.progress)
+                    route, self.launch.credentials[name], request, self.cancel, self.progress,
+                    record_activity=lambda details: self.record_attempt({**receipt, **details}))
             except asyncio.CancelledError:
                 self.cancel.set()
                 self.record_attempt({**receipt, "state": "cancelled", "elapsed_seconds": time.monotonic() - started})

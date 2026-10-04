@@ -213,8 +213,13 @@ by that adapter. An adapter's model field is not proof of a provider's immutable
 backend revision.
 
 An explicit timeout applies to SDK transport I/O, including receiving Responses
-stream events. `timeout: None` in call options keeps the request unbounded and
-cancellable. No auxiliary task-default or no-progress watchdog is added.
+stream events. `timeout: None` keeps the original request unbounded and cancellable;
+no auxiliary task-default timeout is inherited. Newly resolved routes also freeze
+their [source health/recovery policy](model_call_recovery.md): inactivity can start
+a bounded side call without cancelling the original. Only a successful probe,
+continued silence and an explicit retry-capable policy permit replacement.
+Unknown/local/Argo sources preserve their requests by default. Historical frozen
+routes without a recovery field retain their legacy behavior.
 
 ### Credentials
 
@@ -281,8 +286,9 @@ routing settings, not exact credentials, provider internals or model output.
 While reuse mode is selected, `/launch reload` asks you to select a file with
 `/launch load FILE`; it keeps the frozen selection intact.
 
-`fallbacks` is an ordered list of route names. After an attempt fails, only the
-listed routes are attempted, once each. Fallback lists on those entries are not
+`fallbacks` is an ordered list of route names. After a route fails, only the
+listed routes are attempted, once each; a route's frozen recovery policy can
+permit bounded physical replacements within that same route. Fallback lists on those entries are not
 recursively expanded. Cancellation stops the call rather than advancing to a
 fallback. SDK retries and implicit provider/account hopping are disabled.
 
