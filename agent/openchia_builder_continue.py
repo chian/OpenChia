@@ -47,6 +47,7 @@ def continue_builder(host, predecessor):
     )
     builder = host._builder_for(request, launch)
     refiner = BuildRefinement(host, binding=binding)
+    owner = owner_record()
     cancel = threading.Event()
     live = host._model_launch_transport(launches[0]["launch_id"], launch, cancel_event=cancel)
     responses = None if existing is not None else BuilderResponses(host, builder, predecessor, live, request)
@@ -67,7 +68,7 @@ def continue_builder(host, predecessor):
             events=({
                 "event_type": "build_requested", "provenance": DuetProvenance.HUMAN_INPUT.value,
                 "record": {
-                    **link, "owner": owner_record(), "refiner_binding_ref": binding.reference,
+                    **link, "owner": owner, "refiner_binding_ref": binding.reference,
                     "authority_head_approval_id": request.authority_approval.approval_id.value,
                     "workflow_approval_id": request.workflow_approval.approval_id.value,
                 },
@@ -112,8 +113,22 @@ def continue_builder(host, predecessor):
     host._build_thread = worker
     try:
         worker.start()
-    except Exception:
+    except Exception as exc:
+        from agent.openchia_host import _describe_exception
+
         host._build_thread, host._build_cancel_event = None, None
         host._build_state = "host_error"
+        host._build_error = _describe_exception(exc)
+        host._build_progress["stage"] = "host_error"
+        host.store.append_event(
+            duet_id=host.identity.duet_id.value,
+            event_type="build_host_failure",
+            provenance=DuetProvenance.HOST_VALIDATION.value,
+            record={
+                "build_request_id": request.build_request_id.value,
+                "state": "host_error", "owner": owner,
+                "error": host._build_error,
+            },
+        )
         raise
     return host.build_status()

@@ -131,7 +131,10 @@ is not assumed safe. A second CLI reports `building` when the exact recorded
 owner is live, `ownership_unknown` when it cannot verify the owner, and
 `interrupted` only after it verifies the owner stopped without finalization.
 A committed `build_finished`/`build_host_failure` supplies its actual terminal
-state. This is process/finalization evidence, not a claim that the Builder is
+state. Failure to start a fresh or continued Builder thread also publishes
+`build_host_failure` with the exact owner, request and error, so the same open
+CLI can continue it instead of mistaking its still-live process for an active
+Builder. This is process/finalization evidence, not a claim that the Builder is
 making progress. Legacy Builder jobs without recorded ownership/binding
 cannot be continued across this boundary. This restriction does not apply to a
 legacy refiner whose existing Run attestation and experiment already bind them.

@@ -957,13 +957,14 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 daemon=False,
             )
             self._build_thread = worker
+            owner = owner_record()
             self.store.append_event(
                 duet_id=self.identity.duet_id.value,
                 event_type="build_requested",
                 provenance=DuetProvenance.HUMAN_INPUT.value,
                 record={
                     "build_request_id": request.build_request_id.value,
-                    "owner": owner_record(),
+                    "owner": owner,
                     "refiner_binding_ref": refiner.binding.reference,
                     "authority_head_approval_id": (
                         request.authority_approval.approval_id.value
@@ -975,10 +976,22 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             )
             try:
                 worker.start()
-            except Exception:
+            except Exception as exc:
                 self._build_thread = None
                 self._build_cancel_event = None
                 self._build_state = "host_error"
+                self._build_error = _describe_exception(exc)
+                self._build_progress["stage"] = "host_error"
+                self.store.append_event(
+                    duet_id=self.identity.duet_id.value,
+                    event_type="build_host_failure",
+                    provenance=DuetProvenance.HOST_VALIDATION.value,
+                    record={
+                        "build_request_id": request.build_request_id.value,
+                        "state": "host_error", "owner": owner,
+                        "error": self._build_error,
+                    },
+                )
                 raise
         return self.build_status()
 
