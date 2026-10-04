@@ -1,6 +1,22 @@
 {
-  "status": "target_and_launch_approved_build_cancelled_for_feedback_fix_tester_unapproved",
+  "status": "target_and_launch_approved_one_start_build_refining_tester_unapproved",
   "current_build_job": {
+    "source_commit": "7222da1a2167018d8ba486793f6b3774318ba3bc",
+    "state_at_observation": "refining",
+    "build_request_id": "build_request_2f512662e164f8a9f46cad98a884254b94180cefd01c0450fe767be405855f32",
+    "initial_build_receipt_id": "build_receipt_83028c19946fe7e368664b00a71a06ceffcac62d8800b3b48511739d9d786846",
+    "campaign_ref": {
+      "artifact_id": "refinement_e13ebd4be416466c397e3aba99c068ead92aa83025dd99a7cc3620e078e336ee",
+      "content_hash": "sha256:e13ebd4be416466c397e3aba99c068ead92aa83025dd99a7cc3620e078e336ee"
+    },
+    "experiment_id": "experiment_c25d2a8b6bd00b97ef9ab4782cc8f570a38763ec6b765db41e1aeac3d6bfb1a3",
+    "refiner_run_id": "run_11c36b0e256340542a5ed70b287e99e90d04b933b2b6a13c224c4ff70c866d89",
+    "duet_model": "gpt-5.6-sol-900k",
+    "duet_reasoning_effort": "xhigh",
+    "executor": "systemd",
+    "verified_build_ref": null
+  },
+  "previous_build_jobs": [{
     "source_commit": "899ff4a220d8a42f497b1ad55f2b2b7d09d02dce",
     "state_at_observation": "cancelled",
     "cancellation_reason": "Correct misleading host feedback: both rejected Designer plans contained all contribution keys plus one preservation-only key. No candidate repair or final acceptance occurred.",
@@ -16,7 +32,7 @@
     "duet_reasoning_effort": "xhigh",
     "executor": "systemd",
     "verified_build_ref": null
-  },
+  }],
   "workspace": "/home/chia/repos/OpenChia-acceptance-0RN3r9BH",
   "target_session_id": "schedule-acceptance-20261003-target",
   "approved_workflow_hash": "sha256:943d549e9c1ac27d016a1f51018aa7156e420558562ab59021111122356e4ee8",

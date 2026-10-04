@@ -1,17 +1,21 @@
-# Scheduling acceptance — one-start build cancelled for a feedback fix; testing Episode pending
+# Scheduling acceptance — one-start build in progress; testing Episode pending
 
 Current attempt, 2026-10-03: the ordinary `OpenChiaHost.start_build` entry was
-called once from commit `899ff4a220`, with a fully initialized owning Duet using
+called once from commit `7222da1a21`, with a fully initialized owning Duet using
 its configured `gpt-5.6-sol-900k` route and `xhigh` reasoning effort. The Target
 Workflow retains its separate approved launch file. The initial Builder attempt
 failed source planning; OpenChia automatically entered the shipped refiner in a
 native systemd worker. No operator launched that next stage or repaired its code.
-The job was then cancelled to correct a host feedback defect: two Designer plans
+The job is running; its initial verification child has returned evidence to its
+parent, which has issued a live model request. No accepted repair is claimed.
+
+The previous job from `899ff4a220` was cancelled to correct a host feedback defect: two Designer plans
 covered all assigned contribution keys but included a preservation-only key.
 Both received the misleading rejection "plan must cover the assigned contribution."
 The cancelled job has no verified build. This is not a completed repair or
 acceptance receipt; no operator edited its candidate.
-Current job and Run identities appear in `current_build_job` in
+Current job and Run identities appear in `current_build_job`, and the cancelled
+predecessor in `previous_build_jobs`, in
 [setup_inputs.json](setup_inputs.json). The earlier failed attempt below is
 retained as historical evidence, not the current job's status.
 

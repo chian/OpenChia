@@ -36,7 +36,10 @@ Designer child. The job was cancelled after two plans hit a misleading host
 rejection: both contained all contribution keys plus one preservation-only key.
 Feedback now identifies missing and unexpected keys without changing admission.
 No candidate repair or final acceptance has been demonstrated. Exact IDs are in
-`acceptance/setup_inputs.json` and the receipt log.
+`acceptance/setup_inputs.json` and the receipt log. The feedback fix is saved in
+`7222da1a21`; its 13 focused tests pass. A fresh normal build from that commit
+again handed a failed initial attempt to the native refiner automatically. It is
+still running, with no accepted repair yet. The prior cancelled job is retained.
 
 The normal-build policy now supplies a frozen grant for registered requirement
 grounding functions. `measure_preparation` uses only the original approved task

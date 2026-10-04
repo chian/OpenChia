@@ -13,6 +13,26 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live one-start retry after host feedback correction, 2026-10-03
+
+Clean source `7222da1a21` started the ordinary build entry once:
+`build_request_2f512662e164f8a9f46cad98a884254b94180cefd01c0450fe767be405855f32`.
+The actual owning Duet route is unchanged, separate from the approved Target
+Workflow launch. The initial receipt
+`build_receipt_83028c19946fe7e368664b00a71a06ceffcac62d8800b3b48511739d9d786846`
+reports an invalid pre-emission generated-function identifier, missing source
+and a mismatched numerical composer binding. It emitted no module.
+
+OpenChia automatically continued into native systemd refiner Run
+`run_11c36b0e256340542a5ed70b287e99e90d04b933b2b6a13c224c4ff70c866d89`, through
+`experiment_c25d2a8b6bd00b97ef9ab4782cc8f570a38763ec6b765db41e1aeac3d6bfb1a3`.
+At this observation the initial Verify child has returned and the parent has
+issued its first live model request. The job is live, not accepted or complete.
+No candidate edits, supplied model responses or manual stage starts were used.
+`acceptance/setup_inputs.json` identifies this attempt separately from the
+cancelled predecessor. This receipt proves the repeated automatic handoff,
+not source repair or target correctness.
+
 ### Live Designer feedback defect and cancellation, 2026-10-03
 
 The one-start job below reached its Designer after the Parts Episode corrected
