@@ -1,5 +1,12 @@
 # Scheduling acceptance — Measure admitted; Target Workflow acceptance pending
 
+Latest narrow verification, 2026-10-04: a live Implementer edit of a rejected,
+non-runnable candidate reached ordinary host admission and was accepted without
+first executing that candidate. Subsequent validation failed on an older host
+reading a newer stored schema. See the [repair-path receipt](non_runnable_repair_receipt.md)
+for exact evidence and limits; this is not Target Workflow acceptance. The
+dated observations below are historical, not current process-liveness reports.
+
 Latest status, 2026-10-04 17:11 UTC: the normal `OpenChiaHost.continue_build()`
 entry has started successor Run
 `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
