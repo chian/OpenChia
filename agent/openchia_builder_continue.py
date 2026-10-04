@@ -71,20 +71,21 @@ def continue_builder(host, predecessor):
                     "authority_head_approval_id": request.authority_approval.approval_id.value,
                     "workflow_approval_id": request.workflow_approval.approval_id.value,
                 },
-            },),
+            }, {
+                "event_type": "model_launch_resolved",
+                "provenance": DuetProvenance.HOST_VALIDATION.value,
+                "record": {
+                    **launches[0], "subject_id": request.build_request_id.value,
+                    "launch_id": content_id("model_launch", {"build_request_id": request.build_request_id.value}).value,
+                    "continued_from_launch_id": launches[0]["launch_id"],
+                },
+            }),
             idempotency_artifact_ids=tuple(item["artifact_id"] for item in artifacts),
             duet_id=host.identity.duet_id.value, expected_state="sealed",
             expected_authority_head_approval_id=request.authority_approval.approval_id.value,
         )
         if not created:
             return host.build_status()
-        # Keep the immutable resolved launch snapshot linked to the successor;
-        # no provider/default resolution is repeated after the exact check above.
-        host._launch_event("model_launch_resolved", {
-            **launches[0], "subject_id": request.build_request_id.value,
-            "launch_id": content_id("model_launch", {"build_request_id": request.build_request_id.value}).value,
-            "continued_from_launch_id": launches[0]["launch_id"],
-        })
         live.launch_id = content_id("model_launch", {"build_request_id": request.build_request_id.value}).value
     host._build_request = request
     host._build_attempt_id = None if existing is None else existing.build_attempt_id

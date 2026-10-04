@@ -74,7 +74,11 @@ class LearningBroker:
     async def __call__(self, episode_id, operation, payload):
         # Journal verification and flock may block; to_thread also preserves
         # the owning request's ContextVars across this host boundary.
-        return await asyncio.to_thread(self._dispatch, episode_id, operation, payload)
+        task = asyncio.create_task(asyncio.to_thread(self._dispatch, episode_id, operation, payload))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            return await task
 
     def _dispatch(self, episode_id, operation, payload):
         episode_id = OpaqueId(episode_id)

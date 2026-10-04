@@ -7,8 +7,6 @@ Additional instruments belong to the same shared validation service, not role-
 specific runners.
 """
 
-import asyncio
-
 from agent.duet_contracts import content_id
 from agent.episode_contracts import OpaqueId
 from episode_runtime.contracts import RuntimePolicy
@@ -217,35 +215,28 @@ class RefinementEvaluations:
             entry = selected_entry(view, request.body)
             return entry["spec_ref"]["artifact_id"] if entry else "target"
 
-    async def evaluate(self, session, call, payload):
+    def evaluate_local(self, session, call, payload):
         if self.progress_callback is not None:
             self.progress_callback("validating")
         try:
-            return await self._evaluate(session, call, payload)
+            return self._evaluate(session, call, payload)
         finally:
             if self.progress_callback is not None:
                 self.progress_callback("refining")
 
-    async def _evaluate(self, session, call, payload):
+    def _evaluate(self, session, call, payload):
         if self.executor.run_store is not session.store.evidence.runs:
             raise ValueError("validation must use the campaign's existing RunStore")
-        if "experiment_proposal_ref" in payload:
-            from .evaluation_experiments import execute_experiment
-
-            return await execute_experiment(self, session, call, payload)
         if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:
-            return await self._evaluate_measure(session, call, payload)
-        candidate, requests = await asyncio.to_thread(
-            self._requests, session, call, payload
-        )
+            return self._evaluate_measure(session, call, payload)
+        candidate, requests = self._requests(session, call, payload)
         available = [
             (request, checks)
             for request, checks in requests
             if request.body["availability"]["executable"]
         ]
         if not available:
-            return await asyncio.to_thread(
-                session.reply,
+            return session.reply(
                 call,
                 proceed=False,
                 evaluation_gaps=[request.as_record() for request, _ in requests],
@@ -255,9 +246,9 @@ class RefinementEvaluations:
         admitted = True
         experiment_targets = []
         for request, checks in available:
-            key = await asyncio.to_thread(self._source_key, session, request)
+            key = self._source_key(session, request)
             if key not in receipts:
-                receipts[key] = await admit_candidate(
+                receipts[key] = admit_candidate(
                     session.store,
                     session.contract,
                     candidate,
@@ -265,7 +256,7 @@ class RefinementEvaluations:
                     request.body,
                 )
             receipt = receipts[key]
-            ready = await self._evaluate_request(
+            ready = self._evaluate_request(
                 session, call, request, candidate, checks, receipt
             )
             if isinstance(ready, dict):
@@ -278,20 +269,17 @@ class RefinementEvaluations:
                     check.body["evidence_kind"] == "execution" for check in checks
                 )
             )
-        return await asyncio.to_thread(
-            session.reply,
+        return session.reply(
             call,
             proceed=evaluated and len(available) == len(requests) and admitted,
             source_admitted=all(receipt.materialized for receipt in receipts.values()),
             experiment_targets=experiment_targets,
         )
 
-    async def _evaluate_request(
+    def _evaluate_request(
         self, session, call, request, candidate, checks, receipt
     ):
-        receipt_ref = await asyncio.to_thread(
-            self._record_source, session, call, request, candidate, receipt
-        )
+        receipt_ref = self._record_source(session, call, request, candidate, receipt)
         static_checks = [
             check
             for check in checks
@@ -300,8 +288,7 @@ class RefinementEvaluations:
         runtime_checks = [
             check for check in checks if check.body["evidence_kind"] == "execution"
         ]
-        await asyncio.to_thread(
-            self._observe_materialization,
+        self._observe_materialization(
             session,
             call,
             request,
@@ -314,9 +301,7 @@ class RefinementEvaluations:
             return False
         from .evaluation_experiments import experiment_target
 
-        return await asyncio.to_thread(
-            experiment_target, self, session, call, request, receipt, runtime_checks
-        )
+        return experiment_target(self, session, call, request, receipt, runtime_checks)
 
     def _measure_jobs(self, session, call, payload):
         from .measure_admission import grounded_cases
@@ -389,19 +374,19 @@ class RefinementEvaluations:
             evidence=references,
         )
 
-    async def _evaluate_measure(self, session, call, payload):
+    def _evaluate_measure(self, session, call, payload):
         from .measure_experiments import targets
 
         try:
-            jobs = await asyncio.to_thread(self._measure_jobs, session, call, payload)
+            jobs = self._measure_jobs(session, call, payload)
         except (ValueError, KeyError, TypeError):
             # The ordinary admission path records the exact unsupported proposal
             # as a rejection. No malformed proposal is executed as a control.
-            return await asyncio.to_thread(self._admit_measure, session, call, payload)
-        choices, gaps = await asyncio.to_thread(targets, self, session, call, jobs)
+            return self._admit_measure(session, call, payload)
+        choices, gaps = targets(self, session, call, jobs)
         if choices:
-            return await asyncio.to_thread(session.reply, call, experiment_targets=choices, evaluation_gaps=gaps)
-        return await asyncio.to_thread(self._admit_measure, session, call, payload)
+            return session.reply(call, experiment_targets=choices, evaluation_gaps=gaps)
+        return self._admit_measure(session, call, payload)
 
     def _admit_measure(self, session, call, payload):
         from .measure_admission import definition

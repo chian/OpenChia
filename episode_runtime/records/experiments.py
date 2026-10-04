@@ -26,6 +26,7 @@ RECORDS = {
     "instrument_result_attempt": ("experiment_id", "instrument_id", "run_id"),
     "dispatch": ("experiment_id",),
     "execution": ("run_id",),
+    "host_operation": ("run_id", "request_id"),
     "continuation": ("predecessor_run_id",),
     "measurement": ("experiment_id",),
     "measurement_attempt": ("experiment_id", "execution_set_hash"),

@@ -20,7 +20,10 @@ class HostReconstruction:
         if registration.resume_from is None:
             raise ValueError("reconstruction requires an exact interrupted execution")
         self.runs, self.registration = runs, registration
-        self.cursor = ReconstructionCursor(runs, registration.resume_from.run_id)
+        self.cursor = ReconstructionCursor(
+            runs, registration.resume_from.run_id,
+            artifacts=None if refinement_session is None else refinement_session.store.duet_store,
+        )
         self.source_receipt = source_receipt
         self.refinement_session = refinement_session
         self.experiment_session = experiment_session
@@ -37,10 +40,13 @@ class HostReconstruction:
             if session is not None:
                 session.validate_registration(self.registration)
         if self.refinement_session is not None:
-            from iterative_episode_refiner.runtime_state import validate_restored_state
+            from iterative_episode_refiner.runtime_state import validate_restored_state, validate_unstarted_session
 
             saved = self.cursor.host_state
             if saved is None or saved["state"] is None:
+                if self.cursor.prefix_verified:
+                    validate_unstarted_session(self.refinement_session)
+                    return
                 raise ReconstructionError("no committed refinement state at the interrupted boundary")
             validate_restored_state(self.refinement_session, saved["state"])
 
@@ -53,7 +59,8 @@ class HostReconstruction:
         """
         if self.activated:
             return False
-        reply = self.cursor.accept(frame)
+        empty = self.cursor.prefix_verified
+        reply = None if empty else self.cursor.accept(frame)
         if self.cursor.prefix_verified:
             authority = await authorize()
             await asyncio.to_thread(self._validate_sessions)
@@ -76,7 +83,7 @@ class HostReconstruction:
             await channel.send(reply.frame_type, reply.body)
         # The final request was matched, not answered. Only after the host
         # activation receipt commits may the ordinary broker send it again.
-        return not self.cursor.retry_pending_model
+        return not empty and not self.cursor.retry_pending_request
 
 
 def prepare_reconstruction(runs, registration, source_package, runtime_manifest, *, refinement_session=None, experiment_session=None):

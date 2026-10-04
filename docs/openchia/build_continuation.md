@@ -1,6 +1,7 @@
 # Continuing an interrupted build job
 
 In the original Duet, use `/build continue`; use `/build status` to inspect it.
+For an ordinary Target Workflow Run, use `/run continue` and `/run status`.
 For an already open background Duet, use `/bg DUET_ID build continue`.
 `/build` still starts a new job. Continuing preserves completed work and does not
 create a replacement for an already worked refinement campaign.
@@ -11,9 +12,14 @@ and resolves the original approved Target Workflow launch configuration. The
 refiner's route and the Target Workflow's launch remain separate. Stored route
 policies are preserved, including absence of a newer recovery policy.
 
-The existing shared experiment service verifies the previous executor is stopped.
+The shared execution service verifies that the previous execution owner released
+its exact lease (or its PID and creation time are no longer live), and that the
+previous confined executor is stopped. Keeping the same CLI open is supported.
 If a terminal event committed before its audit/evidence publication finished, the
-existing RunStore completes that publication. It then starts one linked physical
+existing RunStore completes that publication. If both processes died before a
+terminal event, RunStore records an interruption with that ownership evidence.
+An unclaimed dispatch resumes its exact registration: the executor never sent
+START. A claimed interruption starts one linked physical
 attempt of the same logical execution using the existing confined executor.
 The original Run remains cancelled/interrupted, never relabelled completed.
 
@@ -32,29 +38,38 @@ not discharge requirements, assign credit, or weaken acceptance.
 
 ## Supported boundaries and current limits
 
-- A stopped refiner with a completed serial exchange history, or a single final
-  unanswered model request, can continue through the normal build command.
+- Stopped Builder, refiner, and ordinary Target Workflow jobs use their normal
+  public continue commands. Empty worker prefixes and missing terminal/result
+  publication use the same shared ownership, execution and RunStore APIs.
 - Exact admitted source, worker runtime, inputs, approvals, model binding and
   campaign state must remain available. Changed code/contracts are not hidden
   inside the same execution.
-- Unanswered host mutations or HTTP requests require durable receipt reconciliation;
-  they are rejected rather than blindly repeated. Concurrent exchange histories
-  and non-reference generated wrappers remain unsupported by reconstruction.
-- A hard crash without a committed terminal event is not inferred to be an
-  interruption merely from elapsed time. A live or unverifiable old executor
-  cannot be continued.
+- Local Refiner changes and their host reply/state receipt share one Duet
+  transaction. Reconstruction uses that receipt if the Run response is missing.
+  With no receipt, the saved campaign head must still match before the exact
+  request can run. Local source admission uses deterministic, idempotent Builder
+  identities; committed receipts are reused. Nested validation Runs remain
+  outside this transaction and reconcile through their own shared dispatches.
+- Learning commits retain their existing request/ordinal idempotency. Experiment
+  requests use their existing immutable intents and dispatches. An unanswered
+  HTTP operation is **not** blindly repeated: its external outcome requires
+  reconciliation. Concurrent exchange histories and non-reference generated
+  wrappers remain unsupported by reconstruction.
+- A live or unverifiable old executor cannot be continued. Elapsed time is not
+  evidence of process death. Legacy terminal Runs without host ownership events
+  still use their exact stopped-worker attestation; new Runs additionally record
+  and fence the host lease. Historical missing ownership cannot be reconstructed.
 - Initial Builder interruption is supported for new jobs with recorded process
   ownership and model binding, using its existing call evidence. Refiner setup
   can reuse a completed shipped-program build and idempotent campaign preparation.
-  A partial shipped-program build without a terminal receipt remains unsupported.
-- Builder successor links and their `build_requested` event commit before the
-  successor's `model_launch_resolved` event. A crash between those writes leaves
-  a discoverable successor with no exact launch receipt; continuation rejects
-  it. Recovery of that publication gap is not implemented. The initial Builder
-  and refiner setup therefore do not yet support quitting at every boundary.
+  A partial shipped-program build uses a linked single-use request and the same
+  deterministic materializer. Completed receipt and campaign preparation are
+  reused. Builder successor links, ownership and exact launch snapshot now
+  publish in one Duet transaction.
 - A final Run whose refiner result was already committed can finish publishing
   its build result without another Run. A completed Run lacking that refiner
-  result still needs terminal host-state reconciliation.
+  result restores the recorded terminal host state and republishes the normal
+  independently checked result without another Run.
 
 ## Implementation map
 
@@ -64,6 +79,13 @@ not discharge requirements, assign credit, or weaken acceptance.
 recovery/admission. `testing/reconstruction*.py` verify the existing journal.
 `runtime_state.py` restores nested refinement host state. No second runner or
 response ledger is introduced.
+
+`testing/recovery.py` owns process/lease recovery for ordinary Runs and experiments.
+`records/host_operations.py` stores only the host transaction's completion receipt
+in the existing shared artifact registry. `DuetStore.transaction` uses nested
+savepoints, so existing campaign admissions and that receipt commit together.
+The common exchange path joins local writer threads before terminal cancellation;
+network/nested execution remains cancellable through the existing executor.
 
 Terminal history is verified once per named predecessor during a continuation
 operation, then shared across preparation, reconstruction and ancestor reads.

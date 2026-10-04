@@ -57,7 +57,8 @@ class Invocation:
 
 class RefinementSession:
     def __init__(
-        self, *, store, campaign_id, registration, source_package_path, evaluations
+        self, *, store, campaign_id, registration, source_package_path, evaluations,
+        terminal_recovery=False,
     ):
         self.store = store
         self.campaign_id = campaign_id
@@ -66,6 +67,7 @@ class RefinementSession:
         self._operation_ordinal = 0
         self.calls = {}
         self.pending = {}
+        self.initial_state_recorded = False
         prepared = prepare_source_package(registration, source_package_path)
         self.plan = prepared.plan
         self.nodes = {
@@ -141,7 +143,7 @@ class RefinementSession:
                 if row.record.body["parent_assignment_ref"] is None
             ]
             if len(roots) != 1 or (
-                registration.resume_from is None and roots[0].status != "active"
+                registration.resume_from is None and not terminal_recovery and roots[0].status != "active"
             ):
                 raise ValueError(
                     "explicit refiner launch requires one active root assignment"
@@ -167,7 +169,11 @@ class RefinementSession:
                 OpaqueId(roots[0].key), assignment, path, goal
             )
         self.validate_registration(registration)
-        if registration.resume_from is not None:
+        if terminal_recovery:
+            from .runtime_state import restore_terminal_session
+
+            restore_terminal_session(self)
+        elif registration.resume_from is not None:
             from .runtime_state import restore_session
 
             restore_session(self)
@@ -205,14 +211,44 @@ class RefinementSession:
             raise ValueError("no host-admitted assignment for this runtime invocation")
         return call
 
-    async def exchange(self, *, episode_id, episode_path, operation, payload):
+    async def exchange(self, *, episode_id, episode_path, operation, payload, request_event=None):
         call = self._caller(episode_id, episode_path)
         if operation == "evaluate":
             self._require_unit(call, payload)
-            return await self.evaluations.evaluate(self, call, payload)
-        return await asyncio.to_thread(
-            self._dispatch, call, episode_id, operation, payload
+            if "experiment_proposal_ref" in payload:
+                from .evaluation_experiments import execute_experiment
+
+                return await execute_experiment(
+                    self.evaluations, self, call, payload, request_event=request_event
+                )
+        task = asyncio.create_task(asyncio.to_thread(
+            self._dispatch_committed, call, episode_id, operation, payload, request_event
+        ))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # Cancelling an await cannot stop a Python thread. Let the local
+            # transaction and its reply finish before the executor finalizes.
+            return await task
+
+    def _dispatch_committed(self, call, episode_id, operation, payload, request_event):
+        return self.commit_response(
+            request_event, self._dispatch, call, episode_id, operation, payload
         )
+
+    def commit_response(self, request_event, operation, *args):
+        from episode_runtime.records.host_operations import commit_receipt
+
+        # All campaign writes made by a synchronous operation, its in-memory
+        # call projection, and its response have one crash boundary.
+        with self.store.duet_store.transaction():
+            response = operation(*args)
+            if request_event is not None:
+                commit_receipt(
+                    self.store.duet_store, self.registration, request_event,
+                    response, self.continuation_state(),
+                )
+            return response
 
     def _dispatch(self, call, episode_id, operation, payload):
         payload = _thaw_json(payload)
@@ -225,6 +261,7 @@ class RefinementSession:
             "receive_child": self._receive_child,
             "close_unit": self._close_unit,
             "report": self._report,
+            "evaluate": lambda call, _episode_id, payload: self.evaluations.evaluate_local(self, call, payload),
         }
         handler = handlers.get(operation)
         if handler is None:

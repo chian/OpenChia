@@ -137,7 +137,7 @@ def _experiment_id(request):
     return ExperimentSpec.from_record(request).experiment_id
 
 
-def make_session(service, subject, registration, package):
+def make_session(service, subject, registration, package, *, terminal_recovery=False):
     from iterative_episode_refiner.runtime import RefinementSession
 
     if service.refinement_evaluations is None:
@@ -163,6 +163,7 @@ def make_session(service, subject, registration, package):
         registration=registration,
         source_package_path=package,
         evaluations=evaluations,
+        terminal_recovery=terminal_recovery,
     )
 
 

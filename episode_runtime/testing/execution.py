@@ -358,6 +358,8 @@ class RunExecution:
         return inputs, package, cursor, record, duet
 
     def _admit(self, registration, source_package_path, intent_ref):
+        from .recovery import new_execution_lease
+
         inputs, package, cursor, record, duet = self._validate(
             registration, source_package_path, intent_ref,
         )
@@ -376,6 +378,7 @@ class RunExecution:
                     "execution_ref": {key: artifact[key] for key in ("artifact_id", "content_hash")},
                 },
             ))
+        lease = new_execution_lease()
         created = self.artifacts.put_artifacts_with_events(
             artifacts=tuple(artifacts),
             events=(
@@ -388,13 +391,21 @@ class RunExecution:
                         "intent_ref": intent_ref,
                     },
                 },
+                {
+                    "event_type": "run_execution_owned", "provenance": "host_validation",
+                    "record": {
+                        "run_id": registration.run_id.value,
+                        "registration_hash": registration.registration_hash.value,
+                        **lease,
+                    },
+                },
             ),
             idempotency_artifact_ids=tuple(item["artifact_id"] for item in artifacts),
             duet_id=duet_id,
             expected_state=duet["state"],
             expected_authority_head_approval_id=registration.authority_head_approval_id.value,
         )
-        return created, inputs, package, cursor
+        return created, inputs, package, cursor, lease
 
     def _record_playback(self, registration, cursor):
         record = {"run_id": registration.run_id.value, **cursor.report()}
@@ -440,19 +451,54 @@ class RunExecution:
             raise ValueError(
                 "recorded brokers must be constructed from the frozen experiment mode, not supplied by its caller"
             )
-        created, inputs, package, cursor = await asyncio.to_thread(
+        from .recovery import claim_execution_owner, release_execution_owner
+
+        admission = asyncio.create_task(asyncio.to_thread(
             self._admit, registration, source_package_path, intent_ref
-        )
+        ))
+        try:
+            created, inputs, package, cursor, lease = await asyncio.shield(admission)
+        except asyncio.CancelledError:
+            admitted = await admission
+            if admitted[0]:
+                await asyncio.to_thread(release_execution_owner, self.artifacts, registration, admitted[-1])
+            raise
         if not created:
             try:
                 return await asyncio.to_thread(
                     self.runs.read_evidence, registration.run_id
                 )
             except RunStoreNotFound as exc:
-                raise ExecutionPending(
-                    f"Run {registration.run_id.value} already dispatched without terminal "
-                    "evidence; inspect or continue that Run, do not relaunch it."
-                ) from exc
+                try:
+                    await asyncio.to_thread(self.runs.read_claim, registration.run_id)
+                except RunStoreNotFound:
+                    pass
+                else:
+                    raise ExecutionPending(
+                        f"Run {registration.run_id.value} already claimed without terminal "
+                        "evidence; inspect or continue that Run, do not relaunch it."
+                    ) from exc
+        if not created:
+            acquisition = asyncio.create_task(asyncio.to_thread(claim_execution_owner, self.artifacts, registration))
+            try:
+                lease = await asyncio.shield(acquisition)
+            except asyncio.CancelledError:
+                lease = await acquisition
+                await asyncio.to_thread(release_execution_owner, self.artifacts, registration, lease)
+                raise
+        try:
+            return await self._execute_owned(
+                registration=registration, inputs=inputs, package=package, cursor=cursor,
+                intent_ref=intent_ref, model_broker=model_broker, http_broker=http_broker,
+                refinement_session=refinement_session,
+            )
+        finally:
+            await asyncio.to_thread(release_execution_owner, self.artifacts, registration, lease)
+
+    async def _execute_owned(
+        self, *, registration, inputs, package, cursor, intent_ref,
+        model_broker, http_broker, refinement_session,
+    ):
         plan = inputs.plan
         experiment_session = None
         if any(

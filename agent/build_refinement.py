@@ -51,7 +51,7 @@ class BuildRefinement:
         )
         try:
             status = await asyncio.to_thread(service.status, host.store, host.run_store, job["experiment_id"])
-            if status["execution_status"] in {"interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable"}:
+            if "refinement" not in status or status["execution_status"] in {"interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable"}:
                 status = await service.continue_interrupted(experiment_id=job["experiment_id"])
         except asyncio.CancelledError:
             status = await asyncio.to_thread(
@@ -90,12 +90,12 @@ class BuildRefinement:
             emitter=RefinerEmitter(call_options=options),
             model_slot_catalog={"refinement": self.binding.record["route"]},
         )
-        receipts = await asyncio.to_thread(host.build_store.receipts_for_build_request, request.build_request_id)
-        if receipts:
-            if len(receipts) != 1:
-                raise ValueError("shipped refiner has ambiguous Builder receipts")
-            receipt = receipts[0]
-        else:
+        from .openchia_build_recovery import continued_materialization_request
+
+        request, receipt = await asyncio.to_thread(
+            continued_materialization_request, host, request, program
+        )
+        if receipt is None:
             receipt = await program.build(request)
         if not receipt.materialized:
             raise ValueError(

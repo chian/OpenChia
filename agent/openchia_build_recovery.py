@@ -8,11 +8,11 @@ import json
 import os
 from dataclasses import replace
 
-from agent.duet_contracts import DuetProvenance, canonical_json
+from agent.duet_contracts import DuetProvenance, canonical_json, content_id
 from agent.episode_contracts import OpaqueId
 from episode_builder.evidence import model_call_evidence_for_attempt
 from episode_builder.service import _materializer_identity
-from episode_runtime.records.experiments import read_record
+from episode_runtime.records.experiments import artifact_fields, read_record
 from llm_call_library.transport import ModelTransportResponse
 
 
@@ -94,6 +94,54 @@ def unfinished_builder_status(host, current):
             "owner_check_passed": ownership["state"] in {"finished", "stopped"},
         },
     }
+
+
+def continued_materialization_request(host, request, builder):
+    """Find/restart the shipped deterministic materializer using normal attempts.
+
+    No model response is fabricated or source identity loosened. Its inert
+    adapters are reproducible; a consumed partial nonce gets a linked successor,
+    while a completed receipt is returned without another Builder invocation.
+    """
+    identity = _materializer_identity(builder.planner.call_options, builder.emitter.call_options)
+    seen = set()
+    while request.build_request_id.value not in seen:
+        seen.add(request.build_request_id.value)
+        link = read_record(host.store, "build_continuation", predecessor_build_request_id=request.build_request_id.value)
+        if link is not None:
+            successor = host.build_store.read_build_request(link["record"]["build_request_id"])
+            if replace(successor, request_nonce=request.request_nonce) != request:
+                raise ValueError("materializer continuation changes its approved request")
+            request = successor
+            continue
+        receipts = host.build_store.receipts_for_build_request(request.build_request_id)
+        if receipts:
+            if len(receipts) != 1:
+                raise ValueError("materializer has ambiguous completed receipts")
+            if not any(item.code == "build_cancelled" for item in receipts[0].deficits):
+                return request, receipts[0]
+        attempts = host.build_store.attempts_for_build_request(request.build_request_id)
+        if not attempts and not host.build_store.build_request_consumed(request.build_request_id):
+            return request, None
+        if any(attempt.materializer != identity for attempt in attempts):
+            raise ValueError("materializer source changed; the partial attempt cannot be continued")
+        successor = replace(request, request_nonce=content_id(
+            "build_continue", {"predecessor": request.build_request_id.value}
+        ).value)
+        host.build_store.put_build_request(successor)
+        link = {"predecessor_build_request_id": request.build_request_id.value,
+                "build_request_id": successor.build_request_id.value}
+        fields = (
+            artifact_fields("build_continuation", duet_id=request.frozen_workflow.duet_id.value,
+                            predecessor_build_request_id=request.build_request_id.value, record=link),
+            artifact_fields("build_parent", duet_id=request.frozen_workflow.duet_id.value,
+                            build_request_id=successor.build_request_id.value, record=link),
+        )
+        with host.store.transaction():
+            for item in fields:
+                host.store.put_artifact(**item)
+        request = successor
+    raise ValueError("materializer continuation lineage contains a cycle")
 
 
 class BuilderResponses:
