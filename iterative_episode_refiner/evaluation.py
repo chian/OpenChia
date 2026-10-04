@@ -216,15 +216,6 @@ class RefinementEvaluations:
             return entry["spec_ref"]["artifact_id"] if entry else "target"
 
     def evaluate_local(self, session, call, payload):
-        if self.progress_callback is not None:
-            self.progress_callback("validating")
-        try:
-            return self._evaluate(session, call, payload)
-        finally:
-            if self.progress_callback is not None:
-                self.progress_callback("refining")
-
-    def _evaluate(self, session, call, payload):
         if self.executor.run_store is not session.store.evidence.runs:
             raise ValueError("validation must use the campaign's existing RunStore")
         if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:

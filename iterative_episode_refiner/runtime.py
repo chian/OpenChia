@@ -229,9 +229,18 @@ class RefinementSession:
         return await join_local(task, propagate_cancel=False)
 
     def _dispatch_committed(self, call, episode_id, operation, payload, request_event):
-        return self.commit_response(
-            request_event, self._dispatch, call, episode_id, operation, payload
-        )
+        progress = self.evaluations.progress_callback if operation == "evaluate" else None
+        # UI status holds the host build lock before reading Duet state. Never
+        # acquire that lock while the durable transaction owns the Duet lock.
+        if progress is not None:
+            progress("validating")
+        try:
+            return self.commit_response(
+                request_event, self._dispatch, call, episode_id, operation, payload
+            )
+        finally:
+            if progress is not None:
+                progress("refining")
 
     def commit_response(self, request_event, operation, *args):
         from episode_runtime.records.host_operations import commit_receipt
