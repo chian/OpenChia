@@ -217,9 +217,10 @@ stream events. `timeout: None` keeps the original request unbounded and cancella
 no auxiliary task-default timeout is inherited. Newly resolved routes also freeze
 their [source health/recovery policy](model_call_recovery.md): inactivity can start
 a bounded side call without cancelling the original. Only a successful probe,
-continued silence and an explicit retry-capable policy permit replacement.
-Unknown/local/Argo sources preserve their requests by default. Historical frozen
-routes without a recovery field retain their legacy behavior.
+continued silence and the frozen retry-capable policy permit replacement. Every
+new source uses the same default algorithm, with optional saved user overrides;
+there are no vendor-specific exceptions or request-status API requirements.
+Historical frozen routes without a recovery field retain their legacy behavior.
 
 ### Credentials
 

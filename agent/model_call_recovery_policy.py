@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 @dataclass(frozen=True)
 class ModelCallRecoveryPolicy:
-    mode: str = "preserve"
+    mode: str = "retry_on_healthy_probe"
     idle_seconds: float = 900.0
     probe_timeout_seconds: float = 60.0
     probe_interval_seconds: float = 300.0
@@ -55,17 +55,10 @@ def resolve_recovery_policy(route, *, config=None):
     """Resolve once at launch/binding creation, not while a request is in flight.
 
     Source matches are literal provider + endpoint, optionally narrowed to one
-    model. A route's explicit policy wins. Compatible proxies get no official
-    source preset. No network capability discovery is claimed or performed.
+    model. A route's explicit policy wins. Every source gets the same default;
+    neither vendor knowledge nor request-status capabilities are required.
     """
-    from agent.codex_headers import is_official_codex_base_url
-
-    official_codex = (
-        route["provider"] == "openai-codex"
-        and route["api_mode"] == "codex_responses"
-        and is_official_codex_base_url(route["base_url"])
-    )
-    policy = ModelCallRecoveryPolicy(mode="retry_on_healthy_probe" if official_codex else "preserve")
+    policy = ModelCallRecoveryPolicy()
     if config is None:
         from openchia_cli.config import load_config_readonly
 

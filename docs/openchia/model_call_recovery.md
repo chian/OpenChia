@@ -31,14 +31,14 @@ large original prompt may legitimately take longer. Closing our connection does
 not prove that the server cancelled its work; replacement may duplicate billing
 or computation. Recovery receipts state these uncertainties explicitly.
 
-No supported pinned adapter currently supplies per-request queue status,
-resumption, or server-side submission deduplication here. A provider request ID
-is recorded when present for correlation, not treated as a polling capability.
+The algorithm requires no provider-specific queue status, resumption, capability
+discovery or submission-deduplication API. A provider request ID is recorded when
+present for correlation, not treated as a polling capability.
 
 ## Defaults and saved source settings
 
-New bindings for the explicitly resolved official `openai-codex` source using
-the `codex_responses` wire use this conservative operational preset:
+Every newly resolved source uses the same operational default, regardless of
+provider, endpoint, model, local/remote deployment or queue implementation:
 
 ```yaml
 mode: retry_on_healthy_probe
@@ -49,11 +49,10 @@ recovery_grace_seconds: 60
 max_replacements: 1
 ```
 
-Other sources, including unknown compatible endpoints, local servers and Argo,
-default to `mode: preserve`. They can be observed but a healthy side call does
-not remove the original request from its queue. `mode: disabled` disables probes
-and replacements entirely. No source is inferred to have official capabilities
-merely because it implements an OpenAI-compatible API.
+Pending or inconclusive probes preserve the original call on every source.
+Users may select `mode: preserve` when even a healthy side call must never
+justify replacing the original. `mode: disabled` disables probes and
+replacements entirely. There are no built-in vendor exceptions or capabilities.
 
 Save exceptions once in the active profile's `config.yaml`, using the existing
 config editor/commands. No new per-iteration dialog is required:
@@ -64,10 +63,10 @@ model_call_recovery:
     - provider: custom
       base_url: http://localhost:8000/v1
       policy:
-        mode: disabled
-    - provider: openai-codex
-      base_url: https://chatgpt.com/backend-api/codex
-      model: gpt-5.6-sol-900k
+        mode: preserve
+    - provider: custom
+      base_url: https://models.example.org/v1
+      model: my-reasoning-model
       policy:
         idle_seconds: 1800
         mode: retry_on_healthy_probe
