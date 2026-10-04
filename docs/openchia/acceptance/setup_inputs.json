@@ -1,12 +1,12 @@
 {
   "status": "target_and_launch_approved_build_continuation_in_progress_tester_unapproved",
   "continuation_observation": {
-    "observed_at": "2026-10-04T16:54:47Z",
+    "observed_at": "2026-10-04T17:05:12Z",
     "entry": "OpenChiaHost.continue_build",
     "source_commit": "b6ae19fe9625c70d65df72003c003d744404ff8c",
     "source_checkout": "/home/chia/repos/OpenChia-continue-live-hHDLek30",
     "process_id": 2820540,
-    "state": "measure_response_rejected_automatic_next_iteration_started",
+    "state": "repaired_measure_design_awaiting_independent_review",
     "predecessor_run_id": "run_358b0b188f2732c49a60c6d304d8309705e611b325cd6c822d0ad771a1347edf",
     "recovered_terminal_evidence_ref": {
       "artifact_id": "run_evidence_7d1dfe3f5dd7c24b844dd1c0faa74b132c9635d2ff1e141a1244205baeea1fd0",
@@ -23,7 +23,7 @@
     },
     "reissued_model_request_id": "model_request_a7fe6f13254543b43172c19604cc0016393d92bce35289f0252ded44c4076ea8",
     "reissued_request_hash": "sha256:52aa9c2cb75fbc2286a5caea6554dbb01f6ce9ed45f1a850f315da1a25b9f604",
-    "completed_new_model_responses": 1,
+    "completed_new_model_responses": 2,
     "completed_response": {
       "event_id": "run_event_2895fd3aa076ce07075f1bce90c6c20d97d9404c27f06be7b88f79403cbf69db",
       "event_hash": "sha256:90b889ffb5ec463fe6f7ef263491b0af4f490d89dcd4579dabf355aa05cdd3b0",
@@ -34,16 +34,32 @@
       "realized_yield": 0,
       "consecutive_malformed_revisions_after_review": 7
     },
+    "repaired_check_design_response": {
+      "event_sequence": 15,
+      "event_id": "run_event_7a50263f8f12a53919cfab69f9793b450141f87a0b5f81da7476364ad613651c",
+      "event_hash": "sha256:0cdf4fd1110fc25cd2ccf486e751b35dc2f0416ad3516245d77ff0b9793bd126",
+      "response_hash": "sha256:20fd9b35849d5d114b9266dc88e192db01311d354bc1a98c0cff34889813052a",
+      "characters": 154207,
+      "valid_json": true,
+      "cases": 12,
+      "review_definition_ref": {
+        "artifact_id": "refinement_20222c7321570268a75705b43682dcdffdc235cb1a7d4909a7da5a0440c7f750",
+        "content_hash": "sha256:20222c7321570268a75705b43682dcdffdc235cb1a7d4909a7da5a0440c7f750"
+      },
+      "host_review_assignment_event_sequence": 17,
+      "measure_admitted": false
+    },
     "next_automatic_model_request": {
-      "event_sequence": 14,
-      "request_hash": "sha256:626b6561fe0d18d87c7d8f309a3561100dc95f4857214f76cf966ffe31800cb0",
-      "task": "measure"
+      "event_sequence": 29,
+      "request_hash": "sha256:e916f48c4220f9c21cb4cfb06b8812948becffb8387cc127502dd99aef1c64f5",
+      "task": "question",
+      "invocation_id": "refinement_invocation_56702568c17ddcc3468802d09d79759d1eab926eb3ac2ea176bbc929e7521336"
     },
     "target_workflow_experiments": 0,
     "transport_activity": {
-      "observed_at": "2026-10-04T16:46:46Z",
-      "bytes_received": 609134,
-      "milliseconds_since_last_receive": 47,
+      "observed_at": "2026-10-04T17:05:12Z",
+      "bytes_received": 116258,
+      "milliseconds_since_last_receive": 1075,
       "limitation": "Incoming network data establishes response activity, not completed reasoning or an admitted measure."
     },
     "health_policy": "disabled_by_absence_in_original_frozen_binding",

@@ -13,6 +13,33 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live Measure repair, 2026-10-04 17:05 UTC: valid design reaches separate review
+
+The same successor Run
+`run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
+committed response 15 with valid JSON: 154,207 characters and twelve cases,
+response hash
+`sha256:20fd9b35849d5d114b9266dc88e192db01311d354bc1a98c0cff34889813052a`.
+Host response 17 returned `proceed: true` and assigned Question invocation
+`refinement_invocation_56702568c17ddcc3468802d09d79759d1eab926eb3ac2ea176bbc929e7521336`.
+Event 29 requests its independent review of definition
+`refinement_20222c7321570268a75705b43682dcdffdc235cb1a7d4909a7da5a0440c7f750`,
+with request hash
+`sha256:e916f48c4220f9c21cb4cfb06b8812948becffb8387cc127502dd99aef1c64f5`.
+
+The model removed the every-answer optimality condition and explicitly records
+the remaining inability to check later answers' encoded field formats without
+overconstraining them. Other limitations include unexecuted branches and the
+unchecked mathematical validity of explanation prose. Listing limitations does
+not make the check adequate; the separate review is still pending.
+
+The exact owner process remains live. Its review-call connection had received
+116,258 bytes, with incoming data 1,075 milliseconds before observation. This
+shows transport activity, not an admitted result. No new job, manual check repair,
+stage dispatch, test suite or pinned-source edit was performed. There is no
+admitted measure or Target Workflow experiment at this observation. The repeated
+JSON failures ended in this iteration; behavioral acceptance remains open.
+
 ### Live Measure inspection, 2026-10-04 16:54 UTC: response received, revision still unusable
 
 Successor Run `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`

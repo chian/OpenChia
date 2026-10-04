@@ -1,6 +1,6 @@
 # Scheduling acceptance — static source repair demonstrated; behavioral acceptance pending
 
-Latest status, 2026-10-04 16:54 UTC: the normal `OpenChiaHost.continue_build()`
+Latest status, 2026-10-04 17:05 UTC: the normal `OpenChiaHost.continue_build()`
 entry has started successor Run
 `run_008d375611c64c57edfacec3913c172094ce2b07e1a2a95389bcbc734534a45f`
 for the same saved job and experiment. Event 2 records 479 matched worker frames,
@@ -11,9 +11,11 @@ the completed 63,662-character model response. It is malformed JSON at character
 9,509, in the nested event-provenance condition, and was rejected for zero credit.
 This is the seventh consecutive malformed revision after the same independent
 review. Event 14 is OpenChia's automatic next Measure request, carrying the exact
-rejected response and parse error. There is still no admitted measure or Target
-Workflow experiment. Continuation restored the actual loop; it did not correct
-that loop's repeated check-design failure.
+rejected response and parse error. Response 15 then produced valid JSON: 154,207
+characters and twelve cases. Host response 17 authorized a separate Question
+reviewer; event 29 is its model request. The same live process has incoming
+network data. This is automatic repair into a reviewable check design, not
+measure admission, successful controls, Target Workflow execution or acceptance.
 
 Continuation also completed the cancelled Run's missing terminal-evidence
 publication, preserving its 866 events and `cancelled` status. The pinned host
@@ -27,9 +29,12 @@ behavioral requirements together; check-design admission requires exactly that
 set. The input is 391,195 characters across its system/user messages, not a
 measured token count. The revisions address real review findings (request hashes,
 final-receipt selection and admitted-transition linkage), but regenerate the
-whole check bundle. The latest revision also applies the optimality predicate to
+whole check bundle. The malformed revision applied the optimality predicate to
 every retained answer to check JSON field encoding, expressly acknowledging that
-this is stricter than the frozen first-answer correctness criterion. These are
+this is stricter than the frozen first-answer correctness criterion. Valid
+response 15 removes that stronger condition and explicitly retains the gap in
+checking later answers' encoded field formats. It also retains the limitation
+that the predicate does not certify the explanation's mathematical validity. These are
 system-interface findings, not evidence that the Target Workflow has failed its
 scheduling task. Generic JSON decoding has now been prepared in the development
 checkout's shared record-condition predicate so representation and correctness
