@@ -434,9 +434,9 @@ applicable construction or acquisition route for those requirements, so this
 return exposed a system gap; it did not demonstrate autonomous instrument
 construction. See the shared harness receipt log.
 
-#### Missing first-time check design in normal builds
+#### First-time check design in normal builds
 
-The code inspection after that live run identifies an earlier missing operation,
+The code inspection after that live run identified an earlier missing operation,
 not just omitted configuration:
 
 - `measure_needs.build_specification` requires a checker reference, local and
@@ -459,12 +459,34 @@ results, their justification, observation contract, controls, and limitations.
 It must use the existing Designer/Implementer, shared execution and evidence
 path; another runner would not solve this problem.
 
-Open design decision raised with the user: whether newly reasoned expectations
-may be admitted under the initial job grant after separate review against the
-original requirement and executable positive/negative controls, or must always
-come from an existing trusted source. Review agreement alone is not evidence of
-target correctness or a credit event. Passing finite controls is not proof of
-general adequacy. No admission policy has been relaxed while this is unresolved.
+Decision confirmed by the user: parent-designed expectations may be admitted
+under the initial job grant after separate review against the original requirement
+and executable positive/negative controls. This is routine refinement, not a
+reason to request another human approval or stop the goal.
+
+New normal-build campaigns freeze `measure_admission.reviewed_designs.version=1`.
+EstablishMeasure may submit `check_design`: exact requirement keys, a registered
+predicate, expected observations, justified satisfactory/violating controls, an
+authorized execution binding, and limitations. The host records an immutable
+`measure_definition`, then calls the existing ResolveQuestion child to review it.
+The child checks requirement fidelity, observation relevance, expected-result
+justification, control polarities and limitations. Its typed `measure_review`
+returns through the ordinary parent report. Definition and review earn zero credit.
+
+After that separate child returns, EstablishMeasure selects the exact
+`reviewed_definition_ref`. The host projects the reviewed definition into ordinary
+grounded cases and uses the shared predicate/control admission code. Self-review,
+unreturned reviews, counterexamples, changed definitions and failing controls
+cannot admit a measure. The publication boundary reconstructs the projection;
+merely storing a case cannot authorize it. The existing campaign index adds
+definition/review collections transactionally; no new store or replay path exists.
+
+Review agreement is not evidence of Target Workflow correctness. Expected values
+retain their reasoning/review provenance, and passing finite controls does not
+prove general adequacy. Current construction covers registered observation
+predicates, not arbitrary new executable checker code. Existing checker-building
+and source-acquisition routes remain separate, explicitly authorized options.
+Old frozen campaigns are unchanged. Live one-start acceptance remains unverified.
 
 Source/plan construction mapping (implemented in source, not executed):
 

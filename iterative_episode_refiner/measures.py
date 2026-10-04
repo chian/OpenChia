@@ -132,6 +132,10 @@ def propose_measure(view, attempt, resolved):
     from .measure_needs import request_prerequisite
 
     assignment = actor(view, attempt)
+    if {"check_design", "check_review"} & set(attempt.body["payload"]):
+        from .measure_design import propose
+
+        return propose(view, attempt)
     if assignment.body["role"] != "measure":
         raise ValueError(
             "only the assigned EstablishMeasure child proposes an instrument"

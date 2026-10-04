@@ -91,6 +91,9 @@ def grounded_cases(view, proposal, policy):
         )
     grounding_refs = [Ref.from_record(ref) for ref in body["grounding_refs"]]
     authorized = {Ref.from_record(ref) for ref in grant["grounding_refs"]}
+    from .measure_design_runtime import authorize as authorize_reviewed_design
+
+    authorized.update(authorize_reviewed_design(view, proposal))
     acquired = authorize_acquisitions(view, body)
     authorized.update(acquired.case_refs)
     if (
@@ -227,6 +230,13 @@ def _admitted_checks(view, attempt, proposal, measure_ref, policy):
     cases, bindings, selection = grounded_cases(view, proposal, policy)
     acquired = authorize_acquisitions(view, body)
     results, controls, execution_evidence = [], [], list(acquired.evidence_refs)
+    review_provenance = []
+    if "reviewed_definition_ref" in body:
+        from .measure_design import reviewed
+
+        assignment = view.read(Ref.from_record(body["assignment_ref"]), "assignment")
+        check_definition, reviews = reviewed(view, body["reviewed_definition_ref"], assignment)
+        review_provenance = [check_definition.ref, *(record.ref for record in reviews)]
     for reference, grounding in cases:
         if body["oracle_kind"] == "independent_execution":
             from .measure_controls import control_results
@@ -286,6 +296,7 @@ def _admitted_checks(view, attempt, proposal, measure_ref, policy):
             *(Ref.from_record(ref) for ref in controls),
             *return_evidence(view, proposal),
             *acquired.provenance_refs,
+            *review_provenance,
         ])
     )
     admitted_bindings = tuple(

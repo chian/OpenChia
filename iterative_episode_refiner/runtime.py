@@ -38,6 +38,7 @@ from .reports import decision_context, report_overview
 from .measure_controls import control_context
 from .grounding import grounding_context
 from .measure_needs import assigned_context, catalog as measure_needs
+from .measure_design import context as measure_design_context
 from .instrument_builds import add_context as instrument_context, relevant_sources
 
 
@@ -441,6 +442,7 @@ class RefinementSession:
                     for ref, purposes in declarations(view, self.policy).items()
                 ],
                 "measure_needs": measure_needs(view, assignment, self.policy),
+                **measure_design_context(view, assignment, self.policy),
                 "assigned_prerequisites": assigned_context(view, assignment),
                 **grounding_context(view, assignment, self.policy),
                 "source_admissions": [

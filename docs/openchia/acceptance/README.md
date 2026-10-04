@@ -83,6 +83,16 @@ Current system-level findings:
   removes an unusable option; it does not add reviewer admission or resolve
   missing grounding.
 
+The first-time definition gap now has an implemented route: Measure proposes a
+typed check, a separate Question child reviews its requirement interpretation
+and controls, and host admission executes those controls before installing any
+check. The user approved this policy under the initial job grant. Two integration
+cases pass: a real exhaustive scheduling predicate admits a reviewed valid
+instrument; a mislabeled positive control is rejected despite favorable review.
+Neither drafting nor review earns credit, and neither case claims live model
+or native-worker acceptance. New executable checker-code construction is not
+established by this route. A fresh one-start run is still required.
+
 Minimum information to trace across each nested assignment: the original
 requirement, contribution and preservation scope, what observation would support
 or falsify it, how the measuring instrument is established and checked, and an

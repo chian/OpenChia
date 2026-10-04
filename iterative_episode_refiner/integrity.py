@@ -53,6 +53,12 @@ def validate_commit(view, commit):
                 raise ValueError("one transaction cannot overwrite an index twice")
             touched.add(key)
             record = view.read(delta["record_id"])
+            if delta["collection"] in {"measure_definition", "measure_review"}:
+                from .measure_design import propose
+
+                records, expected_deltas = propose(view, attempt)
+                if attempt.body["action"] != "propose_measure" or record.ref != records[0].ref or delta != expected_deltas[0]:
+                    raise ValueError("check design or review differs from its authorized proposal")
             if delta["collection"] == "measure_need":
                 from .measure_needs import prerequisite_record
 
@@ -194,6 +200,7 @@ def _validate_continuation(view, attempt, assignment, receipt):
     from .evaluation_plan import unavailable_request
     from .measures import admission_decision
     from .measure_needs import unit_prerequisite
+    from .measure_design import unit_review
 
     policy_ref = Ref.from_record(view.contract.body["policy_bundle_ref"])
     row = view.connection.execute(
@@ -222,6 +229,7 @@ def _validate_continuation(view, attempt, assignment, receipt):
         source_decision(view, attempt)
         or admission_decision(view, attempt)
         or unit_prerequisite(view, attempt)
+        or unit_review(view, attempt)
         or unavailable_request(view, attempt)
     )
     decision_request = conflicts[0] if conflicts else request

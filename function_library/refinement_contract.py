@@ -102,7 +102,11 @@ ROLES = MappingProxyType({
         (),
         "Use the named question and supplied evidence. Identify the observation that separates alternatives. "
         "Select its checks from investigation_needs; the host maps observations to the parent's fixed "
-        "decision meanings. Do not substitute confidence for evidence or invent an oracle. Preserve unresolved limitations.",
+        "decision meanings. When check_design.assigned_review_ref is supplied, instead review that exact "
+        "definition against the original requirements and return check_review for every fixed criterion. "
+        "Challenge the expected results, control polarities, observation relevance and limitations. "
+        "Reject self-confirming or irrelevant tests even if their controls would execute successfully. "
+        "Your review is a judgment, not target success, executable evidence or credit. Preserve unresolved limitations.",
     ),
     "measure": RefinementRole(
         "EstablishMeasure",
@@ -124,8 +128,14 @@ ROLES = MappingProxyType({
         "question/source routes and fixed case templates. Use ResolveQuestion for a missing result; "
         "then select its exact acquired_grounding references in the instrument proposal. Keep the "
         "template's original criterion and oracle fields. The host fills expected values and controls "
-        "from the independent evidence. If no such route or evidence is available, return the original "
-        "grounding_required request; do not invent an expected answer or approve a new source.",
+        "from the independent evidence. When check_design is available, you may design a new check "
+        "using its registered predicates and authorized execution bindings. Submit check_design with "
+        "requirement-based reasoning, expected observations, justified satisfactory/violating controls "
+        "and explicit limitations. A separate Question child reviews the immutable proposal. After "
+        "its return, select reviewed_definition_ref to submit it to host control execution and admission; "
+        "revise any rejected design. You cannot review your own proposal, award credit, or equate "
+        "agreement with target correctness. If neither design nor acquisition is authorized, return "
+        "the original grounding_required request.",
     ),
     "verify": RefinementRole(
         "VerifyBehavior",

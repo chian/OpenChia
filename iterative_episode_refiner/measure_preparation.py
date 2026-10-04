@@ -31,6 +31,7 @@ def build_measure_policy(data):
         ).as_record(),
         "grounding_refs": [],
         "source_function_refs": sources,
+        "reviewed_designs": {"version": 1},
     }
 
 

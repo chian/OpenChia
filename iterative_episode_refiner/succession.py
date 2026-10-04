@@ -205,6 +205,9 @@ def validate_replacements(view, attempt, parent, successor, policy):
 
 def require_measures(view, policy, assignment):
     """A successor may use its inherited admitted catalog, never an arbitrary ID."""
+    from .measure_design import assigned_definition
+
+    review = assigned_definition(view, assignment)
     checks = tuple(
         view.read(ref, "check")
         for ref in authorized_check_refs(view, policy, assignment)
@@ -213,7 +216,7 @@ def require_measures(view, policy, assignment):
         measure = assignment.body[field]
         view.data(Ref.from_record(measure))
         if (
-            assignment.body["role"] == "measure"
+            (assignment.body["role"] == "measure" or review is not None)
             and field == "local_measure_ref"
             and measure
             == policy.get("measure_admission", {}).get("adequacy_measure_ref")

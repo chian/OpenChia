@@ -470,6 +470,7 @@ def close_unit(view, attempt, resolved):
     from .judgment import operative_check_facts, parent_assessments
     from .measures import admission_decision, unit_admissions
     from .measure_needs import unit_prerequisite
+    from .measure_design import unit_review
     from .prerequisites import parent_prerequisites
     from .succession import credited_facts
     from .measure_controls import validated_control_facts
@@ -555,6 +556,7 @@ def close_unit(view, attempt, resolved):
         source_decision(view, attempt)
         or admission_decision(view, attempt)
         or unit_prerequisite(view, attempt)
+        or unit_review(view, attempt)
         or unavailable_request(view, attempt)
     )
     if conflicts or source_request is not None:

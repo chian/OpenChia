@@ -134,7 +134,10 @@ RECORD_FIELDS = {
         "limitation_refs",
         "instrument_return_ref",
         "grounding_acquisition_refs",
+        "reviewed_definition_ref",
     },
+    "measure_definition": {"assignment_ref", "owner_assignment_ref", "requirement_catalog_ref", "design"},
+    "measure_review": {"assignment_ref", "definition_ref", "criteria", "counterexamples", "limitations"},
     "measure_prerequisite": {"assignment_ref", "owner_assignment_ref", "need"},
     "measure_admission": {
         "proposal_ref",
@@ -413,6 +416,7 @@ _OPTIONAL_FIELDS["materialization"] = {"instrument_plans"}
 _OPTIONAL_FIELDS["measure_proposal"] = {
     "instrument_return_ref",
     "grounding_acquisition_refs",
+    "reviewed_definition_ref",
 }
 
 
@@ -606,6 +610,14 @@ def _validate_body(kind: str, body: Mapping) -> None:
         _validate_control_record(kind, body)
     if kind == "measure_prerequisite":
         _validate_measure_need(body["need"])
+    if kind == "measure_definition":
+        from .measure_design import validate_design
+
+        validate_design(body["design"])
+    if kind == "measure_review":
+        from .measure_design import validate_review
+
+        validate_review({key: value for key, value in body.items() if key != "assignment_ref"})
     if kind == "measure_proposal" and "instrument_return_ref" in body:
         Ref.from_record(body["instrument_return_ref"])
     if kind == "review_handoff":

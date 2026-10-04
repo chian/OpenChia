@@ -40,6 +40,7 @@ _ASSIGNMENT_SHAPE = {
             "content_hash": "its exact hash",
         }
     ],
+    "measure_review_ref": "optional exact check definition reference, only for a Measure's Question child",
 }
 
 _MEASURE_SHAPE = {
@@ -67,6 +68,23 @@ _MEASURE_SHAPE = {
     "limitation_refs": [],
     "instrument_return": "optional exact {spec_ref, report_ref, source_ref} from instrument_returns; omit for an already admitted checker",
     "acquired_grounding": "optional list of exact {acquisition_ref, report_ref, observation_ref} from acquired_grounding; the host adds those complete cases and controls",
+}
+
+_CHECK_DESIGN_SHAPE = {
+    "purpose": "the parent's exact requested purpose",
+    "predicate": "exact registered selection: library, function_id, definition_id, interface, arguments (no name)",
+    "cases": [{
+        "requirement_key": "original requirement key",
+        "rationale": "derive expected behavior from the original requirement, not candidate output",
+        "expected": "typed input to the selected predicate",
+        "observation_path": "exact JSON pointer into the actual execution observation",
+        "positive_controls": [{"observed": "typed known-satisfactory observation", "rationale": "why it satisfies the original requirement"}],
+        "negative_controls": [{"observed": "typed violating observation", "rationale": "which original requirement it violates"}],
+    }],
+    "input_domain": {"description": "where the check applies"},
+    "observation_schema": {"description": "shape of the selected runtime observation"},
+    "execution_binding": "exact harness_ref, capability_ref and input_refs from check_design.execution_bindings",
+    "limitations": ["what these examples and observations do not establish"],
 }
 
 
@@ -132,11 +150,21 @@ def proposal_schemas(role):
             "finding": {"check_keys": ["select exact checks from investigation_needs"]}
         },
         "question": {
-            "finding": {"check_keys": ["select exact checks from investigation_needs"]}
+            "one_of": [
+                {"finding": {"check_keys": ["select exact checks from investigation_needs"]}},
+                {"check_review": {
+                    "definition_ref": "exact check_design.assigned_review_ref",
+                    "criteria": {"each exact check_design.review_criteria key": {"satisfied": "boolean", "reason": "specific reasoning against the original requirement and proposed cases"}},
+                    "counterexamples": ["counterexample showing the check is inadequate; [] only if none found"],
+                    "limitations": ["limits and uncertainties retained even when satisfied"],
+                }},
+            ]
         },
         "measure": {
             "one_of": [
                 {"instrument": _MEASURE_SHAPE},
+                {"check_design": _CHECK_DESIGN_SHAPE},
+                {"reviewed_definition_ref": "exact own check_design definition after its Question child has returned a favorable review; host then executes controls and admits or rejects"},
                 {"resume_proposal_ref": "an existing exact measure_proposals reference owned by this assignment; continue selecting its remaining controls"},
                 {"prerequisite": _ASSIGNMENT_SHAPE},
                 {
@@ -169,7 +197,7 @@ def proposal_schemas(role):
 
 def assign_child(session, call, draft, producer, *, conflict_ref=None):
     fields = set(_ASSIGNMENT_SHAPE)
-    for optional in ("supersedes_assignment_refs", "prerequisite_refs"):
+    for optional in ("supersedes_assignment_refs", "prerequisite_refs", "measure_review_ref"):
         if optional not in draft:
             fields.remove(optional)
     exact(draft, fields, "child assignment proposal")
@@ -209,9 +237,12 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None):
             "producer_ref": producer.as_record(),
             "measure_request": need,
             **({"prerequisite_refs": prerequisite_refs} if prerequisite_refs else {}),
+            **({"measure_review_ref": draft["measure_review_ref"]} if "measure_review_ref" in draft else {}),
         },
     )
     body = _thaw_json(parent.body)
+    if "measure_review_ref" in draft:
+        body["input_refs"] = [*body["input_refs"], draft["measure_review_ref"]]
     if prerequisite_refs:
         body["input_refs"] = [
             ref.as_record()
@@ -449,6 +480,9 @@ def _change(session, call, proposal, producer):
 def _finding(session, call, proposal, producer):
     from .investigation import selected_checks
 
+    if "check_review" in proposal:
+        session.commit(call, "propose_measure", proposal, producer=producer)
+        return session.reply(call, proceed=False)
     exact(proposal, {"finding"}, "investigation proposal")
     finding = exact(
         proposal["finding"], {"check_keys"}, "investigation observation choice"
@@ -471,20 +505,40 @@ def _finding(session, call, proposal, producer):
 
 
 def _measure(session, call, proposal, producer):
-    if "resume_proposal_ref" in proposal:
-        exact(proposal, {"resume_proposal_ref"}, "continued measure proposal")
-        reference = Ref.from_record(proposal["resume_proposal_ref"])
-        with session.view() as view:
-            prior = view.entry("measure_proposal", reference.artifact_id.value).record
-            if prior.ref != reference or prior.body["assignment_ref"] != call.assignment.ref.as_record():
-                raise ValueError("continued measure proposal belongs to another assignment")
-        return session.reply(call, proposal_ref=reference.as_record())
-    if "prerequisite" in proposal:
-        return _prerequisite(session, call, proposal, producer, {"question"})
-    if "prerequisite_request" in proposal:
-        exact(proposal, {"prerequisite_request"}, "measurement prerequisite proposal")
-        session.commit(call, "propose_measure", proposal, producer=producer)
-        return session.reply(call, proceed=False)
+    from .measure_design_runtime import propose_design, propose_reviewed_instrument
+
+    handlers = {
+        "check_design": propose_design,
+        "reviewed_definition_ref": propose_reviewed_instrument,
+        "resume_proposal_ref": _resume_measure,
+        "prerequisite": _measure_prerequisite,
+        "prerequisite_request": _measure_request,
+        "instrument": _measure_instrument,
+    }
+    if len(proposal) != 1 or next(iter(proposal)) not in handlers:
+        raise ValueError("select exactly one declared measurement proposal operation")
+    return handlers[next(iter(proposal))](session, call, proposal, producer)
+
+
+def _resume_measure(session, call, proposal, producer):
+    reference = Ref.from_record(proposal["resume_proposal_ref"])
+    with session.view() as view:
+        prior = view.entry("measure_proposal", reference.artifact_id.value).record
+        if prior.ref != reference or prior.body["assignment_ref"] != call.assignment.ref.as_record():
+            raise ValueError("continued measure proposal belongs to another assignment")
+    return session.reply(call, proposal_ref=reference.as_record())
+
+
+def _measure_prerequisite(session, call, proposal, producer):
+    return _prerequisite(session, call, proposal, producer, {"question"})
+
+
+def _measure_request(session, call, proposal, producer):
+    session.commit(call, "propose_measure", proposal, producer=producer)
+    return session.reply(call, proceed=False)
+
+
+def _measure_instrument(session, call, proposal, producer):
     exact(proposal, {"instrument"}, "instrument proposal")
     fields = set(_MEASURE_SHAPE)
     for optional in ("instrument_return", "acquired_grounding"):

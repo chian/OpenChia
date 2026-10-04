@@ -46,6 +46,8 @@ _INDEX_COLLECTIONS = (
     "measure",
     "measure_control",
     "measure_need",
+    "measure_definition",
+    "measure_review",
     "evaluation_source",
     "evaluation_run",
 )
@@ -284,14 +286,16 @@ class CampaignStore:
                 connection.execute(statement)
             _upgrade_index_collections(connection)
 
-    def put_data(self, duet_id: str, kind: str, value: dict) -> Ref:
-        """Store reference data; this does not admit it or grant it authority."""
-        ref = Ref(
-            content_id(
-                "refinement_data", {"duet_id": duet_id, "kind": kind, "value": value}
-            ),
+    @staticmethod
+    def data_reference(duet_id: str, kind: str, value: dict) -> Ref:
+        return Ref(
+            content_id("refinement_data", {"duet_id": duet_id, "kind": kind, "value": value}),
             digest_record(value),
         )
+
+    def put_data(self, duet_id: str, kind: str, value: dict) -> Ref:
+        """Store reference data; this does not admit it or grant it authority."""
+        ref = self.data_reference(duet_id, kind, value)
         self.duet_store.put_artifact(
             artifact_id=ref.artifact_id.value,
             duet_id=duet_id,

@@ -13,6 +13,28 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### First-time check design, separate review and executed controls, 2026-10-03
+
+The user confirmed parent-designed expectations under the initial job grant,
+subject to separate review and executable controls. Measure now creates an
+immutable definition, delegates review to its existing Question child, receives
+the typed report, and submits the exact reviewed definition to ordinary measure
+admission. The host reconstructs cases and runs the shared control predicates.
+No additional runner, replay mechanism or per-iteration human approval is added.
+
+`scripts/run_tests.sh tests/iterative_episode_refiner/test_reviewed_check_design.py`
+passed **2 tests in 27.6 seconds**, retries disabled. Actual campaign stores,
+child assignment/return, publication checks, numerical credit, and exhaustive
+scheduling controls execute. A valid reviewed check is admitted; a falsely
+labeled satisfactory control fails despite favorable review. Missing/unreturned
+reviews and altered projections are rejected. Review alone yields zero; admitted
+adequacy reaches the parent without declaring the Target Workflow correct.
+
+The model choices and initial Builder responses are supplied. This is not live
+reasoning or native-confinement acceptance. The first invocation failed fixture
+collection (missing imported `run_store`); it was corrected before the passing run.
+This route uses registered predicates, not newly generated executable checkers.
+
 ### Live missing-measure finding and fixed-controller correction, 2026-10-03
 
 The one-start Run from `7222da1a21` below progressed beyond its initial Verify

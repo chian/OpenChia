@@ -17,11 +17,14 @@ def admission_policy(policy):
         return None
     fields = {"adequacy_measure_ref", "grounding_refs"}
     fields.update(
-        set(grant) & {"instrument_build_refs", "acquisition_refs", "source_function_refs"}
+        set(grant) & {"instrument_build_refs", "acquisition_refs", "source_function_refs", "reviewed_designs"}
     )
     exact(grant, fields, "measure admission authority")
     Ref.from_record(grant["adequacy_measure_ref"])
-    for key in fields - {"adequacy_measure_ref"}:
+    from .measure_design import policy as design_policy
+
+    design_policy(grant)
+    for key in fields - {"adequacy_measure_ref", "reviewed_designs"}:
         values = grant[key]
         if not isinstance(values, (list, tuple)):
             raise ValueError(f"{key} must contain exact reference arrays")
@@ -106,7 +109,7 @@ def catalog(view, assignment, policy):
             if case["purpose"] == requested["purpose"]
             and case["environment_ref"] == view.contract.body["environment_ref"]
         }
-        if requirements - covered:
+        if requirements - covered and not grant.get("reviewed_designs"):
             needs.append({
                 "kind": "grounding_required",
                 "purpose": requested["purpose"],

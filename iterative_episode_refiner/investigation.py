@@ -85,6 +85,10 @@ def needs(view, policy, assignment):
 def require_assignment(view, policy, assignment):
     if assignment.body["role"] not in _STATES:
         return
+    from .measure_design import assigned_definition
+
+    if assigned_definition(view, assignment) is not None:
+        return
     assigned = needs(view, policy, assignment)
     if {item["need"]["requirement_key"] for item in assigned} != set(
         assignment.body["contribution_requirement_keys"]
