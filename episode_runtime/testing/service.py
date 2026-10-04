@@ -368,23 +368,38 @@ class ExperimentService:
                 launch, launch_id=launch_id, record_attempt=record_attempt
             )
         )
-        evidence = await self.execution.execute(
-            registration=registration,
-            source_package_path=package,
-            intent_ref=intent_ref,
-            model_broker=None
-            if transport is None
-            else ScopedModelBroker.from_plan(transport, inputs.plan),
-            http_broker=None
-            if transport is None
-            else ScopedHttpBroker(
-                policy=registration.egress_policy,
-                credentials=self.http_credentials,
-                transport=HttpxHostTransport(),
-                max_frame_bytes=registration.runtime_policy.max_frame_bytes,
-            ),
-            refinement_session=refinement_session,
-        )
+        cancelled = False
+        try:
+            evidence = await self.execution.execute(
+                registration=registration,
+                source_package_path=package,
+                intent_ref=intent_ref,
+                model_broker=None
+                if transport is None
+                else ScopedModelBroker.from_plan(transport, inputs.plan),
+                http_broker=None
+                if transport is None
+                else ScopedHttpBroker(
+                    policy=registration.egress_policy,
+                    credentials=self.http_credentials,
+                    transport=HttpxHostTransport(),
+                    max_frame_bytes=registration.runtime_policy.max_frame_bytes,
+                ),
+                refinement_session=refinement_session,
+            )
+        except asyncio.CancelledError:
+            if refinement_session is None:
+                raise
+            from ..store import RunStoreNotFound
+
+            # Native executors persist cancellation and re-raise. Preserve the
+            # same typed last-known refiner report as other terminal outcomes,
+            # then propagate cancellation; never turn it into completion.
+            try:
+                evidence = await asyncio.to_thread(self.runs.read_evidence, registration.run_id)
+            except RunStoreNotFound:
+                raise asyncio.CancelledError from None
+            cancelled = True
         if refinement_session is not None:
             from iterative_episode_refiner.finalization import finalize_result
             from iterative_episode_refiner.handoff import attach_review
@@ -399,6 +414,8 @@ class ExperimentService:
                 **({"run_id": registration.run_id.value} if registration.resume_from is not None else {}),
                 duet_id=refinement_session.duet_id, record=result.as_record(),
             )
+        if cancelled:
+            raise asyncio.CancelledError
 
     def _prepare_continuation(self, experiment_id, resume_from):
         from ..continuation import InterruptedRunRef

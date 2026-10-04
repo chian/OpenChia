@@ -17,10 +17,13 @@ approve the complete nested Episode workflow. The host freezes that exact
 workflow. EpisodeBuilder later materializes explicit task-specific modules;
 only an admitted build can enter the separate isolated Run boundary. Each task
 Episode executes only its predeclared topology and contract. The
-IterativeEpisodeRefiner binds exact human notes and validated evidence to the
-approved baseline, then returns a successor proposal through the Duet for a new
-human approval. There is no persistent head Episode or intermediate design
-authority.
+IterativeEpisodeRefiner owns repair and validation after the initial Builder
+attempt. OpenChia must own the full build → refine → validate cycle after one
+start; routine repairs within the approved goal do not require another command
+or approval. Changes outside that grant return through the Duet for approval.
+Active Runs retain their exact frozen contracts. See ADR 0007 for the bounded
+iteration authority and completion requirements. There is no persistent head
+Episode or independent intermediate approval authority.
 Inherited Hermes capabilities remain extended primarily through **plugins and
 skills**, not by growing the core.
 

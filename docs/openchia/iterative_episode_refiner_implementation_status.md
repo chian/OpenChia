@@ -1,5 +1,15 @@
 # IterativeEpisodeRefiner implementation status
 
+Current build integration, 2026-10-03: [ADR 0007](../adr/0007-build-owns-iterative-finalization.md)
+requires one normal build command to own materialization, refinement and
+validation. This explicitly supersedes the earlier activation deferral without
+reopening the completed Goals 2–4 assignment. `agent/openchia_build_job.py` owns
+that job lifecycle; `agent/build_refinement.py` connects the existing refiner to
+the shared experiment service. Failed-build handoff/cancellation pass in a native
+systemd worker with supplied model responses; materialized-build handoff passes
+in-process. Autonomous repair and full behavioral acceptance from this
+entry point remain unverified. The dated checkpoint sections below are historical.
+
 2026-10-02 checkpoint: the user closed the bounded Goals 2–4 coding assignment as
 complete, not stalled or blocked. Execution validation, unified testing/replay,
 interrupted nested-session restoration, and normal-build activation are separate

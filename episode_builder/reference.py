@@ -44,6 +44,7 @@ class EpisodeReferenceContext:
     design_module: str
     design_source: str
     pinned_source_files: Mapping[str, str]
+    implementation_sources: Mapping[str, str]
 
     def __post_init__(self) -> None:
         if not isinstance(self.design, EpisodeLibraryDesign):
@@ -52,13 +53,11 @@ class EpisodeReferenceContext:
             raise ValueError("reference design module must be non-empty")
         if not isinstance(self.design_source, str) or not self.design_source:
             raise ValueError("reference design source must be non-empty")
-        if not isinstance(self.pinned_source_files, Mapping):
-            raise TypeError("pinned_source_files must be a mapping")
-        object.__setattr__(
-            self,
-            "pinned_source_files",
-            MappingProxyType(dict(self.pinned_source_files)),
-        )
+        for name in ("pinned_source_files", "implementation_sources"):
+            value = getattr(self, name)
+            if not isinstance(value, Mapping):
+                raise TypeError(f"{name} must be a mapping")
+            object.__setattr__(self, name, MappingProxyType(dict(value)))
 
     def as_record(self) -> dict[str, object]:
         return {
@@ -68,6 +67,7 @@ class EpisodeReferenceContext:
             "design_module": self.design_module,
             "design_source": self.design_source,
             "pinned_source_files": dict(self.pinned_source_files),
+            "implementation_sources": dict(self.implementation_sources),
         }
 
 
@@ -155,6 +155,13 @@ class EpisodeReferenceResolver:
             design_module=module_name,
             design_source=design_source,
             pinned_source_files=files,
+            implementation_sources={
+                name: inspect.getsource(importlib.import_module(name))
+                for name in sorted({
+                    function.implementation.module
+                    for function in design.function_definitions
+                })
+            },
         )
 
 

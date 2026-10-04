@@ -124,7 +124,7 @@ def refinement_subject(request, *, inputs, artifacts, builds, runs=None):
         ),
         "execution_scope": None,
         "limitations": [
-            "Executes the complete approved refiner against one prepared campaign; no normal build is redirected.",
+            "Executes the complete authorized refiner against one prepared campaign, including normal build jobs.",
             "A fresh experiment cannot restart or overwrite an already worked campaign.",
             "Recorded or checkpoint execution needs coherent campaign restoration; fresh live execution is never substituted.",
         ],

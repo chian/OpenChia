@@ -363,6 +363,8 @@ class OpenChiaBackgroundDuetsMixin:
             elif not running and build_state in {
                 "starting",
                 "building",
+                "refining",
+                "validating",
                 "cancel_requested",
             }:
                 state = f"build:{build_state}"

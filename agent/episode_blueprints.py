@@ -63,7 +63,7 @@ WORKFLOW_DRAFT_FIELDS = {
     "proposal_id",
     "human_note_ids",
 }
-INITIAL_WORKFLOW_SOURCE_STAGES = frozenset({"duet", "human_edit"})
+INITIAL_WORKFLOW_SOURCE_STAGES = frozenset({"duet", "human_edit", "build_refiner"})
 REFINEMENT_WORKFLOW_SOURCE_STAGES = frozenset(
     {"refinement_duet", "refinement_human_edit"}
 )

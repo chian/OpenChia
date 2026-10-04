@@ -2,7 +2,8 @@
 
 All roles share one host operation path and one evaluation path. Parts owns
 decomposition; Designer owns implementation and independent part acceptance.
-These library entries do not activate refinement for normal builds.
+The host connects these entries to normal build finalization through the shared
+experiment service; importing the library alone starts no work.
 
 Materialization keeps one result channel named ``report``. Generated ABI wrappers
 delegate build_episode to BUILD_EPISODE with the frozen role and their own

@@ -27,12 +27,14 @@ class RefinementEvaluations:
         runtime_policy=None,
         target_launch_ref=None,
         http_credentials=None,
+        progress_callback=None,
     ):
         self.builder = builder
         self.executor = executor
         self.runtime_policy = runtime_policy or RuntimePolicy()
         self.target_launch_ref = target_launch_ref
         self.http_credentials = http_credentials
+        self.progress_callback = progress_callback
 
     def _requests(self, session, call, payload):
         from .evaluation_plan import resolve_evaluations
@@ -213,6 +215,15 @@ class RefinementEvaluations:
             return entry["spec_ref"]["artifact_id"] if entry else "target"
 
     async def evaluate(self, session, call, payload):
+        if self.progress_callback is not None:
+            self.progress_callback("validating")
+        try:
+            return await self._evaluate(session, call, payload)
+        finally:
+            if self.progress_callback is not None:
+                self.progress_callback("refining")
+
+    async def _evaluate(self, session, call, payload):
         if self.executor.run_store is not session.store.evidence.runs:
             raise ValueError("validation must use the campaign's existing RunStore")
         if "experiment_proposal_ref" in payload:

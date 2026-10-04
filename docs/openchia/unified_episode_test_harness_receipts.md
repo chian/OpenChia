@@ -13,6 +13,52 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Normal build → refiner handoff and cancellation, 2026-10-03
+
+The canonical runner passed **12 tests across four files in 67.7 seconds**, with
+retries disabled: `tests/agent/test_build_refinement_job.py`,
+`tests/episode_builder/test_reference_context.py`,
+`tests/episode_runtime/testing/test_refinement_job_experiments.py`, and
+`tests/openchia_cli/test_openchia_cli_commands.py`.
+
+The normal entry is called once. A rejected initial Builder output enters the
+real refiner in a native systemd worker, uses its owning Duet's route rather than
+the Target Workflow launch, and stays in the same active build job. Cancellation
+retains the original failed receipt and the cancelled refiner evidence, verifies
+the exact worker stopped, and survives reopening the host. No second human
+approval is added. A separately materialized initial build enters the same
+refiner path in-process. Both use supplied model responses and cancel at the
+first refiner request; neither demonstrates a behavioral repair or acceptance.
+
+Builder reference evidence now contains the registered function implementations
+in both planning and emission context, bound to the plan's evidence hash. Its
+regression failed before the fix and passes. The fixed refiner adapters use
+ordinary Builder source admission; no model response is fabricated in production.
+
+A separate implementation-plan regression failed on a stale
+`design_choice_unresolved` finding, then passed (**1 test in 2.7 seconds**).
+Revised node choices replace only that node's old implementation uncertainties;
+current unresolved choices and authority restrictions remain. The original plan
+is immutable and host-derived channel identities remain mandatory.
+
+The older `tests/agent/test_episode_testing_launch.py` currently fails (**1
+failed in 3.0 seconds**): its one-shot host fixture has no owning Duet model
+binding. It must be updated to exercise the new full lifecycle once behavioral
+measure setup is connected; skipping refinement or borrowing the target launch
+would not be a valid fix. The broad suite is not claimed green.
+
+Earlier runs of the new handoff test failed on test setup/inspection mistakes:
+an empty learning environment, a string passed instead of an OpaqueId, and a
+missing executor argument to the stopped-worker check. The passing run above
+includes their corrections. These receipts do not establish a green broad
+compatibility suite or the full goal.
+
+**Remaining completion gap:** the normal-build campaign still needs the parent's
+task-specific behavioral measure setup. Static checks cannot discharge the
+original behavioral requirements. Live automatic repair/acceptance remains Task
+4; [ADR 0007](../adr/0007-build-owns-iterative-finalization.md) requires the system
+to own that work without a manual restart at the Builder/refiner boundary.
+
 ### Approved live build: first attempt blocked, 2026-10-03
 
 The human approved the exact scheduling Target Workflow and designated launch

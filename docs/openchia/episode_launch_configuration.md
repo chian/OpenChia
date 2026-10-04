@@ -61,7 +61,9 @@ that parameter alone is not evidence of Duet binding.
 The host-bound service path has integration coverage with a supplied agent,
 a local deterministic HTTP provider and an in-process executor. That verifies
 route separation, not a fully initialized conversational agent, live reasoning
-or native confinement. Normal-build refinement is not activated. See the
+or native confinement. The normal build now uses the same binding when handing
+its initial receipt to refinement; live end-to-end acceptance is still pending.
+See [ADR 0007](../adr/0007-build-owns-iterative-finalization.md) and the
 [verification receipts](unified_episode_test_harness_receipts.md) for exact coverage.
 
 ## Target Workflow launch commands
@@ -91,7 +93,8 @@ The same `/launch` → `/build` → `/run` path now supports an explicitly appro
 testing Episode. Its Architecture must grant `episode_testing` and freeze the
 targets, criteria, scopes and modes it may use. `/run` delegates to the shared
 testing/refinement execution service; it does not grant testing access to other
-Episodes or automatically refine a build. See the
+Episodes. Separately, `/build` owns its automatic build → refine → validate job;
+it does not wait for the user to launch refinement with `/run`. See the
 [unified harness guide](unified_episode_test_harness_design.md#in-episode-access).
 
 ## Launch file

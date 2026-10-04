@@ -1,6 +1,41 @@
 # IterativeEpisodeRefiner coding checkpoint and collaboration handoff
 
-## Current checkpoint: systemd 255 and native nested continuation, 2026-10-03
+## Current checkpoint: one build owns refinement, 2026-10-03
+
+[ADR 0007](../adr/0007-build-owns-iterative-finalization.md) records the user's
+explicit instruction: OpenChia must own the full build → refine → validate cycle
+after one start. This supersedes the earlier activation deferral.
+
+`OpenChiaHost.start_build` now passes either a failed partial build or a
+materialized build directly to the existing refiner via `ExperimentService`.
+The host materializes the fixed library refiner, records its authorization under
+the original human-approved job (not a fabricated second human approval), and
+uses the owning Duet's model route. Target Workflow validation retains its own
+launch. Status exposes the campaign and experiment IDs; cancellation reaches
+the whole job. A static Builder pass is not a completed build. The code publishes
+success only for a host-verified accepted revision.
+
+Latest focused validation: **12 passed across four files in 67.7 seconds**.
+The failed-build handoff runs through an actual systemd worker, reaches a
+supplied refiner model response, and verifies cancellation and stopped-worker
+identity. The materialized-build case runs in-process. A separate plan-resolution
+regression was reproduced red and passed after correction (**1 passed in 2.7
+seconds**): a revised valid implementation plan can clear its old uncertainty
+without rewriting history or accepting forged result-channel identities.
+These are not live reasoning or successful-repair receipts. The older ordinary
+testing-launch fixture currently fails because it has no owning Duet binding;
+the fixture must follow the complete lifecycle, not bypass refinement. See the
+receipt log for that separate **1 failed** result.
+
+**Still unfinished:** the default normal-build campaign imports Builder static
+checks, but does not yet supply the parent with the behavioral measure-admission
+inputs needed to discharge original contract coverage. Connect that through the
+existing parent/Measure/harness design, not a benchmark-specific bypass or a
+static-pass substitute. Then verify automatic repair and final acceptance on the
+approved scheduling task through one normal start. Final compatibility also
+remains open. Do not ask for routine iteration approval again.
+
+## Earlier checkpoint: systemd 255 and native nested continuation, 2026-10-03
 
 This update saves all current work to existing draft PR #33 and both remote
 branches, `feat/iterative-episode-refiner` and `feat/unified-episode-test-harness`.

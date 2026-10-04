@@ -913,6 +913,8 @@ class DuetService:
             provenance=(
                 DuetProvenance.HUMAN_INPUT.value
                 if source_stage == "human_edit"
+                else DuetProvenance.HOST_VALIDATION.value
+                if source_stage == "build_refiner"
                 else DuetProvenance.LLM_PROPOSAL.value
             ),
             event_record={
@@ -964,6 +966,15 @@ class DuetService:
         source_draft_artifact_id: OpaqueId,
         source_draft_hash: Sha256Digest,
     ) -> CurrentBuildAuthorization:
+        return self._seal_workflow(
+            identity, source_draft_artifact_id=source_draft_artifact_id,
+            source_draft_hash=source_draft_hash,
+        )
+
+    def _seal_workflow(
+        self, identity, *, source_draft_artifact_id, source_draft_hash,
+        build_refiner_parent=None,
+    ) -> CurrentBuildAuthorization:
         row = self._assert_identity(identity)
         if row["state"] != DuetDesignState.AWAITING_WORKFLOW_APPROVAL.value:
             raise DuetProtocolError("Duet is not awaiting workflow approval")
@@ -989,6 +1000,20 @@ class DuetService:
         )
         if workflow is None or deficits:
             raise WorkflowAdmissionError(deficits)
+        if build_refiner_parent is not None:
+            from iterative_episode_refiner.design import refinement_workflow_spec
+
+            parent = self.resolve_current_build_authorization(
+                build_refiner_parent.duet_id
+            ).authority_approval
+            if (
+                parent != build_refiner_parent
+                or parent.human_authority_id != identity.human_authority_id
+                or parent.duet_id == identity.duet_id
+                or workflow != refinement_workflow_spec()
+                or source["record"]["source_stage"] != "build_refiner"
+            ):
+                raise DuetProtocolError("build authority can authorize only the fixed refiner for its current owner")
         cycle = self.store.active_refinement_cycle(identity.duet_id.value)
         decision: Optional[RefinementDecision] = None
         refinement_id: Optional[str] = None
@@ -1093,8 +1118,9 @@ class DuetService:
             expected_latest_artifact_revision=source["revision"],
             expected_state=DuetDesignState.AWAITING_WORKFLOW_APPROVAL.value,
             refinement_id=refinement_id,
-            event_type="workflow_approved",
-            provenance=DuetProvenance.HUMAN_APPROVAL.value,
+            event_type="workflow_approved" if build_refiner_parent is None else "build_refiner_authorized",
+            provenance=(DuetProvenance.HUMAN_APPROVAL.value if build_refiner_parent is None
+                        else DuetProvenance.HOST_VALIDATION.value),
             event_record={
                 "approval_id": approval.approval_id.value,
                 "artifact_id": frozen.artifact_id.value,
@@ -1104,6 +1130,8 @@ class DuetService:
                 "refinement_decision_id": (
                     None if decision is None else decision.decision_id.value
                 ),
+                **({"parent_approval_id": build_refiner_parent.approval_id.value}
+                   if build_refiner_parent is not None else {}),
             },
         )
         return CurrentBuildAuthorization(

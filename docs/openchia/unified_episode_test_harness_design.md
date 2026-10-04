@@ -3,6 +3,16 @@
 Status: active implementation. This is not an acceptance receipt. The complete
 [goal](unified_episode_test_harness_goal.md) remains the completion contract.
 
+**Build ownership correction (2026-10-03):** the user explicitly requires
+OpenChia to own build → refine → validate after one start. This supersedes the
+goal file's earlier normal-build activation restriction; see
+[ADR 0007](../adr/0007-build-owns-iterative-finalization.md). `start_build`
+now hands either a partial failed build or a materialized build to the existing
+refiner through `ExperimentService`. The same job owns cancellation, and only
+the host's verified-build result permits success. This integration is work
+toward Task 4, not a replacement for its live repair/acceptance requirement.
+Historical checkpoint statements below describe the code and evidence then.
+
 **Terminology and execution decision (2026-10-03):** the workflow being built,
 refined and tested is the **Target Workflow**; `candidate_ref` identifies an
 exact candidate revision. The refiner is separate.

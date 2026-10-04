@@ -13,6 +13,8 @@ from agent.duet_contracts import canonical_json, content_id, digest_record
 
 # These keys preserve the existing identities; consolidation needs no migration.
 RECORDS = {
+    "build_job": ("build_request_id",),
+    "build_job_result": ("build_receipt_id",),
     "refinement_job": ("campaign_id",),
     "refinement_result": ("experiment_id",),
     "refinement_result_attempt": ("experiment_id", "run_id"),

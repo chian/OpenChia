@@ -60,8 +60,9 @@ def resolve_plan_reference(design, prior=None):
 
 
 def _checked_plan(plan, inputs):
-    # Structural checks cannot settle a design ambiguity or expand an approved
-    # successor directive. Retain these findings until their authority is resolved.
+    # Retain current unresolved choices and authority limits. Revised nodes
+    # supply their own current choices; old implementation ambiguities are not
+    # permanent exclusions after those choices pass the native checks.
     preserved = {
         canonical_json(item.as_record()): item
         for item in plan.deficits
@@ -212,7 +213,13 @@ def revise_plan(current, inputs, proposed, changed_fields):
         edges=tuple(edges),
         repeatable_calls=tuple(calls),
         node_dispositions=dispositions,
-        deficits=(*current.deficits, *unresolved, _CHECKING),
+        deficits=(
+            *(item for item in current.deficits if not (
+                item.code == "design_choice_unresolved" and item.episode_local_id in proposed
+            )),
+            *unresolved,
+            _CHECKING,
+        ),
     )
     return _checked_plan(plan, inputs)
 
