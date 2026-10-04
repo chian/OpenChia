@@ -49,6 +49,14 @@ violate exact continuation, while preparing only the host fix on the original
 runtime can retain the saved worker identity. No identity check was weakened,
 current process stopped, or new continuation attempted.
 
+At 17:31 UTC, isolated preparation produced
+`1aab50878e3e0e087f3f20094c1d28c291a26e60`: the original runtime plus only the
+two host-side changes. The existing manifest inspector finds no worker-byte
+differences, and `admit_reconstruction_source` accepts all eight original refiner
+modules against the actual saved registration/package. This is read-only source
+compatibility evidence, not a new Run, prefix reconstruction or permission to
+continue an active worker. The current live process remains untouched.
+
 ### Live source-repair handoff, 2026-10-04 17:17 UTC: baseline evaluation prevents editing
 
 In the same successor Run, Designer response 72 proposed a concrete source-repair

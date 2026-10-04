@@ -113,7 +113,12 @@
       "development_checkout_matches_saved_worker_manifest": false,
       "changed_worker_files": ["function_library/record_conditions.py"],
       "baseline_fix_files_in_worker_manifest": [],
-      "limitation": "Read-only inspection with the existing runtime manifest inspector. A continuation with the host-only fix has not been launched or admitted. Preserve the original worker closure; do not substitute the whole development checkout."
+      "prepared_host_checkout": "/home/chia/repos/OpenChia-host-baseline-fix-5dDNZIh6",
+      "prepared_host_commit": "1aab50878e3e0e087f3f20094c1d28c291a26e60",
+      "prepared_host_matches_saved_worker_manifest": true,
+      "prepared_host_source_admission_kind": "reference_wrapper_reconstruction",
+      "prepared_host_admitted_modules": 8,
+      "limitation": "Read-only source admission passes for all eight original refiner modules under the prepared host-only fix. No continuation has been launched; saved-prefix reconstruction, stopped-worker verification and current-authority admission remain required. Do not substitute the whole development checkout."
     }
   },
   "current_build_job": {

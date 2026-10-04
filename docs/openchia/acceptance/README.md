@@ -50,6 +50,12 @@ registered predicate identities. Any continuation intended to preserve this
 Measure must retain the original worker bytes rather than use the whole current
 development checkout. This is a read-only compatibility finding, not a completed
 continuation with the fix; the current process has not been interrupted.
+At 17:31 UTC, preparation produced commit
+`1aab50878e3e0e087f3f20094c1d28c291a26e60` in a separate checkout. It contains
+only the two host fixes on the original runtime. The worker manifest matches,
+and existing reconstruction source admission accepts all eight original refiner
+modules. Actual continuation and stopped-worker/current-authority checks remain
+unperformed; no second job was launched.
 
 Continuation also completed the cancelled Run's missing terminal-evidence
 publication, preserving its 866 events and `cancelled` status. The pinned host
