@@ -452,6 +452,7 @@ class RunExecution:
                 "recorded brokers must be constructed from the frozen experiment mode, not supplied by its caller"
             )
         from .recovery import claim_execution_owner, release_execution_owner
+        from ..host_tasks import commit_local, join_local
 
         admission = asyncio.create_task(asyncio.to_thread(
             self._admit, registration, source_package_path, intent_ref
@@ -459,9 +460,9 @@ class RunExecution:
         try:
             created, inputs, package, cursor, lease = await asyncio.shield(admission)
         except asyncio.CancelledError:
-            admitted = await admission
+            admitted = await join_local(admission, propagate_cancel=False)
             if admitted[0]:
-                await asyncio.to_thread(release_execution_owner, self.artifacts, registration, admitted[-1])
+                await commit_local(release_execution_owner, self.artifacts, registration, admitted[-1])
             raise
         if not created:
             try:
@@ -483,8 +484,8 @@ class RunExecution:
             try:
                 lease = await asyncio.shield(acquisition)
             except asyncio.CancelledError:
-                lease = await acquisition
-                await asyncio.to_thread(release_execution_owner, self.artifacts, registration, lease)
+                lease = await join_local(acquisition, propagate_cancel=False)
+                await commit_local(release_execution_owner, self.artifacts, registration, lease)
                 raise
         try:
             return await self._execute_owned(
@@ -493,7 +494,7 @@ class RunExecution:
                 refinement_session=refinement_session,
             )
         finally:
-            await asyncio.to_thread(release_execution_owner, self.artifacts, registration, lease)
+            await commit_local(release_execution_owner, self.artifacts, registration, lease)
 
     async def _execute_owned(
         self, *, registration, inputs, package, cursor, intent_ref,

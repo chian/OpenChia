@@ -1,4 +1,4 @@
-"""Reconstruction admits actual reference wrappers, not their binding claims.
+"""Whole-Run admission preserves exact code; later-unit admission stays narrow.
 
 Builds and package preparation are real; materializer responses are supplied.
 These tests do not execute Target Workflow code or establish resumed worker behavior.
@@ -143,7 +143,9 @@ async def test_admitted_reference_wrappers_require_the_same_frozen_runtime_witho
         result = admit_reconstruction_source(
             prepared, source_package_path=package, runtime_manifest=manifest
         )
-        assert {item["family"] for item in result["modules"]} == {family}
+        assert {item["family"] for item in result["modules"]} == {
+            "target" if family == "reasoning" else family
+        }
         assert {item["local_id"] for item in result["modules"]} == set(prepared.modules)
         assert all(
             item["source_hash"] == prepared.modules[item["local_id"]].source_hash.value
@@ -173,7 +175,7 @@ async def test_admitted_reference_wrappers_require_the_same_frozen_runtime_witho
 
 
 @pytest.mark.asyncio
-async def test_binding_claims_cannot_hide_generated_dispatch_or_import_side_effects(
+async def test_later_unit_source_gate_rejects_generated_dispatch_and_import_effects(
     tmp_path,
 ):
     async with reference_package(tmp_path, "reasoning") as (
@@ -229,5 +231,5 @@ async def test_binding_claims_cannot_hide_generated_dispatch_or_import_side_effe
             admit_reconstruction_source(
                 prepared, source_package_path=package, runtime_manifest=manifest
             )["modules"][0]["family"]
-            == "reasoning"
+            == "target"
         )

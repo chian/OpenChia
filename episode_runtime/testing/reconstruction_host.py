@@ -44,7 +44,7 @@ class HostReconstruction:
 
             saved = self.cursor.host_state
             if saved is None or saved["state"] is None:
-                if self.cursor.prefix_verified:
+                if self.cursor.host_unstarted:
                     validate_unstarted_session(self.refinement_session)
                     return
                 raise ReconstructionError("no committed refinement state at the interrupted boundary")

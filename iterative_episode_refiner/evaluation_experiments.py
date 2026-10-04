@@ -221,10 +221,9 @@ async def execute_experiment(evaluations, session, call, payload, *, request_eve
         session.commit_response, request_event,
         _receive, evaluations, session, call, spec, assigned, result,
     ))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        return await task
+    from episode_runtime.host_tasks import join_local
+
+    return await join_local(task, propagate_cancel=False)
 
 
 def _receive(evaluations, session, call, spec, assigned, result):

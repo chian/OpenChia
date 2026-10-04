@@ -171,7 +171,7 @@ def restore_session(session):
     )
     saved = cursor.host_state
     if saved is None or saved["state"] is None:
-        if cursor.prefix_verified:
+        if cursor.host_unstarted:
             validate_unstarted_session(session)
             return
         raise ValueError("interrupted Run has no committed refinement host state")

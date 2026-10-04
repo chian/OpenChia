@@ -254,6 +254,9 @@ class ReconstructionCursor:
         self._pending_kind = None if pending is None else pending.kind
         self._receipts = receipts
         states = [row for recording in recordings for row in recording["exchanges"] if row["kind"] == "refinement"]
+        self._host_unstarted = not states and not any(
+            event.kind is RunEventKind.REFINEMENT_REQUESTED for event in semantic
+        )
         self._host_state = None if not states else _freeze_json({
             "event_ref": states[-1]["response_event_ref"],
             "state": states[-1].get("session_state"),
@@ -269,6 +272,10 @@ class ReconstructionCursor:
     def host_state(self):
         """Provenance-bound host metadata, never included in a worker reply."""
         return _thaw_json(self._host_state)
+
+    @property
+    def host_unstarted(self):
+        return self._host_unstarted
 
     @property
     def prefix_verified(self):

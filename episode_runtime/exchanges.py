@@ -21,16 +21,7 @@ from .contracts import RunEventKind, RunEventOrigin
 from .http_broker import http_response_bytes
 from .http_contracts import http_request_hash, http_response_hash
 from .protocol import HostFrameType, _thaw_json
-
-
-async def _commit(function, *args, **kwargs):
-    """A cancelled await must not leave a journal writer behind finalization."""
-    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
+from .host_tasks import commit_local, join_local
 
 
 async def broker_refinement_request(
@@ -77,7 +68,7 @@ async def _broker_operation(
         # synchronous host transaction before terminal publication is allowed.
         task.cancel()
         try:
-            await task
+            await join_local(task, propagate_cancel=False)
         except asyncio.CancelledError:
             pass
         raise
@@ -98,7 +89,7 @@ async def _complete_operation(
         await asyncio.to_thread(session.continuation_state)
         if kind == "refinement" and not session.initial_state_recorded else None
     )
-    request_event = await _commit(
+    request_event = await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.WORKER,
@@ -133,7 +124,7 @@ async def _complete_operation(
     prepared = channel.prepare(HostFrameType(kind + "_response").value, response_body)
     # Frame validation and sequence reservation precede persistence; publication
     # follows it. Neither an oversized reply nor cancellation may orphan the Run.
-    await _commit(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.HOST,
@@ -157,7 +148,7 @@ async def broker_model_request(
     request = admit_model_request(request_record)
     request_hash = model_request_hash(request)
     episode_id = OpaqueId(frame.body["episode_id"])
-    await _commit(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.WORKER,
@@ -182,7 +173,7 @@ async def broker_model_request(
             "response": model_response_record(response),
         },
     )
-    await _commit(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.HOST,
@@ -213,7 +204,7 @@ async def broker_http_request(*, run_store, registration, channel, frame, http_b
     matched = http_broker.match_rule(local_id, request)
     rule_name = None if matched is None else matched.name
     url = urlsplit(str(request["url"]))
-    await _commit(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.WORKER,
@@ -238,7 +229,7 @@ async def broker_http_request(*, run_store, registration, channel, frame, http_b
         HostFrameType.HTTP_RESPONSE.value,
         {"http_request_id": body["http_request_id"], "response": response},
     )
-    await _commit(
+    await commit_local(
         run_store.append_event,
         run_id=registration.run_id,
         origin=RunEventOrigin.HOST,

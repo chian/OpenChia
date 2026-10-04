@@ -212,6 +212,8 @@ class RefinementSession:
         return call
 
     async def exchange(self, *, episode_id, episode_path, operation, payload, request_event=None):
+        from episode_runtime.host_tasks import join_local
+
         call = self._caller(episode_id, episode_path)
         if operation == "evaluate":
             self._require_unit(call, payload)
@@ -224,12 +226,7 @@ class RefinementSession:
         task = asyncio.create_task(asyncio.to_thread(
             self._dispatch_committed, call, episode_id, operation, payload, request_event
         ))
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            # Cancelling an await cannot stop a Python thread. Let the local
-            # transaction and its reply finish before the executor finalizes.
-            return await task
+        return await join_local(task, propagate_cancel=False)
 
     def _dispatch_committed(self, call, episode_id, operation, payload, request_event):
         return self.commit_response(
