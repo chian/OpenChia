@@ -4,6 +4,11 @@ from agent.duet_contracts import canonical_json, content_id, digest_record
 from agent.duet_store import DuetConflictError
 from function_library.epistemic_contract import exact, names
 from episode_runtime.testing.judgments import judge_value
+from episode_runtime.testing.observations import (
+    is_verified_run_path,
+    observation_receipt,
+    validate_observation_path,
+)
 
 from .checking import checker_definition
 from .evaluation_inputs import instrument_context, semantic_inputs
@@ -186,15 +191,16 @@ def observe(view, attempt, resolved):
             "Run does not match the candidate and request bound before execution"
         )
     execution = resolved.references["execution"]
+    verified_run = is_verified_run_path(check.body["observation_path"])
     if (
-        execution["terminal_status"] == "succeeded"
+        (execution["terminal_status"] == "succeeded" or verified_run)
         and checker_definition(view, request.body) is not None
         and "target_run_ref" not in binding.body
     ):
         raise ValueError(
             "successful target execution cannot replace its independent checker verdict"
         )
-    if execution["terminal_status"] != "succeeded":
+    if execution["terminal_status"] != "succeeded" and not verified_run:
         outcome, observed = "error", None
     else:
         if (
@@ -210,7 +216,7 @@ def observe(view, attempt, resolved):
             != check.body["observation_path"]
         ):
             raise ValueError(
-                "observation must use the frozen terminal-result projection"
+                "observation must use the frozen terminal-anchored projection"
             )
         observed = resolved.values[0]
         outcome = judge_value(
@@ -218,6 +224,12 @@ def observe(view, attempt, resolved):
             observed=observed,
             expected=check.body["expected"],
         )
+        if verified_run:
+            observed = observation_receipt(
+                observed,
+                evidence=execution,
+                **validate_observation_path(check.body["observation_path"]),
+            )
     return _record_observation(
         view,
         attempt,

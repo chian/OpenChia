@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from agent.duet_contracts import canonical_json
-from agent.episode_launch_transport import LaunchModelError, invoke_pinned_route
+from agent.episode_launch_transport import LaunchModelError, invoke_pinned_route, provider_failure
 from llm_call_library.transport import ModelTransportResponse
 
 
@@ -155,8 +155,7 @@ class DuetEpisodeTransport:
             self.record_attempt({
                 **receipt,
                 "state": "failed",
-                "error_type": type(exc).__name__,
-                "http_status": getattr(exc, "status_code", None),
+                **provider_failure(exc, route),
                 "elapsed_seconds": time.monotonic() - started,
             })
             raise LaunchModelError(

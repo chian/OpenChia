@@ -111,6 +111,27 @@ class EvidenceReader:
                 raise ValueError(
                     "Run evidence is outside the admitted evaluation lineage"
                 )
+            from episode_runtime.testing.observations import (
+                is_verified_run_path,
+                resolve_observation,
+                validate_observation_path,
+            )
+
+            if is_verified_run_path(evidence.observation_path):
+                registration = self.runs.read_registration(evidence.owner_id)
+                terminal = self.runs.read_evidence(evidence.owner_id)
+                if (
+                    evidence.record_id != terminal.terminal_event_id
+                    or evidence.content_hash != terminal.head_event_hash
+                ):
+                    raise ValueError("Verified Run observation needs its exact terminal event anchor")
+                selector = validate_observation_path(evidence.observation_path)
+                return resolve_observation(
+                    self.runs,
+                    registration=registration,
+                    evidence=terminal,
+                    **selector,
+                )
             events = self.runs.read_audit_log(evidence.owner_id)
             matches = [
                 event for event in events if event.event_id == evidence.record_id

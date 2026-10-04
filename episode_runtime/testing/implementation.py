@@ -25,9 +25,9 @@ def host_implementation(*adapter_paths):
 def measurement_implementation():
     from iterative_episode_refiner import records
     from episode_runtime.records import outcomes, runs
-    from . import campaign_criteria, campaign_subjects, control_subjects, criteria, instruments, judgments, measurements, refinement_subjects, subjects
+    from . import campaign_criteria, campaign_subjects, control_subjects, criteria, instruments, judgments, measurements, observations, refinement_subjects, subjects
 
     return host_implementation(
         records.__file__, outcomes.__file__, runs.__file__,
-        campaign_criteria.__file__, campaign_subjects.__file__, control_subjects.__file__, criteria.__file__, instruments.__file__, judgments.__file__, measurements.__file__, refinement_subjects.__file__, subjects.__file__
+        campaign_criteria.__file__, campaign_subjects.__file__, control_subjects.__file__, criteria.__file__, instruments.__file__, judgments.__file__, measurements.__file__, observations.__file__, refinement_subjects.__file__, subjects.__file__
     )

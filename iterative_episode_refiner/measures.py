@@ -129,9 +129,11 @@ def require_implementation_measure(view, assignment, reference, requirements, po
 
 def propose_measure(view, attempt, resolved):
     from .state_machine import actor, index, proposed
-    from .measure_needs import request_prerequisite
+    from .measure_needs import request_prerequisite, return_prerequisite
 
     assignment = actor(view, attempt)
+    if "return_prerequisite_ref" in attempt.body["payload"]:
+        return return_prerequisite(view, attempt)
     if {"check_design", "check_review"} & set(attempt.body["payload"]):
         from .measure_design import propose
 

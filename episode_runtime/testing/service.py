@@ -5,9 +5,10 @@ inspect the same Run; they do not launch another process or award credit.
 """
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import replace
 
-from agent.duet_contracts import content_id
+from agent.duet_contracts import canonical_json, content_id
 from agent.episode_launch import resolve_launch
 from agent.episode_launch_transport import LaunchModelTransport
 from handoff_library import DuetLaunchAddress, admit_duet_launch_request
@@ -68,6 +69,31 @@ class ExperimentService:
         from ..records.catalog import inventory
 
         return inventory(artifacts, runs, duet_id=duet_id, source=source, query=query)
+
+    @staticmethod
+    def read_observation(artifacts, runs, *, duet_id, measurement_ref, receipt):
+        """Resolve only an exact observation retained in this owner's report.
+
+        The report may bind a declared cross-Duet checker. Its single recorded
+        observation grants no access to other Runs or arbitrary audit paths.
+        This host read is not an additional worker operation.
+        """
+        from .observations import read_observation_receipt
+
+        row = read_reference(artifacts, measurement_ref, duet_id)
+        if row["kind"] not in {
+            "experiment.measurement.v1", "experiment.measurement_attempt.v1",
+        }:
+            raise ValueError("Observation reading requires an exact measurement report.")
+        if not isinstance(receipt, Mapping):
+            raise ValueError("Observation receipt must be a typed reference record.")
+        if not any(
+            canonical_json(outcome.get("observed")) == canonical_json(receipt)
+            and outcome["evidence_ref"] == receipt.get("evidence_ref")
+            for outcome in row["record"]["outcomes"]
+        ):
+            raise ValueError("Observation is not retained in the authorized measurement report.")
+        return read_observation_receipt(runs, receipt)
 
     @staticmethod
     def status(artifacts, runs, experiment_id):

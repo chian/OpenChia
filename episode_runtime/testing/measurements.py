@@ -1,10 +1,9 @@
 """Typed experimental judgments, kept separate from parent acceptance and credit."""
 
 from agent.duet_contracts import digest_record
-from iterative_episode_refiner.records import project
-
 from .judgments import judge_value
 from .criteria import verify_implementation
+from .observations import observation_receipt, resolve_observation
 from ..records.experiments import put_record, read_record
 from ..records.outcomes import RequirementOutcome
 
@@ -138,6 +137,7 @@ def measure_execution(artifacts, runs, experiment_id):
     ):
         criterion = resolved.get("criterion")
         measured_evidence = evidence
+        measured_registration = registration
         checking_gap = None
         if (
             resolved.get("eligible")
@@ -165,6 +165,7 @@ def measure_execution(artifacts, runs, experiment_id):
                 )
             if checker_registration is not None:
                 checker_run = checker_registration.run_id
+                measured_registration = checker_registration
                 measured_evidence = runs.read_evidence(checker_run)
                 if (
                     runs.read_registration(checker_run)
@@ -173,6 +174,11 @@ def measure_execution(artifacts, runs, experiment_id):
                     raise ValueError(
                         "independent checker evidence names another registration"
                     )
+        elif resolved.get("eligible") and resolved.get("instrument") is not None:
+            checking_gap = {
+                "kind": "target_not_successful",
+                "detail": "The target did not return successfully, so its required independent checker did not run; target evidence cannot substitute.",
+            }
         observed, reason, status = None, None, "unavailable"
         if criterion is None:
             reason = resolved["reason"]
@@ -193,21 +199,27 @@ def measure_execution(artifacts, runs, experiment_id):
                     else resolved["implementation_ref"]["artifact_id"]
                 ],
             )
-        elif measured_evidence.terminal_status.value != "succeeded":
+        elif (
+            measured_evidence.terminal_status.value != "succeeded"
+            and criterion.get("observation_source", "typed_status") != "verified_run"
+        ):
             status, reason = (
                 "error",
                 "Execution did not return successfully; its stop is not a failed behavioral criterion.",
             )
         else:
             try:
-                observed = project(
-                    measured_evidence.as_record()["typed_status"],
-                    criterion["observation_path"],
+                observed = resolve_observation(
+                    runs,
+                    registration=measured_registration,
+                    evidence=measured_evidence,
+                    source=criterion.get("observation_source", "typed_status"),
+                    path=criterion["observation_path"],
                 )
             except (ValueError, KeyError, TypeError, IndexError):
                 status, reason = (
                     "inconclusive",
-                    "The frozen result projection is absent or incompatible with the typed return.",
+                    "The frozen observation is absent, incompatible, or not bound to verified terminal evidence.",
                 )
             else:
                 try:
@@ -221,6 +233,12 @@ def measure_execution(artifacts, runs, experiment_id):
                         status = "pass" if status == criterion["required_outcome"] else "fail"
                 except (ValueError, TypeError) as exc:
                     status, reason = "error", f"Registered measurement failed: {exc}"
+                observed = observation_receipt(
+                    observed,
+                    source=criterion.get("observation_source", "typed_status"),
+                    path=criterion["observation_path"],
+                    evidence=measured_evidence.as_record(),
+                )
         outcome = RequirementOutcome(
             requirement_ref=requirement["requirement_ref"],
             requirement_key=None if criterion is None else criterion["requirement_key"],

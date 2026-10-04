@@ -207,6 +207,17 @@ def require_measures(view, policy, assignment):
     """A successor may use its inherited admitted catalog, never an arbitrary ID."""
     from .measure_design import assigned_definition
 
+    adequacy = policy.get("measure_admission", {}).get("adequacy_measure_ref")
+    if (
+        assignment.body["role"] == "measure"
+        and adequacy is not None
+        and assignment.body["local_measure_ref"] != adequacy
+    ):
+        raise ValueError(
+            "EstablishMeasure must use measure_admission_policy.adequacy_measure_ref "
+            "as its local_measure_ref; the Target Workflow's implementation measure "
+            "cannot judge check design. Correct the child assignment before calling it."
+        )
     review = assigned_definition(view, assignment)
     checks = tuple(
         view.read(ref, "check")
@@ -218,8 +229,7 @@ def require_measures(view, policy, assignment):
         if (
             (assignment.body["role"] == "measure" or review is not None)
             and field == "local_measure_ref"
-            and measure
-            == policy.get("measure_admission", {}).get("adequacy_measure_ref")
+            and measure == adequacy
         ):
             continue
         if not any(check.body["measure_ref"] == measure for check in checks):

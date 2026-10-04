@@ -21,6 +21,22 @@ class LaunchModelError(RuntimeError):
         self.route = dict(route)
 
 
+def provider_failure(exc, route):
+    """Keep the existing classifier's typed diagnosis, never provider text or bodies."""
+    from agent.error_classifier import classify_api_error
+
+    failure = classify_api_error(
+        exc, provider=route["provider"], model=route["model"],
+        base_url=route["base_url"],
+    )
+    return {
+        "error_type": type(exc).__name__,
+        "http_status": failure.status_code,
+        "failure_category": failure.reason.value,
+        "retryable": failure.retryable,
+    }
+
+
 def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
             cancel: threading.Event, progress: Callable[[], None]):
     import httpx
@@ -193,8 +209,7 @@ class LaunchModelTransport:
             except Exception as exc:
                 # Provider exceptions can echo credentials or response bodies.
                 # Persist typed diagnostics, never their unfiltered text.
-                self.record_attempt({**receipt, "state": "failed", "error_type": type(exc).__name__,
-                                     "http_status": getattr(exc, "status_code", None),
+                self.record_attempt({**receipt, "state": "failed", **provider_failure(exc, route),
                                      "elapsed_seconds": time.monotonic() - started})
                 continue
             self.record_attempt({**receipt, "state": "succeeded", "response_model": actual_model,

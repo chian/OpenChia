@@ -60,14 +60,18 @@ def validate_commit(view, commit):
                 if attempt.body["action"] != "propose_measure" or record.ref != records[0].ref or delta != expected_deltas[0]:
                     raise ValueError("check design or review differs from its authorized proposal")
             if delta["collection"] == "measure_need":
-                from .measure_needs import prerequisite_record
+                from .measure_needs import request_prerequisite, return_prerequisite
 
-                expected_need = prerequisite_record(view, attempt)
+                derive = (
+                    return_prerequisite
+                    if "return_prerequisite_ref" in attempt.body["payload"]
+                    else request_prerequisite
+                )
+                expected_records, expected_deltas = derive(view, attempt)
                 if (
                     attempt.body["action"] != "propose_measure"
-                    or record.ref != expected_need.ref
-                    or delta["key"] != record.artifact_id.value
-                    or delta["status"] != "requested"
+                    or record.ref != expected_records[0].ref
+                    or delta != expected_deltas[0]
                 ):
                     raise ValueError(
                         "measurement prerequisite differs from authorized need"

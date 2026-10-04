@@ -143,6 +143,7 @@ def vocabulary():
     from ..records.runs import RunRecord
     from episode_library.testing import DESIGN as testing_design
     from .criteria import criterion_schema
+    from .observations import observation_catalog
     from ..records.outcomes import RequirementOutcome
     from function_library.refinement_checks import refinement_check_library
     from function_library.testing_contract import (
@@ -218,6 +219,7 @@ def vocabulary():
             }
             for function in refinement_check_library.functions()
         ],
+        "available_observations": observation_catalog(),
         "scopes": deepcopy(SCOPES),
         "modes": deepcopy(MODES),
         "run_routes": {
@@ -271,9 +273,15 @@ def vocabulary():
         },
         "measurement_route": {
             "configuration": "register-measure freezes a registered predicate, expected value, controls, exact context and implementation identity; use its requirement_ref and measure_ref in subsequent experiments",
-            "projection": "observation_path is a JSON pointer relative to terminal Run evidence.typed_status; raw audit prose is not a measurement input",
+            "projection": "Operator criterion observation_path remains relative to terminal Run evidence.typed_status. Campaign checks select an exact root from available_observations: /payload/typed_status or /verified_run. Verified records retain event origins; model/worker prose is data, not a host-certified claim.",
             "eligibility": "exact approved workflow, scope, semantic root inputs and environment; mode must be one of the criterion's accepted_modes",
             "output": "typed per-requirement outcomes; candidate_verdict is separate from parent acceptance and progress",
+            "verified_observation_read": {
+                "api": "ExperimentService.read_observation(artifacts, runs, duet_id=owner, measurement_ref=report['measurement_ref'], receipt=outcome['observed'])",
+                "purpose": "Return the exact selected verified Run value after checking report ownership, observation membership, registration, evidence, terminal anchor and value_hash. No manual audit reconstruction or prose summary is needed.",
+                "access": "Host API only, not a new worker operation or CLI command. Describe exposes this same observation catalog to CLI and testing Episodes; existing run-record is the CLI inspection view.",
+                "limitations": "Only a receipt retained by that exact measurement report is readable through this method; it does not permit arbitrary paths or browsing another Duet.",
+            },
             "limitations": "Operator-supplied controls do not prove their grounding. Campaign checks and grounded checker controls use their original admission contracts; numerical reproduction is not behavioral acceptance.",
         },
         "comparison_route": {

@@ -42,6 +42,21 @@ admissions and controls, retaining source measures and limitations as well as th
 group identity. This connects newly admitted criteria to parent evaluation; it
 does not establish remaining requirement coverage or successful final acceptance.
 
+First-time check design is now implemented for new normal-build campaigns under
+the user-approved reviewed-design policy. EstablishMeasure drafts a typed check
+against the original requirement, a separate Question child reviews it, and host
+admission executes positive and negative controls before installing the check.
+`measure_design.py` owns definition/review validation; `measure_design_runtime.py`
+projects the exact returned review into the existing measure-admission path.
+Drafting and review earn no credit. The route uses registered predicates, not
+arbitrary generated checker code. Focused checks pass; the live attempt from
+`9b5d11574a` reached refinement but ended with a missing-`measure_need` host error
+before any accepted repair or verified build. A real one-start retry with the
+proposal-reference feedback correction is now active; it has no acceptance
+result yet. Supplied-response fixture runs have been stopped at the user's
+direction. See the
+[receipt log](unified_episode_test_harness_receipts.md).
+
 **Terminology and execution decision (2026-10-03):** the workflow being built,
 refined and tested is the **Target Workflow**; `candidate_ref` identifies an
 exact candidate revision. The refiner is separate.
@@ -83,7 +98,8 @@ The [canonical routing contract](episode_launch_configuration.md#duet-refiner-an
 defines this boundary. `OpenChiaHost.refinement_experiment_service` now binds
 the owning Duet's concrete route for refiner-job experiments. Supplied-agent,
 local-provider integration coverage verifies separation from target routing;
-fully initialized conversational-agent and live-model acceptance remain unverified.
+live one-start jobs have reached native refinement with a fully initialized
+owning Duet. Successful end-to-end live-model acceptance remains unverified.
 Native nested execution now passes with supplied model decisions.
 If the configuration cannot be resolved, stop at that boundary and report why.
 File existence alone does not establish readiness. Earlier scripted fixtures
@@ -93,10 +109,13 @@ remain mechanical checks, not evidence of live Episode building or reasoning.
 
 ### Task status
 
-Task **4** remains. Tasks 1, 2, 3 and the compatibility/documentation checkpoint
-in task 5 are complete at the scopes described below. Live model-directed testing
-and actual repair are not established; the overall goal remains open. IDs are
-retained for tracking. Task 4's eventual result must be added to the same receipts.
+Tasks **4 and 5 remain open**. Tasks 1, 2 and 3 are complete at the scopes
+described below. Task 4 owns live model-directed testing and actual repair.
+Task 5 owns the current compatibility results and documentation; its earlier
+checkpoint is complete, but final closure requires Task 4's final receipt.
+The interrupted compatibility run is recorded as interrupted, not passing;
+no further supplied-response fixture runs are planned. These are the same task
+IDs, not new tasks.
 
 - **Task 1: Finish connecting the refiner's tests to the shared harness — complete.** Direct
   target-output checks now use an Episode-proposed experiment specification and
@@ -171,11 +190,17 @@ retained for tracking. Task 4's eventual result must be added to the same receip
   to fix misleading plan rejection feedback. A fresh job from `7222da1a21`
   reached EstablishMeasure, exposing missing grounding with no applicable
   construction/acquisition route. It was cancelled before modifying the system.
-  Fixed controller facts are now supplied by the host, but that correction does
-  not resolve the measurement gap. The failed/cancelled evidence is
-  retained; no Target Workflow Run or accepted source repair is yet demonstrated.
-  See the latest receipt and setup record.
-- **Task 5: Check compatibility and finish documentation — checkpoint complete.**
+  Fixed controller facts are now supplied by the host. The user-approved
+  first-time check-design/review/control route is implemented, with five focused
+  checks passing; those use supplied responses, not live reasoning. A fresh
+  one-start job from `9b5d11574a` entered native refinement automatically, then
+  ended with `DuetNotFoundError: no admitted measure_need with that key`.
+  Host proposal-reference validation and its field instructions are corrected;
+  a new ordinary one-start job is exercising that correction with real model
+  calls. Failed/cancelled evidence is retained; no Target Workflow Run or
+  accepted source repair is yet demonstrated. See the latest receipt and setup
+  record.
+- **Task 5: Check compatibility and finish documentation — final closure pending.**
   PR #34 is merged and its explicit approved model-slot APIs are integrated.
   The latest 64-file check returned 343 passed, one test-specific timeout and
   two skips. The affected reasoning fixture then passed both cases after removing
@@ -190,7 +215,14 @@ retained for tracking. Task 4's eventual result must be added to the same receip
   current work to existing PR #33; the PR stays draft pending task 4. There is
   no live-model acceptance claim. Normal-build refinement is now active under
   ADR 0007; that later change does not turn this compatibility checkpoint into
-  a successful live-repair receipt.
+  a successful live-repair receipt. On `9b5d11574a`, the current four-file
+  compatibility run passed campaign-state (9), control-integrity (2) and
+  report (4) checks before being stopped at the user's direction. The runner
+  exited 130; native nested continuation was SIGTERM-cancelled at 896.2 seconds,
+  not passed. No replacement fixture run is planned. The code map, current
+  receipts and historical job records are updated; the remaining documentation
+  dependency is Task 4's actual result. No additional feature work is assigned
+  to Task 5.
 
 ### Record ownership
 
@@ -1228,8 +1260,9 @@ earlier criteria. Numerical reports include recorded/recomputed steps, but leave
 candidate verdict and testing progress unassigned. Registered-predicate outcome
 comparison, direct admitted campaign checks, independent-checker execution
 and grounded measure-control experiments are connected. Their mechanical checks
-do not establish live reasoning. Coherent nested continuation remains open
-pending its complete demonstration.
+do not establish live reasoning. Coherent nested continuation has passed through
+the native systemd worker with supplied decisions, as recorded under Task 3;
+that is not a live repair demonstration.
 
 ## Frozen measurements and comparisons
 
@@ -1447,16 +1480,18 @@ It does not yet establish autonomous experimental design or live task reasoning.
 
 ## Remaining completion evidence
 
-Task **4** remains, as defined at the top of this guide. Task 1's refiner-job
+Tasks **4 and 5** remain open, as defined at the top of this guide. Task 1's refiner-job
 and numerical-replay integration and negative
 decoder check now pass; stock later-unit saved learning passed in-process
 execution, numerical comparison, preparation and preview checks. Instrument-build
 and reference-workflow experiments now pass the shared-service and authorized
 worker-discovery checks, completing task 1's routing work.
 Historical refiner-state forks are an unsupported extension, distinct from
-task 3's now-verified same-execution native nested continuation. Task 5's
-compatibility/documentation checkpoint is complete. Task 4 requires the real,
-independently checked live acceptance demonstration and its honest receipt.
+task 3's now-verified same-execution native nested continuation. Task 5's earlier
+compatibility/documentation checkpoint is complete; final documentation must
+record the actual outcome of Task 4. Task 4 requires the real, independently
+checked live acceptance demonstration and its honest receipt. Supplied-response
+fixture results do not fulfill that requirement.
 
 Launch setup, approved target configuration and the owning-Duet refiner-job
 binding are implemented. Supplied-agent/local-provider and in-process checks

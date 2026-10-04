@@ -17,6 +17,7 @@ from iterative_episode_refiner.measure_groups import declarations, member_bindin
 from iterative_episode_refiner.records import Ref, RefinementRecord
 
 from ..records.experiments import read_reference
+from .observations import validate_observation_path
 
 
 def admitted_check(view, requirement):
@@ -122,14 +123,12 @@ def resolve_campaign_criterion(
             )
         resolve_predicate(predicate)
 
-    # Refinement checks address the terminal event. Generic measurements address
-    # its typed status; do not reinterpret arbitrary audit paths as result data.
-    prefix = "/payload/typed_status"
-    path = body["observation_path"]
-    if path != prefix and not path.startswith(prefix + "/"):
+    try:
+        observation = validate_observation_path(body["observation_path"])
+    except ValueError as exc:
         return {
             "eligible": False,
-            "reason": "The check does not project a typed terminal result; no result-path substitution is permitted.",
+            "reason": str(exc),
         }
     conditions = (
         (
@@ -162,11 +161,13 @@ def resolve_campaign_criterion(
         "criterion": {
             "requirement_key": body["requirement_key"],
             "predicate": _thaw_json(predicate),
-            "observation_path": path[len(prefix) :],
+            "observation_path": observation["path"],
+            **({"observation_source": "verified_run"} if observation["source"] == "verified_run" else {}),
             "expected_value": body["expected"],
             "limitations": [
                 "The check's original campaign admission is reused, not newly established by this experiment.",
                 "A predicate result covers this scope and evidence mode; campaign observation admission, independent parent acceptance and credit remain separate.",
+                *(["Verified Run evidence covers one physical attempt only; it does not certify uninstrumented behavior or include continuation ancestors."] if observation["source"] == "verified_run" else []),
             ],
         },
         "requirement_ref": requirement["requirement_ref"],

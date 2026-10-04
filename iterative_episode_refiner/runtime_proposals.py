@@ -20,7 +20,7 @@ _ASSIGNMENT_SHAPE = {
     "owned_slice_keys": ["a parent's declared slice key"],
     "writable_paths": ["an exact path within the parent's editable scope"],
     "local_measure_ref": {
-        "artifact_id": "an admitted measure",
+        "artifact_id": "an admitted measure; for role=measure use measure_admission_policy.adequacy_measure_ref exactly",
         "content_hash": "its exact hash",
     },
     "acceptance_measure_ref": {
@@ -36,11 +36,11 @@ _ASSIGNMENT_SHAPE = {
     ],
     "prerequisite_refs": [
         {
-            "artifact_id": "original returned measurement-request ID; use [] if none",
+            "artifact_id": "returned openchia.refinement.measure_prerequisite artifact ID; not a checking_gap/evaluation/report ID; use [] if none",
             "content_hash": "its exact hash",
         }
     ],
-    "measure_review_ref": "optional exact check definition reference, only for a Measure's Question child",
+    "measure_review_ref": "null or omitted unless assigning a Measure's Question child to review an exact check definition reference",
 }
 
 _MEASURE_SHAPE = {
@@ -88,13 +88,26 @@ _CHECK_DESIGN_SHAPE = {
 }
 
 
+_RETURN_PREREQUISITE_SHAPE = {
+    "return_prerequisite_ref": {
+        "artifact_id": "exact returned direct-child measure_prerequisite in child_decisions; only when this invocation has a parent",
+        "content_hash": "its exact hash; the host preserves the original need and evidence",
+    }
+}
+
+
 def proposal_schemas(role):
     from episode_runtime.testing.schema import experiment_schema
 
     schemas = {
         "choose_part": {
-            "assignment": _ASSIGNMENT_SHAPE,
-            "conflict_ref": "null, or the exact conflict reference for a joint repair",
+            "one_of": [
+                {
+                    "assignment": _ASSIGNMENT_SHAPE,
+                    "conflict_ref": "null, or the exact conflict reference for a joint repair",
+                },
+                _RETURN_PREREQUISITE_SHAPE,
+            ],
         },
         "design": {
             "one_of": [
@@ -124,6 +137,7 @@ def proposal_schemas(role):
                     ],
                 },
                 {"prerequisite": _ASSIGNMENT_SHAPE},
+                _RETURN_PREREQUISITE_SHAPE,
             ],
         },
         "change": {
@@ -237,11 +251,11 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None):
             "producer_ref": producer.as_record(),
             "measure_request": need,
             **({"prerequisite_refs": prerequisite_refs} if prerequisite_refs else {}),
-            **({"measure_review_ref": draft["measure_review_ref"]} if "measure_review_ref" in draft else {}),
+            **({"measure_review_ref": draft["measure_review_ref"]} if draft.get("measure_review_ref") is not None else {}),
         },
     )
     body = _thaw_json(parent.body)
-    if "measure_review_ref" in draft:
+    if draft.get("measure_review_ref") is not None:
         body["input_refs"] = [*body["input_refs"], draft["measure_review_ref"]]
     if prerequisite_refs:
         body["input_refs"] = [
@@ -345,6 +359,8 @@ def verification_assignment(session, call, purpose):
 
 
 def _choose_part(session, call, proposal, producer):
+    if "return_prerequisite_ref" in proposal:
+        return _return_prerequisite(session, call, proposal, producer)
     exact(proposal, {"assignment", "conflict_ref"}, "part choice")
     return session.reply(
         call,
@@ -359,6 +375,8 @@ def _choose_part(session, call, proposal, producer):
 
 
 def _design(session, call, proposal, producer):
+    if "return_prerequisite_ref" in proposal:
+        return _return_prerequisite(session, call, proposal, producer)
     if "prerequisite" in proposal:
         return _prerequisite(
             session, call, proposal, producer, {"support", "question", "measure"}
@@ -397,6 +415,12 @@ def _design(session, call, proposal, producer):
     draft["writable_paths"] = list(proposed["intended_change_scope"])
     draft["supersedes_assignment_refs"] = proposal.get("supersedes_assignment_refs", [])
     return session.reply(call, child=assign_child(session, call, draft, producer))
+
+
+def _return_prerequisite(session, call, proposal, producer):
+    exact(proposal, {"return_prerequisite_ref"}, "prerequisite return")
+    session.commit(call, "propose_measure", proposal, producer=producer)
+    return session.reply(call, proceed=False)
 
 
 def _prerequisite(session, call, proposal, producer, roles):

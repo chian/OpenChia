@@ -109,7 +109,10 @@ def catalog(view, assignment, policy):
             if case["purpose"] == requested["purpose"]
             and case["environment_ref"] == view.contract.body["environment_ref"]
         }
-        if requirements - covered and not grant.get("reviewed_designs"):
+        # Permission to design a check does not supply missing observations or
+        # independent grounding. Keep the owner route available when design
+        # cannot establish the requirement with this harness's actual evidence.
+        if requirements - covered:
             needs.append({
                 "kind": "grounding_required",
                 "purpose": requested["purpose"],
@@ -189,6 +192,50 @@ def request_prerequisite(view, attempt):
     ]
 
 
+def return_prerequisite(view, attempt):
+    """Move an exact returned child need up one ownership edge, without credit."""
+    from .state_machine import actor, derived, index
+
+    assignment = actor(view, attempt)
+    if (
+        assignment.body["role"] not in {"designer", "parts"}
+        or assignment.body["parent_assignment_ref"] is None
+    ):
+        raise ValueError("only a nested Parts or Designer may return a child prerequisite to its parent")
+    payload = exact(attempt.body["payload"], {"return_prerequisite_ref"}, "prerequisite return")
+    reference = Ref.from_record(payload["return_prerequisite_ref"])
+    entry = view.entry("measure_need", reference.artifact_id.value)
+    source = entry.record
+    child = view.entry("invocation", source.invocation_id.value)
+    if (
+        entry.status != "requested"
+        or source.ref != reference
+        or child.status != "returned"
+        or child.record.ref.as_record() != source.body["assignment_ref"]
+        or child.record.body["parent_assignment_ref"] != assignment.ref.as_record()
+        or source.body["owner_assignment_ref"] != assignment.ref.as_record()
+        or not set(source.body["need"]["requirement_keys"]).issubset(
+            assignment.body["contribution_requirement_keys"]
+        )
+    ):
+        raise ValueError("prerequisite return must cite an exact returned direct-child need within this assignment")
+    record = derived(
+        view,
+        attempt,
+        "measure_prerequisite",
+        {
+            "assignment_ref": assignment.ref.as_record(),
+            "owner_assignment_ref": assignment.body["parent_assignment_ref"],
+            "need": source.body["need"],
+        },
+        evidence=(EvidenceRef(
+            "duet_artifact", OpaqueId(view.head["duet_id"]),
+            reference.artifact_id, reference.content_hash, "",
+        ),),
+    )
+    return [record], [index("measure_need", record.artifact_id.value, record, "requested")]
+
+
 def unit_prerequisite(view, attempt):
     return next(
         (
@@ -202,13 +249,38 @@ def unit_prerequisite(view, attempt):
 
 
 def decision_context(view, record):
+    from .measure_design import prerequisite_reviews
+
     reference = record.body["need"]["instrument_build_ref"]
     return {
         **record.as_record(),
+        "prior_check_reviews": prerequisite_reviews(view, record),
         "instrument_build_specification": view.data(Ref.from_record(reference))
         if reference
         else None,
     }
+
+
+def prerequisite_assignments(view, references):
+    """Follow exact handoff provenance, not unrelated campaign histories."""
+    pending = list(map(Ref.from_record, references))
+    seen, assignments = set(), set()
+    while pending:
+        reference = pending.pop()
+        if reference in seen:
+            continue
+        seen.add(reference)
+        record = view.read(reference, "measure_prerequisite")
+        assignment_ref = Ref.from_record(record.body["assignment_ref"])
+        assignments.add(assignment_ref)
+        assignment = view.read(assignment_ref, "assignment")
+        goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
+        pending.extend(map(Ref.from_record, goal.get("prerequisite_refs", ())))
+        attempt = view.read(record.predecessor_refs[0], "attempt")
+        forwarded = attempt.body["payload"].get("return_prerequisite_ref")
+        if forwarded is not None:
+            pending.append(Ref.from_record(forwarded))
+    return assignments
 
 
 def assignment_prerequisites(view, parent, selected, requirements):

@@ -356,6 +356,23 @@ def feedback(session, reference):
         session.store.evidence.duets, reference.as_record(), session.duet_id
     )
     value = row["record"]
+    if row["kind"] == "refinement.proposal_rejection.v1":
+        proposal = read_reference(
+            session.store.evidence.duets, value["proposal_ref"], session.duet_id
+        )
+        if proposal["kind"] != "refinement.model_proposal.v1":
+            raise ValueError("proposal feedback does not reference a model proposal")
+        payload = proposal["record"]["event"]["payload"]
+        # Each unit makes a fresh call: an inaccessible artifact reference and
+        # parse offset do not let its producer repair the rejected output.
+        return {
+            **value,
+            "rejected_proposal": {
+                "raw_response": payload["response_text"],
+                "producer_call_id": payload["producer_call_id"],
+                "admitted": False,
+            },
+        }
     if row["kind"] != "refinement.experiment_result.v1":
         return value
     from episode_runtime.testing.measurements import saved_measurements

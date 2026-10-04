@@ -1,12 +1,52 @@
 # IterativeEpisodeRefiner: Goal 1 repository integration map
 
+This document preserves the original Goal 1 design inspection. Statements below
+about then-missing code or unexecuted paths describe that inspection, not the
+current checkout. Current harness status and evidence are maintained in the
+[harness guide](unified_episode_test_harness_design.md) and
+[verification receipts](unified_episode_test_harness_receipts.md).
+
+## Current integration update — 2026-10-03
+
+OpenChia now owns the normal build → refine → validate job after one start under
+[ADR 0007](../adr/0007-build-owns-iterative-finalization.md). Failed or materialized
+initial Builder receipts enter the same refiner job through the shared experiment
+service. Refiner reasoning uses the owning Duet's model configuration; Target
+Workflow validation uses its separate approved launch. Native nested continuation
+has passed with supplied decisions. Live jobs have reached the refiner with a
+fully initialized Duet, but no independently accepted live repair or final build
+has yet been demonstrated. See the receipts for failed attempts and exact limits.
+
+The first-time check-design addition at `9b5d11574a` extends existing campaign
+records and admission. It adds no runner, store or replay API:
+
+| Responsibility | Current implementation |
+| --- | --- |
+| Freeze permission to design a check in a new normal-build campaign | `iterative_episode_refiner.measure_preparation.build_measure_policy`; `measure_admission.reviewed_designs.version=1`; old frozen campaigns stay unchanged |
+| Validate an original-requirement check and a separately assigned review | `iterative_episode_refiner.measure_design.propose`, `assigned_definition`, `reviewed`; exact requirement scope, execution binding and returned Question-child review |
+| Supply available predicates, definitions and review criteria to the assigned Episode | `iterative_episode_refiner.measure_design.context`, through the existing `runtime.snapshot` |
+| Run the existing Measure → Question review child and project its returned definition | `iterative_episode_refiner.measure_design_runtime.propose_design`, `propose_reviewed_instrument`, `project`; the existing `propose_measure` action and child interfaces |
+| Reject altered reviewed projections at admission | `iterative_episode_refiner.measure_design_runtime.authorize`, called by `measure_admission.grounded_cases`; exact content-addressed provenance |
+| Retain definitions/reviews without a second persistence system | `iterative_episode_refiner.records` kinds `measure_definition` and `measure_review`; additive collections in `campaign_store`; `integrity.validate_commit` independently re-derives their committed changes |
+| Distinguish review from target correctness or credit | `measurement.close_unit` and `integrity._validate_continuation`; review returns `needs_parent_decision` with zero yield; ordinary measure admission still executes both control classes |
+
+This route supports existing registered observation predicates, not arbitrary
+new executable checker code. Reviews retain their judgment provenance and
+limitations; they are not independent empirical truth. Five focused checks pass
+with supplied model/Builder replies. Those checks do not establish live reasoning
+or native confinement. The subsequent live job ended with a missing-`measure_need`
+host error before any accepted repair; Task 4 remains open.
+
+## Historical Goal 1 inspection
+
 Implementation priority correction (2026-10-02): the user deferred testing and
 replay machinery until the central refiner is connected. The earlier outbox and
 standalone recovery proposals below are not current implementation requirements.
 The unused refiner outbox and reconstruction verifier were removed. Future
 replay/testing must use one documented CLI and shared execution service. See the
-[current status](iterative_episode_refiner_implementation_status.md) for the new
-Episode loops and existing-worker connection; they have not been executed.
+[then-current status](iterative_episode_refiner_implementation_status.md) for the
+new Episode loops and existing-worker connection, which had not been executed
+at that checkpoint.
 
 2026-10-02 — companion to [executable contracts v1](iterative_episode_refiner_contracts.md)
 and [design v3](iterative_episode_refiner_episodes.md). The original mapping records

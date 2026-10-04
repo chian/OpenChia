@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from agent.duet_contracts import content_id
+from agent.duet_store import DuetNotFoundError
 from agent.episode_contracts import OpaqueId
 from episode_library.refinement import (
     LAUNCH_DESIGN,
@@ -638,7 +639,7 @@ class RefinementSession:
         try:
             proposal = _parse_json(payload["raw_response"])
             return admit_proposal(self, call, payload["task"], proposal, ref)
-        except (TypeError, ValueError, KeyError) as exc:
+        except (TypeError, ValueError, KeyError, DuetNotFoundError) as exc:
             call.feedback_ref = self.put_data(
                 "proposal_rejection",
                 {

@@ -45,6 +45,7 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
     local = data("local_measure", group_definition("local"))
     acceptance = data("acceptance_measure", group_definition("acceptance", "composition"))
     target = host.build_store.read_build_request(baseline.build_request_id)
+    specification, _receipt, _manifest = host.workspace.materialized_context(baseline)
     workflow = data("target_workflow", target.frozen_workflow.as_record())
     harness = data(
         "target_test",
@@ -60,6 +61,14 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
         "campaign_policy",
         {
             "check_refs": [],
+            # Planning can fail before a node enters the typed plan. Its approved
+            # materialization target still exists and must remain repairable.
+            "materialization_edit_targets": sorted(
+                part.stable_target
+                for episode in specification.episodes
+                for part in episode.parts
+                if part.name == "node_plan"
+            ),
             "measure_admission": build_measure_policy(data),
             "measure_group_refs": [local.as_record(), acceptance.as_record()],
             "numeric_control": refiner.build_request.frozen_workflow.workflow.episodes[

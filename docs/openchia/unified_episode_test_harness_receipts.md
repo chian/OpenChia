@@ -13,6 +13,596 @@ decision itself did not establish successful execution through either backend.
 No new behavioral tests or live Runs were performed for this terminology/save
 checkpoint, and these earlier receipts do not verify the newly named head.
 
+### Live one-start retry with rejected-output feedback and event comparisons, 2026-10-04 UTC: operator-cancelled
+
+Latest status: the user requested stopping the unanswered model call 48.
+Cancellation was requested at 16:01:40 UTC. The Run committed `cancelled` at
+event 865: 866 events, 48 model requests and 47 responses. The exact systemd
+worker was stopped and verified inactive. Caller cleanup did not finish
+normally; SIGTERM was required and the caller exited 143. A finalized build-job
+result is not confirmed. No replacement has started, and there is no acceptance
+pass. Separate continuation and health-recovery work does not retroactively
+change this evidence. The following records describe the attempt before that
+cancellation.
+
+One normal `OpenChiaHost.start_build` started
+`build_request_f909ff82826ee4882064ba7b425d83278be6ca9aafc6d6e5bd38a45ad9f0613d`
+after the preceding Run was terminal, its worker inactive and caller cleanup
+finished. Attempt
+`build_attempt_b13c99713da8d9ef939a4ab98b981e508edd809d7ab5781e6528941f3dd11362`
+produced receipt
+`build_receipt_32331f0147a3d66bc89752be5e0424ae48d31f3f505fc23c6b796511fb928428`,
+with two findings, zero Episodes planned and zero modules emitted. Exact diagnoses
+are not yet recorded here. The materialized specification is
+`materialized_specification_cb245a4678041ace3674f3f268364e0224cf6ef8e42aa12d7f017171731b790b`,
+the baseline is
+`refinement_baseline_f9dc85a7e79b057856499bf1d5407110885d7e75070d7b793a65977856bbdf71`,
+and the campaign is
+`refinement_7f96d6eaf134da9704798cb07ca0f684196274d961dd01e15a3e2ea96526e8ab`.
+Experiment
+`experiment_950c8e594e46e7e5896a8f80b1ffe20a6d68d864315af6835733651f5f11bc43`
+owns native Run
+`run_358b0b188f2732c49a60c6d304d8309705e611b325cd6c822d0ad771a1347edf`.
+The same normal start automatically progressed into refinement. Its first
+observation had 38 events and one model request awaiting a response. Subsequent
+check-design response 53 contained 49,474 characters and failed JSON parsing at
+character 15,403 (line 1, column 15,404); host 55 rejected it. Contexts 55, 60 and
+62 now contain `rejected_proposal.raw_response` with exactly 49,474 characters,
+`admitted: false`, and the parse error. Automatic repair response 64 produced
+valid JSON: 113,212 characters, twelve cases and nine `parent_path` operands.
+Host 66 accepted the proposal and automatically assigned separate Question
+reviewer
+`refinement_invocation_d66390fe6669e1291e5b8d9dc50f1c4112b4943621795a069263cab6f6437292`
+to definition
+`refinement_2b489ceec16f7d044c121c86486ac7e2ce7d213471c4ea289f2df595e8328c7b`.
+Independent review response 79 rejected substantive cross-record, provenance
+and coverage gaps. The control-polarity review criterion passed; that is not an
+executed positive-control pass. This demonstrates automatic repair into a valid,
+separately reviewable proposal, not validation, measure admission or scheduling
+success. Measure 100 returned an acceptance-grounding need. Root 121 assigned
+Designer actual implementation across all sixteen requirements. Designer 136
+requested local Measure checks for all twelve behavioral requirements. Local
+design 151 contained 110,564 characters; independent review 166 marked all five
+criteria false. Measure 187 returned a local grounding prerequisite, forwarded
+by Designer 208. Root 252 assigned a successor Designer with both prior
+prerequisite references. Designer 267 then explicitly assigned eleven uncovered
+local requirements, carrying the review findings: selection/result joins, all
+frontier answers, the stop bound `<= 0.01`, exact `HostReceipt`, and proper
+provenance/capability coverage. Schedule correctness remains independent.
+The successor Measure then produced four consecutive malformed responses:
+
+| Response event | Characters | JSON error character | Rejection event | Credit |
+| --- | ---: | ---: | --- | ---: |
+| 282 | 96,379 | 44,074 | 284 | 0 |
+| 293 | 87,089 | 37,665 | 295 | 0 |
+| 304 | 95,332 | 40,788 | 306 | 0 |
+| 315 | 94,627 | 56,338 | 317 | 0 |
+
+Each following context contains the exact latest rejected `raw_response` and
+parser error. These four consecutive format repairs did not succeed. Measure
+326 returned the same local grounding need, forwarded by Designer 347. Root 391
+assigned Designer all sixteen requirements with the explicit instruction to
+implement rather than merely restate a plan. Designer 406 emitted a 16,682-character
+plan, rejected at 408: "implementation measure has unresolved requirement coverage."
+Designer 417 requested Measure for all twelve behavioral requirements; Measure
+432 immediately returned the same need. These records show a recurrent
+prerequisite/assignment loop; they do not establish its exact root cause.
+At that point, no further design review or admission had occurred.
+
+Root 497 proposed replacing Designer, but host 499 rejected it: "only the
+assigning owner may route a returned prerequisite." Root 508 removed
+`prerequisite_refs`, and host 510 accepted a replacement Designer with the same
+sixteen requirements. Designer 523 requested Measure for all twelve behavioral
+requirements, also without `prerequisite_refs`. Measure 538 produced 46,530
+characters of malformed JSON, rejected at 540 with "Expecting property name
+enclosed in double quotes" at character 42,273. Response 549 was also malformed:
+46,921 characters, with its JSON error at character 42,252.
+These records do not by themselves establish that history was dropped or explain
+the root cause of the recurring loop.
+
+Response 560 was a valid 47,301-character `check_design`, accepted as a proposal
+at 562. Independent review 575 rejected four criteria, identifying stopping
+consistency, mixed `learning_opened` records, later-answer and provenance gaps.
+The control-polarity review criterion passed, not executable controls. Measure
+then directly revised the design: response 596 was a valid 59,680-character
+`check_design`, accepted as a proposal at 598 and sent to a new independent
+reviewer. Review 611 rejected four criteria; control polarities were true as a
+review criterion, not passed executable controls. Requiring every frontier
+answer to be optimal exceeded the original formatting-only requirement for later
+answers. Other findings were missing event-sequence ordering, existential evidence
+checks admitting contradictory extra evidence, and inheritance/durability claims
+beyond the observable records.
+
+Measure directly revised again. Response 632 proposed a 62,724-character design
+with explicit sequence ordering, exact evidence arrays, no every-answer optimality
+requirement, and an explicit inability to parse later JSON-valued strings. Host
+634 accepted it as a proposal for independent review. Review 647 rejected four
+criteria, with `limitations_are_explicit: true`; that favorable review criterion
+is not executed validation. Measure 668 requested the same grounding need,
+forwarded by Designer 689. Root verification returned `needs_parent_decision`.
+
+Parts 733 superseded the previous Designer with the same broad sixteen
+contribution requirements and requested source repair rather than measure
+redesign, but supplied `prerequisite_refs: []`. Designer 748 again assigned all
+twelve behavioral requirements to Measure with `prerequisite_refs: []`; host
+750 accepted the assignment. These events show a repeated unresolved prerequisite
+loop, not accepted progress. Event 761 confirms that `response.context.check_design`
+contained zero definitions and zero reviews, despite the repeated twelve-requirement
+scope following review 647. It still contained four available predicates and three
+execution bindings. This establishes absence of that specific check-design/review
+context, not absence of all other history or an exact root cause.
+
+Design 763 contained 99,720 characters. Review 778 marked
+`original_requirement_preserved: true` and the other four criteria false, citing
+missing `request_hash` / same-Episode joins, selection of any receipt rather than
+the final receipt, extra altered openings and malformed later answers. Six
+subsequent malformed repairs were rejected:
+
+| Response event | Characters | JSON error character |
+| --- | ---: | ---: |
+| 799 | 66,107 | 7,596 |
+| 810 | 61,798 | 7,356 |
+| 821 | 63,527 | 8,514 |
+| 832 | 61,566 | 10,222 |
+| 843 | 62,802 | 10,164 |
+| 854 | 64,198 | 10,257 |
+
+None of these proposal acceptances establishes an admitted measure or Target
+Workflow acceptance. Four files have untested changes only in the separate repair
+checkout: `function_library/record_conditions.py` adds generic `parse_json`;
+`function_library/refinement_contract.py` and
+`iterative_episode_refiner/runtime_proposals.py` clarify immediate child contribution
+versus whole-parent acceptance and coherent measurement requests;
+`iterative_episode_refiner/measure_design.py` prepares typed `prior_review_findings`
+from existing campaign records and committed child reports under the same Parts
+owner, authority, purpose and exact requirement set. It is bounded to eight
+original review entries with `omitted_count` and definition/predicate/binding
+references, not full control fixtures or an LLM summary. Historical judgments
+are not current authority or admission. These changes alter no gate, credit or
+criterion, are not integrated into main, and are not active or demonstrated
+in this Run.
+
+Context 49 advertises `parent_path` in `record_conditions` definition
+`function_a52ff12d36e4940e7d6f6ce9e8d9bb9b69c9e938b836e0d82d39cd85e86e74be`.
+The repaired proposal uses the operand, but this is not yet an executed predicate
+or cross-event relationship check. The prior counted checkpoint had 611 events,
+33 model requests and 32 responses. Before cancellation, the Run reached event
+864 with 48 requests, 47 responses and call 48 pending. There was no admitted
+measure, source repair or Target Workflow experiment.
+No acceptance is established.
+
+At 2026-10-04 14:04:55 UTC, the Run was still at event 864 with call 48 pending.
+Read-only inspection of host PID 2798348, thread 2808522, showed kernel stack
+frames `sk_wait_data`, `tcp_recvmsg` and `sock_read_iter`. Its only established
+TCP connection's received-byte count stayed at 7,366,322 while `lastrcv` reached
+1,778,719 ms, about thirty minutes. This confirms a wait for network data at
+that observation, not a host database lock. The pinned
+`agent/episode_launch_transport.py` has no fallback deadline when
+`request.timeout` is `None`. The remote cause is not established. This was a
+pending call, not a terminal failure or acceptance result. No cancellation,
+restart, source edit or extra test was performed for this observation.
+
+The approved Target Workflow, launch and Duet configuration are
+unchanged, with no manual candidate edits, check expectations or threshold changes.
+
+Both preceding generic corrections applied to this job.
+`evaluation_experiments.feedback` exposes the actual rejected `raw_response`
+as unadmitted data, and `record_conditions` adds a `parent_path` comparison
+operand for event relationships. Neither correction was part of the preceding
+cancelled Run. Ruff and whitespace checks preceded the real cycle; no fixture tests
+establish these observations. Executed event comparisons and acceptance remain
+unproven.
+
+### Live one-start retry retaining check-review evidence, 2026-10-04 UTC: cancelled
+
+A new complete `OpenChiaHost.start_build` was launched after the preceding job
+ended naturally, for
+`build_request_44c60f4b7983c56b0d8e1aee74e7fba31ee462705326648a6070b4479b134e15`.
+Attempt
+`build_attempt_054472b185f3b54421953b3af31a3d1261c5989c122fd6de7f44ac3090b8df64`
+produced initial receipt
+`build_receipt_3c6393feb2404111cc2954a883c45bcf63bddfffaba2fb13be3530a72db152b3`,
+with two blocking findings and zero Episodes planned or modules emitted. Exact
+finding diagnoses are not yet recorded here. The materialized specification is
+`materialized_specification_3dc5914d3612b39b880af7d31f67fe9a6bee38d056c55a13e29ca5b3e72a3597`,
+the baseline is
+`refinement_baseline_4f28f352444bb8be45a3f611eb286d185c88b81d228f68fa30c7ddfa6c57b87e`,
+and the campaign is
+`refinement_657cfae61b8ef5dd7f33068ebe702d997c761cb0bca7aa09cd31e0b86946c185`.
+Experiment
+`experiment_4542ebb056bd78dd38ff7bae2a63ecbed24eb0fceb419b7a268eb437ead0c696`
+owns native Run
+`run_d4fb3c68de969ebf3665a095e7db80871f4bdd40c2f40a1cf008fc7d9c4cc440`.
+The ordinary one-start build progressed automatically into refinement. The first
+observation retained 38 events, two invocations started, one completed, two units
+and one model request awaiting a response. Subsequent response 68 contained
+46,020 characters of malformed JSON; host response 70 returned the exact parse
+error at character 17,585 and the loop retried automatically. Response 79 was a
+valid 41,842-character, twelve-case `check_design`, assigned to independent
+Question at 81. Review 94 rejected all five criteria with eight counterexamples.
+Revision 115 contained 55,157 characters and failed JSON parsing at character
+20,790; host 117 returned that exact error. Automatic retry 126 requested a
+grounding prerequisite, which Designer 147 forwarded.
+
+Designer contexts 138 and 143, and root Parts contexts 159 and 182, each contain
+one `prior_check_reviews` entry. Following parent assignment 191 and Designer
+prerequisite 206, successor Measure contexts 217 and 219 each contain one full
+prior check definition and its matching review. This verifies full-definition
+propagation across the parent handoff, not merely an owner-review projection.
+These communication observations do not establish accepted refinement progress,
+check admission or resolution.
+
+The same prerequisite then recurred. Measure 221 returned it and Designer 242
+forwarded it. Parts 286 requested concrete implementation; Designer plan 301 was
+rejected at 303: "implementation measure has unresolved requirement coverage."
+Designer 312 assigned all twelve requirements to Measure. Its grounded
+schedule-only proposal 327 was rejected at 329: "measure proposal changes the
+parent's requested judgment." Measure 338 returned the same need, forwarded by
+Designer 359. Parts 403 assigned Measure directly for all twelve requirements;
+Measure 418 returned that need again. Parts 439 reassigned all sixteen requirements
+to Designer. Plan 454 was rejected at 456 for the same unresolved measurement
+coverage.
+
+The operator explicitly cancelled the owning caller after these repeated
+failures, to apply two prepared generic corrections. Review required cross-event
+joins that this Run's condition language could not express. Rejected proposals
+also omitted the actual output from the next repair context. This was not
+spontaneous termination, successful refinement or normal yield-based return.
+The native Run records `cancelled`, with 471 events, fourteen invocations started,
+twelve completed, 23 model requests, 23 responses and 26 completed units.
+These are event counts, not a count of successful model generations. There were
+zero candidate source changes and zero Target Workflow experiments. There is
+no accepted repair, admitted check or acceptance pass. The monitor exited 0;
+the owning caller subsequently finished cleanup with exit 130. Durable result
+`experiment_build_job_result_9645cb5765dcf29fd42cb4de180807eb3dffde71850948ff6d54c8bbc2dfec41`
+records build-job state `cancelled`.
+The previously demonstrated static source repair belongs to an older Run, not
+this repeated-prerequisite loop.
+
+The current changes in `measure_needs.py` and `measure_design.py` preserve exact
+check definitions and prior review findings through prerequisite provenance.
+`llm_call_library/calls.py` retains malformed-container JSON errors instead of
+treating a container key as a scalar response. Only Ruff and whitespace checks
+preceded this real cycle; no fixture tests establish these observations.
+Additional rejected-output feedback and a `parent_path` operand were prepared
+only in a separate repair checkout, then applied after native termination,
+worker inactivity and caller cleanup. They were not part of this cancelled Run.
+The approved Target Workflow, launch and owning Duet model
+configuration are unchanged. No individual stage is launched by the operator
+and no earlier frozen Run is modified.
+
+### Live one-start retry with exact-edit diagnostics, 2026-10-04 UTC: failed naturally
+
+After the preceding job's cancellation cleanup finished, the ordinary
+`OpenChiaHost.start_build` entry was called once for
+`build_request_5d4dfc269a03557e03b9d133b17030361ecfc94ba660a7ce5c9e7c8b57661b82`.
+Attempt
+`build_attempt_6b2e7c50b7dd635e0ee73fb9f6b7d78a9a4c642ea1c61b439198fb1db3d2dfeb`
+produced blocked receipt
+`build_receipt_a5cf3a034f570dfdd2cf287653275cba54b36d2e723ce77a3661c9516a3f1de6`:
+the goal's response contract was not non-empty text and its module was missing,
+with zero Episodes planned or modules emitted. OpenChia automatically entered
+refinement. The materialized specification is
+`materialized_specification_d211ec48cfff285110ab7baff8a9c41958cc78006aa14d21fd3af7534b3d7520`,
+the baseline is
+`refinement_baseline_019aeb7530d5a40e6cc1e0fd6b22b621efb3c5dedba0e41992c3500f80ba28db`,
+and the campaign is
+`refinement_c94af9af54af1a809debdf84227da10e2f5f9f25cbbab10ac5eeb007ced0b157`.
+Experiment
+`experiment_19d3ec114f1a81a9bc61bd0c33997ebc13245f54cbfd25072da7e22d4ef5cf9f`
+owns native Run
+`run_54f753918b59985e8e813c1c70c176407402541608671d66b28f3c9b47536e31`.
+Root response 38 assigned Designer, accepted at 40. Designer response 53
+requested Measure for twelve behavioral requirements, accepted at 55. Measure
+definition 68 received separate review 83 rejecting five criteria. Revision 104
+was malformed JSON; Measure 115 then requested grounding. Designer 136 forwarded
+that exact prerequisite, accepted at 138, and returned `needs_parent_decision`
+at 140. Root 180 assigned a successor Designer; Designer 195 requested another
+Measure, whose response 210 returned the same need. Designer 231 forwarded it.
+This demonstrates exact prerequisite propagation, not resolution. The Run
+subsequently ended naturally, not through an operator stop. Terminal event 305
+records `run_failed` / `LaunchModelError`. The final `model_launch_call` receipt
+on `duet_8b48507b29a3ff275ed1084632cd7f80a78388dce2eeae549af8c1f49e914c72`
+records `error_type: RemoteProtocolError`, `failure_category: timeout`,
+`http_status: null`, `retryable: true`, and elapsed time 246.66655 seconds.
+The native audit has 306 events, eleven invocations started, eight completed,
+fifteen units, fourteen model requests and thirteen responses. The caller
+exited 0, but the build's final state was `host_error`. No Implementer,
+Target Workflow experiment, accepted repair or acceptance pass occurred.
+The approved Target Workflow, launch and owning Duet's
+`gpt-5.6-sol-900k` / `xhigh` route are unchanged. No individual stage was launched
+by the operator.
+
+Source is `9b5d11574a` plus the changes in
+[setup_inputs.json](acceptance/setup_inputs.json). The latest change in
+`materialization_edits.py` reports the first exact-before mismatch. It changes
+no criterion, control or comparison rule, supplies no candidate repair or task
+answer, and did not alter an earlier frozen Run. No tests were run for it;
+this attempt did not establish repair or behavioral acceptance.
+
+### Live one-start retry with exact observation schemas, 2026-10-04 UTC: cancelled
+
+The ordinary `OpenChiaHost.start_build` entry was called once for
+`build_request_1e10de051dbb0065aba05bbd1f4e47b7554bdbdea6c31a60b27f704a1f1da72b`.
+Initial attempt
+`build_attempt_c0439a8cb587835a7bb4dcf8583aecf0a5ea2f5d6b92b47c9a7405cb53c4f523`
+produced blocked receipt
+`build_receipt_d11e33951f223bb91a1657b0699c5057605f8b3a6517fd05479f62996353f6d4`:
+the goal's `prompt_specs[0].response_contract` was not non-empty text, and its
+module was missing. No Episode was planned or emitted. OpenChia automatically
+transitioned into refinement without a second start. The baseline is
+`refinement_baseline_5644461aba0f75ad9cf457b310fc99f9f1cc1a32fd5fc6a252e21c96ab4121d6`,
+the campaign is
+`refinement_d97a64c4815974cdae0f6528040721ebaea96344bdafecad0c89bdf111cf14bf`,
+and experiment
+`experiment_b198903b85e9d173331a04cf668e140ed6cd0f5e2d08673a6b15d1bba2afd3b7`
+owns native Run
+`run_d2c7d6667c1d34664cef783f6127803114823e928ad60115621d24776e52306b`.
+No individual stage was launched by the operator. The approved Target Workflow and launch are
+unchanged; the refiner retains its owning Duet's `gpt-5.6-sol-900k` / `xhigh` route.
+
+Root response 38 proposed an invalid cross-role succession, rejected at 40.
+Corrected response 49 received a scoped Designer at 51. Designer plan 64 was
+accepted at 66 and called Implementer. Response 86 authored source and a new
+node plan, committed by the host at 88; source admission at 90 rejected
+`module_exports_incomplete` and `request_payload_binding_mismatch`.
+
+Implementer responses 99, 110, 121, 132 and 143 then failed exact-before
+validation at host responses 101, 112, 123, 134 and 145. The only mismatching
+paths were `/prompt_specs/0/prompt_template` and `/prompt_specs/1/prompt_template`:
+stored literal backslash-n versus newline characters in the model's copied
+value. Its context supplied the exact current value in `permitted_detail_edits`,
+but the rejection gave only a generic stale-before message. These repeated
+errors do not establish that legal repair was unavailable.
+
+The operator sent SIGINT to the exact owning API caller, PID 2790520 with process
+creation time 1791095628.4, validated against launcher PID 2790769 and the exact
+audited systemd unit. Its cleanup invoked `host.close`. The native Run is durably
+`cancelled` with 155 events, four invocations started, one completed, ten completed
+units, ten model requests and nine responses. No Target Workflow experiment or
+accepted repair occurred. Caller cleanup finished with exit 130, and durable
+build-job result
+`experiment_build_job_result_bc1b03f930ab407e1262f9e20243c92af63882d3814a99b49511182ea43fbc86`
+records `state: cancelled` and `error: null`. Both native cancellation and job
+finalization are recorded. This is not an acceptance pass or yield-based return.
+
+Source is `9b5d11574a` plus the production changes listed in
+[setup_inputs.json](acceptance/setup_inputs.json). The correction exposes exact
+learning/model observation schemas and receipt result paths. Designer and nested
+Parts can forward an exact returned child measurement prerequisite through the
+existing `propose_measure` operation and parent report; host and store independently
+validate that relationship. This adds no new credit or stopping rule and does not
+change an earlier frozen Run. This attempt did not establish live acceptance of
+those corrections. After native cancellation, a generic first-mismatch diagnostic
+in `materialization_edits.py` was prepared for the next job. Exact-before checks
+and acceptance criteria remain unchanged; no candidate patch, model response or
+task answer was supplied by the operator. No tests establish the new diagnostic's
+behavior; its live validation remains pending.
+
+### Live one-start reviewed-design and coverage loop, 2026-10-04 UTC: cancelled
+
+`build_request_456490d761a714253bcfabd601527fa2f957683c50800806976168e6fe5c97cd`
+automatically entered native Run
+`run_02fc56cd8e6a9ab4307626bdaa61c8ad25a477142c9a06412e0c883e22139d62`
+through experiment
+`experiment_b2b1b071eb21919e90bc454570cc9fd763c17650559d6f63d8153f6c2ca7bff7`.
+Its initial Builder receipt is
+`build_receipt_b170490c8fdc412ee053f5ce8f88586dde2b4591cc582c11b774e7e7a49d3cd6`.
+The model authored a concrete measure design at response 53. Separate review at
+68 rejected incorrect event, result and route paths. Later plans still lacked
+coverage; Measure returned `grounding_required`, and a Question request lacked
+parent decision criteria. The model repeated these routes, although narrower
+Measure assignments remained legal. The evidence does not establish that every
+legal route was exhausted or impossible.
+
+The operator sent SIGINT to the exact owning API caller, invoking its normal
+`host.close` cancellation cleanup. The native Run ended `cancelled` with 264
+events, seven invocations started, five completed, 16 completed units, 16 model
+requests and 15 responses. There were no Target Workflow experiments, Implementer
+invocations or source edits. A read through the existing experiment records API
+confirms build-job result
+`experiment_build_job_result_34bc3c45b31d513af5146966bfed6a9cc45d6b310e0a4f9f031f72e4b5386dd3`
+with content hash
+`sha256:55cf361a9c3adb2fa81f1a8774fe9a3016221ca6eed9bcfad25b207ee5d7135c`:
+state and refinement disposition are `cancelled`, `error` is null, and
+`verified_build` is null. This is an operator-cancelled live attempt, not a
+spontaneous failure, normal yield-based return or acceptance pass. No fixture
+tests, model replies, candidate repairs or target answers were supplied for it.
+
+### Live one-start source repair and measurement loop, 2026-10-04 UTC: cancelled
+
+`build_request_035fb766dab32f472c6362d9c0662a2e9160c7b98275e037e32ef22088a61176`
+used the corrected normal-build plan-edit policy. Builder admitted its node plan
+and emitted one module, but receipt
+`build_receipt_6eb917a56de2c1de51d81c10dc7e49681c9f1e047acbef1ef71da45166f4e887`
+reported `implementation_module_dynamic`: a function implementation's module
+name was not a literal. OpenChia entered native Run
+`run_95413180114272f4be3a401b2bb8fc68d6f5e6a1d71bc9ab88b74f4850caa653`
+through experiment
+`experiment_47df5f43ae21e964ea07f03ba8d2c582cda35a7c220766dd998d0db699c1bea7`.
+
+The nested Parts → Designer → Implementer loop performed the actual source
+repair without an operator-supplied patch. Response 108 replaced the dynamic
+module expressions with literal declarations. Host response 112 admitted the
+source, 114 recorded Implementer attainment, 135 recorded independent static
+verification, 143 recorded Designer attainment, and 170 recorded enclosing Parts
+attainment. This establishes the real static repair loop, not behavioral acceptance
+or a solved scheduling Run. The separate parent verifier retained twelve
+behavioral coverage gaps.
+
+Three Measure children returned the same `grounding_required` need at responses
+223, 292 and 328 without proposing a check. The recorded system instructions
+unconditionally directed return for missing grounding, but later permitted
+reviewed check construction. The host API did support that construction; missing
+prewritten cases did not establish that the route was unavailable. Ordinary
+Question and cross-role replacement attempts were separately rejected. This is
+an observed repeated-return loop with conflicting guidance, not proof that every
+legal route was impossible.
+
+The operator cancelled this attempt through the exact owning API caller's
+`OpenChiaHost.close` cleanup before applying the guidance correction. The native
+Run ended `cancelled`, with 347 events, fifteen model request/response events,
+eleven invocations started and 21 units completed. No Target Workflow experiment
+was requested and no behavioral pass occurred. The owning build job subsequently
+recorded `build_host_failure` with `ProcessLookupError` during cancellation cleanup,
+not a successful build result. The native Run's cancellation record remains intact;
+the exact cleanup race has not been diagnosed. The correction distinguishes
+missing prewritten cases from missing evidence/authority, retaining independent
+review, executable controls, and unresolved-prerequisite reporting. Only Ruff
+and whitespace checks were run for the correction; the next normal live job
+must establish its behavior.
+
+### Live one-start retry with shared execution observations, 2026-10-04 UTC: cancelled
+
+The ordinary `OpenChiaHost.start_build` entry started
+`build_request_ffe29aa6a0e5493391f6881537af9bfdaca023e0a3588ba3b77af3b121e273a3`.
+It uses the same approved Target Workflow and launch, with the owning Duet's
+`gpt-5.6-sol-900k` / `xhigh` configuration. This attempt is not an acceptance
+pass. No operator supplied a candidate repair, answer, check design or model response.
+
+Native Run `run_63b71197c62147612cf587e1553b1f9ee67d2e6beaa0a5ebfc6e175f3712ece1`
+reached Designer and Implementer. The first source candidate did not clear the
+invalid node-plan binding or missing-module findings and earned zero progress.
+The coding child then identified that its `permitted_detail_edits` was empty.
+The frozen normal-build policy omitted `materialization_edit_targets`, so the
+existing node-plan repair operation was unavailable even to the parent. Three
+Question requests were rejected because this campaign also had no ordinary
+investigation decision definitions; that route could not create editing authority.
+
+After confirming the missing host policy, the operator interrupted the exact
+owning API caller, whose cleanup invokes `OpenChiaHost.cancel_build`. The native
+Run recorded `cancelled`, with 238 events, fifteen model request/response events,
+nine invocations started and eleven completed units. Cancellation response
+events are not fifteen successful model generations. No Target Workflow Run
+or accepted build occurred. The original audit is retained; cancellation is not
+yield-based completion. The correction grants only the exact existing
+`node_plan` targets from the approved materialized specification when preparing
+a new normal-build campaign, including nodes whose initial planning failed.
+Frozen contracts, topology, capabilities and acceptance remain unchanged.
+
+Source is `9b5d11574a` plus the current working changes. The shared harness now
+offers `/verified_run` observations resolved from the exact registration,
+terminal evidence and committed event chain. Experiment measurement and campaign
+admission use the same resolver; parent reports retain a hash-bound projection
+reference instead of raw logs. The same catalog is available through `describe`
+and Measure context. Unknown observation roots are rejected before review.
+The registered `record_conditions_v1` predicate permits structural checks and
+relationships over these actual records, and delegates existing task predicates.
+Missing observation data remains inconclusive. Reviewed-design authority no
+longer removes the existing missing-grounding request to the parent.
+
+The correction passed syntax compilation and Ruff, not behavioral acceptance.
+No fixture or unit tests were run. Its live validation is this ordinary build
+cycle; the earlier failed attempt remains independent evidence below.
+
+### Live one-start check-design loop, 2026-10-03–04 UTC: failed
+
+The normal build entry started
+`build_request_e9da37ab659fd8b8e008e7dcfd4c93fbbf2e80d4a5c19ac6e3809af8e970628e`.
+Its initial Builder receipt reports an invalid pre-emission generated binding
+and a missing module. OpenChia automatically entered refinement through
+`experiment_be754f815691e4959a2d998a9e5701992cdfce1c47a59a661c42363963b1b47a`
+and native systemd Run
+`run_fcb9d467c5e088ba3a5b479ff3ac1172902cd499bc041ef4419fab8e57856c94`.
+The Measure assignment uses the authorized adequacy measure after correcting
+the assignment validation and guidance described below.
+
+At 234 committed events the Run had thirteen model requests, twelve responses,
+eight invocations started, five returned, and no experiment requests. Four separately
+reviewed check designs were rejected; another response was invalid JSON and
+earned no credit. The designs relied on proposed host trace fields
+that the bound harness does not produce; adding a prose observation schema did
+not implement those projections. The actual campaign measurement adapter reads
+the committed typed terminal result. Check-design context does not expose that
+observation contract, and design admission does not reject incompatible paths
+before review. This is a system defect, not a defect the Target Workflow's
+Implementer can repair within its assigned source scope.
+
+No coding child, repaired candidate, Target Workflow validation Run, or accepted
+build has been demonstrated by this attempt. No fixture tests or supplied
+model responses were run for this receipt. The active workflow and its frozen
+criteria have not been edited to make the check proposals pass.
+
+After confirming that its frozen harness could not supply the required execution
+observations, the exact worker service was operationally stopped. The host
+finished its outstanding model call and finalized the Run as `failed`, with
+236 committed events and thirteen model responses. The build ended `host_error`
+with `ConnectionResetError: Connection lost` following that operator stop; this
+is not evidence of a spontaneous transport failure or successful completion.
+The host correction was prepared in a
+separate repair worktree, without changing this Run's source during execution:
+the existing shared reader supplies verified registration and committed events,
+checks select implemented observation roots, and missing grounding remains a
+reportable prerequisite even when check design is authorized. No Target Workflow
+candidate, model reply, or acceptance criterion was supplied by the operator.
+
+An intervening one-start attempt,
+`build_request_8d509acd7a93053826f1dc9405f47b402f7f198d3206188bb44fe4c2a3a7d76a`,
+ended naturally when its first refiner model call raised `APIError` with no HTTP
+status. Its Run is
+`run_cab0e4ae18c7cc53025fff49d053597fc669177dde08a07f6a831bfcee75dc44`.
+It was not cancelled and is not an acceptance pass. Shared transport diagnostics
+now retain a safe failure category and retryability without storing provider
+response bodies or credentials; the exact cause of that earlier API error is
+not established.
+
+### Real one-start retry after proposal-reference feedback correction, 2026-10-03
+
+The ordinary `OpenChiaHost.start_build` entry started
+`build_request_3c01f105f7aa51a7c7e002a72abe187a1a21a6697bfbb8da903655db15322758`.
+Source is `9b5d11574a` plus working changes in
+`iterative_episode_refiner/runtime.py`, `runtime_proposals.py`, and
+`function_library/refinement_contract.py`. These changes return typed feedback
+for nonexistent proposal references, handle an absent optional review reference,
+and clarify the prerequisite-reference field. It used the real model through OpenChia's one-start
+cycle, not supplied answers or manually launched repair stages.
+
+That attempt subsequently repeated proposals under a wrong, immutable Measure
+assignment: its local measure was the implementation measure, not the authorized
+adequacy measure. The exact worker service was operationally stopped before
+retrying with corrected assignment admission and guidance. Run
+`run_596361a5c6f1ab308d34240fe593c920a38516a4582727dd6b12b96cb200ee04`
+finalized as `failed`, with 88 events and `ConnectionResetError: Connection lost`.
+That transport error followed the operator stop; it is not evidence of a
+spontaneous transport failure or successful completion. The original records
+remain intact.
+
+At the user's direction, the supplied-response compatibility run below was
+stopped and no replacement fixture run was started. The runner exited **130**;
+`test_nested_continuation.py` was cancelled by SIGTERM after **896.2 seconds**.
+It did **not** pass. The already completed campaign-state (9), control-integrity
+(2), and report (4) checks retain their individual results, but this is not a
+green four-file suite. The earlier native nested passing receipt remains
+historical evidence for its recorded source, not a pass for this interrupted run.
+
+### Live one-start attempt after reviewed check design, 2026-10-03
+
+The ordinary build entry was called once from clean source `9b5d11574a`:
+`build_request_78eb8b0305fce395434d831032dc96076f04d3b75b5558161efa7c52d9f6dce3`.
+The initial receipt
+`build_receipt_360b511ab39616b8e50021e1527827bc82eef47c29b37aec0df114938c748752`
+reported two deficits. OpenChia automatically entered native systemd refinement
+through experiment
+`experiment_9ae0b68ab813466009c5bc7e0be8b81490c2dd153be587cc6363c77b4a00efdb`
+and Run
+`run_61500857c8403c83f063af07b95e6385a374e716fa8e04de62ffee43c4392e3a`.
+Its campaign artifact is
+`refinement_9daea6e8b0bdd79cfb2b0e2f2896edc7436733422c571b394844a69ac675f055`.
+
+The job ended in `host_error` with
+`DuetNotFoundError: no admitted measure_need with that key`; the Run terminal
+status is `failed`. The model supplied a non-prerequisite artifact in
+`prerequisite_refs`. Host validation raised an unhandled lookup error instead
+of returning proposal feedback. The terminal index records 41 events, two
+invocations started and one completed, two completed units, and one model
+request/response. This is not yield-based completion or acceptance.
+The owning Duet was fully
+initialized with its configured `gpt-5.6-sol-900k` / `xhigh` route, separate from
+the approved Target Workflow launch. No operator repaired the candidate or
+manually launched refinement. No accepted repair, Target Workflow Run or verified
+build is established. The failed job is preserved in the same stores and the
+[setup record](acceptance/setup_inputs.json).
+
 ### First-time check design, separate review and executed controls, 2026-10-03
 
 The user confirmed parent-designed expectations under the initial job grant,
@@ -34,6 +624,21 @@ The model choices and initial Builder responses are supplied. This is not live
 reasoning or native-confinement acceptance. The first invocation failed fixture
 collection (missing imported `run_store`); it was corrected before the passing run.
 This route uses registered predicates, not newly generated executable checkers.
+
+The final focused run on the implementation committed as `9b5d11574a` passed
+**5 tests across two files in 65.7 seconds**, retries disabled:
+`tests/iterative_episode_refiner/test_reviewed_check_design.py` (2), and
+`tests/episode_runtime/testing/test_registered_measure_preparation.py` (3).
+The latter preserves registered-grounding applicability and ordinary admission
+alongside the new route. An earlier separate run also passed
+`test_measure_control_experiments.py` (1). These are distinct runs, not a claim
+that the whole suite passed on this head. Ruff and `git diff --check` passed.
+
+The four-file compatibility run started on the same source was subsequently
+stopped as recorded above. Before interruption it passed `test_campaign_state.py`
+(9), `test_control_integrity.py` (2), and `test_reports.py` (4). The native nested
+case uses supplied model decisions and target outputs; it was interrupted without
+a pass and cannot establish live reasoning or behavioral repair.
 
 ### Live missing-measure finding and fixed-controller correction, 2026-10-03
 

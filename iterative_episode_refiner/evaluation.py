@@ -12,6 +12,7 @@ import asyncio
 from agent.duet_contracts import content_id
 from agent.episode_contracts import OpaqueId
 from episode_runtime.contracts import RuntimePolicy
+from episode_runtime.testing.observations import is_verified_run_path
 from function_library.epistemic_contract import exact
 
 from .candidate_source import admit_candidate
@@ -159,7 +160,9 @@ class RefinementEvaluations:
         )
         for check in checks:
             references = ()
-            if evidence.terminal_status.value == "succeeded":
+            if evidence.terminal_status.value == "succeeded" or is_verified_run_path(
+                check.body["observation_path"]
+            ):
                 references = (
                     EvidenceRef(
                         "run_audit",

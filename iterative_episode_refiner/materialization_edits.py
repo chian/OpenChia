@@ -5,6 +5,8 @@ artifacts remain immutable; a candidate carries its own plan revision until the
 ordinary source-admission path publishes a new Materialized Specification.
 """
 
+from collections.abc import Mapping
+
 from agent.duet_contracts import FrozenDuetWorkflow, canonical_json
 from agent.episode_contracts import OpaqueId
 from episode_builder._contract_chain import WorkflowMaterializationPlan
@@ -293,6 +295,40 @@ def split_target(pointer):
     return None, pointer
 
 
+def _stale_value_detail(expected, submitted, pointer):
+    """Locate the first real mismatch without repeating an entire node plan."""
+    if isinstance(expected, Mapping) and isinstance(submitted, Mapping):
+        for key in sorted(expected.keys() | submitted.keys()):
+            child = pointer + "/" + key.replace("~", "~0").replace("/", "~1")
+            if key not in expected:
+                return f"{child}: submitted before contains an extra field"
+            if key not in submitted:
+                return f"{child}: submitted before omits the current field"
+            if canonical_json(expected[key]) != canonical_json(submitted[key]):
+                return _stale_value_detail(expected[key], submitted[key], child)
+    if isinstance(expected, (list, tuple)) and isinstance(submitted, (list, tuple)):
+        if len(expected) != len(submitted):
+            return f"{pointer}: current length {len(expected)}, submitted length {len(submitted)}"
+        for index, (left, right) in enumerate(zip(expected, submitted)):
+            if canonical_json(left) != canonical_json(right):
+                return _stale_value_detail(left, right, f"{pointer}/{index}")
+    if isinstance(expected, str) and isinstance(submitted, str):
+        index = next(
+            (i for i, (left, right) in enumerate(zip(expected, submitted)) if left != right),
+            min(len(expected), len(submitted)),
+        )
+        start, end = max(0, index - 12), index + 24
+        return (
+            f"{pointer}: string differs at character {index}; "
+            f"current excerpt {expected[start:end]!r}, submitted excerpt {submitted[start:end]!r}. "
+            "Literal backslash characters and newline characters are different values"
+        )
+    return (
+        f"{pointer}: current {canonical_json(expected)[:160]}, "
+        f"submitted {canonical_json(submitted)[:160]}"
+    )
+
+
 def _revise_edits(current, inputs, operations):
     workflow = inputs.build_request.frozen_workflow.workflow
     designs = {node.local_id for node in workflow.episodes}
@@ -316,7 +352,12 @@ def _revise_edits(current, inputs, operations):
             raise ValueError("a missing node requires a complete planner-choice object")
         before = prior if field is None else prior[field]
         if canonical_json(before) != canonical_json(operation["before"]):
-            raise ValueError("implementation-detail edit has a stale before value")
+            detail = _stale_value_detail(before, operation["before"], pointer)
+            raise ValueError(
+                "implementation-detail edit has a stale before value: " + detail
+                + ". Copy the exact before value from the current "
+                "candidate_materialization.permitted_detail_edits; put intended changes only in after."
+            )
         if canonical_json(before) == canonical_json(operation["after"]):
             raise ValueError("implementation-detail edit is empty")
         if field is None:

@@ -6,6 +6,7 @@ from .epistemic_contract import exact
 from .epistemic_schemas import canonical
 from .models import FunctionImplementation, LibraryFunction
 from .registry import FunctionLibrary
+from .record_conditions import CONDITION_LANGUAGE
 
 
 def exact_value(*, observed, expected):
@@ -124,6 +125,30 @@ OPTIMAL_SCHEDULE = refinement_check_library.register(
                 "properties": {},
                 "additionalProperties": False,
             },
+        },
+    )
+)
+
+
+RECORD_CONDITIONS = refinement_check_library.register(
+    LibraryFunction(
+        library="refinement_checks",
+        function_id="record_conditions_v1",
+        interface="refinement.predicate",
+        description="Evaluate typed structural conditions and relationships over actual recorded evidence, including array quantifiers and existing registered answer predicates. Does not create fields or certify model claims.",
+        implementation=FunctionImplementation(
+            module="function_library.record_conditions",
+            symbol="record_conditions",
+            is_async=False,
+        ),
+        input_type="Observed JSON record; expected is one condition from provenance.condition_language.",
+        output_type="pass | fail | inconclusive",
+        effect="Pure record projection and comparison. No code evaluation, network, state mutation or model scoring.",
+        failure_contract="Reject unknown conditions or predicates. Missing data stays inconclusive, including under negation; exact JSON types are preserved.",
+        provenance={
+            "schema_version": 1,
+            "parameter_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+            "condition_language": CONDITION_LANGUAGE,
         },
     )
 )
