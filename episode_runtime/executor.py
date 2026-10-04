@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from decimal import Decimal
-from fractions import Fraction
 import os
 from pathlib import Path, PurePosixPath
 import secrets
@@ -13,20 +12,13 @@ import stat
 import sys
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
-from urllib.parse import urlsplit
 
 from agent.episode_contracts import OpaqueId
 
-from .broker import (
-    ScopedModelBroker,
-    admit_model_request,
-    model_request_hash,
-    model_response_hash,
-    model_response_record,
-)
+from .broker import ScopedModelBroker
 from .audit_contracts import RunEvidence
-from .http_broker import ScopedHttpBroker, http_response_bytes
-from .http_contracts import http_request_hash, http_response_hash
+from .http_broker import ScopedHttpBroker
+from .exchanges import broker_http_request, broker_model_request
 from .contracts import (
     ExecutorKind,
     RuntimeIdentity,
@@ -64,7 +56,11 @@ class RunExecutionError(RuntimeError):
 
 @dataclass(frozen=True)
 class ExecutorResources:
-    """Cgroup allocation facts; none is an Episode stopping rule."""
+    """Explicit service/container resource settings, never Episode stopping rules.
+
+    An unset limit adds no per-Run ceiling; the execution environment's ancestor
+    limits still apply. These are not a copy of the host process's allocation.
+    """
 
     memory_max_bytes: Optional[int]
     pids_max: Optional[int]
@@ -87,37 +83,6 @@ class ExecutorResources:
             raise ValueError("cpu_weight must be <= 10000")
         if not 1_000 <= self.cpu_period_micros <= 1_000_000:
             raise ValueError("cpu_period_micros must be between 1ms and 1s")
-
-    @classmethod
-    def from_host_effective_allocation(
-        cls,
-        *,
-        cgroup_root: str | Path = "/sys/fs/cgroup",
-        process_cgroup_path: str | Path = "/proc/self/cgroup",
-    ) -> "ExecutorResources":
-        """Mirror the host process's effective cgroup-v2 allocation.
-
-        ``None`` is the explicit unbounded value for memory, tasks, or CPU
-        quota.  The scan takes the tightest finite ancestor allocation; it
-        never invents a task-specific ceiling.
-        """
-
-        hierarchy = _host_cgroup_hierarchy(
-            cgroup_root=Path(cgroup_root),
-            process_cgroup_path=Path(process_cgroup_path),
-        )
-        quota, period = _effective_cpu_allocation(hierarchy)
-        return cls(
-            memory_max_bytes=_effective_scalar_limit(hierarchy, "memory.max"),
-            pids_max=_effective_scalar_limit(hierarchy, "pids.max"),
-            cpu_weight=_read_positive_control(
-                hierarchy[0] / "cpu.weight",
-                "host cpu.weight",
-            ),
-            cpu_quota_per_sec_micros=quota,
-            cpu_period_micros=period,
-        )
-
 
 @dataclass(frozen=True)
 class _ExecutorFacts:
@@ -213,11 +178,13 @@ class _HostChannel:
     def next_sender_sequence(self) -> int:
         return self._sent_sequence
 
-    async def send(
+    def prepare(
         self,
         frame_type: str,
         body: Mapping[str, object],
-    ) -> ProtocolFrame:
+    ) -> tuple[ProtocolFrame, bytes]:
+        # Reserve and validate before an audit commit. Cancellation between
+        # that commit and publication must not reuse its sender sequence.
         expected = self._sent_sequence
         packet = self.encoder.encode(frame_type, body)
         frame = decode_frame(
@@ -227,9 +194,18 @@ class _HostChannel:
             expected_sequence=expected,
         )
         self._sent_sequence += 1
+        return frame, packet
+
+    async def publish(self, prepared: tuple[ProtocolFrame, bytes]) -> ProtocolFrame:
+        frame, packet = prepared
         self.writer.write(packet)
         await self.writer.drain()
         return frame
+
+    async def send(
+        self, frame_type: str, body: Mapping[str, object]
+    ) -> ProtocolFrame:
+        return await self.publish(self.prepare(frame_type, body))
 
     async def receive(self) -> ProtocolFrame:
         try:
@@ -241,125 +217,6 @@ class _HostChannel:
         except asyncio.IncompleteReadError as exc:
             raise ProtocolError("worker protocol stream ended inside a frame") from exc
         return self.decoder.decode(prefix + payload)
-
-
-def _read_small_control(path: Path, name: str) -> str:
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError as exc:
-        raise RunExecutionError(f"cannot read {name}") from exc
-    try:
-        info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode):
-            raise RunExecutionError(f"{name} is not a regular control file")
-        chunks: list[bytes] = []
-        size = 0
-        while True:
-            chunk = os.read(descriptor, 4096)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > 16_384:
-                raise RunExecutionError(f"{name} exceeds its control-file bound")
-            chunks.append(chunk)
-    finally:
-        os.close(descriptor)
-    try:
-        value = b"".join(chunks).decode("ascii", errors="strict").strip()
-    except UnicodeDecodeError as exc:
-        raise RunExecutionError(f"{name} is not ASCII") from exc
-    if not value or "\x00" in value:
-        raise RunExecutionError(f"{name} is empty or malformed")
-    return value
-
-
-def _host_cgroup_hierarchy(
-    *,
-    cgroup_root: Path,
-    process_cgroup_path: Path,
-) -> tuple[Path, ...]:
-    root = cgroup_root.expanduser().resolve(strict=True)
-    if not root.is_dir():
-        raise RunExecutionError("cgroup_root must be a directory")
-    record = _read_small_control(process_cgroup_path, "host process cgroup")
-    unified = tuple(
-        line[3:]
-        for line in record.splitlines()
-        if line.startswith("0::/")
-    )
-    if len(unified) != 1:
-        raise RunExecutionError("host process does not have one cgroup-v2 path")
-    relative = PurePosixPath(unified[0]).relative_to("/")
-    leaf = root.joinpath(*relative.parts).resolve(strict=True)
-    if leaf != root and root not in leaf.parents:
-        raise RunExecutionError("host cgroup escapes the supplied cgroup root")
-    hierarchy: list[Path] = []
-    current = leaf
-    while True:
-        hierarchy.append(current)
-        if current == root:
-            break
-        current = current.parent
-    return tuple(hierarchy)
-
-
-def _parse_positive_control(value: str, name: str) -> int:
-    try:
-        result = int(value, 10)
-    except ValueError as exc:
-        raise RunExecutionError(f"{name} is not an integer") from exc
-    if result < 1:
-        raise RunExecutionError(f"{name} must be positive")
-    return result
-
-
-def _read_positive_control(path: Path, name: str) -> int:
-    return _parse_positive_control(_read_small_control(path, name), name)
-
-
-def _effective_scalar_limit(
-    hierarchy: tuple[Path, ...],
-    filename: str,
-) -> Optional[int]:
-    limits: list[int] = []
-    for directory in hierarchy:
-        value = _read_small_control(directory / filename, f"host {filename}")
-        if value != "max":
-            limits.append(_parse_positive_control(value, f"host {filename}"))
-    return min(limits) if limits else None
-
-
-def _effective_cpu_allocation(
-    hierarchy: tuple[Path, ...],
-) -> tuple[Optional[int], int]:
-    finite: list[tuple[Fraction, int]] = []
-    leaf_period: Optional[int] = None
-    for index, directory in enumerate(hierarchy):
-        fields = _read_small_control(
-            directory / "cpu.max",
-            "host cpu.max",
-        ).split()
-        if len(fields) != 2:
-            raise RunExecutionError("host cpu.max must contain quota and period")
-        period = _parse_positive_control(fields[1], "host cpu.max period")
-        if not 1_000 <= period <= 1_000_000:
-            raise RunExecutionError("host cpu.max period is outside kernel bounds")
-        if index == 0:
-            leaf_period = period
-        if fields[0] != "max":
-            quota = _parse_positive_control(fields[0], "host cpu.max quota")
-            finite.append((Fraction(quota, period), period))
-    if leaf_period is None:
-        raise AssertionError("cgroup hierarchy cannot be empty")
-    if not finite:
-        return None, leaf_period
-    ratio, period = min(finite, key=lambda item: item[0])
-    per_second = ratio * 1_000_000
-    if per_second.denominator != 1:
-        raise RunExecutionError(
-            "effective host CPU quota is not exactly expressible in microseconds per second"
-        )
-    return int(per_second), period
 
 
 def _launch_identity(
@@ -375,7 +232,8 @@ def _launch_identity(
 
 def _cpu_quota_percent(resources: ExecutorResources) -> str:
     if resources.cpu_quota_per_sec_micros is None:
-        return "infinity"
+        # CPUQuota uses an empty assignment for no quota, unlike MemoryMax.
+        return ""
     percent = Decimal(resources.cpu_quota_per_sec_micros) / Decimal(10_000)
     return f"{format(percent.normalize(), 'f')}%"
 
@@ -399,6 +257,8 @@ def _systemd_properties(
     return (
         "Type=exec",
         "Restart=no",
+        "KillMode=control-group",
+        "SendSIGKILL=yes",
         f"MemoryMax={_systemd_limit(resources.memory_max_bytes)}",
         f"TasksMax={_systemd_limit(resources.pids_max)}",
         f"CPUWeight={resources.cpu_weight}",
@@ -410,7 +270,6 @@ def _systemd_properties(
         f"BindReadOnlyPaths={bind_specification}",
         "PrivateDevices=yes",
         "PrivateNetwork=yes",
-        "PrivatePIDs=yes",
         "ProtectProc=invisible",
         "ProcSubset=pid",
         "NoNewPrivileges=yes",
@@ -455,7 +314,9 @@ _SHOW_PROPERTIES = (
     "ProtectHome",
     "PrivateTmp",
     "PrivateNetwork",
-    "PrivatePIDs",
+    "ControlPID",
+    "KillMode",
+    "SendSIGKILL",
     "ProtectProc",
     "ProcSubset",
     "NoNewPrivileges",
@@ -619,20 +480,6 @@ def _proc_start_time(pid: int) -> int:
     return _positive_integer(fields[19], "process start time")
 
 
-def _proc_cgroup(pid: int) -> str:
-    try:
-        lines = Path(f"/proc/{pid}/cgroup").read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise RunExecutionError("cannot inspect executor cgroup") from exc
-    unified = tuple(line[3:] for line in lines if line.startswith("0::/"))
-    if len(unified) != 1:
-        raise RunExecutionError("executor does not have one unified cgroup")
-    value = unified[0]
-    if str(PurePosixPath(value)) != value:
-        raise RunExecutionError("executor cgroup path is not normalized")
-    return value
-
-
 def _boot_id() -> str:
     try:
         return Path("/proc/sys/kernel/random/boot_id").read_text(
@@ -660,6 +507,11 @@ async def _inspect_executor(
             continue
         if values["ActiveState"] == "active" and values["SubState"] == "running":
             break
+        # systemd-run submits StartTransientUnit asynchronously. The unit may
+        # already be loaded but still inactive before its first invocation.
+        if values["ActiveState"] == "inactive" and not values["InvocationID"]:
+            await asyncio.sleep(0.05)
+            continue
         if values["ActiveState"] in {"failed", "inactive", "deactivating"}:
             raise RunExecutionError("transient service did not reach running state")
         await asyncio.sleep(0.05)
@@ -669,12 +521,15 @@ async def _inspect_executor(
     if (
         not cgroup.startswith("/")
         or PurePosixPath(cgroup).name != launch_identity.unit_name
-        or _proc_cgroup(pid) != cgroup
         or values["Description"] != launch_identity.description
         or len(values["InvocationID"]) != 32
         or any(character not in "0123456789abcdef" for character in values["InvocationID"])
     ):
-        raise RunExecutionError("systemd and /proc cgroup identities disagree")
+        raise RunExecutionError("systemd service identity differs from the exact launch")
+    if values["KillMode"] != "control-group" or values["SendSIGKILL"] != "yes":
+        raise RunExecutionError("systemd service must allow whole-job termination")
+    if values["ProtectProc"] != "invisible" or values["ProcSubset"] != "pid":
+        raise RunExecutionError("systemd service process visibility differs from launch policy")
     inspected_mounts = _verify_read_only_runtime_mounts(
         pid,
         read_only_runtime_mounts,
@@ -713,12 +568,14 @@ async def _inspect_executor(
             and values["PrivateTmp"] == "yes"
             and inspected_mounts == read_only_runtime_mounts
         ),
-        process_namespace_isolated=(
-            values["PrivatePIDs"] == "yes"
-            and values["ProtectProc"] == "invisible"
-            and values["ProcSubset"] == "pid"
+        # systemd 255 has no PrivatePIDs; do not claim a namespace we did not create.
+        process_namespace_isolated=False,
+        # A user manager can accept PrivateNetwork but log that it skipped it.
+        # Attest the actual namespace, not just the requested unit property.
+        network_namespace_isolated=(
+            values["PrivateNetwork"] == "yes"
+            and os.readlink(f"/proc/{pid}/ns/net") != os.readlink("/proc/self/ns/net")
         ),
-        network_namespace_isolated=values["PrivateNetwork"] == "yes",
         host_runtime_read_only=(
             values["ProtectSystem"] == "strict"
             and inspected_mounts == read_only_runtime_mounts
@@ -732,7 +589,7 @@ async def _inspect_executor(
         or facts.cpu_quota_micros != resources.cpu_quota_per_sec_micros
         or facts.cpu_period_micros != resources.cpu_period_micros
     ):
-        raise RunExecutionError("live cgroup allocation differs from launch policy")
+        raise RunExecutionError("systemd resource settings differ from launch policy")
     return facts
 
 
@@ -757,6 +614,9 @@ class RunExecutor(Protocol):
         source_package_path: str | Path,
         model_broker: ScopedModelBroker,
         http_broker: ScopedHttpBroker,
+        refinement_session=None,
+        experiment_session=None,
+        continuation_admission=None,
     ) -> RunEvidence: ...
 
 
@@ -813,70 +673,6 @@ class _RunExecutorBase:
     ) -> None:
         raise NotImplementedError
 
-    async def _broker_http_request(
-        self,
-        *,
-        registration: RunRegistration,
-        channel: _HostChannel,
-        frame: ProtocolFrame,
-        http_broker: ScopedHttpBroker,
-    ) -> None:
-        """Broker one admitted HTTP request and record both evidence events.
-
-        The decoder already admitted the request and verified that
-        ``episode_path`` hashes to ``episode_id``; the path's leaf grain names
-        the node whose approved rules apply.  Policy outcomes come back as
-        response records; only a malformed request raises.
-        """
-
-        body = frame.body
-        local_id = body["episode_path"][-1]["grain"]
-        request = body["request"]
-        request_hash = http_request_hash(request)
-        episode_id = OpaqueId(body["episode_id"])
-        matched = http_broker.match_rule(local_id, request)
-        rule_name = None if matched is None else matched.name
-        url = urlsplit(str(request["url"]))
-        self.run_store.append_event(
-            run_id=registration.run_id,
-            origin=RunEventOrigin.WORKER,
-            sender_sequence=frame.sender_sequence,
-            kind=RunEventKind.HTTP_REQUESTED,
-            episode_id=episode_id,
-            payload={
-                "http_request_id": body["http_request_id"],
-                "request_hash": request_hash.value,
-                "rule": rule_name,
-                "method": request["method"],
-                "host": url.hostname,
-                "path": url.path,
-            },
-        )
-        response = await http_broker(local_id=local_id, request=request)
-        response_frame = await channel.send(
-            HostFrameType.HTTP_RESPONSE.value,
-            {
-                "http_request_id": body["http_request_id"],
-                "response": response,
-            },
-        )
-        self.run_store.append_event(
-            run_id=registration.run_id,
-            origin=RunEventOrigin.HOST,
-            sender_sequence=response_frame.sender_sequence,
-            kind=RunEventKind.HTTP_RESPONDED,
-            episode_id=episode_id,
-            payload={
-                "http_request_id": body["http_request_id"],
-                "request_hash": request_hash.value,
-                "response_hash": http_response_hash(response).value,
-                "outcome": response["outcome"],
-                "status": response["status"],
-                "response_bytes": http_response_bytes(response),
-                "rule": response["rule"],
-            },
-        )
-
     async def execute(
         self,
         *,
@@ -884,20 +680,29 @@ class _RunExecutorBase:
         source_package_path: str | Path,
         model_broker: ScopedModelBroker,
         http_broker: ScopedHttpBroker,
+        refinement_session=None,
+        experiment_session=None,
+        continuation_admission=None,
     ) -> RunEvidence:
-        """Execute one fresh registration; cancellation persists cancellation."""
+        """Execute an admitted physical attempt; cancellation remains interruption."""
 
         if not isinstance(registration, RunRegistration):
             raise TypeError("registration must be a RunRegistration")
+        if registration.resume_from is not None and not callable(continuation_admission):
+            raise RunExecutionError("interrupted continuation requires verified reconstruction and host-state restoration; fresh execution cannot substitute")
         if not isinstance(model_broker, ScopedModelBroker):
             raise TypeError("model_broker must be a ScopedModelBroker")
         if not isinstance(http_broker, ScopedHttpBroker):
             raise TypeError("http_broker must be a ScopedHttpBroker")
+        if refinement_session is not None:
+            await asyncio.to_thread(refinement_session.validate_registration, registration)
+        if experiment_session is not None:
+            await asyncio.to_thread(experiment_session.validate_registration, registration)
         runtime_source_package = (
             self.run_store.runtime_sources_root
             / registration.runtime_identity.runtime_source_manifest_id.value
         )
-        verify_runtime_identity(
+        runtime_manifest = verify_runtime_identity(
             registration.runtime_identity,
             runtime_source_package=runtime_source_package,
             **self._identity_arguments(),
@@ -923,6 +728,24 @@ class _RunExecutorBase:
         learning_broker = await asyncio.to_thread(
             LearningBroker, self.run_store, registration, source_package
         )
+        reconstruction = None
+        if registration.resume_from is not None:
+            from .testing.reconstruction_host import prepare_reconstruction
+            from .executor_lifecycle import verify_stopped_executor
+
+            reconstruction = await asyncio.to_thread(
+                prepare_reconstruction, self.run_store, registration,
+                source_package, runtime_manifest,
+                refinement_session=refinement_session, experiment_session=experiment_session,
+            )
+            old_claim = await asyncio.to_thread(self.run_store.read_claim, registration.resume_from.run_id)
+
+            async def authorize_continuation():
+                stopped = await verify_stopped_executor(self, old_claim)
+                authority = await continuation_admission()
+                return {"previous_executor": stopped, "current_authority": authority}
+
+            await authorize_continuation()
         self.run_store.publish_registration(registration)
 
         launch_identity = self._launch_identity(registration.run_id)
@@ -1054,61 +877,42 @@ class _RunExecutorBase:
                 RunEventKind.EPISODE_STARTED,
                 RunEventKind.UNIT_COMPLETED,
                 RunEventKind.EPISODE_COMPLETED,
+                RunEventKind.COMPONENT_OBSERVED,
+            }
+            from .exchanges import broker_experiment_request, broker_refinement_request, broker_learning_request
+            from .scoped import validate_execution_path
+            scoped_handlers = {
+                WorkerFrameType.EXPERIMENT_REQUEST.value: (broker_experiment_request, experiment_session),
+                WorkerFrameType.REFINEMENT_REQUEST.value: (broker_refinement_request, refinement_session),
+                WorkerFrameType.LEARNING_REQUEST.value: (broker_learning_request, learning_broker),
             }
             while True:
                 frame = await channel.receive()
-                if frame.frame_type == WorkerFrameType.LEARNING_REQUEST.value:
-                    response = await learning_broker(frame.body["episode_id"], frame.body["operation"], frame.body["payload"])
-                    await channel.send(HostFrameType.LEARNING_RESPONSE.value,
-                                       {"request_id": frame.body["request_id"], "response": response})
+                if reconstruction is not None and await reconstruction.consume(
+                    frame, channel, authorize=authorize_continuation,
+                ):
+                    continue
+                if "episode_path" in frame.body:
+                    validate_execution_path(registration, frame.body["episode_path"])
+                if frame.frame_type in scoped_handlers:
+                    handler, session = scoped_handlers[frame.frame_type]
+                    await handler(
+                        run_store=self.run_store, registration=registration,
+                        channel=channel, frame=frame, session=session,
+                    )
                     continue
                 if frame.frame_type == WorkerFrameType.MODEL_REQUEST.value:
-                    # Frame bodies are frozen (lists become tuples) for hashing;
-                    # the broker contract is plain JSON, so thaw the record once
-                    # here, exactly as INITIALIZE and START thaw theirs.
-                    request_record = _thaw_json(frame.body["request"])
-                    request = admit_model_request(request_record)
-                    request_hash = model_request_hash(request)
-                    episode_id = OpaqueId(frame.body["episode_id"])
-                    self.run_store.append_event(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.WORKER,
-                        sender_sequence=frame.sender_sequence,
-                        kind=RunEventKind.MODEL_REQUESTED,
-                        episode_id=episode_id,
-                        payload={
-                            "model_request_id": frame.body["model_request_id"],
-                            "request_hash": request_hash.value,
-                            "task": request.task,
-                        },
-                    )
-                    response = await model_broker(request_record, episode_path=frame.body["episode_path"])
-                    from function_library.epistemic_schemas import model_call_id
-                    response_frame = await channel.send(
-                        HostFrameType.MODEL_RESPONSE.value,
-                        {
-                            "model_request_id": frame.body["model_request_id"],
-                            "response": model_response_record(response),
-                        },
-                    )
-                    self.run_store.append_event(
-                        run_id=registration.run_id,
-                        origin=RunEventOrigin.HOST,
-                        sender_sequence=response_frame.sender_sequence,
-                        kind=RunEventKind.MODEL_RESPONDED,
-                        episode_id=episode_id,
-                        payload={
-                            "model_request_id": frame.body["model_request_id"],
-                            "request_hash": request_hash.value,
-                            "response_hash": model_response_hash(response).value,
-                            "producer_call_id": model_call_id(response.text, request.task, response.route),
-                            "response_text": response.text,
-                            "route": dict(response.route),
-                        },
+                    await broker_model_request(
+                        run_store=self.run_store,
+                        registration=registration,
+                        channel=channel,
+                        frame=frame,
+                        model_broker=model_broker,
                     )
                     continue
                 if frame.frame_type == WorkerFrameType.HTTP_REQUEST.value:
-                    await self._broker_http_request(
+                    await broker_http_request(
+                        run_store=self.run_store,
                         registration=registration,
                         channel=channel,
                         frame=frame,
@@ -1116,9 +920,18 @@ class _RunExecutorBase:
                     )
                     continue
                 if frame.frame_type == WorkerFrameType.RUN_EVENT.value:
+                    from .components import validate_component_event
+
                     kind = RunEventKind(frame.body["event_kind"])
                     if kind not in worker_event_kinds:
                         raise ProtocolError("worker emitted a host-owned event kind")
+                    validate_component_event(
+                        registration, kind,
+                        None if frame.body["episode_id"] is None else OpaqueId(frame.body["episode_id"]),
+                        frame.body["payload"],
+                    )
+                    if kind is RunEventKind.EPISODE_STARTED:
+                        validate_execution_path(registration, frame.body["payload"].get("episode_path", ()))
                     self.run_store.append_event(
                         run_id=registration.run_id,
                         origin=RunEventOrigin.WORKER,
@@ -1139,6 +952,15 @@ class _RunExecutorBase:
                         learning_broker.validate_completion, frame.body["typed_status"]
                     )
                 terminal_status = RunTerminalStatus(frame.body["terminal_status"])
+                if refinement_session is not None and terminal_status in {
+                    RunTerminalStatus.SUCCEEDED,
+                    RunTerminalStatus.BLOCKED,
+                }:
+                    await asyncio.to_thread(
+                        refinement_session.validate_return,
+                        terminal_status.value,
+                        frame.body["typed_status"],
+                    )
                 evidence = self.run_store.finalize_run(
                     run_id=registration.run_id,
                     origin=RunEventOrigin.WORKER,
@@ -1399,6 +1221,10 @@ class SystemdRunExecutor(_RunExecutorBase):
                 registration.run_id.value,
                 "--registration-hash",
                 registration.registration_hash.value,
+                "--logical-run-id",
+                registration.logical_run_id.value,
+                "--logical-registration-hash",
+                registration.logical_registration_hash.value,
                 "--manifest-id",
                 registration.manifest_id.value,
                 "--max-frame-bytes",
@@ -1450,7 +1276,6 @@ class SystemdRunExecutor(_RunExecutorBase):
                 or live_pid != facts.leader_pid
                 or values["ControlGroup"] != facts.cgroup_path
                 or _proc_start_time(live_pid) != facts.leader_start_time_ticks
-                or _proc_cgroup(live_pid) != facts.cgroup_path
                 or _boot_id() != facts.boot_id
             ):
                 launcher.terminate()
@@ -1526,12 +1351,13 @@ RunExecutorFactory = Callable[[RunStore], RunExecutor]
 def make_systemd_run_executor_factory(
     *,
     repository_root: str | Path,
+    resources: Optional[ExecutorResources] = None,
 ) -> RunExecutorFactory:
     """Build the strict host dependency for fresh per-Run executors.
 
-    The current interpreter identity is captured once.  Effective cgroup-v2
-    allocation is inspected afresh for every explicit Run action, so a
-    long-lived host neither invents nor retains stale task ceilings.
+    Resource controls are explicit systemd settings, not host cgroup-file reads.
+    Defaults add no per-Run hard limit; ancestor constraints remain systemd's
+    responsibility. The current interpreter identity is captured once.
     """
 
     root = Path(repository_root).expanduser()
@@ -1559,7 +1385,13 @@ def make_systemd_run_executor_factory(
         return SystemdRunExecutor(
             run_store=run_store,
             repository_root=root,
-            resources=ExecutorResources.from_host_effective_allocation(),
+            resources=resources if resources is not None else ExecutorResources(
+                memory_max_bytes=None,
+                pids_max=None,
+                cpu_weight=100,
+                cpu_quota_per_sec_micros=None,
+                cpu_period_micros=100_000,
+            ),
             python_executable=interpreter,
             python_runtime_root=python_runtime_root,
         )

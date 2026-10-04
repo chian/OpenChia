@@ -666,7 +666,7 @@ class EpisodeBuilder:
         node_by_id = {node.local_id: node for node in plan.nodes}
         children_by_parent: dict[str, dict[str, NodeMaterializationPlan]] = {}
         edges_by_parent: dict[str, list[EdgeMaterializationPlan]] = {}
-        for edge in plan.edges:
+        for edge in plan.all_edges:
             children_by_parent.setdefault(edge.parent_local_id, {})[
                 edge.slot_name
             ] = node_by_id[edge.child_local_id]
@@ -700,6 +700,10 @@ class EpisodeBuilder:
             expected_children = {
                 episode.local_id for episode in frozen_by_id.values()
                 if episode.workflow_parent_local_id == node.local_id
+            } | {
+                call.callee_template_local_id
+                for call in build_request.frozen_workflow.workflow.repeatable_calls
+                if call.caller_local_id == node.local_id
             }
             actual_children = {
                 edge.child_local_id for edge in edges_by_parent.get(node.local_id, ())
@@ -846,6 +850,72 @@ class EpisodeBuilder:
                 blocking_deficits=_blocking_count((*plan.deficits, *emission_deficits)),
                 build_attempt_id=build_attempt.build_attempt_id,
             )
+        return await self._admit_and_publish(
+            build_request=build_request,
+            build_attempt=build_attempt,
+            plan=plan,
+            emitted=emitted,
+            emission_deficits=emission_deficits,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
+
+    async def admit_sources(
+        self,
+        *,
+        build_request: ApprovedBuildRequest,
+        build_attempt: BuildAttempt,
+        plan: WorkflowMaterializationPlan,
+        emitted_modules: tuple[EmittedEpisodeModule, ...],
+        source_deficits: tuple[BuildDeficit, ...] = (),
+        progress_callback: ProgressCallback | None = None,
+        cancel_event: CancellationSignal | None = None,
+    ) -> BuildReceipt:
+        """Admit explicitly supplied source through the ordinary Builder boundary.
+
+        The caller supplies fresh request/attempt identities and the exact plan.
+        No planner, emitter, generated import, approval, or Run occurs here.
+        Refined source receives the same admission and package publication as a
+        one-shot build; source rejection is an ordinary blocked BuildReceipt.
+        """
+        self._validate_boundary(build_request, progress_callback, cancel_event)
+        plan.validate_against(build_request, build_attempt)
+        if not isinstance(emitted_modules, tuple) or any(
+            not isinstance(module, EmittedEpisodeModule) for module in emitted_modules
+        ):
+            raise TypeError("source admission requires typed emitted modules")
+        emitted = {module.local_id: module for module in emitted_modules}
+        if len(emitted) != len(emitted_modules):
+            raise ValueError("source admission cannot discard duplicate modules")
+        if not isinstance(source_deficits, tuple) or any(
+            not isinstance(deficit, BuildDeficit) for deficit in source_deficits
+        ):
+            raise TypeError("source preparation failures require typed deficits")
+
+        def persist_inputs():
+            self.store.put_build_request(build_request)
+            self.store.put_build_attempt(build_attempt)
+            self.store.put_plan(plan)
+            for module in emitted_modules:
+                self.store.put_emitted_module(module)
+
+        await asyncio.to_thread(persist_inputs)
+        return await self._admit_and_publish(
+            build_request=build_request,
+            build_attempt=build_attempt,
+            plan=plan,
+            emitted=emitted,
+            emission_deficits=source_deficits,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
+
+    async def _admit_and_publish(
+        self, *, build_request, build_attempt, plan, emitted, emission_deficits,
+        progress_callback, cancel_event,
+    ) -> BuildReceipt:
+        total = len(build_request.frozen_workflow.workflow.episodes)
+        node_by_id = {node.local_id: node for node in plan.nodes}
         try:
             outcome = await asyncio.to_thread(
                 self.admission.admit_outcome,

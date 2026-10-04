@@ -26,6 +26,9 @@ from .landlock import (
 from .seccomp import SeccompPolicyReceipt, seccomp_policy_hash
 
 if TYPE_CHECKING:
+    from .continuation import InterruptedRunRef
+    from .scoped import RunScope
+    from .components import ComponentScope
     from episode_builder._contract_base import (
         BuildAttempt,
         BuildReceipt,
@@ -306,18 +309,27 @@ class RunEventOrigin(str, Enum):
     HOST = "host"
     WORKER = "worker"
     HOST_LEARNING = "host_learning"
+    HOST_RECONSTRUCTION = "host_reconstruction"
 
 
 class RunEventKind(str, Enum):
     RUNTIME_READY = "runtime_ready"
     RUN_STARTED = "run_started"
+    RUN_RECONSTRUCTED = "run_reconstructed"
     EPISODE_STARTED = "episode_started"
     UNIT_COMPLETED = "unit_completed"
     EPISODE_COMPLETED = "episode_completed"
+    COMPONENT_OBSERVED = "component_observed"
     MODEL_REQUESTED = "model_requested"
     MODEL_RESPONDED = "model_responded"
     HTTP_REQUESTED = "http_requested"
     HTTP_RESPONDED = "http_responded"
+    EXPERIMENT_REQUESTED = "experiment_requested"
+    EXPERIMENT_RESPONDED = "experiment_responded"
+    REFINEMENT_REQUESTED = "refinement_requested"
+    REFINEMENT_RESPONDED = "refinement_responded"
+    LEARNING_REQUESTED = "learning_requested"
+    LEARNING_RESPONDED = "learning_responded"
     LEARNING_EVIDENCE = "learning_evidence"
     LEARNING_OPENED = "learning_opened"
     LEARNING_SELECTED = "learning_selected"
@@ -879,8 +891,12 @@ class RunRegistration:
     egress_policy: EgressPolicy = field(
         default_factory=lambda: MappingProxyType({})
     )
+    execution_scope: Optional["RunScope | ComponentScope"] = None
+    resume_from: Optional["InterruptedRunRef"] = None
     run_id: OpaqueId = field(init=False)
     registration_hash: Sha256Digest = field(init=False)
+    logical_run_id: OpaqueId = field(init=False)
+    logical_registration_hash: Sha256Digest = field(init=False)
 
     def __post_init__(self) -> None:
         for name in (
@@ -913,11 +929,23 @@ class RunRegistration:
             raise TypeError("runtime_identity must be a RuntimeIdentity")
         if not isinstance(self.runtime_policy, RuntimePolicy):
             raise TypeError("runtime_policy must be a RuntimePolicy")
+        from .scoped import RunScope
+        from .components import ComponentScope
+        from .continuation import InterruptedRunRef
+        if self.execution_scope is not None and not isinstance(self.execution_scope, (RunScope, ComponentScope)):
+            raise TypeError("execution_scope must be a frozen RunScope")
+        if self.resume_from is not None and not isinstance(self.resume_from, InterruptedRunRef):
+            raise TypeError("resume_from must be an exact interrupted Run reference")
         object.__setattr__(
             self,
             "egress_policy",
             _egress_policy(self.egress_policy),
         )
+        logical = self.semantic_record()
+        logical.pop("resume_from", None)
+        logical_run_id = content_id("run", logical)
+        object.__setattr__(self, "logical_run_id", logical_run_id)
+        object.__setattr__(self, "logical_registration_hash", digest_record({"run_id": logical_run_id.value, **logical}))
         run_id = content_id("run", self.semantic_record())
         object.__setattr__(self, "run_id", run_id)
         object.__setattr__(
@@ -946,6 +974,8 @@ class RunRegistration:
             "runtime_identity": self.runtime_identity.as_record(),
             "runtime_policy": self.runtime_policy.as_record(),
             "egress_policy": _egress_policy_record(self.egress_policy),
+            **({"execution_scope": self.execution_scope.as_record()} if self.execution_scope is not None else {}),
+            **({"resume_from": self.resume_from.as_record()} if self.resume_from is not None else {}),
         }
 
     def as_record(self) -> dict[str, Any]:
@@ -966,6 +996,8 @@ class RunRegistration:
         launch_request: DuetLaunchRequest,
         runtime_identity: RuntimeIdentity,
         runtime_policy: RuntimePolicy,
+        execution_scope: Optional["RunScope | ComponentScope"] = None,
+        resume_from: Optional["InterruptedRunRef"] = None,
     ) -> "RunRegistration":
         """Bind already-admitted Builder artifacts without copying their prose."""
 
@@ -1047,6 +1079,8 @@ class RunRegistration:
             launch_request=launch_request,
             runtime_identity=runtime_identity,
             runtime_policy=runtime_policy,
+            execution_scope=execution_scope,
+            resume_from=resume_from,
             egress_policy={
                 episode.local_id: episode.contract.egress_allowlist
                 for episode in frozen.workflow.episodes
@@ -1056,6 +1090,9 @@ class RunRegistration:
 
     @classmethod
     def from_record(cls, value: object) -> "RunRegistration":
+        from .scoped import scope_from_record
+        from .continuation import InterruptedRunRef
+
         record = _record(
             value,
             "Run registration",
@@ -1080,7 +1117,7 @@ class RunRegistration:
                 "runtime_identity",
                 "runtime_policy",
                 "egress_policy",
-            },
+            } | {key for key in ("execution_scope", "resume_from") if isinstance(value, Mapping) and key in value},
         )
         result = cls(
             duet_id=OpaqueId(record["duet_id"]),
@@ -1113,6 +1150,8 @@ class RunRegistration:
             ),
             runtime_policy=RuntimePolicy.from_record(record["runtime_policy"]),
             egress_policy=_egress_policy_from_record(record["egress_policy"]),
+            execution_scope=scope_from_record(record.get("execution_scope")),
+            resume_from=InterruptedRunRef.from_record(record["resume_from"]) if "resume_from" in record else None,
         )
         if (
             result.run_id.value != record["run_id"]
@@ -1126,8 +1165,8 @@ class RunRegistration:
 class InspectedExecutorAttestation:
     """Host inspection of the claimed executor and its isolation allocation.
 
-    The cgroup values record isolation facts only.  They never participate in
-    Episode continuation or stopping decisions.
+    Resource settings record backend facts only, not effective ancestor limits.
+    They never participate in Episode continuation or stopping decisions.
     """
 
     run_id: OpaqueId
@@ -1292,8 +1331,16 @@ class InspectedExecutorAttestation:
         )
         if any(not isinstance(item, bool) for item in isolation):
             raise TypeError("executor isolation facts must be boolean")
-        if not all(isolation):
-            raise ValueError("executor attestation must prove every isolation fact")
+        required_isolation = (
+            self.filesystem_namespace_isolated,
+            self.network_namespace_isolated,
+            self.host_runtime_read_only,
+            self.no_new_privs,
+        )
+        if not all(required_isolation):
+            raise ValueError("executor attestation must prove required isolation facts")
+        if self.executor_kind is ExecutorKind.CONTAINER and not self.process_namespace_isolated:
+            raise ValueError("container executor must prove process namespace isolation")
         attestation_id = content_id(
             "executor_attestation",
             self.semantic_record(),

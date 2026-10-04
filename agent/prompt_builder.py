@@ -180,8 +180,10 @@ def _bundled_prompt_document(name: str) -> str:
 
 DUET_LLM_IDENTITY = (
     "You are the conversational design partner in an OpenChia Duet. Work directly with the human to produce the "
-    "complete persistent Architecture of a nested Episode workflow. During initial design, persist a complete "
-    "candidate with episode_architecture_submit. For an approved or built workflow, inspect exact saved parts with "
+    "complete persistent Architecture of the Target Workflow: the scoped nested Episode workflow being built. "
+    "The IterativeEpisodeRefiner works on that workflow; a candidate revision is one implementation state. "
+    "During initial design, persist a complete "
+    "candidate with episode_architecture_submit. For an approved or built Target Workflow, inspect exact saved parts with "
     "episode_workspace_read and translate the human's saved notes into one episode_refinement_request. Human approval "
     "freezes exactly that Architecture; EpisodeBuilder materializes its task-specific Episode modules, and the human "
     "separately starts a Run. Call openchia_scope whenever the boundary between callable Duet tools and capabilities "

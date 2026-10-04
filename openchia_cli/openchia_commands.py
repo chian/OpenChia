@@ -6,6 +6,11 @@ import json
 from typing import Any
 
 
+ACTIVE_BUILD_STATES = frozenset({"starting", "continuing", "building", "refining", "validating", "cancel_requested"})
+ACTIVE_RUN_STATES = frozenset({"starting", "continuing", "running", "cancel_requested"})
+RESUMABLE_RUN_STATES = frozenset({"interrupted", "resource_limited", "cancelled", "cancelled_before_claim"})
+
+
 _HELP_TEXT = (
     "OpenChia controls:\n"
     "  /episode          browse Architecture and Materialized Specification\n"
@@ -19,15 +24,16 @@ _HELP_TEXT = (
     "  /bg DUET_ID send TEXT   FIFO-queue a turn for that background Duet\n"
     "  /bg DUET_ID episode [edit|diff] browse or edit its Workspace\n"
     "  /bg DUET_ID status|approve|decline inspect or decide authority\n"
-    "  /bg DUET_ID build [status] materialize or inspect its build\n"
-    "  /bg DUET_ID run [status] run or inspect its materialization\n"
+    "  /bg DUET_ID build [status|continue] start, inspect or continue its build job\n"
+    "  /bg DUET_ID run [status|continue] run, inspect or continue its materialization\n"
     "  /bg DUET_ID evidence [RUN_ID] inspect terminal evidence\n"
     "  /bg DUET_ID logs [RUN_ID] inspect the terminal audit log\n"
     "  /bg DUET_ID cancel|close cancel owned work or close its context\n"
     "  /approve          approve the current Architecture or refinement\n"
     "  /decline          reject the pending refinement and keep the baseline\n"
-    "  /build            start a fresh materialization attempt\n"
-    "  /build status     inspect the current materialization attempt\n"
+    "  /build            start a fresh build → refine → validate job\n"
+    "  /build status     inspect the current build job\n"
+    "  /build continue   continue the saved job with its original execution identity\n"
     "  /launch load FILE select project/model configuration for future launches\n"
     "  /launch [status|calls] inspect selected settings and actual routing receipts\n"
     "  /launch preview   resolve and display settings before launching (no model call)\n"
@@ -40,6 +46,7 @@ _HELP_TEXT = (
     "  /bg DUET_ID launch ... configure that background Duet independently\n"
     "  /run              explicitly run the admitted materialization\n"
     "  /run status       inspect the current Run state\n"
+    "  /run continue     continue the saved Target Workflow Run\n"
     "  /run evidence [ID] inspect validated terminal Run evidence\n"
     "  /logs [RUN_ID]    inspect a validated terminal Run audit log\n"
     "  /stop             cancel every OpenChia-owned turn, build, and Run\n"
@@ -86,7 +93,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
     counts = progress.get("counts") or {}
     run = status.get("run") or {}
     run_state = str(run.get("state") or "not_started")
-    if build_state in {"starting", "building", "cancel_requested"}:
+    if build_state in ACTIVE_BUILD_STATES:
         emitted = int(counts.get("episodes_emitted") or 0)
         total = int(counts.get("episodes_total") or 0)
         stage = str(progress.get("stage") or build_state)
@@ -100,29 +107,34 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
                 wait_text = f"wait {elapsed}"
         return (
             f"Architecture r{revision} · approved\n"
-            f"Builder · /stop"
+            f"Build job · /stop"
             f"{' · ' + wait_text if wait_text else ''}"
             f" · {emitted}/{total} · {stage}"
         )
-    if build_state == "materialized":
-        if run_state in {"starting", "running", "cancel_requested"}:
+    if build_state == "verified":
+        if run_state in ACTIVE_RUN_STATES:
             return (
                 f"Architecture r{revision} · approved\n"
                 f"Run · {run_state} · /run status · /stop"
             )
-        if run_state in {"succeeded", "failed", "cancelled"}:
+        if run_state in RESUMABLE_RUN_STATES:
+            return (
+                f"Architecture r{revision} · approved\n"
+                f"Run · {run_state} · /run status · /run continue"
+            )
+        if run_state in {"succeeded", "failed", "invalid", "blocked"}:
             return (
                 f"Architecture r{revision} · approved\n"
                 f"Run · {run_state} · /run evidence · /logs"
             )
-        if run_state in {"cancelled_before_claim", "host_error"}:
+        if run_state in {"ownership_unknown", "host_error"}:
             return (
                 f"Architecture r{revision} · approved\n"
                 f"Run · {run_state} · /run status"
             )
         return (
             f"Architecture r{revision} · approved\n"
-            "Materialized Specification ready · /episode · /run"
+            "Target Workflow verified · /episode · /run"
         )
     if build_state == "blocked":
         deficits = int(counts.get("blocking_deficits") or 0)
@@ -130,7 +142,7 @@ def render_openchia_status(status: dict[str, Any] | None) -> str:
             f"Architecture r{revision} · approved\n"
             f"Build {build_state} · {deficits} deficits · /episode · /build"
         )
-    if build_state in {"host_error", "cancelled"}:
+    if build_state in {"host_error", "cancelled", "unresolved", "yield_exhausted_unresolved", "unverified", "interrupted", "resource_limited", "invalid"}:
         return (
             f"Architecture r{revision} · approved\n"
             f"Build {build_state} · /build status"
@@ -162,6 +174,7 @@ class OpenChiaCommandMixin:
     }
     _run_command_dispatch = {
         "": "_run_start",
+        "continue": "_run_continue",
         "status": "_run_show_status",
         "evidence": "_run_show_evidence",
     }
@@ -228,15 +241,16 @@ class OpenChiaCommandMixin:
                     f"EpisodeBuilder status unavailable: {exc}"
                 )
             return True
-        if action:
-            self._print_openchia("Usage: /build [status]")
+        if action not in {"", "continue"}:
+            self._print_openchia("Usage: /build [status|continue]")
             return True
         try:
-            build = self._episode_host().start_build()
+            build = (self._episode_host().continue_build() if action == "continue"
+                     else self._episode_host().start_build())
             attempt = build.get("build_attempt_id") or "pending"
+            operation = "Build job continued" if action == "continue" else "EpisodeBuilder started fresh request"
             self._print_openchia(
-                "EpisodeBuilder started fresh request "
-                f"{build['build_request_id']} (attempt {attempt}). "
+                f"{operation} {build['build_request_id']} (attempt {attempt}). "
                 "Use /build status to inspect progress."
             )
         except Exception as exc:
@@ -255,7 +269,7 @@ class OpenChiaCommandMixin:
 
     def _run_start(self, parts: tuple[str, ...]) -> None:
         if parts:
-            self._print_openchia("Usage: /run [status|evidence [RUN_ID]]")
+            self._print_openchia("Usage: /run [status|continue|evidence [RUN_ID]]")
             return
         try:
             run = self._episode_host().start_run()
@@ -267,9 +281,23 @@ class OpenChiaCommandMixin:
             self._print_openchia(f"Run did not start: {exc}")
         self._refresh_openchia()
 
+    def _run_continue(self, parts: tuple[str, ...]) -> None:
+        if len(parts) != 1:
+            self._print_openchia("Usage: /run continue")
+            return
+        try:
+            run = self._episode_host().continue_run()
+            self._print_openchia(
+                f"Continuation requested for saved Run {run['run_id']}. "
+                "Use /run status to inspect recovery and execution."
+            )
+        except Exception as exc:
+            self._print_openchia(f"Run continuation did not start: {exc}")
+        self._refresh_openchia()
+
     def _run_show_status(self, parts: tuple[str, ...]) -> None:
         if len(parts) != 1:
-            self._print_openchia("Usage: /run [status|evidence [RUN_ID]]")
+            self._print_openchia("Usage: /run [status|continue|evidence [RUN_ID]]")
             return
         try:
             status = self._episode_host().run_status()
@@ -281,7 +309,7 @@ class OpenChiaCommandMixin:
 
     def _run_show_evidence(self, parts: tuple[str, ...]) -> None:
         if len(parts) > 2:
-            self._print_openchia("Usage: /run [status|evidence [RUN_ID]]")
+            self._print_openchia("Usage: /run [status|continue|evidence [RUN_ID]]")
             return
         run_id = parts[1] if len(parts) == 2 else None
         try:
@@ -302,7 +330,7 @@ class OpenChiaCommandMixin:
         action = parts[0].lower() if parts else ""
         handler_name = self._run_command_dispatch.get(action)
         if handler_name is None:
-            self._print_openchia("Usage: /run [status|evidence [RUN_ID]]")
+            self._print_openchia("Usage: /run [status|continue|evidence [RUN_ID]]")
             return True
         getattr(self, handler_name)(parts)
         return True

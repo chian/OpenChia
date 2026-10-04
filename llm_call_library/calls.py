@@ -61,6 +61,10 @@ def _parse_json(text: str) -> object:
             try:
                 value, _ = decoder.raw_decode(stripped[index:])
             except json.JSONDecodeError:
+                # A malformed container must not turn into its first valid key
+                # or nested value. Preserve the parse error for repair feedback.
+                if character in "[{":
+                    raise
                 continue
             return value
         raise first_error

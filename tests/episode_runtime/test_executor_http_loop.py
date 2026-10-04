@@ -35,6 +35,8 @@ from episode_runtime.http_broker import ScopedHttpBroker
 from episode_runtime.http_contracts import http_request_hash, http_response_hash
 from episode_runtime.broker import ScopedModelBroker
 from episode_runtime.store import RunStore
+from episode_runtime.protocol import _thaw_json
+from episode_runtime.testing.recordings import read_recording
 from handoff_library import DuetLaunchRequest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -308,13 +310,15 @@ def test_one_http_round_trip_is_brokered_and_recorded(tmp_path, monkeypatch):
     assert responded.origin is RunEventOrigin.HOST
     assert requested.episode_id == responded.episode_id is not None
     request_hash = http_request_hash(REQUEST).value
-    assert dict(requested.payload) == {
+    assert _thaw_json(requested.payload) == {
         "http_request_id": requested.payload["http_request_id"],
         "request_hash": request_hash,
         "rule": "ragstack_query",
         "method": "GET",
         "host": HOST,
         "path": "/ragstack/api/v1/query",
+        "request": REQUEST,
+        "episode_path": [{"grain": "fetcher", "key": "root"}],
     }
     expected_response = {
         "outcome": "ok",
@@ -325,7 +329,7 @@ def test_one_http_round_trip_is_brokered_and_recorded(tmp_path, monkeypatch):
         "reason": None,
         "rule": "ragstack_query",
     }
-    assert dict(responded.payload) == {
+    assert _thaw_json(responded.payload) == {
         "http_request_id": requested.payload["http_request_id"],
         "request_hash": request_hash,
         "response_hash": http_response_hash(expected_response).value,
@@ -333,4 +337,12 @@ def test_one_http_round_trip_is_brokered_and_recorded(tmp_path, monkeypatch):
         "status": 200,
         "response_bytes": len(b'{"hits":3}'),
         "rule": "ragstack_query",
+        "response": expected_response,
     }
+    recording = read_recording(store, registration.run_id)
+    assert recording["gaps"] == []
+    assert recording["source_terminal_status"] == "succeeded"
+    exchange = recording["exchanges"][0]
+    assert exchange["request"] == REQUEST
+    assert exchange["response"] == expected_response
+    assert exchange["request_event_ref"]["content_hash"] == requested.event_hash.value

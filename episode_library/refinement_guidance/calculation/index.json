@@ -1,0 +1,7 @@
+{
+  "subject": "calculation",
+  "items": [
+    {"guidance_id": "refiner.calculation.exact_quantities", "version": 1, "title": "Define quantities before calculating", "kind": "specialty_instruction", "subject": "calculation", "roles": ["DesignPart", "RefineParts"], "description": "Fix units, domains, aggregation, precision and invalid-input behavior before implementation.", "use_when": "The target produces deterministic numeric results from declared inputs.", "do_not_use_when": "A stochastic estimate or qualitative judgment is being presented as exact arithmetic.", "body_path": "instructions/exact_quantities.md", "source_refs": ["refiner-design-v3"], "validation_status": "design_guidance"},
+    {"guidance_id": "refiner.calculation.weighted_rate", "version": 1, "title": "Weighted rate, not average of percentages", "kind": "worked_example", "subject": "calculation", "roles": ["DesignPart", "EstablishMeasure", "VerifyBehavior"], "description": "Inspect a concrete aggregation answer and checks for zero denominators, partitioning and order.", "use_when": "An aggregate calculation mixes groups with different denominators.", "do_not_use_when": "Groups overlap, counts are uncertain, or an unweighted group-level mean is actually the approved estimand.", "body_path": "examples/weighted_rate.md", "source_refs": ["refiner-design-v3"], "validation_status": "illustrative_unexecuted"}
+  ]
+}

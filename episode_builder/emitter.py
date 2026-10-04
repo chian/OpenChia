@@ -468,6 +468,43 @@ def _attach_host_declaration(
     return f"{source.rstrip()}\n\n{DECLARATION_EXPORT} = {literal}\n"
 
 
+def complete_module_source(
+    source: str,
+    *,
+    contract: EpisodeCreationSpec,
+    plan: NodeMaterializationPlan,
+    direct_edges: tuple[EdgeMaterializationPlan, ...],
+    forbidden_module_names: tuple[str, ...],
+    derivation_notes: Mapping[str, str],
+) -> EmittedEpisodeModule:
+    """Finish raw emitted or repaired source without importing or executing it."""
+    _validate_module_source(
+        source,
+        local_id=plan.local_id,
+        target_module_name=plan.module_name,
+        forbidden_module_names=forbidden_module_names,
+        is_root=plan.parent_local_id is None,
+    )
+    source = _attach_host_declaration(
+        source, build_module_declaration(contract, plan, direct_edges)
+    )
+    try:
+        compile(source, f"<{plan.module_name}>", "exec", dont_inherit=True)
+    except SyntaxError as exc:
+        raise EpisodeEmissionError(
+            code="host_declaration_invalid",
+            field_path="module_source",
+            detail=f"host declaration attachment failed: {exc.msg}",
+            episode_local_id=plan.local_id,
+        ) from exc
+    return EmittedEpisodeModule(
+        local_id=plan.local_id,
+        module_name=plan.module_name,
+        module_source=source,
+        derivation_notes=derivation_notes,
+    )
+
+
 def _child_summary(
     slot_name: str,
     child: NodeMaterializationPlan,
@@ -572,8 +609,34 @@ required_module_contract.constructor_signatures.
 
 Every edge receive_result implementation first calls
 handoff_library.admit_child_result with the matching parent request, declared
-RESULT_CHANNEL_IDS, and the exact edge result payload contract. It then
-projects that admitted closed result onto the parent's own credit scale.
+RESULT_CHANNEL_IDS, and the exact edge result payload contract. It projects
+credit on the parent's scale. The separate reporting component implements the
+parent's planned synthesis of the admitted result: the returned information
+answers the decision named before child launch, organized by the requested
+measurements with applicable outcomes, changes, blockers, and limitations.
+The parent uses this compact report to choose its next work without rebuilding
+the child's investigation. Preserve the separate parent-scale credit projection
+and its numerical semantics.
+
+Wire the synthesized report into the parent's declared model inputs. Retain
+full child histories and provenance in audit storage. When an artifact reference
+transports a report, resolve only its contracted projection for model input;
+returning a report ID and later appending the stored audit body does not implement
+the synthesis. The same dataflow applies to ordinary and repeatable child calls.
+Every nested Episode reports under its invoking parent's contract; the root
+has no upward contract and still declares the contracts for its own children.
+Construct every child EpisodeRequest with report_contract=ReportContract(
+decision=the_parent_decision, measurements=the_declared_measurement_meanings,
+information=the_requested_field_meanings). ChildEpisodeUnit requires a separate
+synthesize_report(result, completion, request) callback returning precisely those
+fields. receive_result retains the numerical credit projection. Use
+view.model_inputs(declared_inputs, reports=selected_reports), or the matching
+ctx.model_inputs call inside a compound acquisition unit, to deliver reports
+selected from view.child_reports or ctx.child_reports. Declare the selection
+rule according to the parent's next decision; completed history is audit data,
+not an automatic input. The method also records compound-unit child returns.
+Use component.report_S for a concrete slot's report synthesis and the approved
+component.repeatable_S_synthesize_report for an additional repeatable call.
 
 The module composes the generic method_loop Episode. It declares its prompts
 and every function it uses locally or through an exact reusable library import.
@@ -742,7 +805,9 @@ _MODULE_CONTRACT = {
             "SourceEnd, or None"
         ),
         "Leaf": "Leaf(unit, extract, result, label, accept=None)",
-        "ChildEpisodeUnit": "ChildEpisodeUnit(child, receive_result)",
+        "ChildEpisodeUnit": "ChildEpisodeUnit(child, receive_result, synthesize_report)",
+        "ReportContract": "ReportContract(decision, measurements, information)",
+        "EpisodeRequest": "EpisodeRequest(goal, message, report_contract=None); report_contract is required for every child",
         "ClosedRecord": (
             "admitted boundary base class whose as_record() returns a JSON mapping"
         ),
@@ -864,19 +929,30 @@ class EpisodeModuleEmitter:
             raise ValueError(
                 "direct_children keys must exactly match admitted child slots"
             )
+        if not isinstance(direct_edges, tuple) or any(
+            not isinstance(edge, EdgeMaterializationPlan) for edge in direct_edges
+        ):
+            raise TypeError("direct_edges must contain EdgeMaterializationPlan values")
+        by_slot = {edge.slot_name: edge for edge in direct_edges}
+        if len(by_slot) != len(direct_edges) or set(by_slot) != set(plan.child_slot_names):
+            raise ValueError("direct_edges must exactly cover admitted child slots")
         child_ids: set[str] = set()
         for slot_name, child in direct_children.items():
             if not isinstance(slot_name, str) or not slot_name:
                 raise ValueError("direct child slot names must be non-empty")
             if not isinstance(child, NodeMaterializationPlan):
                 raise TypeError("direct children must be node plans")
-            if child.parent_local_id != plan.local_id:
+            edge = by_slot[slot_name]
+            if edge.child_local_id != child.local_id or edge.child_interface != child.interface or edge.request_payload_contract != child.request_payload_contract or edge.result_payload_contract != child.result_payload_contract:
+                raise ValueError("child slot differs from its admitted edge interface")
+            if edge.repeatable_call is None and child.parent_local_id != plan.local_id:
                 raise ValueError(
                     f"child {child.local_id!r} does not belong to {plan.local_id!r}"
                 )
-            if child.local_id in child_ids:
+            if edge.repeatable_call is None and child.local_id in child_ids:
                 raise ValueError("one child node cannot fill multiple child slots")
-            child_ids.add(child.local_id)
+            if edge.repeatable_call is None:
+                child_ids.add(child.local_id)
         if not isinstance(direct_edges, tuple) or any(
             not isinstance(edge, EdgeMaterializationPlan)
             for edge in direct_edges
@@ -966,6 +1042,12 @@ class EpisodeModuleEmitter:
                 "admitted_node_plan": plan.as_record(),
                 "direct_children": child_summaries,
                 "direct_edges": [edge.as_record() for edge in direct_edges],
+                **({"repeatable_call_rules": {
+                    "slots": [edge.slot_name for edge in direct_edges if edge.repeatable_call is not None],
+                    "builder_abi": "Repeatable child_builders[slot](key, request, goal_view, collaborators) is async and must be awaited; the runtime runs its exact schema, attenuation and invocation admission first.",
+                    "binding_rule": "Copy every declared edge and component function selection exactly. Only the runtime constructs the approved callee; never import another generated module or instantiate a replacement template.",
+                    "root_template_rule": "A root template may also receive an admitted ParentRequest through a repeatable call. Its admit_request binding governs the Duet root launch; the frozen call binding governs nested admission. Use the supplied request and goal_view; never reconstruct root state for a nested invocation.",
+                }} if any(edge.repeatable_call is not None for edge in direct_edges) else {}),
                 "reference_implementation_evidence": (
                     None
                     if reference_context is None
@@ -1034,30 +1116,12 @@ class EpisodeModuleEmitter:
                 episode_local_id=plan.local_id,
             )
         source, derivation_notes = result.value
-        _validate_module_source(
+        return complete_module_source(
             source,
-            local_id=plan.local_id,
-            target_module_name=target_module_name,
+            contract=contract,
+            plan=plan,
+            direct_edges=direct_edges,
             forbidden_module_names=forbidden_module_names,
-            is_root=plan.parent_local_id is None,
-        )
-        source = _attach_host_declaration(
-            source,
-            build_module_declaration(contract, plan, direct_edges),
-        )
-        try:
-            compile(source, f"<{target_module_name}>", "exec", dont_inherit=True)
-        except SyntaxError as exc:
-            raise EpisodeEmissionError(
-                code="host_declaration_invalid",
-                field_path="module_source",
-                detail=f"host declaration attachment failed: {exc.msg}",
-                episode_local_id=plan.local_id,
-            ) from exc
-        return EmittedEpisodeModule(
-            local_id=plan.local_id,
-            module_name=target_module_name,
-            module_source=source,
             derivation_notes=derivation_notes,
         )
 
@@ -1065,4 +1129,5 @@ class EpisodeModuleEmitter:
 __all__ = [
     "EpisodeEmissionError",
     "EpisodeModuleEmitter",
+    "complete_module_source",
 ]

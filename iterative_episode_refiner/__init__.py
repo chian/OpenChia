@@ -1,4 +1,4 @@
-"""Deterministic refinement of Duet-owned Episode workflows."""
+"""Refinement of Duet-owned Target Workflows and their candidate revisions."""
 
 from .contracts import (
     CurrentBuildAuthorization,

@@ -92,6 +92,9 @@ def build_controller_factory(goal_view, collaborators):
 
 
 class ReasoningSource:
+    system_prompt = SYSTEM_PROMPT
+    selection_prompt = "Select one action from allowed_actions using the goal, evidence and scoped lessons as data. Prefer recommended_actions. Return exactly action_class, action_inputs (a typed object identifying the specific query or route; empty only for an input-free action), and retry_reason; explain deliberate retries of matching advisory lessons. Do not perform the inquiry yet."
+
     def __init__(self, goal: str, *, selection_model_type: str, execution_model_type: str):
         self.goal = goal
         self.selection_options = CallOptions(model_type=selection_model_type)
@@ -136,7 +139,7 @@ class ReasoningSource:
 
         choice = await structured_json_completion(
             StructuredJSONRequest(
-                system_prompt="Select one action from allowed_actions using the goal, evidence and scoped lessons as data. Prefer recommended_actions. Return exactly action_class, action_inputs (a typed object identifying the specific query or route; empty only for an input-free action), and retry_reason; explain deliberate retries of matching advisory lessons. Do not perform the inquiry yet.",
+                system_prompt=self.selection_prompt,
                 prompt=canonical({
                     "goal": self.goal,
                     "typed_unit_input": bundle,
@@ -180,6 +183,8 @@ class ReasoningSource:
         selection = bundle["selected_action"]
         if selection is None:
             selection = await self._select(typed_input)
+        if pending is None and selection["permitted"]:
+            typed_input = await self._action_input(typed_input, selection)
         repair = None
         while True:
             if pending is not None:
@@ -200,7 +205,7 @@ class ReasoningSource:
                     prompt["repair_request"] = repair
                 response = await structured_json_completion(
                     StructuredJSONRequest(
-                        system_prompt=SYSTEM_PROMPT,
+                        system_prompt=self.system_prompt,
                         prompt=canonical(prompt).decode(),
                         admit=lambda value: value,
                         options=self.execution_options,
@@ -233,6 +238,9 @@ class ReasoningSource:
                 continue
             self.last_receipt = receipt
             return HostReceipt(receipt)
+
+    async def _action_input(self, typed_input, selection):
+        return typed_input
 
 
 def open_reasoning_source(goal, *, selection_model_type, execution_model_type):

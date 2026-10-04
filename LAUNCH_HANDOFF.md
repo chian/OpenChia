@@ -4,6 +4,20 @@ The launch configuration supplies shared function-level model slots and an
 explicit Codex-login reference. The human approves resolved settings before
 Builder or Run starts.
 
+## Scope clarification — 2026-10-03
+
+This file configures testing of the **Target Workflow**, not the
+IterativeEpisodeRefiner. The refiner and its reasoning children use the owning
+Duet's model/provider configuration; no separate refiner launch file is needed.
+Calling a Target Workflow test through the harness must not switch the refiner's model.
+The Builder roles below remain target Builder settings, not refiner settings.
+See the [routing boundary](docs/openchia/episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
+
+The launch-support commits were integrated into the harness checkout as
+`6cbd04f3e8` and `1e42fee1c9`. That checkout still uses the original absolute
+launch path below; it does not have a copied credential file. Resolution there
+passed without a model call. This is not a refiner execution receipt.
+
 ## Files and invocation
 
 - Launch: `/home/chia/repos/OpenChia-iterative-refiner/launch_default.json`
@@ -127,5 +141,19 @@ workflows that use those services.
 
 The previous execution-backend check selected `systemd`, then failed with
 `RunExecutionError: cannot read host cpu.max`. Full confinement preflight did
-not pass. That result has not been rechecked after cleanup; credentials alone
-do not resolve it. No execution-boundary workaround has been applied.
+not pass at that time. Credentials alone did not resolve it; later compatibility
+work removed this bespoke allocation scan in favor of systemd's service interface.
+
+2026-10-03 decision update:
+[ADR 0005](docs/adr/0005-target-workflow-execution-backends.md) supports container
+and systemd execution, with containers as the default and no silent fallback.
+That default change remains pending. Systemd 255 is now supported without the
+unsupported `PrivatePIDs` setting. A subsequent AppArmor namespace denial was
+resolved with the operator-approved launcher-specific profile, without disabling
+AppArmor globally. Native service lifecycle, reasoning-worker, single-Episode and
+nested-refiner continuation checks now pass with supplied model responses.
+Installation and doctor share an actual namespace check; see the
+[systemd setup guide](docs/openchia/systemd_setup.md). These checks do not prove
+live-model reasoning or behavioral repair. The nested continuation comparison
+uses supplied target observations and a comment-only edit. See the
+[test receipts](docs/openchia/unified_episode_test_harness_receipts.md).

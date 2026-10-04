@@ -145,12 +145,13 @@ def admit_candidates(
     evidence: Mapping,
     scope: Mapping,
     audit_ref: str,
+    entity_admitter=_entity,
 ) -> dict:
     records = _thaw_json(_freeze_json(prior_state["records"], "prior state"))
     by_id = {item["record_id"]: item for item in records}
     transitions, rejected = [], []
     touched = set()
-    handlers = {"lesson": _lesson, "entity": _entity}
+    handlers = {"lesson": _lesson, "entity": entity_admitter}
     for candidate in candidates:
         body, kind = candidate["body"], candidate["kind"]
         candidate_id = identity("candidate", {"scope": scope, **candidate})

@@ -1,6 +1,6 @@
 # Episode launch configuration
 
-Select the project and model routes for Builder and Run explicitly. The Duet
+Select the project and model routes for target Builder and Run calls explicitly. The Duet
 conversation keeps its own `/model` setting; selecting a launch configuration
 does not change the conversation. Foreground and background Duets each persist
 their own launch selection.
@@ -16,6 +16,57 @@ belongs to the human command surface.
 invalid JSON file. Without that flag, an existing target must be a valid current
 launch file. Replacement records the previous file's hash, not its contents;
 there is no content backup or legacy-format conversion.
+
+## Duet, refiner and target model boundary
+
+The **Target Workflow** is the scoped Episode workflow being built, refined,
+tested or executed. A **candidate revision** is one implementation state; a
+**Run** is one execution. Neither term names the IterativeEpisodeRefiner.
+
+The agreed routing boundary is:
+
+| Work being performed | Model/provider configuration |
+| --- | --- |
+| Duet conversation | The Duet's own configuration |
+| IterativeEpisodeRefiner and its reasoning children | The same configuration as the owning Duet |
+| Test execution of the Target Workflow | The Target Workflow's explicitly selected launch configuration |
+
+The refiner does **not** need a separate refiner launch file, and must not
+inherit the Target Workflow's launch configuration merely because it requests
+its execution. The shared harness resolves the Target Workflow's configuration
+for that Run; it does not replace the caller's configuration. This remains
+true when both happen to select the same model. Shared Duet/refiner model
+settings do not mean shared prompts, transcripts, capabilities or authority.
+
+Builder slots in a Target Workflow launch file configure the existing target
+Builder calls. They do not select the refiner's reasoning model. A typed
+`DuetLaunchRequest` supplies task inputs and is not a model/provider setting.
+Execution and replay records must distinguish the configuration used by each
+Run; credentials stay on the host and are never passed as child context.
+
+For this development session, the target-test file is
+`/home/chia/repos/OpenChia-iterative-refiner/launch_default.json`. It is **not**
+the refiner's model configuration. Setup/resolution of that file proves neither
+refiner execution nor target correctness.
+
+Implementation status: `OpenChiaHost.refinement_experiment_service` binds the
+campaign's owning Duet agent through `DuetEpisodeBinding.from_bound_agent`.
+It freezes that agent's concrete route and the refiner build's declared model
+slots; credentials remain in host memory. Refiner-job experiments use this
+binding through the shared service, while target tests retain their approved
+Target Workflow launch. Missing owning-Duet binding is an error, not a target fallback.
+The lower-level `execute_refinement` entry still accepts a supplied broker;
+that parameter alone is not evidence of Duet binding.
+
+The host-bound service path has integration coverage with a supplied agent,
+a local deterministic HTTP provider and an in-process executor. That verifies
+route separation, not a fully initialized conversational agent, live reasoning
+or native confinement. The normal build now uses the same binding when handing
+its initial receipt to refinement; live end-to-end acceptance is still pending.
+See [ADR 0007](../adr/0007-build-owns-iterative-finalization.md) and the
+[verification receipts](unified_episode_test_harness_receipts.md) for exact coverage.
+
+## Target Workflow launch commands
 
 ```text
 /launch load /absolute/path/to/project/launch.json
@@ -38,7 +89,40 @@ selection. Builder and Run require that approval before model requests. Changes
 to models, slots, endpoints, reasoning settings, or credential references require
 another preview and approval. Architecture approval is a separate decision.
 
+The same `/launch` → `/build` → `/run` path now supports an explicitly approved
+testing Episode. Its Architecture must grant `episode_testing` and freeze the
+targets, criteria, scopes and modes it may use. `/run` delegates to the shared
+testing/refinement execution service; it does not grant testing access to other
+Episodes. Separately, `/build` owns its automatic build → refine → validate job;
+it does not wait for the user to launch refinement with `/run`. See the
+[unified harness guide](unified_episode_test_harness_design.md#in-episode-access).
+
 ## Launch file
+
+To create a launch file interactively without starting a Duet or contacting a
+model, run:
+
+```bash
+openchia test setup-launch --directory /absolute/path/to/new/private-launch
+```
+
+The wizard asks for model routes, service endpoints, API modes, project-defined
+function model slots, and the slots for Builder planning and emission. API keys are
+entered without echo and saved separately in `credentials.env` in the new private
+directory. Settings contain references, never key values. Existing directories
+are not overwritten. Load the resulting file with
+`/launch load /absolute/path/to/new/private-launch/launch.json`, then inspect
+`/launch preview` and approve its exact hash with `/launch approve HASH`.
+Setup does not grant approval. Harness `register-launch` requires the owning
+Duet's existing approval of the exact current configuration.
+
+For structured setup, `--from /path/to/existing/launch.json` preserves the
+existing explicit environment/credential references. `--prompt-credentials`
+optionally writes newly entered keys to the new private directory. Setup does
+not change the current conversation's model or launch selection. A resolution
+failure may leave a private credential file to inspect, but does not publish the
+public launch file. External HTTP credentials retain their existing egress
+configuration; this wizard configures model routing only.
 
 This JSON file contains settings and credential references. `.env` files hold
 the credentials. Relative `project_root` is relative to the launch file;
@@ -129,8 +213,14 @@ by that adapter. An adapter's model field is not proof of a provider's immutable
 backend revision.
 
 An explicit timeout applies to SDK transport I/O, including receiving Responses
-stream events. `timeout: None` in call options keeps the request unbounded and
-cancellable. No auxiliary task-default or no-progress watchdog is added.
+stream events. `timeout: None` keeps the original request unbounded and cancellable;
+no auxiliary task-default timeout is inherited. Newly resolved routes also freeze
+their [source health/recovery policy](model_call_recovery.md): inactivity can start
+a bounded side call without cancelling the original. Only a successful probe,
+continued silence and the frozen retry-capable policy permit replacement. Every
+new source uses the same default algorithm, with optional saved user overrides;
+there are no vendor-specific exceptions or request-status API requirements.
+Historical frozen routes without a recovery field retain their legacy behavior.
 
 ### Credentials
 
@@ -197,8 +287,9 @@ routing settings, not exact credentials, provider internals or model output.
 While reuse mode is selected, `/launch reload` asks you to select a file with
 `/launch load FILE`; it keeps the frozen selection intact.
 
-`fallbacks` is an ordered list of route names. After an attempt fails, only the
-listed routes are attempted, once each. Fallback lists on those entries are not
+`fallbacks` is an ordered list of route names. After a route fails, only the
+listed routes are attempted, once each; a route's frozen recovery policy can
+permit bounded physical replacements within that same route. Fallback lists on those entries are not
 recursively expanded. Cancellation stops the call rather than advancing to a
 fallback. SDK retries and implicit provider/account hopping are disabled.
 
@@ -226,11 +317,12 @@ dispatching its function's model slot. Endpoint and credential configuration sta
 on the host. Changing this worker protocol requires a fresh runtime package;
 there is no old-frame compatibility path.
 
-This feature concerns Builder and Run model calls. External acquisition services
+This feature concerns target Builder and Run model calls. It does not reroute
+the Duet or its IterativeEpisodeRefiner. External acquisition services
 use the existing host egress configuration; `duet_status` reports its allowed
 hosts and credential names so Duet can ask for missing setup during design.
-Those credentials are not model routes. Duet conversation routing and Refiner
-design/credit logic retain their existing ownership.
+Those credentials are not model routes. Refiner design/credit logic retains
+its existing ownership.
 
 The native Messages wire requires the repository's optional `anthropic` extra.
 A missing SDK is recorded as a failed attempt; it never switches to another

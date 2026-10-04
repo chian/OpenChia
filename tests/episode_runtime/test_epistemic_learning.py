@@ -12,7 +12,7 @@ from episode_runtime.contracts import RunEventKind, RunTerminalStatus, RunEventO
 from episode_runtime.learning import LearningLedger
 from episode_runtime.store import RunStore, RunStoreConflict
 
-from conftest import numerical_control, oid
+from .conftest import numerical_control, oid
 
 pytestmark = pytest.mark.platforms("linux")
 

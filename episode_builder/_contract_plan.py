@@ -7,6 +7,7 @@ import re
 from typing import Any, Mapping, Optional
 
 from agent.duet_contracts import content_id
+from agent.episode_call_contracts import EpisodeRepeatableCallSpec
 from agent.episode_contracts import Sha256Digest
 from handoff_library import HandoffPayloadContract
 
@@ -440,6 +441,7 @@ class EdgeMaterializationPlan:
     request_payload_contract: Mapping[str, object]
     result_payload_contract: Mapping[str, object]
     derivation_basis: Mapping[str, str]
+    repeatable_call: Optional[EpisodeRepeatableCallSpec] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -452,7 +454,16 @@ class EdgeMaterializationPlan:
             "child_local_id",
             _local_id(self.child_local_id, "child_local_id"),
         )
-        if self.parent_local_id == self.child_local_id:
+        if self.repeatable_call is not None:
+            if not isinstance(self.repeatable_call, EpisodeRepeatableCallSpec):
+                raise TypeError("repeatable_call must be an exact approved call binding")
+            if (
+                self.parent_local_id != self.repeatable_call.caller_local_id
+                or self.child_local_id != self.repeatable_call.callee_template_local_id
+                or self.slot_name != self.repeatable_call.slot_name
+            ):
+                raise ValueError("repeatable edge differs from its call binding")
+        elif self.parent_local_id == self.child_local_id:
             raise ValueError("an edge cannot make an Episode its own child")
         object.__setattr__(self, "slot_name", _token(self.slot_name, "slot_name"))
         child_interface = _text(
@@ -503,6 +514,7 @@ class EdgeMaterializationPlan:
             "request_payload_contract": _thaw_json(self.request_payload_contract),
             "result_payload_contract": _thaw_json(self.result_payload_contract),
             "derivation_basis": dict(self.derivation_basis),
+            **({"repeatable_call": self.repeatable_call.as_record()} if self.repeatable_call is not None else {}),
         }
 
     @classmethod
@@ -521,6 +533,10 @@ class EdgeMaterializationPlan:
                 "request_payload_contract",
                 "result_payload_contract",
                 "derivation_basis",
+                *({"repeatable_call"} if isinstance(value, Mapping) and "repeatable_call" in value else set()),
             },
         )
-        return cls(**record)
+        fields = dict(record)
+        if "repeatable_call" in fields:
+            fields["repeatable_call"] = EpisodeRepeatableCallSpec.from_record(fields["repeatable_call"])
+        return cls(**fields)

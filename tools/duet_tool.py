@@ -178,7 +178,7 @@ EPISODE_REFINEMENT_REQUEST_SCHEMA = {
     "name": "episode_refinement_request",
     "description": (
         "Submit one atomic refinement proposal against an exact baseline. "
-        "Carry the complete candidate workflow Architecture, the IDs of saved "
+        "Carry the complete proposed Target Workflow Architecture, the IDs of saved "
         "human notes used, and any implementation directives linked to exact "
         "saved note and target IDs. The host validates, classifies, and mints "
         "all proposal and decision identities."

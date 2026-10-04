@@ -20,10 +20,14 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from episode_library.models import EpisodeReference
 from function_library.epistemic_contract import EpistemicContract
+from function_library.testing_contract import CAPABILITY as TESTING_CAPABILITY, TestingContract
+
+if TYPE_CHECKING:
+    from .episode_call_contracts import EpisodeRepeatableCallSpec
 
 
 DEFAULT_EPISODE_UNIT = (
@@ -665,6 +669,7 @@ class EpisodeCreationSpec:
     capability_inheritance: CapabilityInheritance = CapabilityInheritance.PARENT
     egress_allowlist: tuple[EpisodeEgressRule, ...] = ()
     epistemic: Optional[EpistemicContract] = None
+    testing: Optional[TestingContract] = None
     def __post_init__(self) -> None:
         with contract_field("goal"):
             object.__setattr__(
@@ -742,6 +747,12 @@ class EpisodeCreationSpec:
                 if not isinstance(self.epistemic, EpistemicContract):
                     raise ValueError("epistemic must be an EpistemicContract")
                 self.epistemic.validate_components()
+        with contract_field("testing"):
+            if self.testing is not None:
+                if not isinstance(self.testing, TestingContract):
+                    raise ValueError("testing must be a TestingContract")
+                if TESTING_CAPABILITY not in self.execution_capability_names:
+                    raise ValueError("testing requires the approved episode_testing capability")
 
     def as_record(self) -> dict[str, Any]:
         record = {
@@ -762,6 +773,8 @@ class EpisodeCreationSpec:
         }
         if self.epistemic is not None:
             record["epistemic"] = self.epistemic.as_record()
+        if self.testing is not None:
+            record["testing"] = self.testing.as_record()
         return record
 
     def to_json(self) -> str:
@@ -787,7 +800,7 @@ class EpisodeCreationSpec:
                 "egress_allowlist",
                 "deliverable",
                 "capability_inheritance",
-            } | ({"epistemic"} if "epistemic" in record else set()),
+            } | ({"epistemic", "testing"} & set(record)),
             "Episode creation spec",
         )
         inheritance = _enum(
@@ -827,6 +840,8 @@ class EpisodeCreationSpec:
             egress_allowlist=egress_allowlist,
             epistemic=(EpistemicContract.from_record(record["epistemic"])
                        if "epistemic" in record else None),
+            testing=(TestingContract.from_record(record["testing"])
+                     if "testing" in record else None),
         )
 
     @classmethod
@@ -918,7 +933,11 @@ class EpisodeWorkflowSpec:
     """A complete flat declaration of a nested Episode workflow."""
 
     episodes: tuple[EpisodeDesignSpec, ...]
+    repeatable_calls: tuple["EpisodeRepeatableCallSpec", ...] = ()
+
     def __post_init__(self) -> None:
+        from .episode_call_contracts import validate_calls
+
         if not isinstance(self.episodes, tuple) or not self.episodes:
             raise ValueError("episodes must be a non-empty tuple")
         if any(not isinstance(item, EpisodeDesignSpec) for item in self.episodes):
@@ -942,10 +961,14 @@ class EpisodeWorkflowSpec:
                     raise ValueError("workflow parent relationships must be acyclic")
                 seen.add(cursor)
                 cursor = by_id[cursor].workflow_parent_local_id
+        validate_calls(self.repeatable_calls, set(by_id))
 
     def as_record(self) -> dict[str, Any]:
+        from .episode_call_contracts import calls_record
+
         return {
             "episodes": [item.as_record() for item in self.episodes],
+            **calls_record(self.repeatable_calls),
         }
 
     def to_json(self) -> str:
@@ -957,16 +980,18 @@ class EpisodeWorkflowSpec:
 
     @classmethod
     def from_record(cls, value: object) -> "EpisodeWorkflowSpec":
+        from .episode_call_contracts import calls_from_record
+
         record = _record(value, "Episode workflow spec")
         _keys(
             record,
-            {"episodes"},
+            {"episodes"} | ({"repeatable_calls"} if "repeatable_calls" in record else set()),
             "Episode workflow spec",
         )
         episodes = record["episodes"]
         if not isinstance(episodes, list):
             raise ValueError("episodes must be an array")
-        return cls(tuple(EpisodeDesignSpec.from_record(item) for item in episodes))
+        return cls(tuple(EpisodeDesignSpec.from_record(item) for item in episodes), calls_from_record(record))
 
     @classmethod
     def from_json(cls, payload: str) -> "EpisodeWorkflowSpec":

@@ -292,7 +292,7 @@ class RefinementBaseline:
 
 @dataclass(frozen=True)
 class RefinementTarget:
-    """Host-captured exact artifact location to which prose or a directive applies."""
+    """Exact location within the Target Workflow, not the entire workflow identity."""
 
     layer: RefinementTargetLayer
     artifact_id: OpaqueId
@@ -559,17 +559,19 @@ class ImplementationDirective:
 
 @dataclass(frozen=True)
 class RefinementProposal:
-    """Immutable selection of workspace notes and implementation directives."""
+    """Human-grounded proposal, optionally linked to executing-refiner evidence."""
 
     duet_id: OpaqueId
     baseline_id: OpaqueId
     summary: str
     note_ids: tuple[OpaqueId, ...]
     implementation_directives: tuple[ImplementationDirective, ...] = ()
+    review_handoff_id: Optional[OpaqueId] = None
 
     def __post_init__(self) -> None:
         _opaque(self.duet_id, "duet_id")
         _opaque(self.baseline_id, "baseline_id")
+        _optional_opaque(self.review_handoff_id, "review_handoff_id")
         object.__setattr__(
             self,
             "summary",
@@ -591,7 +593,7 @@ class RefinementProposal:
         object.__setattr__(self, "note_ids", note_ids)
 
     def identity_record(self) -> dict[str, Any]:
-        return {
+        record = {
             "duet_id": self.duet_id.value,
             "baseline_id": self.baseline_id.value,
             "summary": self.summary,
@@ -600,6 +602,10 @@ class RefinementProposal:
                 item.as_record() for item in self.implementation_directives
             ],
         }
+        # Unlinked historical proposals retain their exact bytes and identities.
+        if self.review_handoff_id is not None:
+            record["review_handoff_id"] = self.review_handoff_id.value
+        return record
 
     @property
     def proposal_id(self) -> OpaqueId:
@@ -618,6 +624,11 @@ class RefinementProposal:
 
     @classmethod
     def from_record(cls, value: object) -> "RefinementProposal":
+        optional_fields = (
+            {"review_handoff_id"}
+            if isinstance(value, Mapping) and "review_handoff_id" in value
+            else set()
+        )
         record = _mapping(
             value,
             {
@@ -628,7 +639,7 @@ class RefinementProposal:
                 "summary",
                 "note_ids",
                 "implementation_directives",
-            },
+            } | optional_fields,
             "refinement proposal",
         )
         note_ids = record["note_ids"]
@@ -642,6 +653,9 @@ class RefinementProposal:
             note_ids=tuple(OpaqueId(item) for item in note_ids),
             implementation_directives=tuple(
                 ImplementationDirective.from_record(item) for item in directives
+            ),
+            review_handoff_id=(
+                OpaqueId(record["review_handoff_id"]) if optional_fields else None
             ),
         )
         if (

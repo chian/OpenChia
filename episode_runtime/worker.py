@@ -1,8 +1,11 @@
-"""Isolated worker entrypoint for one non-resumable Episode Run."""
+"""Isolated worker entrypoint for one authenticated physical Run attempt."""
 
 from __future__ import annotations
 
 from function_library.reasoning_transport import reasoning_transport_scope
+from function_library.refinement_transport import refinement_transport_scope
+from function_library.testing import experiment_request, experiment_transport_scope
+from function_library.testing_contract import CAPABILITY as TESTING_CAPABILITY
 
 import argparse
 import asyncio
@@ -64,15 +67,25 @@ class WorkerError(RuntimeError):
     """The isolated worker cannot continue the one-shot Run."""
 
 
+def runtime_collaborators(plan):
+    """Supply only implemented, explicitly admitted worker capabilities."""
+    names = {name for node in plan.nodes for name in node.capability_names}
+    available = {TESTING_CAPABILITY: experiment_request}
+    unknown = names - available.keys()
+    if unknown:
+        raise WorkerError(
+            f"no worker collaborator for admitted capabilities: {sorted(unknown)}"
+        )
+    return {name: available[name] for name in names}
+
+
 def _failure_status(exc: BaseException) -> Mapping[str, object]:
     message = " ".join(str(exc).replace("\x00", " ").split())[:2048]
-    return MappingProxyType(
-        {
-            "outcome": "failed",
-            "failure_type": type(exc).__name__,
-            "failure": message or "isolated worker failure",
-        }
-    )
+    return MappingProxyType({
+        "outcome": "failed",
+        "failure_type": type(exc).__name__,
+        "failure": message or "isolated worker failure",
+    })
 
 
 class _ProtocolChannel:
@@ -96,6 +109,10 @@ class _ProtocolChannel:
         self._pending_http: dict[str, asyncio.Future[HttpTransportResponse]] = {}
         self._pending_learning: dict[str, asyncio.Future] = {}
         self._learning_ordinal = 0
+        self._pending_refinement: dict[str, asyncio.Future] = {}
+        self._refinement_ordinal = 0
+        self._pending_experiments: dict[str, asyncio.Future] = {}
+        self._experiment_ordinal = 0
         self.cancelled: asyncio.Future[CancelKind] = (
             asyncio.get_running_loop().create_future()
         )
@@ -112,7 +129,9 @@ class _ProtocolChannel:
                     raise ProtocolError("frame length is outside its admitted bound")
                 payload = await self.reader.readexactly(length)
             except asyncio.IncompleteReadError as exc:
-                raise ProtocolError("host protocol stream ended inside a frame") from exc
+                raise ProtocolError(
+                    "host protocol stream ended inside a frame"
+                ) from exc
             return self.decoder.decode(prefix + payload)
 
     async def send(
@@ -183,8 +202,8 @@ class _ProtocolChannel:
         request_id = content_id(
             "model_request",
             {
-                "run_id": self.binding.run_id.value,
-                "registration_hash": self.binding.registration_hash.value,
+                "run_id": self.binding.logical_run_id.value,
+                "registration_hash": self.binding.logical_registration_hash.value,
                 "episode_id": episode_id.value,
                 "ordinal": self._model_ordinal,
                 "request_hash": digest_record(request_record).value,
@@ -219,8 +238,8 @@ class _ProtocolChannel:
         request_id = content_id(
             "http_request",
             {
-                "run_id": self.binding.run_id.value,
-                "registration_hash": self.binding.registration_hash.value,
+                "run_id": self.binding.logical_run_id.value,
+                "registration_hash": self.binding.logical_registration_hash.value,
                 "episode_id": episode_id.value,
                 "ordinal": self._http_ordinal,
                 "request_hash": digest_record(request_record).value,
@@ -246,12 +265,19 @@ class _ProtocolChannel:
             self._pending_http.pop(request_id.value, None)
 
     async def receive_loop(self) -> None:
+        operation_pending = {
+            HostFrameType.REFINEMENT_RESPONSE.value: self._pending_refinement,
+            HostFrameType.LEARNING_RESPONSE.value: self._pending_learning,
+            HostFrameType.EXPERIMENT_RESPONSE.value: self._pending_experiments,
+        }
         while True:
             frame = await self.receive()
-            if frame.frame_type == HostFrameType.LEARNING_RESPONSE.value:
-                future = self._pending_learning.get(frame.body["request_id"])
+            if frame.frame_type in operation_pending:
+                future = operation_pending[frame.frame_type].get(
+                    frame.body["request_id"]
+                )
                 if future is None or future.done():
-                    raise ProtocolError("learning response has no outstanding request")
+                    raise ProtocolError("operation response has no outstanding request")
                 future.set_result(frame.body["response"])
                 continue
             if frame.frame_type == HostFrameType.MODEL_RESPONSE.value:
@@ -287,20 +313,54 @@ class _ProtocolChannel:
             )
 
     async def request_learning(self, operation, payload):
-        from .linker import current_runtime_episode_id
-        episode_id = current_runtime_episode_id()
-        request_id = content_id("learning_request", {"run_id": self.binding.run_id.value,
-            "episode_id": episode_id.value, "ordinal": self._learning_ordinal})
+        ordinal = self._learning_ordinal
         self._learning_ordinal += 1
+        return await self._request_scoped_operation(
+            "learning_request", self._pending_learning, ordinal, operation, payload
+        )
+
+    async def request_refinement(self, operation, payload):
+        ordinal = self._refinement_ordinal
+        self._refinement_ordinal += 1
+        return await self._request_scoped_operation(
+            "refinement_request", self._pending_refinement, ordinal, operation, payload
+        )
+
+    async def request_experiment(self, operation, payload):
+        ordinal = self._experiment_ordinal
+        self._experiment_ordinal += 1
+        return await self._request_scoped_operation(
+            "experiment_request", self._pending_experiments, ordinal, operation, payload
+        )
+
+    async def _request_scoped_operation(
+        self, kind, pending, ordinal, operation, payload
+    ):
+        episode_id = current_runtime_episode_id()
+        request_id = content_id(
+            kind,
+            {
+                "run_id": self.binding.logical_run_id.value,
+                "episode_id": episode_id.value,
+                "ordinal": ordinal,
+            },
+        )
         future = asyncio.get_running_loop().create_future()
-        self._pending_learning[request_id.value] = future
+        pending[request_id.value] = future
         try:
-            await self.send(WorkerFrameType.LEARNING_REQUEST.value, {
-                "request_id": request_id.value, "episode_id": episode_id.value,
-                "operation": operation, "payload": payload})
+            await self.send(
+                kind,
+                {
+                    "request_id": request_id.value,
+                    "episode_id": episode_id.value,
+                    "episode_path": current_runtime_episode_path(),
+                    "operation": operation,
+                    "payload": payload,
+                },
+            )
             return await future
         finally:
-            self._pending_learning.pop(request_id.value, None)
+            pending.pop(request_id.value, None)
 
 
 class _WorkerModelTransport:
@@ -355,6 +415,8 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
         registration_hash=Sha256Digest(arguments.registration_hash),
         manifest_id=OpaqueId(arguments.manifest_id),
         max_frame_bytes=arguments.max_frame_bytes,
+        logical_run_id=OpaqueId(arguments.logical_run_id) if getattr(arguments, "logical_run_id", None) else None,
+        logical_registration_hash=Sha256Digest(arguments.logical_registration_hash) if getattr(arguments, "logical_registration_hash", None) else None,
     )
     channel = _ProtocolChannel(binding=binding, reader=await _stream_reader())
     initialize = await channel.receive()
@@ -366,6 +428,8 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
         registration.run_id != binding.run_id
         or registration.registration_hash != binding.registration_hash
         or registration.manifest_id != binding.manifest_id
+        or registration.logical_run_id != binding.logical_run_id
+        or registration.logical_registration_hash != binding.logical_registration_hash
     ):
         raise WorkerError("initialize registration differs from worker binding")
 
@@ -406,13 +470,19 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
     ):
         raise WorkerError("start attestation differs from the live worker")
 
-    linked = activated.link(event_sink=channel.event, collaborators={})
+    linked = activated.link(
+        event_sink=channel.event, collaborators=runtime_collaborators(activated.plan)
+    )
     model_transport = _WorkerModelTransport(channel)
     http_transport = _WorkerHttpTransport(channel)
     receiver = asyncio.create_task(channel.receive_loop())
-    with model_transport_scope(model_transport), http_transport_scope(
-        http_transport
-    ), reasoning_transport_scope(channel.request_learning):
+    with (
+        model_transport_scope(model_transport),
+        http_transport_scope(http_transport),
+        reasoning_transport_scope(channel.request_learning),
+        refinement_transport_scope(channel.request_refinement),
+        experiment_transport_scope(channel.request_experiment),
+    ):
         run_task = asyncio.create_task(linked.run())
         done, _ = await asyncio.wait(
             {run_task, receiver, channel.cancelled},
@@ -426,9 +496,10 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
             except asyncio.CancelledError:
                 pass
             terminal_status = RunTerminalStatus.CANCELLED
-            typed_status: Mapping[str, object] = MappingProxyType(
-                {"outcome": "cancelled", "cancel_kind": cancel_kind.value}
-            )
+            typed_status: Mapping[str, object] = MappingProxyType({
+                "outcome": "cancelled",
+                "cancel_kind": cancel_kind.value,
+            })
         elif receiver in done:
             run_task.cancel()
             try:
@@ -469,6 +540,8 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="openchia-episode-worker")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--registration-hash", required=True)
+    parser.add_argument("--logical-run-id")
+    parser.add_argument("--logical-registration-hash")
     parser.add_argument("--manifest-id", required=True)
     parser.add_argument("--max-frame-bytes", required=True, type=int)
     parser.add_argument("--source-package", required=True)
