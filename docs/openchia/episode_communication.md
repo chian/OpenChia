@@ -71,6 +71,17 @@ that need to Parts rather than repeatedly requesting unchanged observations.
 
 ## Materialization
 
+The refiner's Designer and Implementer receive Builder's existing
+`required_module_contract` and per-node `structural_binding_contract` as typed
+working input. There is one authoring contract for initial construction and
+repair, not a second undocumented module format. It includes public imports,
+constructor signatures, required exports, and exact request-admission rules.
+When a node plan is missing, an Implementer can submit a plan-only candidate
+change; the following iteration receives the host-derived plan identities before
+writing source. The ordinary host admission and local checks evaluate each
+change. A Question child is not a general repository reader and cannot supply
+missing authoring APIs by rephrasing an unavailable investigation request.
+
 Each concrete child slot selects `component.report_S`, with interface
 `episode.report_synthesis`. Its request projection constructs the reporting
 contract; its report function explains how evidence becomes the requested
