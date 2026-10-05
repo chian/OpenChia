@@ -147,10 +147,14 @@ be presented as satisfying it. No full Target Workflow or live Claude Code
 acceptance is claimed.
 
 The launcher test runs the real Python entry point and child process. Direct
-execution through its standard repository `_hermes-python` shebang is not yet
-verified on this checkout: the existing PM activation is stale and that path
-would invoke environment setup. No activation stamps were fabricated and no
-dependency installation was performed for these checks.
+execution through its standard repository `_hermes-python` shebang also passed:
+`./scripts/openchia-codex --version` exited 0 with `codex-cli 0.160.0` and created
+the private workspace-default configuration under the owning OpenChia profile.
+The normal runtime-only PM activation refreshed the repository-managed
+dependencies and activation stamps; no activation state was fabricated. This
+is user-owned dependency setup, not a system package installation. The personal
+Codex configuration, shell startup file, AppArmor profile and global namespace
+setting were unchanged by this check.
 
 In production, ordinary Run continuation reuses committed responses and resumes
 unfinished coding state only after its prior owner has stopped. A changed

@@ -200,6 +200,12 @@ The personal Codex configuration and global namespace restriction were unchanged
 during verification. This does not prove operation without the restored host
 profile, nor satisfy the original no-machine-wide-workaround acceptance condition.
 
+The standalone executable launcher also passed `./scripts/openchia-codex
+--version` through the existing repository bootstrap, exiting 0 with Codex
+0.160.0. Normal runtime-only PM activation refreshed user-owned dependency state;
+it did not change personal Codex settings, shell startup files or host security
+policy. The private workspace-default configuration was created as intended.
+
 The deployment must support Codex's workspace sandbox. Do not substitute
 unrestricted execution or report a sandbox failure as validated implementation.
 See
