@@ -77,7 +77,8 @@ class OpenChiaCLI(
         "/bg": "Open and operate independent background Duets",
         "/approve": "Approve the exact current Architecture or refinement",
         "/decline": "Decline the pending refinement proposal",
-        "/build": "Materialize the approved workflow or inspect build status",
+        "/build": "Start, inspect or continue the build → refine → validate job",
+        "/launch": "Select and inspect explicit project/model launch configuration",
         "/run": "Run the admitted materialization or inspect Run evidence",
         "/logs": "Inspect one validated terminal Run audit log",
         "/stop": "Cancel every OpenChia-owned turn, build, and Run",
@@ -440,7 +441,7 @@ class OpenChiaCLI(
             for layer, note_id, target_id in sorted(candidates)
         )
         return _HostPreparedDuetTurn(
-            "A new human instruction for the current built workflow has been "
+            "A new human instruction for the current built Target Workflow has been "
             "persisted as these exact refinement candidates:\n"
             f"{candidate_lines}\n"
             "Read the exact saved instruction with episode_workspace_read "

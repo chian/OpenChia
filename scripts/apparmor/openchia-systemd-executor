@@ -1,0 +1,9 @@
+# Ubuntu 24.04 restricts capabilities inside unprivileged user namespaces.
+# Permit systemd's service launcher to construct its filesystem/network sandbox.
+# This applies to this binary's services, not only OpenChia. Install explicitly.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile openchia-systemd-executor /usr/lib/systemd/systemd-executor flags=(unconfined) {
+    userns,
+}

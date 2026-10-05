@@ -109,6 +109,7 @@ class RunStore:
         self._evidence = self.root / "evidence"
         self._audit_logs = self.root / "audit_logs"
         self._audit_chunks = self.root / "audit_chunks"
+        self._records = self.root / "records"
         self.runtime_sources_root = self.root / "runtime_sources"
         for directory in (
             self._registrations,
@@ -117,6 +118,7 @@ class RunStore:
             self._evidence,
             self._audit_logs,
             self._audit_chunks,
+            self._records,
             self.runtime_sources_root,
         ):
             directory.mkdir(mode=0o700, exist_ok=True)
@@ -261,6 +263,14 @@ class RunStore:
     def publish_registration(self, registration: RunRegistration) -> None:
         if not isinstance(registration, RunRegistration):
             raise TypeError("registration must be a RunRegistration")
+        from .records.index import RunRecordIndex
+        from .continuation import validate_resume_registration
+
+        validate_resume_registration(self, registration)
+
+        # A derived-index setup failure must not publish an unclaimed Run with
+        # no terminal event channel. Inspection still requires the registration.
+        RunRecordIndex(self).initialize(registration)
         self._publish_atomic_exclusive(
             self._registration_path(registration.run_id),
             registration.as_record(),
@@ -415,9 +425,19 @@ class RunStore:
         if not isinstance(kind, RunEventKind):
             raise TypeError("kind must be a RunEventKind")
         self._validate_sender_position(events, origin, sender_sequence)
+        from .components import validate_component_event
+        if origin is RunEventOrigin.WORKER:
+            validate_component_event(registration, kind, episode_id, payload)
+            from .units import validate_unit_event
+            validate_unit_event(registration, events, kind, episode_id, payload)
         if kind is RunEventKind.LEARNING_COMMITTED:
             from .learning_integrity import validate_learning_commit
-            validate_learning_commit(events=events, origin=origin, episode_id=episode_id, payload=payload)
+            from .learning_baseline import load_learning_baseline
+            validate_learning_commit(
+                events=(*self.read_execution_ancestors(registration), *events),
+                origin=origin, episode_id=episode_id, payload=payload,
+                baseline=load_learning_baseline(self, registration, episode_id),
+            )
         return RunEvent(
             run_id=registration.run_id,
             registration_hash=registration.registration_hash,
@@ -438,6 +458,9 @@ class RunStore:
     def _publish_event(self, event: RunEvent) -> None:
         path = self._event_directory(event.run_id) / f"{event.sequence:020d}.json"
         self._publish_atomic_exclusive(path, event.as_record(), "Run event")
+        from .records.index import RunRecordIndex
+
+        RunRecordIndex(self).event_committed(event)
 
     @staticmethod
     def _build_audit_chunks(
@@ -555,6 +578,9 @@ class RunStore:
             evidence.as_record(),
             "terminal Run evidence",
         )
+        from .records.index import RunRecordIndex
+
+        RunRecordIndex(self).evidence_committed(evidence)
         return evidence
 
     def append_event(
@@ -646,6 +672,10 @@ class RunStore:
     def complete_terminal_publication(self, run_id: OpaqueId) -> RunEvidence:
         """Idempotently finish artifacts after a persisted terminal head."""
 
+        try:
+            return self.read_evidence(run_id)
+        except RunStoreNotFound:
+            pass
         registration = self.read_registration(run_id)
         attestation = self.read_claim(run_id)
         with self._claim_lock(run_id):
@@ -725,74 +755,94 @@ class RunStore:
             ) from exc
         return audit_log, chunks
 
+    def read_run_record(self, run_id: OpaqueId) -> dict[str, Any]:
+        """Inspect maintained high-level facts without loading the audit chain."""
+        from .records.index import RunRecordIndex
+
+        return RunRecordIndex(self).inspect(run_id)
+
+    def read_inventory(self, run_id: OpaqueId, query: Mapping[str, object], **selection) -> dict[str, Any]:
+        """Inspect indexed invocation/unit facts without reconstructing the audit."""
+        from .records.inventory import inventory
+
+        return inventory(self, run_id, query, **selection)
+
+    def refresh_run_record(self, run_id: OpaqueId) -> dict[str, Any]:
+        """Explicitly rebuild the same view from verified evidence; never replay."""
+        from .records.index import RunRecordIndex
+
+        registration = self.read_registration(run_id)
+        attestation = self.read_claim(run_id)
+        try:
+            evidence = self.verify_terminal_snapshot(run_id).evidence
+        except RunStoreNotFound:
+            evidence = None
+        with self._claim_lock(run_id):
+            events = self._load_event_chain_locked(registration, attestation)
+            RunRecordIndex(self).rebuild(registration, events, evidence)
+        return self.read_run_record(run_id)
+
     def read_evidence(self, run_id: OpaqueId) -> RunEvidence:
+        return self.read_terminal_snapshot(run_id).evidence
+
+    def terminal_snapshot_scope(self, run_ids):
+        """Reuse named terminal histories until this host operation finishes."""
+        from .store_terminal import terminal_snapshot_scope
+
+        return terminal_snapshot_scope(self, run_ids)
+
+    def read_terminal_snapshot(self, run_id: OpaqueId):
+        """Verify terminal evidence/events together, or reuse a scoped snapshot."""
+        from .store_terminal import read_terminal_snapshot
+
+        return read_terminal_snapshot(self, run_id)
+
+    def verify_terminal_snapshot(self, run_id: OpaqueId):
+        """Independently reread all terminal artifacts, even inside a read scope."""
+        from .store_terminal import read_terminal_snapshot
+
+        return read_terminal_snapshot(self, run_id, verify=True)
+
+    def read_committed_prefix(self, run_id: OpaqueId) -> tuple[RunEvent, ...]:
+        """Inspect a verified journal prefix without claiming terminal evidence.
+
+        Experiment recording/status uses this for active or interrupted Runs.
+        Acceptance consumers must still use read_evidence/read_audit_log; those
+        require the independently published terminal evidence and audit chunks.
+        """
         registration = self.read_registration(run_id)
         attestation = self.read_claim(run_id)
         with self._claim_lock(run_id):
-            record = self._read_record(
-                self._evidence_path(run_id),
-                "terminal Run evidence",
-            )
-            try:
-                evidence = RunEvidence.from_record(record)
-            except (TypeError, ValueError) as exc:
-                raise RunStoreCorruption(
-                    "terminal Run evidence contract is invalid"
-                ) from exc
-            events = self._load_event_chain_locked(registration, attestation)
-            audit_log, chunks = self._read_audit_log_locked(evidence)
-            try:
-                evidence.validate_against(
-                    registration,
-                    attestation,
-                    audit_log,
-                    chunks,
-                )
-            except (TypeError, ValueError) as exc:
-                raise RunStoreCorruption(
-                    "terminal Run evidence does not match its event chain"
-                ) from exc
-            if audit_log.validate_chunks(chunks) != events:
-                raise RunStoreCorruption(
-                    "terminal audit chunks differ from append-only event records"
-                )
-            return evidence
+            return self._load_event_chain_locked(registration, attestation)
+
+    def read_execution_ancestors(
+        self, registration: RunRegistration,
+    ) -> tuple[RunEvent, ...]:
+        """Read validated terminal ancestors without locking this physical Run.
+
+        Safe inside its claim transaction: only immutable predecessor attempts
+        are read. The linkage is verified, never supplied as a ledger snapshot.
+        """
+        from .continuation import execution_lineage
+
+        return tuple(
+            event for ancestor in execution_lineage(self, registration)[:-1]
+            for event in self.read_audit_log(ancestor.run_id)
+        )
+
+    def read_execution_prefix(self, run_id: OpaqueId) -> tuple[RunEvent, ...]:
+        """Read exact continuation ancestors and this attempt's committed prefix.
+
+        Events keep their original physical Run, hash and sequence. This does
+        not republish evidence or credit and does not imply successful completion.
+        Unrelated Runs, even of the same workflow, are never included.
+        """
+        previous = self.read_execution_ancestors(self.read_registration(run_id))
+        return (*previous, *self.read_committed_prefix(run_id))
 
     def read_audit_log(self, run_id: OpaqueId) -> tuple[RunEvent, ...]:
         """Return only the validated terminal log; active prefixes are hidden."""
-
-        registration = self.read_registration(run_id)
-        attestation = self.read_claim(run_id)
-        with self._claim_lock(run_id):
-            evidence_record = self._read_record(
-                self._evidence_path(run_id),
-                "terminal Run evidence",
-            )
-            try:
-                evidence = RunEvidence.from_record(evidence_record)
-            except (TypeError, ValueError) as exc:
-                raise RunStoreCorruption(
-                    "terminal Run evidence contract is invalid"
-                ) from exc
-            events = self._load_event_chain_locked(registration, attestation)
-            audit_log, chunks = self._read_audit_log_locked(evidence)
-            try:
-                evidence.validate_against(
-                    registration,
-                    attestation,
-                    audit_log,
-                    chunks,
-                )
-            except (TypeError, ValueError) as exc:
-                raise RunStoreCorruption(
-                    "terminal Run evidence does not match its event chain"
-                ) from exc
-            chunk_events = audit_log.validate_chunks(chunks)
-            if chunk_events != events:
-                raise RunStoreCorruption(
-                    "terminal audit chunks differ from append-only event records"
-                )
-            return chunk_events
+        return self.read_terminal_snapshot(run_id).events
 
     def audit_log_location(self, run_id: OpaqueId) -> Path:
         """Return the exact immutable terminal audit-manifest path."""

@@ -705,6 +705,10 @@ class IterativeEpisodeRefiner:
             != baseline.authority_head_approval_id.value
         ):
             raise DuetProtocolError("proposal baseline is no longer current")
+        if proposal.review_handoff_id is not None:
+            from .handoff import validate_review_handoff
+
+            validate_review_handoff(self.store, proposal.review_handoff_id, baseline)
         for note_id in proposal.note_ids:
             note = self.load_note(note_id)
             if (
@@ -779,6 +783,10 @@ class IterativeEpisodeRefiner:
             "authority_head_approval_id"
         ]:
             raise DuetProtocolError("refinement baseline is no longer current")
+        if proposal.review_handoff_id is not None:
+            from .handoff import validate_review_handoff
+
+            validate_review_handoff(self.store, proposal.review_handoff_id, baseline)
         current = self.authority.resolve_current_build_authorization(
             identity.duet_id
         )
@@ -1095,6 +1103,7 @@ class IterativeEpisodeRefiner:
         candidate_workflow_architecture: Mapping[str, Any],
         human_note_ids: tuple[str, ...],
         implementation_directives: tuple[Mapping[str, str], ...],
+        review_handoff_id: Optional[str] = None,
     ) -> dict[str, Any]:
         self._assert_identity(identity)
         baseline = self.load_baseline(OpaqueId(baseline_id))
@@ -1147,6 +1156,9 @@ class IterativeEpisodeRefiner:
             ),
             note_ids=tuple(note.note_id for note in selected_notes),
             implementation_directives=tuple(directives),
+            review_handoff_id=(
+                OpaqueId(review_handoff_id) if review_handoff_id is not None else None
+            ),
         )
         self.record_proposal(proposal)
         cycle = self.begin(identity, proposal.proposal_id)

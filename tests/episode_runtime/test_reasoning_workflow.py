@@ -1,10 +1,10 @@
 """Real approval, Builder, package linker, host ledger and generic Episode loop.
 
-Only the external model is replaced by deterministic responses. Confinement
-attestation is inert fixture data; this test does not claim a live systemd Run.
+External model replies are supplied. One case uses in-process execution with
+fixture attestation; the native case exercises the real systemd worker and
+confinement. Neither case is a live-model reasoning benchmark.
 """
 
-import asyncio
 import json
 import os
 from pathlib import Path
@@ -27,7 +27,8 @@ from agent.episode_contracts import (
 from episode_builder._contract_chain import ApprovedBuildRequest
 from episode_builder.service import EpisodeBuilder
 from episode_builder.store import BuildStore
-from episode_library.inquiry import DESIGN, inquiry_contract
+from episode_library.reasoning import DESIGN
+from function_library.epistemic_contract import inquiry_contract
 from episode_library.models import EpisodeReference
 from episode_runtime.contracts import (
     RunEventKind,
@@ -38,7 +39,6 @@ from episode_runtime.contracts import (
 from episode_runtime.learning_broker import LearningBroker
 from episode_runtime.identity import materialize_runtime_source_package
 from episode_runtime.executor import make_systemd_run_executor_factory
-from episode_runtime.executor import ExecutorResources, RunExecutionError
 from episode_runtime.broker import ScopedModelBroker
 from episode_runtime.store import RunStore
 from episode_runtime.linker import current_runtime_episode_id, prepare_source_package
@@ -51,9 +51,10 @@ from handoff_library import (
     HandoffPayloadContract,
 )
 from llm_call_library.transport import ModelTransportResponse, model_transport_scope
+from llm_call_library import CallOptions
 from numeric_control_library import MARGINAL_DOMINATED_HYPERVOLUME
 
-from conftest import claim_store, numerical_control, oid
+from .conftest import claim_store, numerical_control, oid
 
 
 def _binding(role, function, arguments=None):
@@ -67,13 +68,17 @@ def _binding(role, function, arguments=None):
     }
 
 
-def _plan_response(prompt):
+def _plan_response(prompt, *, testing=False):
+    from function_library.testing import OPEN_SOURCE as TESTING_SOURCE
+
     payload = HandoffPayloadContract().as_record()
     bindings = [
         _binding(
             "admit_request", ADMIT_DUET_LAUNCH_REQUEST, {"payload_contract": payload}
         ),
-        _binding("open_source", OPEN_SOURCE),
+        _binding("open_source", TESTING_SOURCE if testing else OPEN_SOURCE, {
+            "selection_model_type": "selector", "execution_model_type": "executor",
+        }),
         _binding("controller.schema", SCHEMA),
         _binding("controller.composer", CONTROLLER),
         _binding("controller.credit", MARGINAL_DOMINATED_HYPERVOLUME),
@@ -95,9 +100,26 @@ def _plan_response(prompt):
     }
 
 
-def _module_response(prompt):
+def _module_response(
+    prompt,
+    *,
+    source_expression=None,
+    extra_source="",
+    controller_expression="host_controller_factory(goal_view, collaborators)",
+    episode_expression=None,
+):
     plan, contract = prompt["admitted_node_plan"], prompt["frozen_episode_contract"]
     bindings = {item["role"]: item for item in plan["selected_function_bindings"]}
+    source_class = (
+        "TestingSource"
+        if bindings["open_source"]["library"] == "testing"
+        else "ReasoningSource"
+    )
+    source_expression = source_expression or f'{source_class}(goal_view["goal"], **dict(BINDING.open_source.arguments))'
+    episode_expression = (
+        episode_expression
+        or f"Episode(grain=grain, key=key, request=request, source={source_expression}, build_result=build_reasoning_result)"
+    )
 
     def selected(role):
         value = {
@@ -116,39 +138,59 @@ def _module_response(prompt):
     components = ",".join(
         selected(role) for role in bindings if role.startswith("component.")
     )
+    slots = ",".join(
+        f"EpisodeChildSlot(name={edge['slot_name']!r}, accepted_interfaces=({edge['child_interface']!r},), "
+        f"build_child={selected('edge.' + edge['slot_name'] + '.build_child')}, "
+        f"prepare_request={selected('edge.' + edge['slot_name'] + '.prepare_request')}, "
+        f"receive_result={selected('edge.' + edge['slot_name'] + '.receive_result')})"
+        for edge in prompt.get("direct_edges", [])
+    )
+    call_definitions = ", BUILD_REPEATABLE_CHILD" if slots else ""
+    root_builders = (
+        ""
+        if plan["parent_local_id"] is not None
+        else """
+def build_goal_state(request, collaborators):
+    return ReasoningGoalState()
+def scope_goal_state(goal_state, goal):
+    return MappingProxyType({"goal": goal.objective})
+"""
+    )
     source = f"""
 from types import MappingProxyType
 from episode_library.models import EpisodeLibraryDesign
-from method_loop import Episode, EpisodeBindingDeclaration, EpisodeControllerBinding, EpisodeFunctionBinding, EpisodeTopologyRole
-from handoff_library import HandoffPayloadContract, ADMIT_DUET_LAUNCH_REQUEST
+from method_loop import Episode, EpisodeBindingDeclaration, EpisodeChildSlot, EpisodeControllerBinding, EpisodeFunctionBinding, EpisodeTopologyRole
+from handoff_library import HandoffPayloadContract, ADMIT_DUET_LAUNCH_REQUEST, ADMIT_PARENT_REQUEST, ADMIT_CHILD_RESULT
+from function_library.episode_calls import BUILD_REPEATABLE_CHILD
 from function_library.reasoning import OPEN_SOURCE, BUILD_RESULT, CONTROLLER, SCHEMA, ReasoningSource, ReasoningGoalState, build_reasoning_result, build_controller_factory as host_controller_factory
 from function_library.epistemic import epistemic_function_library
-from numeric_control_library import MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND
-REQUEST_PAYLOAD_CONTRACT = HandoffPayloadContract()
-RESULT_PAYLOAD_CONTRACT = HandoffPayloadContract()
+from function_library.testing import testing_function_library
+from function_library.testing_source import TestingSource
+from numeric_control_library import COMPOSE_INCIDENCE_CONTROLLER, MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND
+REQUEST_PAYLOAD_CONTRACT = HandoffPayloadContract.from_record({plan["request_payload_contract"]!r})
+RESULT_PAYLOAD_CONTRACT = HandoffPayloadContract.from_record({plan["result_payload_contract"]!r})
 PROMPTS = ()
-EXECUTION_CAPABILITY_NAMES = ()
+EXECUTION_CAPABILITY_NAMES = {tuple(contract["execution_capability_names"])!r}
 RESULT_CHANNEL_NAMES = {tuple(plan["result_channel_names"])!r}
 RESULT_CHANNEL_IDS = {tuple(plan["result_channel_ids"])!r}
 BINDING = EpisodeBindingDeclaration(
-    grain_name={plan["grain_name"]!r}, interface={plan["interface"]!r}, topology_role=EpisodeTopologyRole.LEAF,
+    grain_name={plan["grain_name"]!r}, interface={plan["interface"]!r}, topology_role=EpisodeTopologyRole.{plan["topology_role"].upper()},
     goal={contract["goal"]!r}, unit={contract["unit"]!r}, result={contract["result"]!r},
     progress={contract["progress"]!r}, stopping={contract["stopping"]!r},
     admit_request={selected("admit_request")}, open_source={selected("open_source")},
     controller=EpisodeControllerBinding(schema={selected("controller.schema")}, composer={selected("controller.composer")},
         credit={selected("controller.credit")}, rarefaction={selected("controller.rarefaction")}, continuation={selected("controller.continuation")}),
-    build_result={selected("build_result")}, components=({components},))
+    build_result={selected("build_result")}, components=({components}{"," if components else ""}), child_slots=({slots}{"," if slots else ""}))
 DESIGN = EpisodeLibraryDesign(qualified_name={plan["interface"]!r}, title='Task inquiry', binding=BINDING,
-    function_definitions=(ADMIT_DUET_LAUNCH_REQUEST, OPEN_SOURCE, BUILD_RESULT, CONTROLLER, SCHEMA,
-        MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND, *epistemic_function_library.functions()), source_symbols=())
+    function_definitions=tuple(function for function in (ADMIT_DUET_LAUNCH_REQUEST, ADMIT_PARENT_REQUEST, ADMIT_CHILD_RESULT, OPEN_SOURCE, BUILD_RESULT, CONTROLLER, SCHEMA,
+        COMPOSE_INCIDENCE_CONTROLLER, MARGINAL_DOMINATED_HYPERVOLUME, PAIRED_INCIDENCE, PREDICTED_CREDIT_UPPER_BOUND{call_definitions}, *epistemic_function_library.functions(), *testing_function_library.functions())
+        if function.definition_id in {{selection.definition_id for selection in BINDING.function_bindings()}}), source_symbols=())
 def build_controller_factory(goal_view, collaborators):
-    return host_controller_factory(goal_view, collaborators)
-def build_goal_state(request, collaborators):
-    return ReasoningGoalState()
-def scope_goal_state(goal_state, goal):
-    return MappingProxyType({{"goal": goal.objective}})
+    return {controller_expression}
+{root_builders}
 def build_episode(grain, key, request, goal_view, collaborators, child_builders):
-    return Episode(grain=grain, key=key, request=request, source=ReasoningSource(goal_view["goal"]), build_result=build_reasoning_result)
+    return {episode_expression}
+{extra_source}
 """
     return {
         "module_source": source,
@@ -158,7 +200,18 @@ def build_episode(grain, key, request, goal_view, collaborators, child_builders)
     }
 
 
-def _approved_request(tmp_path, *, spec=None, reference=DESIGN):
+def _approved_request(
+    tmp_path,
+    *,
+    spec=None,
+    reference=DESIGN,
+    repeatable_calls=(),
+    allowed_capabilities=(),
+    allowed_egress_hosts=(),
+    egress_credential_names=(),
+    duet_id=None,
+    workflow=None,
+):
     evidence = (
         {
             "kind": "support",
@@ -197,16 +250,23 @@ def _approved_request(tmp_path, *, spec=None, reference=DESIGN):
             evidence=evidence,
         ),
     )
-    workflow = EpisodeWorkflowSpec((
-        EpisodeDesignSpec(
-            "inquiry", None, spec, EpisodeReference(reference.episode_id)
+    workflow = workflow or EpisodeWorkflowSpec(
+        (
+            EpisodeDesignSpec(
+                "inquiry", None, spec, EpisodeReference(reference.episode_id)
+            ),
         ),
-    ))
+        repeatable_calls=repeatable_calls,
+    )
     with DuetStore(tmp_path / "duet.db") as store:
-        service = DuetService(store, allowed_episode_capabilities=())
+        service = DuetService(
+            store, allowed_episode_capabilities=allowed_capabilities,
+            allowed_egress_hosts=allowed_egress_hosts,
+            egress_credential_names=egress_credential_names,
+        )
         policy = DuetPolicy(oid("policy"))
         identity = DuetIdentity(
-            oid("duet"), oid("human"), policy.policy_id, oid("conversation")
+            duet_id or oid("duet"), oid("human"), policy.policy_id, oid("conversation")
         )
         service.open_duet(identity, policy)
         draft = service.record_initial_workflow_draft(
@@ -243,7 +303,11 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
         return ModelTransportResponse(text=json.dumps(response), route={})
 
     with model_transport_scope(builder_model):
-        receipt = await EpisodeBuilder(store=builder_store).build(request)
+        receipt = await EpisodeBuilder(store=builder_store,
+            planning_options=CallOptions(model_type="planner"),
+            emission_options=CallOptions(model_type="writer"),
+            model_slot_catalog={"selector": {}, "executor": {}},
+        ).build(request)
     assert receipt.status == "materialized", [d.as_record() for d in receipt.deficits]
     manifest = builder_store.read_manifest(receipt.manifest_id)
     runtime_identity = run_store[1].runtime_identity
@@ -375,16 +439,25 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
 
     try:
         if isolated:
+            from episode_runtime.http_broker import ScopedHttpBroker
+
+            async def no_http(*args, **kwargs):
+                raise AssertionError("This reasoning fixture has no HTTP capability")
+
             executor = make_systemd_run_executor_factory(
                 repository_root=Path(__file__).resolve().parents[2]
             )(store)
-            evidence = await asyncio.wait_for(
-                executor.execute(
-                    registration=registration,
-                    source_package_path=package,
-                    model_broker=ScopedModelBroker(inquiry_model),
+            # The canonical runner owns the operational timeout for this test.
+            evidence = await executor.execute(
+                registration=registration,
+                source_package_path=package,
+                model_broker=ScopedModelBroker.from_plan(inquiry_model, prepared.plan),
+                http_broker=ScopedHttpBroker(
+                    policy=registration.egress_policy,
+                    credentials={},
+                    transport=no_http,
+                    max_frame_bytes=registration.runtime_policy.max_frame_bytes,
                 ),
-                60,
             )
             outcome = evidence.typed_status
         else:
@@ -392,9 +465,7 @@ async def _exercise_workflow(tmp_path, run_store, *, isolated):
                 model_transport_scope(inquiry_model),
                 reasoning_transport_scope(learning),
             ):
-                outcome = await asyncio.wait_for(
-                    activated.link(event_sink=event_sink).run(), 60
-                )
+                outcome = await activated.link(event_sink=event_sink).run()
         broker.validate_completion(outcome)
         result = outcome["workflow_result"]
         assert (
@@ -465,8 +536,4 @@ async def test_live_confined_reasoning_worker(tmp_path, run_store, monkeypatch):
     )
     if status.returncode != 0:
         pytest.skip("live isolated Run requires a running user systemd manager")
-    try:
-        ExecutorResources.from_host_effective_allocation()
-    except RunExecutionError as exc:
-        pytest.skip(f"host cgroup allocation cannot be attested: {exc}")
     await _exercise_workflow(tmp_path, run_store, isolated=True)

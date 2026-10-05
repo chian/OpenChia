@@ -395,6 +395,12 @@ class ParentRequest(ClosedRecord):
             "flags": dict(self.flags),
         }
 
+    def audit_identifiers(self) -> tuple[str, ...]:
+        return (
+            self.request_id, self.parent_episode_id, self.child_episode_id, self.goal_id,
+            *(item for values in self.artifact_ids_by_role.values() for item in values),
+        )
+
 
 @dataclass(frozen=True)
 class ChildResult(ClosedRecord):
@@ -447,6 +453,13 @@ class ChildResult(ClosedRecord):
             "states": dict(self.states),
             "flags": dict(self.flags),
         }
+
+    def audit_identifiers(self) -> tuple[str, ...]:
+        return (
+            self.request_id, self.child_episode_id,
+            *(item for values in self.logical_identity_ids_by_channel.values() for item in values),
+            *(item for values in self.artifact_ids_by_role.values() for item in values),
+        )
 
 
 @dataclass(frozen=True)

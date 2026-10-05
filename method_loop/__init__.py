@@ -6,6 +6,7 @@ post-controller hooks around it.
 """
 
 from .runtime import Controller, ControllerFactory, ControllerRuntime, Path, Scope
+from .communication import ParentReport, ReportContract
 from .binding import (
     EpisodeBindingDeclaration,
     EpisodeChildSlot,
@@ -54,6 +55,8 @@ from .episode import (
 )
 
 __all__ = [
+    "ParentReport",
+    "ReportContract",
     "Path",
     "Scope",
     "Controller",

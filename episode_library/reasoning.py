@@ -1,6 +1,6 @@
 """Generic reasoning: adaptive inquiry inside an exact host-governed contract.
 
-Materialize an ordinary Episode with ReasoningSource(goal), the host receipt
+Materialize an ordinary Episode with explicitly selected model slots, the host receipt
 controller, and build_reasoning_result. The runtime injects the learning
 transport; generated modules must never implement a replacement ledger.
 The exact EpistemicContract is required in the human-approved Architecture.
@@ -33,7 +33,11 @@ BINDING = EpisodeBindingDeclaration(
     progress="Distinct admitted operative epistemic state transitions, measured by the host.",
     stopping="The registered numerical continuation rule resolves false after projected yield rarefies.",
     admit_request=ADMIT_PARENT_REQUEST.bind("admit_request"),
-    open_source=OPEN_SOURCE.bind("open_source"),
+    # Reference choices are visible binding arguments; materialization selects
+    # names from the project's approved launch catalog for each operation.
+    open_source=OPEN_SOURCE.bind("open_source", arguments={
+        "selection_model_type": "reasoning", "execution_model_type": "reasoning",
+    }),
     controller=EpisodeControllerBinding(
         schema=SCHEMA.bind("schema"),
         composer=CONTROLLER.bind("compose_controller"),

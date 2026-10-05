@@ -809,7 +809,7 @@ def project_materialized_specification(
         for item in request.frozen_workflow.workflow.episodes
     }
     edges_by_parent: dict[str, list[object]] = {}
-    for edge in plan.edges:
+    for edge in plan.all_edges:
         edges_by_parent.setdefault(edge.parent_local_id, []).append(edge.as_record())
     global_base = "/workflow_global"
     workflow_global = (

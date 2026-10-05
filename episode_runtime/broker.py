@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 import math
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, Protocol, runtime_checkable
 
 from agent.episode_contracts import Sha256Digest
 from llm_call_library import (
@@ -15,19 +15,57 @@ from llm_call_library import (
 )
 
 
-ADMITTED_MODEL_TASKS = frozenset(
-    {
-        "episode_structured_json_reasoning",
-        "episode_structured_json_fast",
-        "episode_probability_reasoning",
-        "episode_probability_fast",
-    }
-)
+ADMITTED_MODEL_TASKS = frozenset({
+    "episode_structured_json_reasoning",
+    "episode_structured_json_fast",
+    "episode_probability_reasoning",
+    "episode_probability_fast",
+})
 _FAST_REASONING_CONFIG = {"enabled": False, "effort": "none"}
 
 
 class ModelBrokerError(RuntimeError):
     """The worker requested authority outside the scoped model boundary."""
+
+
+@runtime_checkable
+class RecordedResponses(Protocol):
+    """Host-only source of exact, evidence-linked responses; never a live fallback."""
+
+    def take(self, kind: str, request: object, episode_path: object) -> dict: ...
+
+    @property
+    def latest_provenance(self) -> dict: ...
+
+
+def admitted_call_graph(plan):
+    """The same approved concrete/repeatable paths for every scoped host service."""
+    nodes = {node.local_id: node for node in plan.nodes}
+    paths, edges = {}, {}
+    for node in plan.nodes:
+        path, current = [], node
+        while current is not None:
+            path.append(current.grain_name)
+            current = nodes.get(current.parent_local_id)
+        paths[tuple(reversed(path))] = node.local_id
+    for edge in plan.all_edges:
+        key = (edge.parent_local_id, nodes[edge.child_local_id].grain_name)
+        if key in edges and edges[key] != edge.child_local_id:
+            raise ModelBrokerError("call graph has an ambiguous child grain")
+        edges[key] = edge.child_local_id
+    return paths, edges
+
+
+def resolve_call_path(paths, edges, grains):
+    local_id = paths.get(grains)
+    if local_id is not None:
+        return local_id
+    current = paths.get(grains[:1])
+    for grain in grains[1:]:
+        current = edges.get((current, grain))
+        if current is None:
+            break
+    return current
 
 
 def _mapping(value: object, name: str, fields: set[str]) -> Mapping[str, object]:
@@ -41,14 +79,13 @@ def model_request_record(request: ModelTransportRequest) -> dict[str, object]:
         raise TypeError("request must be a ModelTransportRequest")
     return {
         "task": request.task,
+        "model_type": request.model_type,
         "messages": [dict(item) for item in request.messages],
         "temperature": request.temperature,
         "max_tokens": request.max_tokens,
         "timeout": request.timeout,
         "reasoning_config": (
-            None
-            if request.reasoning_config is None
-            else dict(request.reasoning_config)
+            None if request.reasoning_config is None else dict(request.reasoning_config)
         ),
         "main_runtime": (
             None if request.main_runtime is None else dict(request.main_runtime)
@@ -62,6 +99,7 @@ def admit_model_request(value: object) -> ModelTransportRequest:
         "model request",
         {
             "task",
+            "model_type",
             "messages",
             "temperature",
             "max_tokens",
@@ -118,6 +156,7 @@ def admit_model_request(value: object) -> ModelTransportRequest:
         raise ModelBrokerError("worker cannot supply host runtime routing state")
     return ModelTransportRequest(
         task=task,
+        model_type=record["model_type"],
         messages=tuple(normalized_messages),
         temperature=(None if temperature is None else float(temperature)),
         max_tokens=max_tokens,
@@ -166,14 +205,62 @@ def model_response_hash(response: ModelTransportResponse) -> Sha256Digest:
 class ScopedModelBroker:
     """Invoke exactly one configured host transport for admitted requests."""
 
-    transport: ModelTransport
+    transport: ModelTransport | None
+    episode_paths: Mapping[tuple[str, ...], str]
+    episode_edges: Mapping[tuple[str, str], str] = field(default_factory=dict)
+    recording: RecordedResponses | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.transport, ModelTransport):
+        if self.recording is not None:
+            if (
+                not isinstance(self.recording, RecordedResponses)
+                or self.transport is not None
+            ):
+                raise TypeError(
+                    "recorded model calls require a recording and no live transport"
+                )
+        elif not isinstance(self.transport, ModelTransport):
             raise TypeError("transport must implement ModelTransport")
+        object.__setattr__(
+            self, "episode_paths", MappingProxyType(dict(self.episode_paths))
+        )
+        object.__setattr__(
+            self, "episode_edges", MappingProxyType(dict(self.episode_edges))
+        )
 
-    async def __call__(self, value: object) -> ModelTransportResponse:
+    @classmethod
+    def from_plan(cls, transport, plan, *, recording=None):
+        paths, edges = admitted_call_graph(plan)
+        return cls(transport, paths, edges, recording)
+
+    def response_provenance(self):
+        return (
+            {}
+            if self.recording is None
+            else {"reused_from": self.recording.latest_provenance}
+        )
+
+    def _local_id(self, grains):
+        return resolve_call_path(self.episode_paths, self.episode_edges, grains)
+
+    async def __call__(
+        self, value: object, *, episode_path: object
+    ) -> ModelTransportResponse:
+        from .protocol import ProtocolError, _episode_path
+
         request = admit_model_request(value)
+        try:
+            grains = tuple(part["grain"] for part in _episode_path(episode_path))
+        except ProtocolError as exc:
+            raise ModelBrokerError(str(exc)) from exc
+        local_id = self._local_id(grains)
+        if local_id is None:
+            raise ModelBrokerError("model call path is outside the admitted workflow")
+        if self.recording is not None:
+            return admit_model_response(
+                self.recording.take("model", value, episode_path)
+            )
+        request = replace(request, episode_local_id=local_id, call_role="run")
         response = await self.transport(request)
         if not isinstance(response, ModelTransportResponse):
             raise ModelBrokerError("host model transport returned another type")

@@ -61,6 +61,10 @@ def _parse_json(text: str) -> object:
             try:
                 value, _ = decoder.raw_decode(stripped[index:])
             except json.JSONDecodeError:
+                # A malformed container must not turn into its first valid key
+                # or nested value. Preserve the parse error for repair feedback.
+                if character in "[{":
+                    raise
                 continue
             return value
         raise first_error
@@ -102,6 +106,7 @@ async def _call_and_admit(
         response = await call_model_transport(
             ModelTransportRequest(
                 task=auxiliary_task,
+                model_type=options.model_type,
                 messages=tuple(_messages(system_prompt, prompt)),
                 temperature=options.temperature,
                 max_tokens=options.max_tokens,
@@ -121,7 +126,7 @@ async def _call_and_admit(
                 f"{type(exc).__name__}: {exc}",
             ),
             auxiliary_task=auxiliary_task,
-            route=(),
+            route=_route_record(getattr(exc, "route", {})),
         )
 
     route_record = _route_record(response.route)

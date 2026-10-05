@@ -15,9 +15,9 @@ from agent.episode_contracts import (
     EpisodeDesignSpec,
     EpisodeFunctionSelectionSpec,
     OpaqueId,
-    Sha256Digest,
 )
 from iterative_episode_refiner.contracts import RefinementChangeKind
+from episode_library.refinement import materialization_bindings, resolve_reference
 from function_library import LibraryFunction
 from handoff_library import (
     ADMIT_CHILD_RESULT,
@@ -28,7 +28,6 @@ from handoff_library import (
 from http_call_library import HTTP_JSON, HTTP_REQUEST
 from llm_call_library import (
     CallOptions,
-    ModelTier,
     PROBABILITY_JUDGMENT,
     PROBABILITY_VECTOR_JUDGMENT,
     STRUCTURED_JSON_COMPLETION,
@@ -68,7 +67,13 @@ from ._contract_plan import (
     EdgeMaterializationPlan,
     NodeMaterializationPlan,
 )
+from .evidence import ModelCallObserver, observe_model_call
 from .reference import EpisodeReferenceContext, EpisodeReferenceResolver
+from .plan_choices import (
+    install_architecture_bindings,
+    materialize_edge_choices,
+    materialize_node_choices,
+)
 
 
 _MODULE_PART = re.compile(r"[^a-z0-9_]+")
@@ -121,6 +126,15 @@ def _result_channel_ids(
     )
 
 
+def _require_exact_fields(value: Mapping, expected: set[str], name: str) -> None:
+    actual = set(value)
+    if actual != expected:
+        raise ValueError(
+            f"{name} fields must be exact; missing={sorted(expected - actual)!r}; "
+            f"unexpected={sorted(actual - expected, key=str)!r}"
+        )
+
+
 def _binding_record(value: object, name: str) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{name} must be an object")
@@ -134,8 +148,7 @@ def _binding_record(value: object, name: str) -> dict[str, object]:
         "arguments",
         "basis",
     }
-    if set(value) != required:
-        raise ValueError(f"{name} fields must be exact")
+    _require_exact_fields(value, required, name)
     for field in required - {"arguments"}:
         if not isinstance(value[field], str) or not value[field].strip():
             raise ValueError(f"{name}.{field} must be non-empty text")
@@ -160,8 +173,7 @@ def _component_record(value: object, name: str) -> dict[str, object]:
         "failure_contract",
         "basis",
     }
-    if set(value) != required:
-        raise ValueError(f"{name} fields must be exact")
+    _require_exact_fields(value, required, name)
     for field in required:
         if not isinstance(value[field], str) or not value[field].strip():
             raise ValueError(f"{name}.{field} must be non-empty text")
@@ -175,17 +187,14 @@ def _prompt_record(value: object, name: str) -> dict[str, object]:
         raise ValueError(f"{name} must be an object")
     required = {
         "name",
-        "model_tier",
+        "model_type",
         "purpose",
         "system_prompt",
         "prompt_template",
         "response_contract",
         "basis",
     }
-    if set(value) != required:
-        raise ValueError(f"{name} fields must be exact")
-    if value["model_tier"] not in {"reasoning", "fast"}:
-        raise ValueError(f"{name}.model_tier must be reasoning or fast")
+    _require_exact_fields(value, required, name)
     for field in required:
         if not isinstance(value[field], str) or not value[field].strip():
             raise ValueError(f"{name}.{field} must be non-empty text")
@@ -215,8 +224,7 @@ def _admit_plan_payload(value: object) -> dict[str, object]:
         "derivation_basis",
         "unresolved",
     }
-    if set(value) != expected:
-        raise ValueError("node materialization plan fields must be exact")
+    _require_exact_fields(value, expected, "node materialization plan")
     if not isinstance(value["interface"], str) or not value["interface"].strip():
         raise ValueError("interface must be non-empty text")
     result_channels = value["result_channel_names"]
@@ -268,8 +276,7 @@ def _admit_plan_payload(value: object) -> dict[str, object]:
             "build_child",
             "basis",
         }
-        if set(raw) != fields:
-            raise ValueError(f"child_slots[{index}] fields must be exact")
+        _require_exact_fields(raw, fields, f"child_slots[{index}]")
         for field in fields - {
             "request_payload_contract",
             "result_payload_contract",
@@ -320,11 +327,17 @@ def _admit_plan_payload(value: object) -> dict[str, object]:
 
 
 def _library_functions() -> tuple[LibraryFunction, ...]:
+    from function_library.episode_calls import BUILD_REPEATABLE_CHILD
     from function_library.epistemic import epistemic_function_library
     from function_library.reasoning import reasoning_function_library
+    from function_library.refinement import refinement_function_library
+    from function_library.testing import testing_function_library
     return (
+        BUILD_REPEATABLE_CHILD,
+        *testing_function_library.functions(),
         *epistemic_function_library.functions(),
         *reasoning_function_library.functions(),
+        *refinement_function_library.functions(),
         ADMIT_PARENT_REQUEST,
         ADMIT_CHILD_RESULT,
         ADMIT_DUET_LAUNCH_REQUEST,
@@ -356,6 +369,45 @@ def materializer_function_catalog() -> tuple[dict[str, object], ...]:
     functions = _library_functions()
     by_id = {item.definition_id: item.as_record() for item in functions}
     return tuple(by_id[key] for key in sorted(by_id))
+
+
+def required_model_types(prompt_specs, bindings) -> set[str]:
+    """Collect declared call slots, including calls encapsulated by library functions."""
+    slots = set()
+
+    def add(value, location):
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            raise ValueError(f"{location} requires an explicit model slot; rebuild this materialization")
+        slots.add(value)
+
+    for index, prompt in enumerate(prompt_specs):
+        add(prompt.get("model_type"), f"prompt_specs[{index}].model_type")
+    functions = {(function.library, function.function_id): function for function in _library_functions()}
+    for binding in bindings:
+        if binding["source"] == "generated":
+            continue
+        # Pointer identity is checked by plan admission. Slot requirements come
+        # from the implementation bundled in this host, including for old plans.
+        function = functions.get((binding["library"], binding["function_id"]))
+        if function is None:
+            continue
+        for parameter in function.provenance.get("model_slot_parameters", ()):
+            add(binding["arguments"].get(parameter), f"{binding['role']}.arguments.{parameter}")
+    return slots
+
+
+def _fixed_controller_functions(node):
+    composer = COMPOSE_INCIDENCE_CONTROLLER
+    refinement = resolve_reference(node.episode_reference)
+    if node.contract.epistemic is not None:
+        from function_library.reasoning import CONTROLLER
+        composer = CONTROLLER
+    elif refinement is not None:
+        composer = refinement.binding.controller.composer
+    return {
+        "controller.composer": composer,
+        "controller.credit": MARGINAL_DOMINATED_HYPERVOLUME,
+    }
 
 
 def _architecture_numeric_bindings(
@@ -431,6 +483,22 @@ def _architecture_numeric_bindings(
                 continuation_function_library.functions(),
             ),
         )
+        bindings += materialization_bindings(node.episode_reference)
+        supplied_roles = {item["role"] for item in bindings}
+        bindings += tuple(
+            {
+                "role": role,
+                "source": "library",
+                "library": function.library,
+                "function_id": function.function_id,
+                "interface": function.interface,
+                "definition_id": function.definition_id,
+                "arguments": {},
+                "basis": f"fixed runtime numerical method.{role}",
+            }
+            for role, function in _fixed_controller_functions(node).items()
+            if role not in supplied_roles
+        )
         if node.contract.epistemic is not None:
             from function_library.epistemic import resolve_component
             bindings += tuple(
@@ -501,10 +569,35 @@ def _planning_deficits(
         str(item["role"]): item
         for item in payload["selected_function_bindings"]
     }
+    refinement = resolve_reference(node.episode_reference)
+    if refinement is not None:
+        if node.contract.epistemic is not None:
+            add(
+                "refinement_contract_conflict", "epistemic",
+                "refinement and epistemic learning use distinct host controllers",
+            )
+        expected_payloads = {
+            "request_payload_contract": refinement.binding.admit_request.arguments["payload_contract"],
+            "result_payload_contract": refinement.binding.build_result.arguments["payload_contract"],
+        }
+        for field, expected in expected_payloads.items():
+            if _canonical(payload[field]) != _canonical(expected):
+                add(
+                    "refinement_payload_mismatch", field,
+                    "refinement must retain the exact reference handoff contract",
+                )
+        if (
+            payload["interface"] != refinement.binding.interface
+            or payload["result_channel_names"] != ["report"]
+        ):
+            add(
+                "refinement_interface_mismatch", "interface",
+                "refinement must retain its role interface and single report channel",
+            )
     for required in architecture_numeric_bindings:
         role = str(required["role"])
         actual = bindings.get(role)
-        if actual is not None and _canonical(actual) != _canonical(required):
+        if actual is None or _canonical(actual) != _canonical(required):
             add(
                 "numeric_binding_mismatch",
                 "numeric_control",
@@ -533,7 +626,8 @@ def _planning_deficits(
         for slot_name in slot_names
         for operation in ("build_child", "prepare_request", "receive_result")
     }
-    required_roles = _BASE_BINDING_ROLES | edge_roles
+    report_roles = {f"component.report_{slot_name}" for slot_name in slot_names}
+    required_roles = _BASE_BINDING_ROLES | edge_roles | report_roles
     missing_roles = sorted(required_roles - set(bindings))
     if missing_roles:
         add(
@@ -709,18 +803,11 @@ def _planning_deficits(
                 "selected_function_bindings",
                 f"{receive_role!r} must bind the exact child result payload contract",
             )
-    exact_controller_roles = {
-        "controller.composer": COMPOSE_INCIDENCE_CONTROLLER.definition_id,
-        "controller.credit": MARGINAL_DOMINATED_HYPERVOLUME.definition_id,
-    }
-    if node.contract.epistemic is not None:
-        from function_library.reasoning import CONTROLLER
-        exact_controller_roles["controller.composer"] = CONTROLLER.definition_id
-    for role, definition_id in exact_controller_roles.items():
+    for role, function in _fixed_controller_functions(node).items():
         binding = bindings.get(role)
         if binding is not None and (
             binding["source"] != "library"
-            or binding["definition_id"] != definition_id
+            or binding["definition_id"] != function.definition_id
         ):
             add(
                 "numeric_method_mismatch",
@@ -764,9 +851,35 @@ prompts, admissions, and projections into generated components. Credit owns
 stable identities, result channels, normalization, and marginal dominated
 hypervolume. Rarefaction consumes numerical incidence state. Continuation
 consumes the projected numerical credit band. Parent slots own child request
-and result projection; every receive_result component first applies exact
-child-result correlation admission and then projects on the parent's scale.
-The child owns request admission and its closed result.
+and result projection. The child owns request admission and its closed result.
+
+Design each parent-child edge around the decision the parent will make after
+the child returns. Before launch, the parent's request specifies the child's
+goal, the measurements judging its work, and the information needed for that
+decision. The parent edge first admits the correlated child result. Its reporting
+component synthesizes the requested information grouped by measurement:
+applicable outcomes, meaningful changes, blockers, and limitations. Explain
+what each returned field lets the parent decide and how its value is obtained.
+This synthesis lets the parent steer from the child's findings without
+reconstructing the child's investigation. Keep numerical credit projection
+separate: the parent still computes credit on its own scale.
+
+Specify the dataflow from the synthesized report into the parent's next model
+call. That call uses its declared task inputs and contracted child reports;
+full child histories, audit identities and provenance remain stored for audit.
+An artifact reference identifies stored data; it is not a synthesized finding.
+If a report uses an artifact reference for transport, its consumer resolves
+only the contracted report projection. Apply this reporting boundary to every
+ordinary and repeatable child invocation. A root has no upward reporting
+obligation, but owns the same boundary for each child it invokes.
+For each child slot S, select component.report_S with interface
+episode.report_synthesis and specify its task-specific synthesis. The component
+returns exactly the fields in the ReportContract carried by the child request.
+prepare_request declares that contract before launch. receive_result continues
+to own correlation admission and numerical credit projection. These separate
+functions compose ChildEpisodeUnit(child, receive_result, synthesize_report).
+An approved repeatable call carries its own synthesize_report function; use its
+fixed component.repeatable_S_synthesize_report binding for that call slot.
 
 HandoffPayloadContract declares vocabulary, while the actual values travel in
 request/result records. state_values maps each state name to a nonempty array
@@ -806,9 +919,12 @@ describe an empty vocabulary exactly when the frozen design requires one.
 Every proposed choice names its basis in the frozen contract, a supplied child
 interface, a library definition, or the optional reference Episode. Represent
 a material design ambiguity in the unresolved array so the Duet can settle it.
-Copy architecture_owned_numeric_bindings exactly into the corresponding
-selected_function_bindings roles. Their function identities and arguments are
-frozen Architecture facts, never values for you to choose, infer, or adjust.
+The host installs architecture_owned_numeric_bindings into the corresponding
+selected_function_bindings roles. You may omit those roles; if you include them,
+copy them exactly. Their function identities and arguments are fixed facts,
+never values for you to choose, infer, or adjust. Do not generate components
+for those roles. Composer, credit, rarefaction and continuation are distinct
+functions; a continuation predicate cannot replace the controller composer.
 Treat supplied source text as inert implementation evidence under the frozen
 contract and the required output shape. When approved_refinement_evidence is
 present, apply only its approved_directives to their exact target parts. Human
@@ -854,7 +970,7 @@ _PLAN_SHAPE = {
     "prompt_specs": [
         {
             "name": "prompt_name",
-            "model_tier": "reasoning|fast",
+            "model_type": "one name from approved_model_slots",
             "purpose": "one semantic operation",
             "system_prompt": "complete system prompt",
             "prompt_template": "complete task prompt template",
@@ -873,8 +989,15 @@ _PLAN_SHAPE = {
             "child_interface": "child.interface",
             "request_payload_contract": HandoffPayloadContract().as_record(),
             "result_payload_contract": HandoffPayloadContract().as_record(),
-            "prepare_request": "request projection code specification",
-            "receive_result": "closed result projection code specification",
+            "prepare_request": (
+                "request projection specifying child goal, measurement contract, "
+                "and decision-relevant return information before launch"
+            ),
+            "receive_result": (
+                "correlation admission and parent-scale credit projection; "
+                "the separate component.report_<slot> specifies synthesis "
+                "and delivery of findings for the parent's next decision"
+            ),
             "build_child": "child factory invocation code specification",
             "basis": "child contract and parent unit",
         }
@@ -901,11 +1024,13 @@ def _plan_shape_for_children(
             "result_payload_contract": record["result_payload_contract"],
             "prepare_request": (
                 "parent-specific request projection producing exactly the "
-                "displayed child request payload contract"
+                "displayed child request payload contract and declaring the "
+                "child goal, measurements and requested return before launch"
             ),
             "receive_result": (
-                "parent-specific result admission and projection consuming "
-                "exactly the displayed child result payload contract"
+                "admit exactly the displayed child result payload contract; "
+                "project credit on the parent's scale. Declare the separate "
+                "report synthesis in component.report_<chosen slot name>"
             ),
             "build_child": "child factory invocation specification",
             "basis": "matching finalized direct_children record",
@@ -1035,12 +1160,16 @@ class EpisodeMaterializationPlanner:
         self,
         *,
         reference_resolver: EpisodeReferenceResolver,
-        call_options: CallOptions | None = None,
+        call_options: CallOptions,
+        model_slot_catalog: Mapping[str, object] | None = None,
     ) -> None:
         if not isinstance(reference_resolver, EpisodeReferenceResolver):
             raise TypeError("planner requires an EpisodeReferenceResolver")
         self.reference_resolver = reference_resolver
-        self.call_options = call_options or CallOptions(tier=ModelTier.REASONING)
+        if not isinstance(call_options, CallOptions):
+            raise TypeError("planner requires explicit CallOptions")
+        self.call_options = call_options
+        self.model_slot_catalog = dict(model_slot_catalog or {})
 
     @staticmethod
     def _children_by_parent(
@@ -1080,6 +1209,8 @@ class EpisodeMaterializationPlanner:
         approved_refinement_evidence: Mapping[str, object] | None,
         predecessor_node: NodeMaterializationPlan | None,
         architecture_numeric_bindings: tuple[Mapping[str, object], ...],
+        model_call_observer: ModelCallObserver | None = None,
+        repeatable_calls: tuple = (),
     ) -> tuple[dict[str, object] | None, EpisodeReferenceContext | None, BuildDeficit | None]:
         reference_context: EpisodeReferenceContext | None = None
         if node.episode_reference is not None:
@@ -1096,9 +1227,26 @@ class EpisodeMaterializationPlanner:
             ADMIT_DUET_LAUNCH_REQUEST if is_root else ADMIT_PARENT_REQUEST
         )
         prompt_record = {
+            "approved_model_slots": self.model_slot_catalog,
+            "model_selection_rule": (
+                "Each prompt_spec.model_type names one approved_model_slots entry. "
+                "Choose per function; one Episode can use different slots. "
+                "The human's launch configuration owns model, provider, endpoint, "
+                "reasoning effort and credentials. Generated LLM calls use "
+                "llm_call_library.CallOptions(model_type=the_declared_slot)."
+                " Library functions may encapsulate calls: supply each function's "
+                "provenance.model_slot_parameters in its binding arguments, using "
+                "approved slot names. Reference binding slot names are examples to "
+                "adapt to this project's approved catalog."
+            ),
             "node": node.as_record(),
             "position": "root" if is_root else "child",
             "direct_children": [child.as_record() for child in child_plans],
+            **({"architecture_owned_repeatable_calls": {
+                "bindings": [call.as_record() for call in repeatable_calls],
+                "planning_rule": "These exact calls are additional to the concrete tree. Reserve outgoing slot names; the host adds their fixed bindings after all concrete templates have been planned. Do not duplicate them in child_slots or invent replacement functions. Choose a source/dataflow that can use these declared asynchronous child builders.",
+                "callee_rule": "A called template receives ParentRequest through its frozen request contract. Preserve runtime-supplied goal scoping. A template with an empty Duet launch contract cannot receive nonempty parent payloads; use a separately declared child entry when needed.",
+            }} if repeatable_calls else {}),
             "core_function_catalog": list(materializer_function_catalog()),
             "architecture_owned_numeric_bindings": list(
                 architecture_numeric_bindings
@@ -1107,7 +1255,8 @@ class EpisodeMaterializationPlanner:
                 "required_base_roles": sorted(_BASE_BINDING_ROLES),
                 "child_edge_roles": (
                     "For each child slot S, declare edge.S.build_child, "
-                    "edge.S.prepare_request, and edge.S.receive_result."
+                    "edge.S.prepare_request, edge.S.receive_result, and "
+                    "component.report_S with interface episode.report_synthesis."
                 ),
                 "additional_component_role_shape": "component.<binding_name>",
                 "required_request_admission_pointer": {
@@ -1141,12 +1290,15 @@ class EpisodeMaterializationPlanner:
                 ),
                 "child_result_correlation": (
                     "edge receive_result is a task-specific wrapper that calls "
-                    "handoff_library.admit_child_result before parent-local "
-                    "credit projection"
+                    "handoff_library.admit_child_result before projecting "
+                    "parent-local credit. The separate component.report_S "
+                    "synthesizes requested findings, describing their decision "
+                    "purpose, measurement meanings, and next-model-input path."
                 ),
                 "numeric_control_rule": (
-                    "copy architecture_owned_numeric_bindings exactly; do not "
-                    "supply or alter any rarefaction or continuation argument"
+                    "the host installs architecture_owned_numeric_bindings; "
+                    "omit these fixed roles or copy them exactly, never infer "
+                    "replacements or generate components for them"
                 ),
             },
             "reference": (
@@ -1158,13 +1310,48 @@ class EpisodeMaterializationPlanner:
             ),
             "required_output_shape": _plan_shape_for_children(child_plans),
         }
-        result = await structured_json_completion(
-            StructuredJSONRequest(
-                system_prompt=_PLANNER_SYSTEM_PROMPT,
-                prompt=_canonical(prompt_record),
-                admit=_admit_plan_payload,
-                options=self.call_options,
+        refinement = resolve_reference(node.episode_reference)
+        if refinement is not None:
+            shape = prompt_record["required_output_shape"]
+            shape.update({
+                "interface": refinement.binding.interface,
+                "result_channel_names": ["report"],
+                "request_payload_contract": refinement.binding.admit_request.as_record()["arguments"]["payload_contract"],
+                "result_payload_contract": refinement.binding.build_result.as_record()["arguments"]["payload_contract"],
+            })
+            for slot in shape["child_slots"]:
+                slot["slot_name"] = slot["child_interface"].removeprefix("refinement.")
+            prompt_record["reference_execution_contract"] = {
+                "rule": "Use the exact reference adapters installed in architecture_owned_numeric_bindings. Do not generate a replacement controller, role loop, or host ledger.",
+                "child_slots": "Use each concrete child's role as its slot name. Additional declared calls are installed by the host; do not copy repeatable guard components out of the reference into this partial concrete plan.",
+                "wrapper": "Delegate build_episode to function_library.refinement.build_refinement_episode with the frozen role and declared_channel_ids=RESULT_CHANNEL_IDS. It owns the nested role loop. The root scope_goal_state returns a fresh MappingProxyType({'goal': goal.objective}).",
+                "handoff": "The single report channel identifies the host report. Result construction and child result projection bind the fixed result payload and the materializer's exact applicable node/edge channel IDs.",
+            }
+        from llm_call_library.transport import model_call_scope
+        def admit_with_slots(value):
+            payload = _admit_plan_payload(value)
+            unknown = required_model_types(payload["prompt_specs"], payload["selected_function_bindings"]) - self.model_slot_catalog.keys()
+            if unknown:
+                raise ValueError(f"materialization references unapproved model slots: {sorted(unknown)}")
+            return payload
+
+        with model_call_scope(node.local_id, "builder.planning"):
+            result = await structured_json_completion(
+                StructuredJSONRequest(
+                    system_prompt=_PLANNER_SYSTEM_PROMPT,
+                    prompt=_canonical(prompt_record),
+                    admit=admit_with_slots,
+                    options=self.call_options,
+                )
             )
+        observe_model_call(
+            model_call_observer,
+            stage="planning",
+            local_id=node.local_id,
+            system_prompt=_PLANNER_SYSTEM_PROMPT,
+            prompt=_canonical(prompt_record),
+            prompt_record=prompt_record,
+            result=result,
         )
         if not result.succeeded or result.value is None:
             failure = result.failure
@@ -1178,16 +1365,9 @@ class EpisodeMaterializationPlanner:
                 ),
                 episode_local_id=node.local_id,
             )
-        payload = dict(result.value)
-        numeric_roles = {
-            str(binding["role"])
-            for binding in architecture_numeric_bindings
-        }
-        payload["selected_function_bindings"] = [
-            binding
-            for binding in payload["selected_function_bindings"]
-            if str(binding["role"]) not in numeric_roles
-        ] + [dict(binding) for binding in architecture_numeric_bindings]
+        payload = install_architecture_bindings(
+            result.value, architecture_numeric_bindings
+        )
         return payload, reference_context, None
 
     async def plan(
@@ -1196,6 +1376,7 @@ class EpisodeMaterializationPlanner:
         build_attempt: BuildAttempt,
         *,
         predecessor_plan: WorkflowMaterializationPlan | None = None,
+        model_call_observer: ModelCallObserver | None = None,
     ) -> WorkflowMaterializationPlan:
         if not isinstance(build_request, ApprovedBuildRequest):
             raise TypeError("planner requires ApprovedBuildRequest")
@@ -1320,6 +1501,11 @@ class EpisodeMaterializationPlanner:
                 ),
                 predecessor_node=predecessor_nodes.get(node.local_id),
                 architecture_numeric_bindings=architecture_numeric_bindings,
+                model_call_observer=model_call_observer,
+                **({"repeatable_calls": tuple(
+                    call for call in workflow.repeatable_calls
+                    if node.local_id in (call.caller_local_id, call.callee_template_local_id)
+                )} if workflow.repeatable_calls else {}),
             )
             if failure is not None:
                 deficits.append(failure)
@@ -1345,57 +1531,12 @@ class EpisodeMaterializationPlanner:
                         episode_local_id=node.local_id,
                     )
                 )
-            selected = tuple(payload["selected_function_bindings"])
-            result_channel_names = tuple(payload["result_channel_names"])
-            function_ids = tuple(
-                sorted(
-                    {
-                        str(item["definition_id"])
-                        for item in selected
-                        if str(item.get("source")) == "library"
-                    }
-                )
-            )
-            slot_names = tuple(str(item["slot_name"]) for item in payload["child_slots"])
             try:
-                plan = NodeMaterializationPlan(
-                    local_id=node.local_id,
-                    parent_local_id=node.workflow_parent_local_id,
-                    contract_hash=node.contract.spec_hash,
-                    reference_episode_id=(
-                        None
-                        if node.episode_reference is None
-                        else node.episode_reference.episode_id
-                    ),
-                    reference_evidence_hash=(
-                        None
-                        if reference_context is None
-                        else Sha256Digest.of_record(reference_context.as_record())
-                    ),
-                    module_name=_module_name(
-                        node.local_id,
-                        node.contract.spec_hash.value,
-                    ),
-                    interface=str(payload["interface"]),
-                    grain_name=node.local_id,
-                    topology_role="branch" if children else "leaf",
-                    function_definition_ids=function_ids,
-                    capability_names=node.contract.execution_capability_names,
-                    result_channel_names=result_channel_names,
-                    result_channel_ids=_result_channel_ids(
-                        node,
-                        result_channel_names,
-                    ),
-                    request_payload_contract=payload["request_payload_contract"],
-                    result_payload_contract=payload["result_payload_contract"],
-                    selected_function_bindings=selected,
-                    generated_component_specs=tuple(
-                        payload["generated_component_specs"]
-                    ),
-                    prompt_specs=tuple(payload["prompt_specs"]),
-                    goal_state_spec=payload["goal_state_spec"],
-                    child_slot_names=slot_names,
-                    derivation_basis=payload["derivation_basis"],
+                plan = materialize_node_choices(
+                    node,
+                    payload,
+                    reference_context,
+                    has_children=bool(children),
                 )
             except (TypeError, ValueError) as exc:
                 deficits.append(
@@ -1515,23 +1656,7 @@ class EpisodeMaterializationPlanner:
                 )
                 continue
             edges.append(
-                EdgeMaterializationPlan(
-                    parent_local_id=parent_local_id,
-                    child_local_id=child_local_id,
-                    slot_name=str(raw["slot_name"]),
-                    child_interface=child.interface,
-                    prepare_request=str(raw["prepare_request"]),
-                    receive_result=str(raw["receive_result"]),
-                    build_child=str(raw["build_child"]),
-                    request_payload_contract=child.request_payload_contract,
-                    result_payload_contract=child.result_payload_contract,
-                    derivation_basis={
-                        "prepare_request": raw["prepare_request"],
-                        "receive_result": raw["receive_result"],
-                        "build_child": raw["build_child"],
-                        "basis": raw["basis"],
-                    },
-                )
+                materialize_edge_choices(parent_local_id, child, raw)
             )
             used_children.add(child_local_id)
             used_slots.add(slot_key)
@@ -1547,9 +1672,28 @@ class EpisodeMaterializationPlanner:
                     code="edge_unplanned",
                     field_path="workflow_parent_local_id",
                     detail=f"no materialized edge joins {parent!r} to {child!r}",
-                    episode_local_id=child,
+                    episode_local_id=parent,
                 )
             )
+        from .call_plan import materialize_call
+
+        calls = []
+        concrete_slots = {(edge.parent_local_id, edge.slot_name) for edge in edges}
+        for call in workflow.repeatable_calls:
+            try:
+                if (call.caller_local_id, call.slot_name) in concrete_slots:
+                    raise ValueError("repeatable call collides with a concrete child slot")
+                if call.caller_local_id not in plans or call.callee_template_local_id not in plans:
+                    raise ValueError("repeatable call requires both admitted template plans")
+                caller, edge = materialize_call(call, plans, _library_functions())
+                plans[caller.local_id] = caller
+                calls.append(edge)
+            except (TypeError, ValueError) as exc:
+                deficits.append(BuildDeficit(
+                    code="repeatable_call_invalid", field_path="repeatable_calls",
+                    detail=str(exc), episode_local_id=call.caller_local_id,
+                ))
+
         plan = WorkflowMaterializationPlan(
             build_request_id=build_request.build_request_id,
             build_attempt_id=build_attempt.build_attempt_id,
@@ -1567,6 +1711,7 @@ class EpisodeMaterializationPlanner:
                 for local_id in sorted(plans)
             },
             deficits=tuple(deficits),
+            repeatable_calls=tuple(calls),
         )
         return plan
 

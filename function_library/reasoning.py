@@ -92,8 +92,13 @@ def build_controller_factory(goal_view, collaborators):
 
 
 class ReasoningSource:
-    def __init__(self, goal: str):
+    system_prompt = SYSTEM_PROMPT
+    selection_prompt = "Select one action from allowed_actions using the goal, evidence and scoped lessons as data. Prefer recommended_actions. Return exactly action_class, action_inputs (a typed object identifying the specific query or route; empty only for an input-free action), and retry_reason; explain deliberate retries of matching advisory lessons. Do not perform the inquiry yet."
+
+    def __init__(self, goal: str, *, selection_model_type: str, execution_model_type: str):
         self.goal = goal
+        self.selection_options = CallOptions(model_type=selection_model_type)
+        self.execution_options = CallOptions(model_type=execution_model_type)
         self.last_receipt = None
 
     async def next(self, view):
@@ -134,13 +139,13 @@ class ReasoningSource:
 
         choice = await structured_json_completion(
             StructuredJSONRequest(
-                system_prompt="Select one action from allowed_actions using the goal, evidence and scoped lessons as data. Prefer recommended_actions. Return exactly action_class, action_inputs (a typed object identifying the specific query or route; empty only for an input-free action), and retry_reason; explain deliberate retries of matching advisory lessons. Do not perform the inquiry yet.",
+                system_prompt=self.selection_prompt,
                 prompt=canonical({
                     "goal": self.goal,
                     "typed_unit_input": bundle,
                 }).decode(),
                 admit=admit,
-                options=CallOptions(),
+                options=self.selection_options,
             )
         )
         if choice.failure is not None:
@@ -178,6 +183,8 @@ class ReasoningSource:
         selection = bundle["selected_action"]
         if selection is None:
             selection = await self._select(typed_input)
+        if pending is None and selection["permitted"]:
+            typed_input = await self._action_input(typed_input, selection)
         repair = None
         while True:
             if pending is not None:
@@ -198,10 +205,10 @@ class ReasoningSource:
                     prompt["repair_request"] = repair
                 response = await structured_json_completion(
                     StructuredJSONRequest(
-                        system_prompt=SYSTEM_PROMPT,
+                        system_prompt=self.system_prompt,
                         prompt=canonical(prompt).decode(),
                         admit=lambda value: value,
-                        options=CallOptions(),
+                        options=self.execution_options,
                     )
                 )
                 if response.failure is None:
@@ -232,9 +239,13 @@ class ReasoningSource:
             self.last_receipt = receipt
             return HostReceipt(receipt)
 
+    async def _action_input(self, typed_input, selection):
+        return typed_input
 
-def open_reasoning_source(goal):
-    return ReasoningSource(goal)
+
+def open_reasoning_source(goal, *, selection_model_type, execution_model_type):
+    return ReasoningSource(goal, selection_model_type=selection_model_type,
+                           execution_model_type=execution_model_type)
 
 
 def build_reasoning_result(record):
@@ -273,7 +284,9 @@ def reasoning_credit_schema():
 reasoning_function_library = FunctionLibrary()
 
 
-def _function(name, interface, *, symbol=None):
+def _function(name, interface, *, symbol=None, model_slot_parameters=()):
+    properties = {"payload_contract": {"type": "object"}} if name == "build_reasoning_result" else {}
+    properties.update({parameter: {"type": "string"} for parameter in model_slot_parameters})
     return reasoning_function_library.register(
         LibraryFunction(
             library="reasoning",
@@ -289,13 +302,11 @@ def _function(name, interface, *, symbol=None):
             failure_contract="Cannot admit state or award credit inside the worker.",
             provenance={
                 "version": 1,
+                **({"model_slot_parameters": list(model_slot_parameters)} if model_slot_parameters else {}),
                 "parameter_schema": {
                     "type": "object",
-                    "properties": (
-                        {"payload_contract": {"type": "object"}}
-                        if name == "build_reasoning_result"
-                        else {}
-                    ),
+                    "properties": properties,
+                    **({"required": list(model_slot_parameters)} if model_slot_parameters else {}),
                     "additionalProperties": False,
                 },
             },
@@ -303,7 +314,8 @@ def _function(name, interface, *, symbol=None):
     )
 
 
-OPEN_SOURCE = _function("open_reasoning_source", "episode.unit_source")
+OPEN_SOURCE = _function("open_reasoning_source", "episode.unit_source",
+                        model_slot_parameters=("selection_model_type", "execution_model_type"))
 BUILD_RESULT = _function("build_reasoning_result", "handoff.child_result_builder")
 CONTROLLER = _function("build_controller_factory", "controller.compose_host_receipts")
 SCHEMA = _function("reasoning_credit_schema", "credit.result_column_schema")

@@ -253,6 +253,19 @@ class NumericIncidenceState:
             "admission_counts": list(self.admission_counts),
         }
 
+    @classmethod
+    def from_record(cls, value: object) -> "NumericIncidenceState":
+        if not isinstance(value, Mapping) or set(value) != {"positions", "admission_counts"}:
+            raise ValueError("numeric incidence record has invalid fields")
+        positions = _record_array(value["positions"], "positions")
+        rows = []
+        for position in positions:
+            row = _record_array(position, "position")
+            if len(row) != POSITION_STATISTIC_WIDTH:
+                raise ValueError("numeric incidence position has invalid width")
+            rows.append((row[0], row[1], _record_array(row[2], "frequencies")))
+        return cls(tuple(rows), _record_array(value["admission_counts"], "admission counts"))
+
 
 @dataclass(frozen=True)
 class NumericYieldProjection:
@@ -499,6 +512,24 @@ class CreditSnapshot:
             "numeric_state": self.numeric_state.as_record(),
             "excluded_units": self.excluded_units,
         }
+
+    @classmethod
+    def from_record(cls, value: object) -> "CreditSnapshot":
+        fields = {"accepted_by_position", "incidence_by_position", "numeric_state", "excluded_units"}
+        if not isinstance(value, Mapping) or set(value) != fields:
+            raise ValueError("credit snapshot has invalid fields")
+        return cls(
+            tuple(_record_array(row, "accepted identities") for row in _record_array(value["accepted_by_position"], "accepted positions")),
+            tuple(tuple(_record_array(pair, "identity frequency") for pair in _record_array(row, "incidence identities")) for row in _record_array(value["incidence_by_position"], "incidence positions")),
+            NumericIncidenceState.from_record(value["numeric_state"]),
+            value["excluded_units"],
+        )
+
+
+def _record_array(value, name):
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{name} must be an array")
+    return tuple(value)
 
 
 @dataclass(frozen=True)

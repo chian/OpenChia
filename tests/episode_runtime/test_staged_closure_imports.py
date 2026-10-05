@@ -1,28 +1,42 @@
-"""Every intra-package import of a staged runtime module must itself be staged.
+"""Import the actual worker using only its verified staged closure and stdlib.
 
-The worker runs from the staged closure alone (a closed import finder); a module
-that imports a sibling the manifest omits dies at import time inside the
-sandbox, after identity verification has passed.  ``episode_runtime/interpreter.py``
-was such a sibling once.
+The help path stops before starting an execution or installing confinement. It
+tests package completeness without reading implementation text or permitting
+imports from the checkout to hide missing staged dependencies.
 """
-from __future__ import annotations
 
-import re
 from pathlib import Path
+import subprocess
+import sys
 
-from episode_runtime.identity import _SELECTED_LOCAL_SOURCES
-
-REPO = Path(__file__).resolve().parents[2]
-_RELATIVE_IMPORT = re.compile(r"^from \.([A-Za-z_][A-Za-z0-9_]*) import", re.M)
+from episode_runtime.identity import materialize_runtime_source_package
 
 
-def test_relative_imports_of_staged_episode_runtime_modules_are_staged():
-    staged = {Path(item).name[:-3] for item in _SELECTED_LOCAL_SOURCES if item.startswith("episode_runtime/")}
-    missing = {}
-    for item in _SELECTED_LOCAL_SOURCES:
-        if not item.startswith("episode_runtime/"):
-            continue
-        for sibling in _RELATIVE_IMPORT.findall((REPO / item).read_text(encoding="utf-8")):
-            if sibling not in staged:
-                missing.setdefault(item, set()).add(sibling)
-    assert not missing, f"staged modules import unstaged siblings: {missing}"
+def test_worker_imports_from_its_verified_staged_closure(tmp_path):
+    identity, package = materialize_runtime_source_package(
+        repository_root=Path(__file__).resolve().parents[2],
+        destination_root=tmp_path / "runtime_sources",
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-B",
+            str(package / "episode_runtime/bootstrap.py"),
+            "--bootstrap-package",
+            str(package),
+            "--bootstrap-manifest-id",
+            identity.runtime_source_manifest_id.value,
+            "--bootstrap-manifest-hash",
+            identity.runtime_source_manifest_hash.value,
+            "--help",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "--source-package" in completed.stdout

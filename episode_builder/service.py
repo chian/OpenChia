@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import ast
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 import secrets
@@ -38,6 +39,7 @@ from ._contract_plan import (
     NodeMaterializationPlan,
 )
 from .emitter import EpisodeEmissionError, EpisodeModuleEmitter
+from .evidence import BuildCallEvidenceRecorder
 from .planner import (
     EpisodeMaterializationPlanner,
     approved_refinement_evidence_for_episode,
@@ -91,7 +93,7 @@ def _leaf_first_nodes(
     def depth(node: NodeMaterializationPlan) -> int:
         value = 0
         parent = node.parent_local_id
-        while parent is not None:
+        while parent is not None and parent in by_id:
             value += 1
             parent = by_id[parent].parent_local_id
         return value
@@ -142,12 +144,14 @@ def _model_config(options: CallOptions) -> Mapping[str, object]:
     )
     return {
         "transport_boundary": "llm_call_library.call_model_transport",
-        "planner_auxiliary_task": auxiliary_task,
-        "emitter_auxiliary_task": auxiliary_task,
+        "auxiliary_task": auxiliary_task,
         "route_mode": (
-            "host_default" if options.main_runtime is None else "main_runtime"
+            "explicit_launch" if options.launch_configuration_hash is not None
+            else "host_default" if options.main_runtime is None else "main_runtime"
         ),
+        "launch_configuration_hash": options.launch_configuration_hash,
         "tier": options.tier.value,
+        "model_type": options.model_type,
         "temperature": options.temperature,
         "max_tokens": options.max_tokens,
         "timeout": options.timeout,
@@ -159,7 +163,7 @@ def _model_config(options: CallOptions) -> Mapping[str, object]:
     }
 
 
-def _materializer_identity(options: CallOptions) -> MaterializerIdentity:
+def _materializer_identity(planning_options: CallOptions, emission_options: CallOptions) -> MaterializerIdentity:
     package = Path(__file__).resolve().parent
     sources = {
         f"episode_builder/{path.name}": Sha256Digest.of_bytes(path.read_bytes())
@@ -169,7 +173,10 @@ def _materializer_identity(options: CallOptions) -> MaterializerIdentity:
     return MaterializerIdentity(
         builder_source_hashes=sources,
         function_catalog=materializer_function_catalog(),
-        planner_model_config=_model_config(options),
+        planner_model_config={
+            "planning": _model_config(planning_options),
+            "emission": _model_config(emission_options),
+        },
     )
 
 
@@ -320,16 +327,18 @@ class EpisodeBuilder:
         self,
         *,
         store: BuildStore,
-        call_options: CallOptions | None = None,
+        planning_options: CallOptions,
+        emission_options: CallOptions,
         reference_resolver: EpisodeReferenceResolver | None = None,
         planner: EpisodeMaterializationPlanner | None = None,
         emitter: EpisodeModuleEmitter | None = None,
         admission: EpisodeBuildAdmission | None = None,
+        model_slot_catalog: Mapping[str, object] | None = None,
     ) -> None:
         if not isinstance(store, BuildStore):
             raise TypeError("EpisodeBuilder requires a BuildStore")
-        if call_options is not None and not isinstance(call_options, CallOptions):
-            raise TypeError("call_options must be CallOptions")
+        if not isinstance(planning_options, CallOptions) or not isinstance(emission_options, CallOptions):
+            raise TypeError("Builder requires explicit planning_options and emission_options")
         resolver = reference_resolver
         if resolver is None and planner is not None:
             resolver = planner.reference_resolver
@@ -345,28 +354,22 @@ class EpisodeBuilder:
             raise TypeError("emitter must be an EpisodeModuleEmitter")
         if admission is not None and not isinstance(admission, EpisodeBuildAdmission):
             raise TypeError("admission must be an EpisodeBuildAdmission")
-        effective_options = (
-            call_options
-            or (planner.call_options if planner is not None else None)
-            or (emitter.call_options if emitter is not None else None)
-            or CallOptions(tier=ModelTier.REASONING)
-        )
-        if planner is not None and planner.call_options != effective_options:
+        if planner is not None and planner.call_options != planning_options:
             raise ValueError("injected planner uses different model routing")
-        if emitter is not None and emitter.call_options != effective_options:
+        if emitter is not None and emitter.call_options != emission_options:
             raise ValueError("injected emitter uses different model routing")
         if planner is not None and planner.reference_resolver is not resolver:
             raise ValueError(
                 "planner and EpisodeBuilder must share one reference resolver"
             )
         self.store = store
-        self.call_options = effective_options
         self.reference_resolver = resolver
         self.planner = planner or EpisodeMaterializationPlanner(
             reference_resolver=resolver,
-            call_options=effective_options,
+            call_options=planning_options,
+            model_slot_catalog=model_slot_catalog,
         )
-        self.emitter = emitter or EpisodeModuleEmitter(call_options=effective_options)
+        self.emitter = emitter or EpisodeModuleEmitter(call_options=emission_options)
         self.admission = admission or EpisodeBuildAdmission()
 
     @staticmethod
@@ -445,6 +448,7 @@ class EpisodeBuilder:
             deficits=deficits,
         )
         self.store.put_receipt(receipt)
+        self.store.publish_materialization_handoff(receipt.receipt_id)
         self._notify(
             progress_callback,
             stage=stage,
@@ -537,10 +541,13 @@ class EpisodeBuilder:
         self.store.put_build_request(build_request)
         build_attempt = BuildAttempt(
             build_request_id=build_request.build_request_id,
-            materializer=_materializer_identity(self.call_options),
+            materializer=_materializer_identity(self.planner.call_options, self.emitter.call_options),
             nonce=secrets.token_hex(32),
         )
         self.store.put_build_attempt(build_attempt)
+        model_call_observer = BuildCallEvidenceRecorder(
+            store=self.store, build_attempt=build_attempt,
+        )
         self._notify(
             progress_callback,
             stage="attempt_persisted",
@@ -579,6 +586,7 @@ class EpisodeBuilder:
                 build_request,
                 build_attempt,
                 predecessor_plan=predecessor_plan,
+                model_call_observer=model_call_observer,
             )
         except asyncio.CancelledError:
             plan = self._terminal_plan(
@@ -625,11 +633,7 @@ class EpisodeBuilder:
                 episodes_total=total,
             )
         if self._cancelled(cancel_event):
-            plan = self._terminal_plan(
-                build_request,
-                build_attempt,
-                self._cancellation_deficit(),
-            )
+            plan = replace(plan, deficits=(*plan.deficits, self._cancellation_deficit()))
             self.store.put_plan(plan)
             return self._persist_receipt(
                 build_request=build_request,
@@ -655,26 +659,6 @@ class EpisodeBuilder:
             blocking_deficits=_blocking_count(plan.deficits),
             build_attempt_id=build_attempt.build_attempt_id,
         )
-        if not plan.ready:
-            unchanged_modules = {
-                node.local_id: predecessor_modules[node.local_id]
-                for node in plan.nodes
-                if plan.node_dispositions.get(node.local_id) == "unchanged"
-                and node.local_id in predecessor_modules
-            }
-            return self._persist_receipt(
-                build_request=build_request,
-                build_attempt=build_attempt,
-                plan=plan,
-                status="blocked",
-                admission_report_id=None,
-                manifest_id=None,
-                emitted_modules=unchanged_modules,
-                deficits=plan.deficits,
-                progress_callback=progress_callback,
-                stage="blocked",
-                episodes_total=total,
-            )
         frozen_by_id = {
             episode.local_id: episode
             for episode in build_request.frozen_workflow.workflow.episodes
@@ -682,16 +666,17 @@ class EpisodeBuilder:
         node_by_id = {node.local_id: node for node in plan.nodes}
         children_by_parent: dict[str, dict[str, NodeMaterializationPlan]] = {}
         edges_by_parent: dict[str, list[EdgeMaterializationPlan]] = {}
-        for edge in plan.edges:
+        for edge in plan.all_edges:
             children_by_parent.setdefault(edge.parent_local_id, {})[
                 edge.slot_name
             ] = node_by_id[edge.child_local_id]
             edges_by_parent.setdefault(edge.parent_local_id, []).append(edge)
         module_names = tuple(node.module_name for node in plan.nodes)
         emitted: dict[str, EmittedEpisodeModule] = {}
+        emission_deficits: list[BuildDeficit] = []
         for node in _leaf_first_nodes(plan):
             if self._cancelled(cancel_event):
-                deficits = (*plan.deficits, self._cancellation_deficit())
+                deficits = (*plan.deficits, *emission_deficits, self._cancellation_deficit())
                 return self._persist_receipt(
                     build_request=build_request,
                     build_attempt=build_attempt,
@@ -705,7 +690,46 @@ class EpisodeBuilder:
                     stage="cancelled",
                     episodes_total=total,
                 )
-            disposition = plan.node_dispositions[node.local_id]
+            # A blocked sibling does not prevent materializing a valid node.
+            # Complete direct interfaces and this node's own obligations are
+            # prerequisites; source never runs at this boundary.
+            local_blockers = [
+                item for item in plan.deficits
+                if item.blocking and item.episode_local_id in {None, node.local_id}
+            ]
+            expected_children = {
+                episode.local_id for episode in frozen_by_id.values()
+                if episode.workflow_parent_local_id == node.local_id
+            } | {
+                call.callee_template_local_id
+                for call in build_request.frozen_workflow.workflow.repeatable_calls
+                if call.caller_local_id == node.local_id
+            }
+            actual_children = {
+                edge.child_local_id for edge in edges_by_parent.get(node.local_id, ())
+            }
+            disposition = plan.node_dispositions.get(node.local_id)
+            skip_reasons = []
+            if local_blockers:
+                skip_reasons.append(
+                    "blocking plan findings: "
+                    + ", ".join(sorted({item.code for item in local_blockers}))
+                )
+            if expected_children != actual_children:
+                skip_reasons.append(
+                    f"missing child interfaces: {sorted(expected_children - actual_children)!r}; "
+                    f"unexpected child interfaces: {sorted(actual_children - expected_children)!r}"
+                )
+            if disposition is None:
+                skip_reasons.append("node disposition is absent from the materialization plan")
+            if skip_reasons:
+                emission_deficits.append(BuildDeficit(
+                    code="node_emission_skipped",
+                    field_path="build.emission",
+                    detail="; ".join(skip_reasons),
+                    episode_local_id=node.local_id,
+                ))
+                continue
             if disposition == "unchanged":
                 module = predecessor_modules.get(node.local_id)
                 if module is None or module.module_name != node.module_name:
@@ -715,19 +739,8 @@ class EpisodeBuilder:
                         detail="unchanged plan has no exact predecessor module",
                         episode_local_id=node.local_id,
                     )
-                    return self._persist_receipt(
-                        build_request=build_request,
-                        build_attempt=build_attempt,
-                        plan=plan,
-                        status="failed",
-                        admission_report_id=None,
-                        manifest_id=None,
-                        emitted_modules=emitted,
-                        deficits=(*plan.deficits, deficit),
-                        progress_callback=progress_callback,
-                        stage="failed",
-                        episodes_total=total,
-                    )
+                    emission_deficits.append(deficit)
+                    continue
                 emitted[node.local_id] = module
                 stage = "module_reused"
             else:
@@ -745,19 +758,8 @@ class EpisodeBuilder:
                             exc,
                             local_id=node.local_id,
                         )
-                        return self._persist_receipt(
-                            build_request=build_request,
-                            build_attempt=build_attempt,
-                            plan=plan,
-                            status="failed",
-                            admission_report_id=None,
-                            manifest_id=None,
-                            emitted_modules=emitted,
-                            deficits=(*plan.deficits, deficit),
-                            progress_callback=progress_callback,
-                            stage="failed",
-                            episodes_total=total,
-                        )
+                        emission_deficits.append(deficit)
+                        continue
                 try:
                     module = await self.emitter.emit(
                         contract=frozen.contract,
@@ -776,24 +778,8 @@ class EpisodeBuilder:
                             )
                         ),
                         predecessor_module=predecessor_modules.get(node.local_id),
+                        model_call_observer=model_call_observer,
                     )
-                    if self._cancelled(cancel_event):
-                        return self._persist_receipt(
-                            build_request=build_request,
-                            build_attempt=build_attempt,
-                            plan=plan,
-                            status="failed",
-                            admission_report_id=None,
-                            manifest_id=None,
-                            emitted_modules=emitted,
-                            deficits=(
-                                *plan.deficits,
-                                self._cancellation_deficit(),
-                            ),
-                            progress_callback=progress_callback,
-                            stage="cancelled",
-                            episodes_total=total,
-                        )
                     if (
                         disposition == "directive"
                         and node.local_id in predecessor_modules
@@ -804,19 +790,8 @@ class EpisodeBuilder:
                             module,
                         )
                         if scope_deficit is not None:
-                            return self._persist_receipt(
-                                build_request=build_request,
-                                build_attempt=build_attempt,
-                                plan=plan,
-                                status="failed",
-                                admission_report_id=None,
-                                manifest_id=None,
-                                emitted_modules=emitted,
-                                deficits=(*plan.deficits, scope_deficit),
-                                progress_callback=progress_callback,
-                                stage="failed",
-                                episodes_total=total,
-                            )
+                            emission_deficits.append(scope_deficit)
+                            continue
                     self.store.put_emitted_module(module)
                 except asyncio.CancelledError:
                     return self._persist_receipt(
@@ -829,6 +804,7 @@ class EpisodeBuilder:
                         emitted_modules=emitted,
                         deficits=(
                             *plan.deficits,
+                            *emission_deficits,
                             self._cancellation_deficit(),
                         ),
                         progress_callback=progress_callback,
@@ -837,19 +813,8 @@ class EpisodeBuilder:
                     )
                 except EpisodeEmissionError as exc:
                     deficit = exc.as_deficit()
-                    return self._persist_receipt(
-                        build_request=build_request,
-                        build_attempt=build_attempt,
-                        plan=plan,
-                        status="failed",
-                        admission_report_id=None,
-                        manifest_id=None,
-                        emitted_modules=emitted,
-                        deficits=(*plan.deficits, deficit),
-                        progress_callback=progress_callback,
-                        stage="failed",
-                        episodes_total=total,
-                    )
+                    emission_deficits.append(deficit)
+                    continue
                 except Exception as exc:
                     deficit = _failure_deficit(
                         "module_emission_internal_failure",
@@ -857,21 +822,24 @@ class EpisodeBuilder:
                         exc,
                         local_id=node.local_id,
                     )
-                    return self._persist_receipt(
-                        build_request=build_request,
-                        build_attempt=build_attempt,
-                        plan=plan,
-                        status="failed",
-                        admission_report_id=None,
-                        manifest_id=None,
-                        emitted_modules=emitted,
-                        deficits=(*plan.deficits, deficit),
-                        progress_callback=progress_callback,
-                        stage="failed",
-                        episodes_total=total,
-                    )
+                    emission_deficits.append(deficit)
+                    continue
                 emitted[node.local_id] = module
                 stage = "module_emitted"
+            if self._cancelled(cancel_event):
+                return self._persist_receipt(
+                    build_request=build_request,
+                    build_attempt=build_attempt,
+                    plan=plan,
+                    status="failed",
+                    admission_report_id=None,
+                    manifest_id=None,
+                    emitted_modules=emitted,
+                    deficits=(*plan.deficits, *emission_deficits, self._cancellation_deficit()),
+                    progress_callback=progress_callback,
+                    stage="cancelled",
+                    episodes_total=total,
+                )
             self._notify(
                 progress_callback,
                 stage=stage,
@@ -879,9 +847,75 @@ class EpisodeBuilder:
                 episodes_total=total,
                 episodes_planned=len(plan.nodes),
                 episodes_emitted=len(emitted),
-                blocking_deficits=0,
+                blocking_deficits=_blocking_count((*plan.deficits, *emission_deficits)),
                 build_attempt_id=build_attempt.build_attempt_id,
             )
+        return await self._admit_and_publish(
+            build_request=build_request,
+            build_attempt=build_attempt,
+            plan=plan,
+            emitted=emitted,
+            emission_deficits=emission_deficits,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
+
+    async def admit_sources(
+        self,
+        *,
+        build_request: ApprovedBuildRequest,
+        build_attempt: BuildAttempt,
+        plan: WorkflowMaterializationPlan,
+        emitted_modules: tuple[EmittedEpisodeModule, ...],
+        source_deficits: tuple[BuildDeficit, ...] = (),
+        progress_callback: ProgressCallback | None = None,
+        cancel_event: CancellationSignal | None = None,
+    ) -> BuildReceipt:
+        """Admit explicitly supplied source through the ordinary Builder boundary.
+
+        The caller supplies fresh request/attempt identities and the exact plan.
+        No planner, emitter, generated import, approval, or Run occurs here.
+        Refined source receives the same admission and package publication as a
+        one-shot build; source rejection is an ordinary blocked BuildReceipt.
+        """
+        self._validate_boundary(build_request, progress_callback, cancel_event)
+        plan.validate_against(build_request, build_attempt)
+        if not isinstance(emitted_modules, tuple) or any(
+            not isinstance(module, EmittedEpisodeModule) for module in emitted_modules
+        ):
+            raise TypeError("source admission requires typed emitted modules")
+        emitted = {module.local_id: module for module in emitted_modules}
+        if len(emitted) != len(emitted_modules):
+            raise ValueError("source admission cannot discard duplicate modules")
+        if not isinstance(source_deficits, tuple) or any(
+            not isinstance(deficit, BuildDeficit) for deficit in source_deficits
+        ):
+            raise TypeError("source preparation failures require typed deficits")
+
+        def persist_inputs():
+            self.store.put_build_request(build_request)
+            self.store.put_build_attempt(build_attempt)
+            self.store.put_plan(plan)
+            for module in emitted_modules:
+                self.store.put_emitted_module(module)
+
+        await asyncio.to_thread(persist_inputs)
+        return await self._admit_and_publish(
+            build_request=build_request,
+            build_attempt=build_attempt,
+            plan=plan,
+            emitted=emitted,
+            emission_deficits=source_deficits,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
+
+    async def _admit_and_publish(
+        self, *, build_request, build_attempt, plan, emitted, emission_deficits,
+        progress_callback, cancel_event,
+    ) -> BuildReceipt:
+        total = len(build_request.frozen_workflow.workflow.episodes)
+        node_by_id = {node.local_id: node for node in plan.nodes}
         try:
             outcome = await asyncio.to_thread(
                 self.admission.admit_outcome,
@@ -890,8 +924,25 @@ class EpisodeBuilder:
                 plan,
                 tuple(emitted[key] for key in sorted(emitted)),
             )
-            report = outcome.report
+            report = replace(
+                outcome.report,
+                deficits=(*outcome.report.deficits, *emission_deficits),
+            )
             self.store.put_admission_report(report)
+        except asyncio.CancelledError:
+            return self._persist_receipt(
+                build_request=build_request,
+                build_attempt=build_attempt,
+                plan=plan,
+                status="failed",
+                admission_report_id=None,
+                manifest_id=None,
+                emitted_modules=emitted,
+                deficits=(*plan.deficits, *emission_deficits, self._cancellation_deficit()),
+                progress_callback=progress_callback,
+                stage="cancelled",
+                episodes_total=total,
+            )
         except Exception as exc:
             deficit = _failure_deficit(
                 "source_inspection_failure",
@@ -906,7 +957,7 @@ class EpisodeBuilder:
                 admission_report_id=None,
                 manifest_id=None,
                 emitted_modules=emitted,
-                deficits=(*plan.deficits, deficit),
+                deficits=(*plan.deficits, *emission_deficits, deficit),
                 progress_callback=progress_callback,
                 stage="failed",
                 episodes_total=total,

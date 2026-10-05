@@ -18,6 +18,8 @@ from types import MappingProxyType
 from typing import Mapping
 
 from agent.episode_contracts import OpaqueId, Sha256Digest
+from handoff_library import ADMIT_CHILD_RESULT
+from function_library.refinement import RECEIVE_CHILD as RECEIVE_REFINEMENT_CHILD
 
 from ._contract_base import (
     BuildAttempt,
@@ -341,6 +343,9 @@ def constructor_signatures() -> dict[str, dict[str, list[str]]]:
         "method_loop.EpisodeControllerBinding": method_loop.EpisodeControllerBinding,
         "method_loop.EpisodeFunctionBinding": method_loop.EpisodeFunctionBinding,
         "method_loop.EpisodeChildSlot": method_loop.EpisodeChildSlot,
+        "method_loop.EpisodeRequest": method_loop.EpisodeRequest,
+        "method_loop.ChildEpisodeUnit": method_loop.ChildEpisodeUnit,
+        "method_loop.ReportContract": method_loop.ReportContract,
         "function_library.models.LibraryFunction": function_library.models.LibraryFunction,
         "function_library.models.FunctionImplementation": function_library.models.FunctionImplementation,
         "handoff_library.HandoffPayloadContract": handoff_library.HandoffPayloadContract,
@@ -860,6 +865,16 @@ def _inspect_source(
         role = str(binding["role"])
         if not role.startswith("edge.") or not role.endswith(".receive_result"):
             continue
+        if binding["source"] == "library" and any(
+            all(binding[name] == getattr(receiver, name)
+                for name in ("library", "function_id", "interface", "definition_id"))
+            for receiver in (ADMIT_CHILD_RESULT, RECEIVE_REFINEMENT_CHILD)
+        ):
+            # Selecting the admission function itself is already correlation;
+            # requiring an emitted wrapper would reject the exact library route.
+            # The registered refiner receiver also calls that same admission
+            # function; this is an exact definition match, not a prose exemption.
+            continue
         function_name = str(binding["function_id"])
         function = functions.get(function_name)
         if function is None or not any(
@@ -1129,7 +1144,7 @@ class EpisodeBuildAdmission:
             )
 
         edges_by_parent: dict[str, list[EdgeMaterializationPlan]] = {}
-        for edge in plan.edges:
+        for edge in plan.all_edges:
             edges_by_parent.setdefault(edge.parent_local_id, []).append(edge)
         generated_module_names = frozenset(
             node.module_name for node in plan.nodes

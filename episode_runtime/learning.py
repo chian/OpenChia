@@ -35,21 +35,26 @@ class LearningLedger:
         self.store, self.run_id = store, run_id
 
     @contextmanager
-    def _transaction(self):
+    def _transaction(self, episode_id):
         registration = self.store.read_registration(self.run_id)
+        from .learning_baseline import load_learning_baseline
+
+        baseline = load_learning_baseline(self.store, registration, episode_id)
         attestation = self.store.read_claim(self.run_id)
+        ancestors = self.store.read_execution_ancestors(registration)
         with self.store._claim_lock(self.run_id):
-            events = list(
+            physical_events = list(
                 self.store._load_event_chain_locked(registration, attestation)
             )
-            if events and events[-1].terminal:
+            if physical_events and physical_events[-1].terminal:
                 raise RunStoreConflict("learning cannot mutate a terminal Run")
+            events = [*ancestors, *physical_events]
 
             def publish(kind, episode_id, payload):
                 sequence = 1 + max(
                     (
                         e.sender_sequence
-                        for e in events
+                        for e in physical_events
                         if e.origin is RunEventOrigin.HOST_LEARNING
                     ),
                     default=-1,
@@ -57,7 +62,7 @@ class LearningLedger:
                 event = self.store._new_event(
                     registration=registration,
                     attestation=attestation,
-                    events=tuple(events),
+                    events=tuple(physical_events),
                     origin=RunEventOrigin.HOST_LEARNING,
                     sender_sequence=sequence,
                     kind=kind,
@@ -65,20 +70,21 @@ class LearningLedger:
                     payload=payload,
                 )
                 self.store._publish_event(event)
+                physical_events.append(event)
                 events.append(event)
                 return event
 
-            yield registration, events, publish
+            yield registration, events, publish, baseline
 
     @staticmethod
-    def _state(events):
+    def _state(events, baseline=None):
         return next(
             (
                 _thaw_json(e.payload["state"])
                 for e in reversed(events)
                 if e.kind is RunEventKind.LEARNING_COMMITTED
             ),
-            {"records": []},
+            {"records": []} if baseline is None else _thaw_json(baseline.state),
         )
 
     @staticmethod
@@ -89,40 +95,65 @@ class LearningLedger:
             if e.kind is RunEventKind.LEARNING_COMMITTED and e.episode_id == episode_id
         ]
 
-    def _sources(self, contract, scope, episode_id, events, publish):
+    def _history_payloads(self, events, episode_id, baseline):
+        return [
+            *(() if baseline is None else baseline.history),
+            *(event.payload for event in self._history(events, episode_id)),
+        ]
+
+    def _sources(self, contract, scope, episode_id, logical_run_id, events, publish, baseline=None):
+        from .testing_harness.learning import measured_sources
+
         existing = {
             e.payload["artifact"]["artifact_id"]: e.payload["artifact"]
             for e in events
             if e.kind is RunEventKind.LEARNING_EVIDENCE
         }
-        admitted = {}
-        for source in contract.evidence:
-            artifact = ArtifactEnvelope(
+        artifacts = [
+            ArtifactEnvelope(
                 schema_id="openchia.approved-evidence",
                 schema_version=1,
-                run_id=self.run_id.value,
+                run_id=logical_run_id.value,
                 episode_id=scope["key"],
                 unit_id="approved-input",
                 producer_call_id="exact-human-approved-contract",
                 evidence_refs=(),
                 body=source,
             ).as_record()
+            for source in contract.evidence
+        ]
+        if baseline is not None:
+            artifacts = [_thaw_json(value) for value in baseline.evidence.values()]
+        if contract.components["admission"]["library"] == "testing":
+            artifacts.extend(
+                measured_sources(
+                    events=tuple(events),
+                    episode_id=episode_id,
+                    scope=scope,
+                )
+            )
+        admitted = {}
+        for artifact in artifacts:
             ref = artifact["artifact_id"]
             if ref not in existing:
                 publish(
                     RunEventKind.LEARNING_EVIDENCE,
                     episode_id,
-                    {"artifact": artifact, "scope": scope},
+                    {"artifact": artifact, "scope": scope, **(
+                        {"reused_from": _thaw_json(baseline.reference)} if baseline is not None else {}
+                    )},
                 )
             admitted[ref] = artifact
         return admitted
 
     @staticmethod
-    def _pin_policy(contract, numerical_control, episode_id, events, publish):
+    def _pin_policy(contract, numerical_control, episode_id, events, publish, baseline=None):
         policy = {
             "contract": contract.as_record(),
             "numerical_control": numerical_control.as_record(),
         }
+        if baseline is not None and canonical(policy) != canonical(baseline.policy):
+            raise RunStoreConflict("saved learning cannot change the frozen admission or numerical policy")
         opened = next(
             (
                 e
@@ -138,19 +169,21 @@ class LearningLedger:
 
     def retrieve(self, *, episode_id, contract, numerical_control, environment=None):
         contract.validate_components()
-        with self._transaction() as (registration, events, publish):
-            self._pin_policy(contract, numerical_control, episode_id, events, publish)
+        with self._transaction(episode_id) as (registration, events, publish, baseline):
+            self._pin_policy(contract, numerical_control, episode_id, events, publish, baseline)
             scope = scope_record(
                 contract,
                 episode_id=episode_id.value,
                 workflow_id=registration.launch_request.workflow_id,
             )
-            evidence = self._sources(contract, scope, episode_id, events, publish)
+            evidence = self._sources(
+                contract, scope, episode_id, registration.logical_run_id, events, publish, baseline,
+            )
             if environment is not None:
                 scope["environment"] = _thaw_json(environment)
-            state = self._state(events)
+            state = self._state(events, baseline)
             records = [r for r in state["records"] if applicable(r, scope)]
-            history = self._history(events, episode_id)
+            history = self._history_payloads(events, episode_id, baseline)
             unit_id = identity(
                 "unit", {"episode_id": episode_id.value, "ordinal": len(history)}
             )
@@ -219,9 +252,16 @@ class LearningLedger:
                     "matching_records": len(records),
                     "bounded_to": 128,
                 },
-                "last_receipt": _thaw_json(history[-1].payload["receipt"])
+                "last_receipt": _thaw_json(history[-1]["receipt"])
                 if history
                 else None,
+                **({"reused_learning": {
+                    "source_registration_ref": _thaw_json(baseline.reference["source_registration_ref"]),
+                    "through_event_ref": _thaw_json(baseline.reference["through_event_ref"]),
+                    "completed_units": len(baseline.history),
+                    "inherited_credit": baseline.inherited_credit,
+                    "new_yield_from_import": 0,
+                }} if baseline is not None else {}),
             }
 
     def select(
@@ -242,12 +282,12 @@ class LearningLedger:
             or not isinstance(action_inputs, Mapping)
         ):
             raise ValueError("invalid reasoning action selection")
-        with self._transaction() as (registration, events, publish):
-            self._pin_policy(contract, numerical_control, episode_id, events, publish)
-            history = self._history(events, episode_id)
+        with self._transaction(episode_id) as (registration, events, publish, baseline):
+            self._pin_policy(contract, numerical_control, episode_id, events, publish, baseline)
+            history = self._history_payloads(events, episode_id, baseline)
             if ordinal != len(history) or (
                 history
-                and history[-1].payload["receipt"]["terminal_state"] != "continuing"
+                and history[-1]["receipt"]["terminal_state"] != "continuing"
             ):
                 raise RunStoreConflict("action selection is outside the active unit")
             scope = scope_record(
@@ -257,7 +297,7 @@ class LearningLedger:
             )
             lessons = [
                 r
-                for r in self._state(events)["records"]
+                for r in self._state(events, baseline)["records"]
                 if applicable(r, scope)
                 and r["kind"] == "lesson"
                 and r["body"]["action_class"] == action_class
@@ -351,14 +391,16 @@ class LearningLedger:
                 **({"repair_of": repair_of} if repair_of is not None else {}),
             },
         )
-        with self._transaction() as (registration, events, publish):
-            self._pin_policy(contract, numerical_control, episode_id, events, publish)
-            history = self._history(events, episode_id)
+        with self._transaction(episode_id) as (registration, events, publish, baseline):
+            self._pin_policy(contract, numerical_control, episode_id, events, publish, baseline)
+            history = self._history_payloads(events, episode_id, baseline)
             repair = replay_repair(events, episode_id, request_hash)
             if repair is not None:
                 return repair
             if ordinal < len(history):
-                old = history[ordinal].payload
+                if baseline is not None and ordinal < len(baseline.history):
+                    raise RunStoreConflict("inherited history cannot be resubmitted as new experiment work")
+                old = history[ordinal]
                 if old["request_hash"] != request_hash:
                     raise RunStoreConflict("a committed unit cannot change on retry")
                 return _thaw_json(old["receipt"])
@@ -366,7 +408,7 @@ class LearningLedger:
                 raise RunStoreConflict("learning unit sequence must be contiguous")
             if (
                 history
-                and history[-1].payload["receipt"]["terminal_state"] != "continuing"
+                and history[-1]["receipt"]["terminal_state"] != "continuing"
             ):
                 raise RunStoreConflict("Episode already resolved continuation")
             scope = scope_record(
@@ -374,7 +416,9 @@ class LearningLedger:
                 episode_id=episode_id.value,
                 workflow_id=registration.launch_request.workflow_id,
             )
-            evidence = self._sources(contract, scope, episode_id, events, publish)
+            evidence = self._sources(
+                contract, scope, episode_id, registration.logical_run_id, events, publish, baseline,
+            )
             unit_id = identity(
                 "unit", {"episode_id": episode_id.value, "ordinal": ordinal}
             )
@@ -388,7 +432,7 @@ class LearningLedger:
                 result=result,
                 repair_of=repair_of,
             )
-            prior = self._state(events)
+            prior = self._state(events, baseline)
             functions = {
                 role: resolve_component(role, ref).load()
                 for role, ref in contract.components.items()
@@ -484,7 +528,7 @@ class LearningLedger:
             measurement["function"] = _thaw_json(contract.components["yield_function"])
             controller = self._controller(numerical_control)
             baseline_ids = (
-                list(history[0].payload["baseline_ids"])
+                list(history[0]["baseline_ids"])
                 if history
                 else sorted(
                     r.get("equivalence_key", r["record_id"])
@@ -504,7 +548,7 @@ class LearningLedger:
                 controller.observe(
                     "recovered",
                     CreditObservation.observed({
-                        CREDIT_CHANNEL: old.payload["observation_ids"]
+                        CREDIT_CHANNEL: old["observation_ids"]
                     }),
                     is_root=True,
                 )
@@ -523,12 +567,14 @@ class LearningLedger:
             if terminal == "continuing" and step.stop:
                 terminal = "completed"
             before = sum(
-                e.payload["receipt"]["measurement"]["realized_yield"] for e in history
+                e["receipt"]["measurement"]["realized_yield"] for e in history
             )
             measurement.update(
                 credit_before=before,
                 credit_after=before + measurement["realized_yield"],
             )
+            if baseline is not None:
+                measurement["inherited_credit"] = baseline.inherited_credit
             projection = functions["result_projection"]({
                 "records": [r for r in delta["state"]["records"] if r["scope"] == scope]
             })

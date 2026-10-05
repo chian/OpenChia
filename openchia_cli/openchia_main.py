@@ -12,7 +12,7 @@ nested Episode workflows. An explicit build materializes an approved design
 without executing it; /run separately launches the admitted materialization.
 
 options:
-  -m, --model MODEL       model for the Duet and Episode conversations
+  -m, --model MODEL       model for the Duet conversation (Episodes use /launch)
   --provider PROVIDER     inference provider
   --resume SESSION        resume a named OpenChia conversation
   --reasoning LEVEL       reasoning effort
@@ -22,6 +22,9 @@ options:
 
 Inside OpenChia, use /episode to browse the Workflow Architecture and its
 Materialized Specification, and /help for the complete control list.
+
+Structured commands:
+  openchia test --help    inspect Episode experiment contracts and scope plans
 """
 
 
@@ -65,6 +68,10 @@ def _openchia_provider_setup(_args) -> bool:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        from openchia_cli.episode_test_command import main as test_main
+
+        raise SystemExit(test_main(sys.argv[2:]))
     if {"-h", "--help"} & set(sys.argv[1:]):
         print(OPENCHIA_HELP)
         return

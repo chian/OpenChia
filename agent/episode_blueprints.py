@@ -26,6 +26,7 @@ from agent.episode_contracts import (
 )
 from function_library import LibraryFunction
 from function_library.epistemic import epistemic_function_library
+from function_library.testing_contract import testing_contract_schema
 from numeric_control_library.continuation import continuation_function_library
 from numeric_control_library.rarefaction import rarefaction_function_library
 
@@ -62,7 +63,7 @@ WORKFLOW_DRAFT_FIELDS = {
     "proposal_id",
     "human_note_ids",
 }
-INITIAL_WORKFLOW_SOURCE_STAGES = frozenset({"duet", "human_edit"})
+INITIAL_WORKFLOW_SOURCE_STAGES = frozenset({"duet", "human_edit", "build_refiner"})
 REFINEMENT_WORKFLOW_SOURCE_STAGES = frozenset(
     {"refinement_duet", "refinement_human_edit"}
 )
@@ -216,8 +217,9 @@ def creation_blueprint_from_spec(spec: EpisodeCreationSpec) -> dict[str, Any]:
         "egress_allowlist": record["egress_allowlist"],
         "deliverable": record["deliverable"],
     }
-    if "epistemic" in record:
-        blueprint["epistemic"] = record["epistemic"]
+    for field in ("epistemic", "testing"):
+        if field in record:
+            blueprint[field] = record[field]
     return blueprint
 
 
@@ -227,7 +229,7 @@ def creation_spec_from_blueprint(
     """Validate a model-facing Episode design contract."""
 
     record = _object(value, "Episode creation blueprint")
-    _exact_fields(record, _CREATION_FIELDS | ({"epistemic"} if "epistemic" in record else set()), "Episode creation blueprint")
+    _exact_fields(record, _CREATION_FIELDS | ({"epistemic", "testing"} & set(record)), "Episode creation blueprint")
     internal = {
         "goal": record["goal"],
         "unit": record["unit"],
@@ -240,8 +242,9 @@ def creation_spec_from_blueprint(
         "deliverable": record["deliverable"],
         "capability_inheritance": "inherit_parent",
     }
-    if "epistemic" in record:
-        internal["epistemic"] = record["epistemic"]
+    for field in ("epistemic", "testing"):
+        if field in record:
+            internal[field] = record[field]
     spec = EpisodeCreationSpec.from_record(internal)
     admit_numerical_control(spec.numeric_control)
     return spec
@@ -263,7 +266,8 @@ def workflow_blueprint_from_spec(workflow: EpisodeWorkflowSpec) -> dict[str, Any
                 ),
             }
             for item in workflow.episodes
-        ]
+        ],
+        **({"repeatable_calls": workflow.as_record()["repeatable_calls"]} if workflow.repeatable_calls else {}),
     }
 
 
@@ -273,7 +277,7 @@ def workflow_spec_from_blueprint(
     """Translate one complete Duet workflow blueprint."""
 
     record = _object(value, "Episode workflow blueprint")
-    _exact_fields(record, {"episodes"}, "Episode workflow blueprint")
+    _exact_fields(record, {"episodes"} | ({"repeatable_calls"} if "repeatable_calls" in record else set()), "Episode workflow blueprint")
     raw_episodes = record["episodes"]
     if not isinstance(raw_episodes, list) or not raw_episodes:
         raise ValueError("workflow blueprint episodes must be a non-empty array")
@@ -305,6 +309,7 @@ def workflow_spec_from_blueprint(
     return EpisodeWorkflowSpec.from_record(
         {
             "episodes": episodes,
+            **({"repeatable_calls": record["repeatable_calls"]} if "repeatable_calls" in record else {}),
         }
     )
 
@@ -479,9 +484,10 @@ EPISODE_EGRESS_RULE_BLUEPRINT_SCHEMA = {
 EPISODE_CREATION_BLUEPRINT_SCHEMA = {
     "type": "object",
     "properties": {
+        "testing": testing_contract_schema(),
         "epistemic": {
             "type": "object",
-            "description": "Optional exact reasoning policy: required for reasoning.generic and reasoning.inquiry. Evidence is human-approved source data. Components are exact registered epistemic selections.",
+            "description": "Optional exact reasoning policy: required for Episodes selecting epistemic functions. Evidence is human-approved source data. Components are exact registered epistemic selections.",
             "properties": {
                 "goal_class": {"type": "string"}, "domain": {"type": "string"},
                 "allowed_actions": {"type": "array", "items": {"type": "string"}},

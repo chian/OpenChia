@@ -15,6 +15,7 @@ act/
 .venv
 .vscode/
 .env
+.env.launch_default
 .op.env
 .env.local
 .env.development.local

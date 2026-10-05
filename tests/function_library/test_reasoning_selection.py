@@ -30,5 +30,5 @@ async def test_malformed_selection_never_requests_a_fallback_action(response):
     }
     with model_transport_scope(model), reasoning_transport_scope(learning):
         with pytest.raises(ValueError, match="selection"):
-            await ReasoningSource("test")._select(bundle)
+            await ReasoningSource("test", selection_model_type="selector", execution_model_type="executor")._select(bundle)
     assert requested == []
