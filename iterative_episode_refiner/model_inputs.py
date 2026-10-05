@@ -35,8 +35,24 @@ def _measurements(session, view, call):
     availability = evaluation_availability(resolve_evaluations(
         view, session.policy, assignment, judgment_purpose(view, assignment)
     ))
+    # The method supplies the latest relevant child reports, not their complete
+    # history. Preserve the parent's measured iteration outcomes so an unchanged
+    # prerequisite return cannot look like a first attempt on every model call.
+    units = [
+        entry.record.body for entry in view.entries("unit")
+        if entry.record.invocation_id == call.invocation_id
+    ]
     return {
         "measurements": measurements,
+        "iteration_history": {
+            "completed_units": len(units),
+            "recent_units": [{
+                "ordinal": unit["ordinal"],
+                "candidate_changed": unit["candidate_before_ref"] != unit["candidate_after_ref"],
+                "realized_yield": unit["realized_yield"],
+                "disposition": unit["disposition"],
+            } for unit in units[-8:]],
+        },
         "evaluation_availability": {
             "executable": availability["executable"],
             "gaps": [{

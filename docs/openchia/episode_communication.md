@@ -58,6 +58,17 @@ admitted for that parent and owns the `child_reports` field in the delivered
 input. It also checks declared inputs against the known child audit identities.
 Completed history is not automatically appended.
 
+The refiner's declared measurement input also includes `iteration_history`: the
+number of completed units and the last eight units' ordinal, candidate-change
+flag, realized yield, and disposition. These values come from committed unit
+receipts, not model summaries. This window limits context, not execution.
+Replacing the latest child report must not hide repeated zero-yield decisions.
+Parts can separate a static construction prerequisite, judged by the existing
+Builder checks, from later behavioral work. The original behavioral requirements
+remain unresolved and protected; a static repair never grants whole-workflow
+acceptance. A Designer unable to establish its assigned local measure returns
+that need to Parts rather than repeatedly requesting unchanged observations.
+
 ## Materialization
 
 Each concrete child slot selects `component.report_S`, with interface
