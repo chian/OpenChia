@@ -103,6 +103,9 @@ def continued_materialization_request(host, request, builder):
     adapters are reproducible; a consumed partial nonce gets a linked successor,
     while a completed receipt is returned without another Builder invocation.
     """
+    # Fresh authorization has no stored request yet. The claim lookup below
+    # requires it, before EpisodeBuilder.build would normally publish it.
+    host.build_store.put_build_request(request)
     identity = _materializer_identity(builder.planner.call_options, builder.emitter.call_options)
     seen = set()
     while request.build_request_id.value not in seen:
