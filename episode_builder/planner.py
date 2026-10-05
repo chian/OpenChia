@@ -888,6 +888,12 @@ numeric quantities, including counts; flag_names declares booleans. Artifact
 roles carry arrays of stable opaque IDs for data held elsewhere. Each
 required_* array is a subset of its corresponding admitted names. Choose
 payload fields that these existing closed handoff records can represent.
+Every state name, state token, measurement name, flag name and artifact role
+is a closed token matching ^[a-z][a-z0-9_.:-]{0,63}$: lowercase, no slashes,
+spaces or uppercase. A free-text value such as a URL path, method or message
+cannot be carried; encode it as a closed token (for example a path
+/api/v1/collections becomes the state token api.v1.collections, a method GET
+becomes get) or leave it implied by the channel that carries the record.
 
 The root Episode's approved Architecture is the complete task input for this
 initial runtime. Give the root the closed empty request payload contract; child
