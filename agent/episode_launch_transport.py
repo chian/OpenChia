@@ -172,7 +172,7 @@ def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
         with scoped_runtime_main({"provider": route["provider"], "model": route["model"],
                                   "base_url": route["base_url"], "api_mode": mode}):
             response = (_codex_response(client, real, kwargs, progress) if mode == "codex_responses"
-                        else client.chat.completions.create(**kwargs))
+                        else _chat_completion(client, kwargs, request, route, progress))
             from agent.aux_accounting import record_aux_usage
             record_aux_usage(response, request.task, provider=route["provider"], base_url=route["base_url"])
             return extract_content_or_reasoning(response) or "", str(getattr(response, "model", "") or route["model"])
@@ -185,6 +185,33 @@ def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
         finally:
             if activity is not None:
                 activity.provider_finished.set()
+
+
+def _chat_completion(client, kwargs, request, route, progress):
+    """Create a chat completion the way the auxiliary client does for a watched call.
+
+    A launch that reports progress streams the request and re-aggregates the chunks
+    into the ordinary ChatCompletion shape; so does a provider the host knows to be
+    stream-only. Streaming is what keeps long Builder calls alive on gateways that
+    refuse non-streaming requests above a few thousand output tokens (ANL's Argo:
+    ``500 Streaming is required for operations that may take longer than 10
+    minutes``) and what lets the liveness watchdogs see tokens moving. Without a
+    progress hook the call is the plain ``create(**kwargs)`` it always was; clients
+    that stream internally (the Anthropic shim) are left alone either way.
+    """
+    from agent.auxiliary_client import (
+        _create_with_progress_once,
+        _provider_requires_stream,
+        aux_progress_hook,
+    )
+
+    # With the launch's progress callback installed as the aux forward-progress hook, the
+    # helper streams, ticks that callback per substantive chunk, and still falls back to a
+    # plain call if the provider rejects the streamed request; a stream-only provider is
+    # forced and surfaces its real error instead.
+    force_stream = _provider_requires_stream(route["provider"], route["base_url"])
+    with aux_progress_hook(progress if callable(progress) else None):
+        return _create_with_progress_once(client, kwargs, request.task, force_stream=force_stream)
 
 
 def _codex_response(client, real, kwargs, progress):
