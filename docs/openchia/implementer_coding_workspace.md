@@ -14,8 +14,10 @@ agent's final prose or successful command is not acceptance.
 
 Make Implementer's coding workspace operational using a repository-shipped
 OpenChia coding-agent launcher and private configuration, with workspace
-confinement intact and no changes to the user's personal Codex settings or
-machine policy. Preserve backend-independent assignments and results. Prove
+confinement intact and no changes to the user's personal Codex settings.
+Native sandbox prerequisites require explicit installation instructions and
+administrator-controlled setup, not automatic machine-policy changes by the
+coding agent or launcher. Preserve backend-independent assignments and results. Prove
 that the real coding agent can create, run, resume and revise a program whose
 answer passes an independent check through OpenChia's existing integration.
 
@@ -31,18 +33,20 @@ Completion requires all of the following:
 - `CODEX_HOME` is set only in the launched process's environment. The user's
   personal Codex sessions can retain full permissions while OpenChia's coding
   sessions remain sandboxed. Configuration separation alone is not a sandbox.
-- No host package installation, AppArmor change, sysctl change, global Codex
-  migration or switch to unrestricted execution is used to obtain a passing
-  result. A launch failure is reported accurately, not worked around by changing
-  the user's machine.
+- Host prerequisites are documented separately from launching. On 2026-10-05
+  the user accepted the Ubuntu AppArmor prerequisite for now, provided explicit
+  installation instructions ship with it. The launcher does not install host
+  packages/profiles, change sysctls, migrate global Codex settings or switch to
+  unrestricted execution. A startup failure reports the missing prerequisite.
 - The existing native coding runtime is reused. The owning Duet still supplies
   the model, effort and credential; the common coding interface continues to
   support Codex and Claude Code without changing Episode control or acceptance.
 - Verification distinguishes configuration isolation from actual coding ability:
   global settings remain unchanged, and a real Codex coding session creates,
   executes, resumes and revises source that passes an independent answer check.
-  A prior pass obtained after a machine-wide workaround does not establish this
-  corrected launch path. Unrun checks remain explicitly unverified.
+  Earlier passes before the private-launch correction do not establish this
+  corrected path. Current verification records its host prerequisites; unrun
+  checks remain explicitly unverified.
 
 Reuse the shared test runner; do not add a separate replay mechanism. Target
 Workflow environment preparation remains excluded. This goal does not claim
@@ -90,11 +94,107 @@ credentials or transcripts are automatically copied into the private home.
 Implementer continues to receive its credential from the owning Duet. Standalone
 use can authenticate separately with `scripts/openchia-codex login`.
 
-Do not run global configuration migrations or install machine security profiles
-as a repair for this integration. A native sandbox startup failure must be
+Do not run global configuration migrations or automatically install machine
+security profiles as a repair. A native sandbox startup failure must be
 reported separately from model/API errors and unsuccessful implementation work.
 It must not silently select unrestricted execution. No Target Workflow
 environment is configured by this launcher.
+
+## Native sandbox prerequisites
+
+OpenChia uses the coding runtime's native sandbox, not a portable AppArmor
+wrapper. The private configuration, scoped workspace and host acceptance rules
+remain the same; the OS enforcement mechanism differs.
+
+| Codex host | Native mechanism | OpenChia verification |
+| --- | --- | --- |
+| Linux | Bubblewrap and seccomp; some distributions also require an AppArmor policy permitting namespace setup | Live coding and confinement checks passed on Ubuntu 24.04 with the prerequisite below |
+| macOS | Seatbelt through `sandbox-exec`; no AppArmor or bubblewrap | Not yet verified on macOS |
+| Native Windows | Codex's Windows sandbox; the stronger `elevated` mode requires administrator-approved setup | Not yet verified on Windows |
+| WSL2 | Linux sandbox and the Linux distribution's prerequisites; not the native Windows sandbox | Not yet verified in WSL2 |
+
+These mechanisms are documented in [Codex security](https://learn.chatgpt.com/docs/agent-approvals-security).
+For Windows, follow the [native sandbox setup](https://learn.chatgpt.com/docs/windows/windows-sandbox):
+the stronger mode uses lower-privilege sandbox users, filesystem permissions and
+firewall rules. "Elevated" describes setup authority, not unrestricted coding
+commands. Its weaker mode has different network enforcement; it is not an
+equivalent fallback to claim without validation. Windows setup must use
+OpenChia's private native configuration, not the user's personal Codex settings.
+WSL1 is not supported by current Codex. These are platform plans, not claims that
+OpenChia's launch/bootstrap paths have passed on those hosts. Claude Code needs
+its own native-backend verification; the Codex table does not validate it.
+
+### Ubuntu 24.04: explicit AppArmor setup
+
+This is an **administrator-run host prerequisite**, accepted for now. Do not
+run these commands from an Implementer turn or automatically at launch. They
+apply to Ubuntu 24.04 with AppArmor 4 and `/usr/bin/bwrap`, not macOS, native
+Windows or every Linux distribution. If bubblewrap/AppArmor are absent, install
+them explicitly using the distribution's package manager:
+
+```bash
+sudo apt-get update
+sudo apt-get install bubblewrap apparmor
+```
+
+If the native sandbox already works, no additional profile is needed. When
+kernel audit identifies AppArmor denying bubblewrap's namespace setup, obtain
+Ubuntu's packaged profile without installing the whole `apparmor-profiles`
+package (which would load unrelated profiles):
+
+```bash
+# Run in one shell; retain this directory for inspection.
+apparmor_stage=$(mktemp -d)
+cd "$apparmor_stage"
+apt download apparmor-profiles
+dpkg-deb --extract ./apparmor-profiles_*.deb extracted
+apparmor_source="$apparmor_stage/extracted/usr/share/apparmor/extra-profiles/bwrap-userns-restrict"
+less "$apparmor_source"
+sudo aa-status
+```
+
+Before installing, review existing policy. Stop for administrator review if
+`bwrap` or `unpriv_bwrap` is already loaded, if the destination below exists, or
+if there are corresponding `disable`/`force-complain` entries or local overrides
+(`local/bwrap-userns-restrict`, `local/unpriv_bwrap`) under `/etc/apparmor.d`.
+Do not overwrite policy or remove those entries to force a successful launch.
+For a first installation with no such conflict:
+
+```bash
+(
+  set -eu
+  test -f "$apparmor_source"
+  test ! -e /etc/apparmor.d/bwrap-userns-restrict
+  test ! -L /etc/apparmor.d/bwrap-userns-restrict
+  sudo install -o root -g root -m 0644 "$apparmor_source" /etc/apparmor.d/bwrap-userns-restrict
+  sudo apparmor_parser --add --skip-cache /etc/apparmor.d/bwrap-userns-restrict
+)
+```
+
+If `--add` fails, setup is incomplete. Inspect the parser error and remove only
+the file just created by this first-install block, after confirming it still
+matches the extracted source and no administrator has replaced it. Do not leave
+a failed installation eligible for boot-time loading or delete existing policy.
+
+For an already installed, reviewed copy, compare it with the extracted source
+using `cmp "$apparmor_source" /etc/apparmor.d/bwrap-userns-restrict`. Only if it
+is identical and its local overrides/disabled status are understood, reload that
+specific policy with
+`sudo apparmor_parser --replace --skip-cache /etc/apparmor.d/bwrap-userns-restrict`.
+Do not reload unrelated policies or disable the global user-namespace restriction.
+The existing enabled AppArmor service loads `/etc/apparmor.d` at boot. A manually
+copied extra profile is not automatically refreshed by package upgrades.
+
+This policy affects `/usr/bin/bwrap` machine-wide. It permits sandbox construction
+and denies capabilities in children; its packaged comments warn that this can
+affect other bubblewrap uses. It does **not** itself define OpenChia's workspace
+or network restrictions: Codex's native sandbox supplies those. The verified
+package was `apparmor-profiles` version `4.0.1really4.0.1-0ubuntu0.24.04.8`;
+profile SHA-256 was
+`11d39094f044f0cda0febb3ad517b830301da6b2ce929664af09ee9e4dd264f9`.
+Review a different package version rather than assuming it has the same policy.
+After setup, use the shared live check below to verify actual coding ability.
+This does not configure the Target Workflow's environment.
 
 ## Verification and continuation
 
@@ -140,11 +240,12 @@ again. Both answers passed the independent host oracle with optimal makespan
 receipt is `/var/tmp/openchia-private-coding-receipt.fjdLmj/junit.xml`, SHA-256
 `518f21e0b444e37ad9742cc4c72edb05391827428d9837b6a3f6ec68760704e1`.
 
-This proves coding and native resumption on the repaired host. It **does not
-prove the unchanged-host/no-machine-wide-workaround completion condition above**.
-That condition remains unverified; the earlier or current live result must not
-be presented as satisfying it. No full Target Workflow or live Claude Code
-acceptance is claimed.
+This proves coding and native resumption with the documented host prerequisite.
+It did not satisfy the original unchanged-host condition. On 2026-10-05 the user
+accepted this prerequisite for now with explicit installation instructions, so
+the result satisfies the revised focused goal. It is not evidence of operation
+without that profile. No full Target Workflow or live Claude Code acceptance is
+claimed.
 
 The launcher test runs the real Python entry point and child process. Direct
 execution through its standard repository `_hermes-python` shebang also passed:

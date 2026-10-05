@@ -93,11 +93,32 @@ parent environment and personal Codex files are not changed. The user's own
 Codex sessions may retain full permissions while OpenChia's sessions remain
 sandboxed. Private configuration is not itself a filesystem sandbox.
 
-Do not install host packages or security profiles, change AppArmor/sysctl
-settings, or substitute unrestricted execution to obtain a passing coding run.
+The launcher and coding agent do not install host packages/security profiles,
+change AppArmor/sysctl settings, or substitute unrestricted execution.
 Report a sandbox startup failure separately from model or implementation
-failure. A pass obtained using a machine-wide workaround does not validate this
-launch design.
+failure. Administrator-controlled native sandbox setup is a separate, explicitly
+documented prerequisite, not a hidden repair inside a coding run.
+
+### Native sandbox prerequisites (2026-10-05 amendment)
+
+The user accepted Ubuntu's packaged bubblewrap AppArmor profile for now,
+conditional on installation support or explicit installation instructions. We
+choose explicit instructions, not automatic privileged installation. This
+supersedes the original unchanged-host acceptance condition; it does not
+retroactively authorize the earlier intervention or change private-config rules.
+
+Delegate OS enforcement to the existing coding runtime: Codex uses bubblewrap
+and seccomp on Linux, Seatbelt on macOS, and its native Windows sandbox on
+Windows. AppArmor is a Linux prerequisite where required, not a cross-platform
+OpenChia dependency. Native Windows' stronger sandbox requires its own
+administrator-approved setup; do not imply that a weaker fallback is equivalent.
+Only Ubuntu has been verified here. Other OS integrations and live Claude Code
+remain unverified, with no new containers or Target Workflow environment changes.
+
+The [workspace setup guide](../openchia/implementer_coding_workspace.md#native-sandbox-prerequisites)
+contains platform references and explicit Ubuntu installation instructions. They
+use the distribution's profile, preserve existing policy, avoid installing
+unrelated profiles and do not disable AppArmor or the namespace restriction.
 
 ## Consequences and verification
 
@@ -198,7 +219,9 @@ optimal makespan `14`. The thread was
 `518f21e0b444e37ad9742cc4c72edb05391827428d9837b6a3f6ec68760704e1`.
 The personal Codex configuration and global namespace restriction were unchanged
 during verification. This does not prove operation without the restored host
-profile, nor satisfy the original no-machine-wide-workaround acceptance condition.
+profile. It did not satisfy the original unchanged-host acceptance condition;
+it satisfies the amended focused goal now that the user has accepted the
+prerequisite with explicit installation instructions.
 
 The standalone executable launcher also passed `./scripts/openchia-codex
 --version` through the existing repository bootstrap, exiting 0 with Codex
