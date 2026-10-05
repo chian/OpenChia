@@ -1,4 +1,4 @@
-"""Pinned model transport: explicit credentials, wire adapter and fallback order.
+"""Pinned model transport: explicit credentials, wire adapter and API-error stop.
 
 Uses the existing wire adapters and cancellation mechanism, not the auxiliary
 provider-discovery ladder. A launch cannot hop to another logged-in account.
@@ -6,35 +6,86 @@ provider-discovery ladder. A launch cannot hop to another logged-in account.
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
 import uuid
 from typing import Callable, Mapping
 
 from agent.episode_launch import ResolvedLaunch
-from llm_call_library.transport import ModelTransportRequest, ModelTransportResponse
+from llm_call_library.transport import ModelCallFailed, ModelTransportRequest, ModelTransportResponse
 
 
-class LaunchModelError(RuntimeError):
-    def __init__(self, message: str, route: Mapping[str, str]) -> None:
-        super().__init__(message)
-        self.route = dict(route)
-
-
-def provider_failure(exc, route):
-    """Keep the existing classifier's typed diagnosis, never provider text or bodies."""
+def provider_failure(exc, route, *, credential=None, request=None, request_id=None):
+    """Keep provider evidence separate from our classification; never store a body."""
     from agent.error_classifier import classify_api_error
 
     failure = classify_api_error(
         exc, provider=route["provider"], model=route["model"],
         base_url=route["base_url"],
     )
+    body = getattr(exc, "body", None)
+    detail = body.get("error", body) if isinstance(body, Mapping) else {}
+    detail = detail if isinstance(detail, Mapping) else {}
+    message = detail.get("message")
+    message_source = "provider_error.message"
+    if not isinstance(message, str):
+        # SDKs can wrap a whole response body in str(exc). Without a selected
+        # message, do not serialize that body through the exception fallback.
+        message = None if body is not None else getattr(exc, "message", None) or str(exc)
+        message_source = "unavailable" if message is None else "exception.message"
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", {})
+    values = {
+        "code": detail.get("code") or getattr(exc, "code", None),
+        "type": detail.get("type") or getattr(exc, "type", None),
+        "param": detail.get("param") or getattr(exc, "param", None),
+        "message": message,
+        "request_id": request_id or getattr(exc, "request_id", None) or detail.get("request_id")
+        or headers.get("x-request-id") or headers.get("request-id"),
+        "retry_after": headers.get("retry-after"),
+    }
+    diagnostics = {"message_source": message_source, "redacted_fields": [], "truncated_fields": []}
+    for name, value in values.items():
+        if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+            diagnostics[name] = None
+            continue
+        original = str(value)
+        safe = _redact_diagnostic(original, credential=credential, request=request)
+        if safe != original:
+            diagnostics["redacted_fields"].append(name)
+        limit = 2048 if name == "message" else 256
+        if len(safe) > limit:
+            diagnostics["truncated_fields"].append(name)
+        diagnostics[name] = safe[:limit]
     return {
         "error_type": type(exc).__name__,
         "http_status": failure.status_code,
         "failure_category": failure.reason.value,
         "retryable": failure.retryable,
+        "provider_error": diagnostics,
     }
+
+
+def _redact_diagnostic(text, *, credential, request):
+    from agent.redact import REDACTION_UNAVAILABLE, redact_for_egress, redact_sensitive_text
+
+    # Exact call-owned values catch opaque credentials and echoed inputs that
+    # generic secret patterns cannot recognize. Scrub before truncating.
+    sensitive = [(credential, "[credential-redacted]")] if credential else []
+    if request is not None:
+        sensitive.extend((item["content"], "[request-content-redacted]") for item in request.messages)
+    for value, replacement in sensitive:
+        for spelling in (value, json.dumps(value, ensure_ascii=False)[1:-1]):
+            text = text.replace(spelling, replacement)
+    try:
+        text = redact_sensitive_text(
+            text, force=True, file_read=True, secret_file=True, redact_url_credentials=True,
+        )
+        text = redact_for_egress(text)
+    except Exception:
+        return REDACTION_UNAVAILABLE
+    return " ".join("".join(char if char.isprintable() else " " for char in text).split())
 
 
 def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
@@ -232,6 +283,10 @@ async def invoke_pinned_route(route, key, request, cancel, progress, *, record_a
         return await supervise_model_call(
             route=route, request=request, cancel=cancel, progress=progress,
             record=record_activity, invoke=invoke_attempt,
+            describe_failure=lambda exc, attempt_request, activity: provider_failure(
+                exc, route, credential=key, request=attempt_request,
+                request_id=activity.snapshot()["provider_request_id"],
+            ),
         )
     except asyncio.CancelledError:
         cancel.set()
@@ -254,43 +309,43 @@ class LaunchModelTransport:
         spec = record["resolved_spec"]
         role = request.call_role or "run"
         model_type = request.model_type
-        names = self.launch.route_names(model_type)
+        name = self.launch.route_names(model_type)[0]
         call_id = uuid.uuid4().hex
-        last_receipt = {}
-        for index, name in enumerate(names):
-            if self.cancel.is_set():
-                raise asyncio.CancelledError
-            route = spec["routes"][name]
-            receipt = {
-                "launch_id": self.launch_id, "configuration_hash": self.launch.configuration_hash,
-                "project": spec["project"], "call_id": call_id, "attempt": str(index + 1),
-                "route_name": name, "provider": route["provider"], "model": route["model"],
-                "model_type": model_type,
-                "base_url": route["base_url"], "api_mode": route["api_mode"],
-                "account": route["auth"].get("account", "no_auth"),
-                "credential_source": record["sources"][f"routes.{name}.auth"],
-                "episode_local_id": request.episode_local_id or "", "role": role, "task": request.task,
-            }
-            last_receipt = receipt
-            controls = {"temperature": request.temperature, "max_tokens": request.max_tokens,
-                        "timeout": request.timeout, "reasoning": route.get("reasoning", request.reasoning_config)}
-            started = time.monotonic()
-            self.record_attempt({**receipt, "state": "started", "controls": controls})
-            try:
-                text, actual_model = await invoke_pinned_route(
-                    route, self.launch.credentials[name], request, self.cancel, self.progress,
-                    record_activity=lambda details: self.record_attempt({**receipt, **details}))
-            except asyncio.CancelledError:
-                self.cancel.set()
-                self.record_attempt({**receipt, "state": "cancelled", "elapsed_seconds": time.monotonic() - started})
-                raise asyncio.CancelledError from None
-            except Exception as exc:
-                # Provider exceptions can echo credentials or response bodies.
-                # Persist typed diagnostics, never their unfiltered text.
-                self.record_attempt({**receipt, "state": "failed", **provider_failure(exc, route),
-                                     "elapsed_seconds": time.monotonic() - started})
-                continue
-            self.record_attempt({**receipt, "state": "succeeded", "response_model": actual_model,
-                                 "elapsed_seconds": time.monotonic() - started})
-            return ModelTransportResponse(text=text, route={**receipt, "response_model": actual_model})
-        raise LaunchModelError("Declared model routes failed; inspect /launch calls for typed diagnostics.", last_receipt)
+        if self.cancel.is_set():
+            raise asyncio.CancelledError
+        route = spec["routes"][name]
+        receipt = {
+            "launch_id": self.launch_id, "configuration_hash": self.launch.configuration_hash,
+            "project": spec["project"], "call_id": call_id, "attempt": "1",
+            "route_name": name, "provider": route["provider"], "model": route["model"],
+            "model_type": model_type,
+            "base_url": route["base_url"], "api_mode": route["api_mode"],
+            "account": route["auth"].get("account", "no_auth"),
+            "credential_source": record["sources"][f"routes.{name}.auth"],
+            "episode_local_id": request.episode_local_id or "", "role": role, "task": request.task,
+        }
+        controls = {"temperature": request.temperature, "max_tokens": request.max_tokens,
+                    "timeout": request.timeout, "reasoning": route.get("reasoning", request.reasoning_config)}
+        started = time.monotonic()
+        self.record_attempt({**receipt, "state": "started", "controls": controls})
+        try:
+            text, actual_model = await invoke_pinned_route(
+                route, self.launch.credentials[name], request, self.cancel, self.progress,
+                record_activity=lambda details: self.record_attempt({**receipt, **details}))
+        except asyncio.CancelledError:
+            self.cancel.set()
+            self.record_attempt({**receipt, "state": "cancelled", "elapsed_seconds": time.monotonic() - started})
+            raise asyncio.CancelledError from None
+        except Exception as exc:
+            # Provider exceptions can echo credentials or response bodies.
+            # Persist typed diagnostics, never their unfiltered text.
+            self.record_attempt({**receipt, "state": "failed", **provider_failure(
+                exc, route, credential=self.launch.credentials[name], request=request,
+            ), "elapsed_seconds": time.monotonic() - started})
+            raise ModelCallFailed(
+                "Model API request failed; execution stopped. Inspect /launch calls before explicitly continuing.",
+                receipt,
+            ) from None
+        self.record_attempt({**receipt, "state": "succeeded", "response_model": actual_model,
+                             "elapsed_seconds": time.monotonic() - started})
+        return ModelTransportResponse(text=text, route={**receipt, "response_model": actual_model})

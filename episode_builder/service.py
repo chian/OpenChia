@@ -20,6 +20,7 @@ from typing import Protocol
 from agent.episode_contracts import OpaqueId, Sha256Digest
 from iterative_episode_refiner.contracts import RefinementChangeKind
 from llm_call_library import CallOptions, ModelTier
+from llm_call_library.transport import ModelCallFailed
 
 from .admission import EpisodeBuildAdmission
 from ._contract_base import (
@@ -588,6 +589,8 @@ class EpisodeBuilder:
                 predecessor_plan=predecessor_plan,
                 model_call_observer=model_call_observer,
             )
+        except ModelCallFailed:
+            raise
         except asyncio.CancelledError:
             plan = self._terminal_plan(
                 build_request,
@@ -793,6 +796,8 @@ class EpisodeBuilder:
                             emission_deficits.append(scope_deficit)
                             continue
                     self.store.put_emitted_module(module)
+                except ModelCallFailed:
+                    raise
                 except asyncio.CancelledError:
                     return self._persist_receipt(
                         build_request=build_request,

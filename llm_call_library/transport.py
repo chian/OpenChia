@@ -15,6 +15,19 @@ from types import MappingProxyType
 from typing import Any, Iterator, Mapping, Protocol, Sequence, runtime_checkable
 
 
+class ModelCallFailed(RuntimeError):
+    """An API failure stops execution; it is not a rejected reasoning result.
+
+    Only sanitized host diagnostics belong in the message and route. A nested
+    Run keeps its originating Run ID while the exception stops its parents.
+    """
+
+    def __init__(self, message: str, route: Mapping, *, run_id: str | None = None):
+        super().__init__(message)
+        self.route = dict(route)
+        self.run_id = run_id
+
+
 def _messages(value: object) -> tuple[Mapping[str, str], ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise TypeError("messages must be a sequence")
@@ -48,6 +61,8 @@ class ModelTransportRequest:
     main_runtime: Mapping[str, Any] | None
     episode_local_id: str | None = None
     call_role: str | None = None
+    # Host-stamped invocation identity; never accepted from the worker payload.
+    episode_path: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.task, str) or not self.task.strip():

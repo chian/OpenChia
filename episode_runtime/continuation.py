@@ -9,6 +9,34 @@ from dataclasses import dataclass
 from agent.episode_contracts import OpaqueId, Sha256Digest
 
 
+def resumable_run(runs, run_id):
+    """Accept operational stops, including old host-recorded API failures.
+
+    Older hosts labelled LaunchModelError as failed. The host terminal plus
+    final unanswered model request identifies that narrow legacy case without
+    changing its immutable evidence or reopening ordinary failed executions.
+    """
+    from .contracts import RunEventKind, RunEventOrigin, RunTerminalStatus
+
+    evidence = runs.read_evidence(run_id)
+    if evidence.terminal_status in {
+        RunTerminalStatus.INTERRUPTED, RunTerminalStatus.CANCELLED,
+        RunTerminalStatus.RESOURCE_LIMITED,
+    }:
+        return True
+    if (
+        evidence.terminal_status is not RunTerminalStatus.FAILED
+        or evidence.typed_status.get("failure_type") != "LaunchModelError"
+    ):
+        return False
+    events = runs.read_audit_log(run_id)
+    return (
+        len(events) >= 2
+        and events[-1].origin is RunEventOrigin.HOST
+        and events[-2].kind is RunEventKind.MODEL_REQUESTED
+    )
+
+
 @dataclass(frozen=True)
 class InterruptedRunRef:
     run_id: OpaqueId
@@ -40,17 +68,10 @@ class InterruptedRunRef:
     @classmethod
     def from_run(cls, runs, run_id):
         """Bind the final committed boundary, never an earlier convenient prefix."""
-        from .contracts import RunTerminalStatus
-
         run_id = OpaqueId(run_id) if isinstance(run_id, str) else run_id
         registration = runs.read_registration(run_id)
-        evidence = runs.read_evidence(run_id)
-        if evidence.terminal_status not in {
-            RunTerminalStatus.INTERRUPTED,
-            RunTerminalStatus.CANCELLED,
-            RunTerminalStatus.RESOURCE_LIMITED,
-        }:
-            raise ValueError("only an interrupted, cancelled or resource-limited Run can be continued")
+        if not resumable_run(runs, run_id):
+            raise ValueError("only an operationally interrupted Run can be continued")
         events = runs.read_audit_log(run_id)
         terminal = events[-1]
         return cls(run_id, registration.registration_hash, terminal.event_id, terminal.event_hash)

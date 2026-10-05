@@ -12,6 +12,7 @@ from agent.duet_contracts import canonical_json, content_id
 from agent.episode_launch import resolve_launch
 from agent.episode_launch_transport import LaunchModelTransport
 from handoff_library import DuetLaunchAddress, admit_duet_launch_request
+from llm_call_library.transport import ModelCallFailed
 
 from ..broker import ScopedModelBroker
 from ..contracts import RuntimePolicy
@@ -330,7 +331,7 @@ class ExperimentService:
         )
         return launch
 
-    async def run(self, spec):
+    async def run(self, spec, *, resume_interrupted=False):
         if spec.as_record()["mode"] == "numerical":
             return await asyncio.to_thread(self._numerical, spec)
         if self.executor is None:
@@ -338,6 +339,13 @@ class ExperimentService:
         prior = await asyncio.to_thread(
             self.status, self.artifacts, self.runs, spec.experiment_id
         )
+        # A resumed parent may continue an already stopped child once. Decide
+        # from its saved state before running, never retry an error just raised
+        # by this invocation (which must stop the parent as well).
+        if resume_interrupted and prior["execution_status"] in {
+            "interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable", "failed",
+        }:
+            return await self.continue_interrupted(experiment_id=spec.experiment_id)
         if prior["execution_status"] != "not_dispatched":
             return await self._finish_measurement(spec.experiment_id, prior)
         plan, prepared = await asyncio.to_thread(self._prepare, spec)
@@ -395,6 +403,13 @@ class ExperimentService:
                 launch, launch_id=launch_id, record_attempt=record_attempt
             )
         )
+        if isinstance(launch, DuetEpisodeBinding):
+            from iterative_episode_refiner.coding import RefinementCodingTransport
+
+            transport = RefinementCodingTransport(
+                session=refinement_session, binding=launch, transport=transport,
+                record_attempt=record_attempt,
+            )
         cancelled = False
         try:
             evidence = await self.execution.execute(
@@ -414,6 +429,11 @@ class ExperimentService:
                 ),
                 refinement_session=refinement_session,
             )
+        except ModelCallFailed:
+            if refinement_session is not None:
+                evidence = await asyncio.to_thread(self.runs.read_evidence, registration.run_id)
+                await self._publish_refinement_result(refinement_session, evidence, launch_id)
+            raise
         except asyncio.CancelledError:
             if refinement_session is None:
                 raise
@@ -558,7 +578,9 @@ class ExperimentService:
                 recover_stopped_run, runs=self.runs, artifacts=self.artifacts,
                 executor=self.executor, registration=registration,
             ) if attempts else None
-            if evidence is None or evidence.terminal_status.value not in {"interrupted", "cancelled", "resource_limited"}:
+            from ..continuation import resumable_run
+
+            if evidence is None or not await asyncio.to_thread(resumable_run, self.runs, registration.run_id):
                 await self._recover_dispatch(dispatch, registration, evidence)
                 result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
                 return await self._finish_measurement(experiment_id, result)
@@ -566,6 +588,7 @@ class ExperimentService:
             return await self.continue_run(experiment_id=experiment_id, resume_from=reference.as_record())
 
     async def _recover_dispatch(self, dispatch, registration, evidence):
+        from .contracts import ExperimentSpec
         from .subjects import resolve_subject
         from .refinement_subjects import make_session
 
@@ -592,6 +615,12 @@ class ExperimentService:
 
     async def _finish_measurement(self, experiment_id, result):
         if "evidence_ref" in result:
+            status = result["typed_status"]
+            if status.get("stop_reason") == "model_api_error":
+                raise ModelCallFailed(
+                    "Saved execution stopped on a model API error; explicit continuation is required.",
+                    status["model_route"], run_id=status["failed_run_id"],
+                )
             from .measurements import measure_execution
             from .instruments import run_instruments
 

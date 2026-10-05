@@ -121,11 +121,11 @@ class RunExecution:
             }
         if evidence.registration_hash != registration.registration_hash:
             raise ValueError("terminal evidence belongs to another execution binding")
-        from ..continuation import InterruptedRunRef
+        from ..continuation import InterruptedRunRef, resumable_run
 
         resume_from = (
             InterruptedRunRef.from_run(runs, run_id).as_record()
-            if evidence.terminal_status.value in {"interrupted", "cancelled", "resource_limited"}
+            if resumable_run(runs, run_id)
             else None
         )
         return {
@@ -290,7 +290,11 @@ class RunExecution:
 
             if self.duet_binding is None:
                 raise ValueError("Refinement execution needs its owning Duet's host-bound model configuration.")
-            self.duet_binding.validate(artifacts=self.artifacts, reference=request["launch_ref"], owner_duet_id=subject["owner_duet_id"], model_types=required_slots(inputs))
+            # The original experiment pins its first binding. An explicit
+            # continuation can use the owning Duet's new selection for future
+            # calls; this attempt's execution record below pins that binding.
+            reference = self.duet_binding.reference if registration.resume_from is not None else request["launch_ref"]
+            self.duet_binding.validate(artifacts=self.artifacts, reference=reference, owner_duet_id=subject["owner_duet_id"], model_types=required_slots(inputs))
         elif mode in {"live_fresh", "live_saved"} and intent["kind"] in {
             "experiment.dispatch.v1", "experiment.instrument.v1", "experiment.launch_intent.v1"
         }:

@@ -1004,18 +1004,24 @@ class _RunExecutorBase:
                     pass
             raise
         except BaseException as exc:
+            from llm_call_library.transport import ModelCallFailed
+
             if claimed and evidence is None:
+                api_failure = isinstance(exc, ModelCallFailed)
                 try:
                     cancel = await channel.send(
                         HostFrameType.CANCEL.value,
-                        {"cancel_kind": CancelKind.PROTOCOL_VIOLATION.value},
+                        {"cancel_kind": (
+                            CancelKind.HOST_SHUTDOWN.value if api_failure
+                            else CancelKind.PROTOCOL_VIOLATION.value
+                        )},
                     )
                     sender_sequence = cancel.sender_sequence
                 except BaseException:
                     sender_sequence = channel.next_sender_sequence
                 failure = " ".join(str(exc).replace("\x00", " ").split())[:2048]
                 status = RunTerminalStatus.FAILED
-                if isinstance(exc.__cause__, asyncio.IncompleteReadError):
+                if api_failure or isinstance(exc.__cause__, asyncio.IncompleteReadError):
                     status = RunTerminalStatus.INTERRUPTED
                 elif isinstance(exc, (ProtocolError, ValueError)):
                     status = RunTerminalStatus.INVALID
@@ -1031,10 +1037,17 @@ class _RunExecutorBase:
                             "outcome": status.value,
                             "failure_type": type(exc).__name__,
                             "failure": failure or "host executor failure",
+                            **({
+                                "stop_reason": "model_api_error",
+                                "model_route": exc.route,
+                                "failed_run_id": exc.run_id or registration.run_id.value,
+                            } if api_failure else {}),
                         },
                     )
                 except RunStoreConflict:
                     pass
+                if api_failure and exc.run_id is None:
+                    exc.run_id = registration.run_id.value
             raise
         finally:
             if launcher is not None and launcher.returncode is None:

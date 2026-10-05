@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from agent.duet_contracts import canonical_json
-from agent.episode_launch_transport import LaunchModelError, invoke_pinned_route, provider_failure
-from llm_call_library.transport import ModelTransportResponse
+from agent.episode_launch_transport import invoke_pinned_route, provider_failure
+from llm_call_library.transport import ModelCallFailed, ModelTransportResponse
 
 
 @dataclass(frozen=True)
@@ -159,10 +159,10 @@ class DuetEpisodeTransport:
             self.record_attempt({
                 **receipt,
                 "state": "failed",
-                **provider_failure(exc, route),
+                **provider_failure(exc, route, credential=self.binding.api_key, request=request),
                 "elapsed_seconds": time.monotonic() - started,
             })
-            raise LaunchModelError(
+            raise ModelCallFailed(
                 "Owning Duet model request failed; no alternate route was selected.",
                 receipt,
             ) from None

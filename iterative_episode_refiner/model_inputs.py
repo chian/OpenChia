@@ -9,6 +9,7 @@ from function_library.models import _thaw_json
 from function_library.refinement_contract import INPUT_MEASUREMENTS, MODEL_INPUT_COMPONENTS
 
 from .assignment_choices import assigned_addresses
+from .model_history import iteration_history
 from .records import Ref
 from .report_contract import (
     _measurement, assigned_return_contract, requirement_address, requirement_catalog,
@@ -35,24 +36,9 @@ def _measurements(session, view, call):
     availability = evaluation_availability(resolve_evaluations(
         view, session.policy, assignment, judgment_purpose(view, assignment)
     ))
-    # The method supplies the latest relevant child reports, not their complete
-    # history. Preserve the parent's measured iteration outcomes so an unchanged
-    # prerequisite return cannot look like a first attempt on every model call.
-    units = [
-        entry.record.body for entry in view.entries("unit")
-        if entry.record.invocation_id == call.invocation_id
-    ]
     return {
         "measurements": measurements,
-        "iteration_history": {
-            "completed_units": len(units),
-            "recent_units": [{
-                "ordinal": unit["ordinal"],
-                "candidate_changed": unit["candidate_before_ref"] != unit["candidate_after_ref"],
-                "realized_yield": unit["realized_yield"],
-                "disposition": unit["disposition"],
-            } for unit in units[-8:]],
-        },
+        "iteration_history": iteration_history(session, view, call),
         "evaluation_availability": {
             "executable": availability["executable"],
             "gaps": [{

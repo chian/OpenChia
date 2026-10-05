@@ -995,11 +995,11 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 raise
         return self.build_status()
 
-    def continue_build(self) -> dict[str, Any]:
+    def continue_build(self, build_request_id: str | None = None) -> dict[str, Any]:
         """Continue the saved build job without restarting completed work."""
         from agent.openchia_build_continue import continue_build
 
-        return continue_build(self)
+        return continue_build(self, build_request_id)
 
     def cancel_build(self) -> bool:
         """Cancel the whole job, including refiner and nested validation Runs."""

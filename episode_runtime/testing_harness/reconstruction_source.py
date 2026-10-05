@@ -15,7 +15,7 @@ from episode_builder.declaration import DECLARATION_EXPORT, build_module_declara
 from function_library import reasoning, refinement, testing
 
 from ..contracts import RuntimeSourceManifest
-from ..identity import inspect_runtime_source_manifest, runtime_identity_from_manifest
+from ..identity import runtime_identity_from_manifest
 from ..linker import (
     PreparedSourcePackage,
     _module_relative_path,
@@ -528,9 +528,10 @@ def _admit_module(source, *, node, contract, edges):
 def admit_reconstruction_source(prepared, *, source_package_path, runtime_manifest):
     """Verify exact admitted bytes; the confined worker reconstructs their trace.
 
-    The executor owns staged runtime/interpreter verification. Its verified
-    manifest must also name this validator's current reference implementation;
-    no claim of equivalence is made for an older or different runtime closure.
+    The executor verifies every staged worker byte and its interpreter against
+    the frozen registration. The host checkout need not be identical: the worker
+    still runs that original closure, and every saved protocol frame must match
+    before the host admits new work. This does not substitute current worker code.
     """
     if not isinstance(prepared, PreparedSourcePackage) or not isinstance(
         runtime_manifest, RuntimeSourceManifest
@@ -542,14 +543,6 @@ def admit_reconstruction_source(prepared, *, source_package_path, runtime_manife
         runtime_manifest
     ):
         raise ValueError("reconstruction runtime differs from the frozen registration")
-    current = inspect_runtime_source_manifest(
-        repository_root=Path(__file__).resolve().parents[2],
-        interpreter_runtime=runtime_manifest.interpreter_runtime,
-    )
-    if current != runtime_manifest:
-        raise ValueError(
-            "reconstruction does not support a different reference runtime implementation"
-        )
     root = Path(source_package_path)
     if root.is_symlink() or root.name != prepared.manifest.manifest_id.value:
         raise ValueError(

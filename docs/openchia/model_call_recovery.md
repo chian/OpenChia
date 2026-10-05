@@ -89,6 +89,9 @@ Editing defaults never changes an active binding. A restored historical binding
 without a recovery field retains its original behavior; continuation must not
 silently insert new defaults. This is separate from the build/refiner continue
 feature, which resumes the durable workflow rather than an HTTP connection.
+On explicit refiner continuation, a changed owning-Duet model or effort creates
+a new binding for future calls, with the applicable current recovery policy.
+The prior binding and completed responses remain unchanged.
 
 The inactivity interval is not a computation deadline. Response activity resets
 it; there is no total wall-clock limit on the original request from this policy.
@@ -104,8 +107,28 @@ Episode completion or a numerical continuation decision.
 The existing `model_launch_call` records retain one logical `call_id`, route
 provenance, physical-attempt number and probe ID. States distinguish activity,
 probe success/failure/deadline, original preservation, grace, attempted recovery,
-client cleanup and recovery exhaustion. Records contain timestamps and typed
-diagnostics, never raw provider errors, credentials or streamed model text.
+client cleanup and recovery exhaustion. Failed calls and probes keep the
+classifier's `failure_category` and `retryable` separate from `provider_error`:
+the provider's code, type, parameter, message, request ID and retry-after header
+when available. Missing fields remain null; a classification such as `overloaded`
+is not proof of a provider-wide outage. `message_source` distinguishes a selected
+provider message from an exception-only diagnostic or an unavailable message.
+
+Diagnostics use the shared forced secret redactor and remove exact call-owned
+credentials and echoed request messages before truncation. `redacted_fields` and
+`truncated_fields` disclose changes. Messages are limited to 2048 characters and
+other diagnostic fields to 256. Raw response bodies, arbitrary headers, stack
+traces and streamed model text are not copied into these records. These are
+sanitized diagnostics, not a lossless capture of the provider response.
+
+`physical_attempt_failed` records the request ID observed in response headers
+even when a status-less streaming exception does not retain those headers. It
+uses the same logical call ID and physical-attempt number as existing activity
+records. A completed work-bearing call that raises an API error stops its owning
+job with preserved evidence; it does not fall back or trigger an automatic repair
+or retry. An explicit continuation can reissue the unanswered request. Failed side
+probes still preserve a pending original call as described above. Historical
+receipts that omitted the provider message cannot recover it retroactively.
 
 `/launch calls` and the existing event readers expose these records; there is no
 parallel recovery database. Activity records are throttled, not per-token audit

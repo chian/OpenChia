@@ -917,8 +917,16 @@ there are required values. Empty arrays in a node-level payload-contract shape
 describe an empty vocabulary exactly when the frozen design requires one.
 
 Every proposed choice names its basis in the frozen contract, a supplied child
-interface, a library definition, or the optional reference Episode. Represent
-a material design ambiguity in the unresolved array so the Duet can settle it.
+interface, a library definition, or the optional reference Episode. Make the
+implementation choices needed to satisfy the requirements. Record remaining
+implementation questions in unresolved with what needs to be designed or
+verified, so the IterativeEpisodeRefiner can resolve them internally. Do not
+request another Duet approval or treat an unspecified implementation choice as
+a prohibition on designing a solution.
+Each unresolved entry names exactly one lowercase field_path, using dots or
+single numeric indexes when needed, such as generated_component_specs[2]. Use
+separate entries for separate fields; do not use comma-separated paths, index
+ranges, slices, or prose in field_path. Keep each detail within 2048 characters.
 The host installs architecture_owned_numeric_bindings into the corresponding
 selected_function_bindings roles. You may omit those roles; if you include them,
 copy them exactly. Their function identities and arguments are fixed facts,
@@ -1003,7 +1011,10 @@ _PLAN_SHAPE = {
         }
     ],
     "derivation_basis": {"plan_field": "supplied source"},
-    "unresolved": [{"field_path": "stopping", "detail": "question for Duet"}],
+    "unresolved": [{
+        "field_path": "generated_component_specs",
+        "detail": "Implementation approach or supporting evidence still needed; resolve within refinement.",
+    }],
 }
 
 

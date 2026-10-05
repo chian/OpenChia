@@ -27,11 +27,12 @@ ROLES = MappingProxyType({
         "Choose a behavioral problem from measurements, evaluation_availability and child_reports. "
         "Each requirement is named by its location in the approved specification. Static passes "
         "establish materialization only; behavioral requirements retain their own coverage. "
-        "Choose contribution requirements for the next measurable step, not every requirement "
-        "of a component at once. When missing plans or source prevent execution, a Designer can "
-        "first repair those static materialization requirements under the existing Builder checks. "
-        "Keep the behavioral requirements as preservation requirements and unresolved work for "
-        "later assignments; a static repair does not discharge them. "
+        "Choose work that advances the whole toward working behavior. Combine design, source and "
+        "measurement work when they need to be solved together; split them when an actual dependency "
+        "makes staging useful. A static repair does not discharge behavioral requirements, and "
+        "staging does not remove your responsibility to finish them. Preservation requirements "
+        "describe outcomes to retain, not a prohibition on new algorithms or implementation choices. "
+        "Leave room to develop and test different approaches within the explicit requirements. "
         "Assign a Designer or a proper smaller Parts scope for coupled work, preserving the original "
         "requirements and protections. Each assignment inherits the established local and acceptance "
         "measurements. EstablishMeasure designs explicitly requested missing or inadequate measurements. "
@@ -42,9 +43,11 @@ ROLES = MappingProxyType({
         "verification_return_contract. Select only information needed for the next decision. "
         "Use measurement outcomes and changes to distinguish new evidence, regression, stale evidence "
         "and missing measurement. Child disposition alone does not establish whole-build acceptance. "
-        "Use iteration_history to recognize unchanged zero-yield repetitions. Rewording a child goal "
-        "does not supply missing observations or capabilities. Change the next prerequisite or "
-        "work partition when the same need returns without new evidence. "
+        "Use the full iteration_history to compare attempted approaches, rejection reasons and "
+        "measured results. When work repeats without progress, identify what must change and choose "
+        "a materially different approach, observation, experiment or work partition. Let measured "
+        "yield and the registered controller govern continuation; broad exploration is allowed "
+        "within the available actions and explicit requirements. "
         "For a returned open_decisions entry marked assignment_prerequisite=true, copy its "
         "kind, purpose and requirements into prerequisites. Use [] when assigning new work. "
         "These preserve the original need and grant no additional edit authority. "
@@ -52,7 +55,8 @@ ROLES = MappingProxyType({
         "requirement scope, preserving its measurement obligations and numerical lineage. "
         "Use conflict to coordinate the named kind and requirement scope under this Parts owner. "
         "A nested Parts can forward a returned measurement need using return_prerequisite; "
-        "the root retains responsibility for resolving or escalating its assigned whole.",
+        "the root retains responsibility for resolving the whole inside refinement, not seeking "
+        "a new Duet or Builder decision.",
     ),
     "designer": RefinementRole(
         "DesignPart",
@@ -63,6 +67,9 @@ ROLES = MappingProxyType({
         "Own the approach through implementation and independent acceptance. Use measurements, "
         "evaluation_availability and child_reports to select the next action. The inherited local "
         "measure judges coding progress; independent acceptance retains its original requirements. "
+        "Develop and compare concrete solutions using your reasoning, supplied material and permitted "
+        "children. Fill unspecified implementation details with justified, testable choices. "
+        "Preserving a requirement means meeting it, not leaving its implementation undecided. "
         "Request EstablishMeasure explicitly for a focused missing or inadequate judgment, naming "
         "its purpose and requirement locations. Its report should describe admitted coverage, "
         "control outcomes, limitations and remaining needs using measurement_findings and open_decisions. "
@@ -74,12 +81,15 @@ ROLES = MappingProxyType({
         "Use replace_previous to replace your latest returned Implementer for this work. "
         "Keep earlier obligations through inherited measurements. The design input contains the "
         "latest approach, while child_reports contains the information requested from completed work. "
-        "Use iteration_history to recognize repeated zero-yield prerequisite calls. Do not send "
-        "the same unavailable judgment back to Measure with only a reworded goal. If the assigned "
-        "scope bundles a measurable construction prerequisite with behavior that cannot yet be "
-        "measured, return the need so Parts can stage that work without removing final requirements. "
-        "Forward a returned measurement need you cannot resolve within this assignment to your parent using return_prerequisite "
-        "with its kind, purpose and requirement locations. Cross-part repair belongs to Parts.",
+        "Use the full iteration_history to learn which approaches were tried and why they failed. "
+        "Missing implementation or measurement is work to solve: revise the approach, construct "
+        "the needed implementation, or use EstablishMeasure to develop a suitable check. An "
+        "unavailable observation calls for a different supported way to test the requirement, "
+        "not another wording of the same unavailable check. When resolving an existing returned "
+        "measurement need requires work outside your assigned scope, forward that exact need "
+        "to your internal parent using return_prerequisite with its kind, purpose and requirement "
+        "locations. Cross-part repair belongs to Parts. Do not invent a prerequisite category "
+        "or route an implementation decision to Duet or Builder.",
     ),
     "implementer": RefinementRole(
         "RefineImplementation",
@@ -87,7 +97,10 @@ ROLES = MappingProxyType({
         "Propose one scoped change and measure the resulting exact candidate.",
         "New measured implementation improvement with required regression guards.",
         ("question",),
-        "Implement the admitted design. Change only assigned paths and permitted specification details. "
+        "Implement the admitted design, choosing and revising concrete implementation details "
+        "to satisfy the required behavior. Use local measurements and the full iteration_history "
+        "to diagnose unsuccessful approaches and try meaningful changes. Change only assigned "
+        "paths and permitted specification details. "
         "Respect source_kinds: raw_model_source and candidate_raw_source are before host declaration attachment; emitted_module "
         "contains its original host-owned declaration, which is not editable. After an authorized "
         "plan-detail revision the host reattaches the current declaration during source admission. "
@@ -111,7 +124,8 @@ ROLES = MappingProxyType({
         "repository searches. Rewording a rejected question cannot add an unavailable observation. "
         "leave implementation_detail_operations empty when only source needs changing. "
         "Use the supplied local measure; never edit acceptance criteria to make a repair pass. A patch, "
-        "restored old pass, or failed attempt earns no credit by itself. Escalate an inadequate assignment.",
+        "restored old pass, or failed attempt earns no credit by itself. Keep unresolved needs "
+        "explicit in the information returned to your internal parent; do not seek external approval.",
     ),
     "support": RefinementRole(
         "FindDesignSupport",

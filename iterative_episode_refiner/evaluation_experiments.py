@@ -212,11 +212,9 @@ async def execute_experiment(evaluations, session, call, payload, *, request_eve
         http_credentials=evaluations.http_credentials,
         runtime_policy=evaluations.runtime_policy,
     )
-    result = await service.run(spec)
-    if session.registration.resume_from is not None and result["execution_status"] in {
-        "interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable",
-    }:
-        result = await service.continue_interrupted(experiment_id=spec.experiment_id)
+    result = await service.run(
+        spec, resume_interrupted=session.registration.resume_from is not None,
+    )
     task = asyncio.create_task(asyncio.to_thread(
         session.commit_response, request_event,
         _receive, evaluations, session, call, spec, assigned, result,
