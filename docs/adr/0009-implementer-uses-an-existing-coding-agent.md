@@ -62,9 +62,9 @@ The Implementer contract is coding-backend-independent: assignment, workspace,
 candidate changes, diagnostics, interruption and continuation have the same
 meaning whether the coding capability uses Codex or Claude Code. Backend-specific
 authentication, command sandboxing and native session protocols belong in
-adapters. The initial implementation supports Codex only; this decision does
-not claim an implemented or validated Claude Code adapter. Neither backend may
-award Episode credit or replace host validation.
+adapters. Codex and Claude Code adapters are implemented; Claude Code has not
+been live-validated. Neither backend may award Episode credit or replace host
+validation.
 
 The coding agent uses the owning Duet's pinned model configuration and explicit
 host-held credential, not the Target Workflow launch configuration or an ambient
@@ -77,6 +77,27 @@ Reuse the existing coding session and its continuation facilities. Preserve
 working context across implementation units while refreshing the candidate and
 measured feedback. Durable candidate state and the shared Run journal remain
 authoritative; a private coding transcript cannot award credit or replace them.
+
+### Private native configuration
+
+The repository ships `scripts/openchia-codex` and its sandbox defaults.
+Standalone launches, app-server launches and configuration migration share
+`openchia_cli/codex_runtime_home.py`. They use the active OpenChia profile's
+private Codex home; Implementer supplies a separate home per coding context.
+Resumption uses that same private home. Existing personal transcripts and
+settings are not automatically imported or used as a fallback.
+
+`CODEX_HOME` is set only in the child environment, after inherited `CODEX_*`
+thread and permission settings have been removed from that environment. The
+parent environment and personal Codex files are not changed. The user's own
+Codex sessions may retain full permissions while OpenChia's sessions remain
+sandboxed. Private configuration is not itself a filesystem sandbox.
+
+Do not install host packages or security profiles, change AppArmor/sysctl
+settings, or substitute unrestricted execution to obtain a passing coding run.
+Report a sandbox startup failure separately from model or implementation
+failure. A pass obtained using a machine-wide workaround does not validate this
+launch design.
 
 ## Consequences and verification
 
@@ -112,7 +133,7 @@ Explicit credentials use the documented
 The native model endpoint must equal the Duet endpoint, not the standard API
 endpoint merely because Codex names its provider `openai`.
 
-## Verification status (2026-10-05)
+## Earlier verification (2026-10-05; before private-launch correction)
 
 Deterministic checks exercise actual workspace differences, the ordinary scoped
 broker and candidate admission, zero credit for an unmeasured edit, and
@@ -150,9 +171,38 @@ The receipt includes commands, native turn IDs and the checked answers. Focused
 workspace/broker/session checks also passed (62 tests). These counts are not a
 replacement for the live result.
 
-The deployment must support Codex's workspace-write sandbox. Do not substitute
+The AppArmor installation above was an inappropriate machine-wide intervention,
+and was subsequently undone. Those historical passes do **not** establish that
+the corrected repository-owned launcher works on the unchanged host.
+
+## Private-launch verification (2026-10-05)
+
+Configuration checks pass, including profile isolation and preservation of the
+personal Codex configuration. Initially the corrected private launcher reached
+Codex 0.160.0 but native commands failed with the bubblewrap error above; the
+legacy sandbox also refused filesystem-restricted execution.
+
+After the user explicitly requested restoring the missing host setup,
+`/etc/apparmor.d/bwrap-userns-restrict` was restored from Ubuntu's packaged
+profile and loaded. This machine-wide prerequisite restoration is separate from
+the repository launcher; it is not an automatic installation or fallback.
+The private app-server then permitted workspace writes/Python execution and
+denied outside-workspace writes and network sockets under its workspace policy.
+
+The corrected launch path's real coding check passed in 170.5 seconds on this
+repaired host: creation, execution, native-thread resumption, source revision,
+and independent host-oracle acceptance after both versions. Both answers had
+optimal makespan `14`. The thread was
+`01a10e27-8cfe-7833-9bab-c432611806d4`; the local receipt is
+`/var/tmp/openchia-private-coding-receipt.fjdLmj/junit.xml`, SHA-256
+`518f21e0b444e37ad9742cc4c72edb05391827428d9837b6a3f6ec68760704e1`.
+The personal Codex configuration and global namespace restriction were unchanged
+during verification. This does not prove operation without the restored host
+profile, nor satisfy the original no-machine-wide-workaround acceptance condition.
+
+The deployment must support Codex's workspace sandbox. Do not substitute
 unrestricted execution or report a sandbox failure as validated implementation.
-The adapter does not install host security policy automatically. See
+See
 [Implementer coding workspace setup](../openchia/implementer_coding_workspace.md)
-for prerequisites and the explicit host setup. Target Workflow environment
+for the repository launcher and verification procedure. Target Workflow environment
 preparation remains separate.

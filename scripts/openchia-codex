@@ -1,0 +1,12 @@
+#!/usr/bin/env -S bash -c 'exec "$BASH" "$(dirname "$0")/_hermes-python" "$0" "$@"'
+"""Start Codex with OpenChia-owned configuration; pass Codex arguments unchanged."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from openchia_cli.codex_runtime_home import main
+
+if __name__ == "__main__":
+    main()

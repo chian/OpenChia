@@ -41,9 +41,8 @@ class _PinnedCodexClient(CodexAppServerClient):
             "model_provider": "openai",
             "model": _wire_model_identity(route["model"]),
             "approval_policy": "never",
-            # Standard inherited Codex coding mode. Do not install host policy
-            # or silently escalate when the native CLI cannot use this mode.
-            "sandbox_mode": "workspace-write",
+            # Sandbox defaults come from OpenChia's private Codex config, not
+            # the user's personal configuration or a host-policy installation.
             "cli_auth_credentials_store": "ephemeral",
             "forced_login_method": "chatgpt",
             "forced_chatgpt_workspace_id": self.account_id,

@@ -107,8 +107,11 @@ class CodexAppServerClient:
         spawn_env = hermes_subprocess_env(inherit_credentials=inherit_credentials)
         if env:
             spawn_env.update(env)
-        if codex_home:
-            spawn_env["CODEX_HOME"] = codex_home
+        from openchia_cli.codex_runtime_home import codex_child_env
+
+        # Use the same private configuration as scripts/openchia-codex. Ambient
+        # CODEX_HOME may belong to the user's enclosing Codex session.
+        spawn_env = codex_child_env(spawn_env, codex_home)
 
         cmd = [codex_bin, "app-server", *(extra_args or [])]
         from agent.delegation_context import (

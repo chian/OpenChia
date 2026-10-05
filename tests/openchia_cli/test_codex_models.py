@@ -26,11 +26,52 @@ def _pro_slugs(model_ids):
     return [m for m in model_ids if m.removesuffix("-900k").endswith("-pro")]
 
 
+def test_offline_catalog_is_profile_private_and_read_only(tmp_path, monkeypatch):
+    import os
+    from pathlib import Path
+
+    from agent.secret_scope import set_multiplex_active
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
+    personal = tmp_path / ".codex"
+    profiles = {name: tmp_path / name for name in ("a", "b")}
+    catalog_homes = {"personal": personal, **{name: home / "codex" for name, home in profiles.items()}}
+    for name, home in catalog_homes.items():
+        home.mkdir(parents=True)
+        (home / "config.toml").write_text(f'model = "{name}-default"\n', encoding="utf-8")
+        (home / "models_cache.json").write_text(
+            json.dumps({"models": [{"slug": f"{name}-cached"}]}), encoding="utf-8",
+        )
+    before = {path.relative_to(tmp_path): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "launch-profile"))
+    monkeypatch.setenv("CODEX_HOME", str(personal))
+    catalogs = []
+    set_multiplex_active(True)
+    try:
+        for name in ("a", "b", "a"):
+            token = set_hermes_home_override(profiles[name])
+            try:
+                catalog = get_codex_model_ids()
+                assert {f"{name}-default", f"{name}-cached"} <= set(catalog)
+                for other in catalog_homes.keys() - {name}:
+                    assert {f"{other}-default", f"{other}-cached"}.isdisjoint(catalog)
+                catalogs.append(catalog)
+            finally:
+                reset_hermes_home_override(token)
+    finally:
+        set_multiplex_active(False)
+    assert catalogs[0] == catalogs[2] and catalogs[0] != catalogs[1]
+    assert {path.relative_to(tmp_path): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == before
+    assert not (tmp_path / "launch-profile").exists()
+    assert os.environ["CODEX_HOME"] == str(personal)
+
+
 def test_codex_catalog_never_offers_chatgpt_rejected_pro_slugs(monkeypatch, tmp_path):
     """The ChatGPT Codex OAuth backend 400s every ``-pro`` slug (#52492), so
     neither the offline fallback nor forward-compat synthesis over a live
     catalog may offer one, while the fallback still keeps every curated model."""
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path))  # no config.toml default, no cache
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))  # no private config.toml default or cache
     offline = get_codex_model_ids()
     assert set(DEFAULT_CODEX_MODELS) <= set(offline)
     assert _pro_slugs(offline) == []
@@ -124,8 +165,10 @@ def test_astra_requires_live_codex_account_discovery(monkeypatch, tmp_path):
     """Cached/configured Astra names must not manufacture current OAuth entitlement."""
     from openchia_cli import codex_models
 
-    (tmp_path / "config.toml").write_text('model = "gpt-6-astra"\n', encoding="utf-8")
-    (tmp_path / "models_cache.json").write_text(
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text('model = "gpt-6-astra"\n', encoding="utf-8")
+    (codex_home / "models_cache.json").write_text(
         json.dumps({"models": [
             {"slug": "gpt-6-astra", "priority": 0},
             {"slug": "openai/gpt-6-astra", "priority": 1},
@@ -134,7 +177,7 @@ def test_astra_requires_live_codex_account_discovery(monkeypatch, tmp_path):
         ]}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(codex_models, "_fetch_models_from_api", lambda _token, **_kw: [])
 
     assert "gpt-6-astra" not in get_codex_model_ids(access_token="stale-token")

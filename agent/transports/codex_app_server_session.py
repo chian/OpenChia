@@ -168,8 +168,9 @@ _OAUTH_REFRESH_FAILURE_HINTS = (
 _PRIMARY_ONLY_OAUTH_HINTS = ("401 unauthorized", "unauthorized", "oauth", "auth profile")
 
 _OAUTH_REAUTH_HINT = (
-    "Codex authentication failed — your ChatGPT/Codex login looks expired or invalid. Run `codex login` to refresh, "
-    "then retry. (Fall back to default runtime with `/codex-runtime auto` if the issue persists.)"
+    "Codex authentication failed — refresh the owning OpenChia credential, then retry. "
+    "For standalone app-server sessions, run `scripts/openchia-codex login` from the repository "
+    "with the same OpenChia profile. Do not change your personal Codex login."
 )
 
 
@@ -221,7 +222,10 @@ class CodexAppServerSession:
     ) -> None:
         self._cwd = cwd or os.getcwd()
         self._codex_bin = codex_bin
-        self._codex_home = codex_home
+        from openchia_cli.codex_runtime_home import resolve_codex_home
+
+        # Bind the owning OpenChia profile now, not when a later turn spawns.
+        self._codex_home = str(resolve_codex_home(codex_home))
         # A codex thread id persisted by an earlier process for this OpenChia session: the first
         # ``ensure_started`` issues ``thread/resume`` for it instead of ``thread/start``.
         self._resume_thread_id = resume_thread_id
@@ -265,7 +269,7 @@ class CodexAppServerSession:
             self._client = self._client_factory(codex_bin=self._codex_bin, codex_home=self._codex_home)
             self._client.initialize(client_name="openchia", client_title="OpenChia", client_version=_get_openchia_version())
         # Permissions are NOT sent on thread/start: codex gates ``thread/start.permissions``
-        # behind experimentalApi + a matching ``[permissions]`` table in ~/.codex/config.toml.
+        # behind experimentalApi + a matching table in the private Codex config.
         # OpenChia supplies the agent identity through its own system prompt; ``personality: "none"`` strips
         # codex's built-in "# Personality" section from the base instructions so it cannot compete (#72104).
         params: dict[str, Any] = {"cwd": self._cwd, "personality": "none"}
@@ -688,7 +692,7 @@ class CodexAppServerSession:
         """Answer a codex server request (approval / elicitation) via OpenChia's approval flow.
 
         Permission escalations are always declined (the user chose their profile in
-        ~/.codex/config.toml); unknown methods get a JSON-RPC error so codex doesn't hang.
+        the private Codex config); unknown methods get a JSON-RPC error so codex doesn't hang.
         """
         client = self._client
         if client is None:
