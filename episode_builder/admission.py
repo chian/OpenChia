@@ -964,7 +964,7 @@ def _inspect_source(
             **{field: getattr(frozen_contract, field) for field in _FROZEN_BINDING_FIELDS},
         }
         for detail in _binding_contract_deficits(tree, expected):
-            add("binding_contract_mismatch", "module_source.BINDING", detail)
+            add("binding_contract_mismatch", "module_source.binding", detail)
 
     for item in ast.walk(tree):
         if isinstance(item, ast.Attribute) and item.attr in _FORBIDDEN_ATTRIBUTES:
