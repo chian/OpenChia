@@ -245,6 +245,10 @@ class OpenChiaCommandMixin:
             self._print_openchia("Usage: /build [status|continue]")
             return True
         try:
+            # A resumed Duet can start/continue a build before its next chat turn.
+            # The refiner still needs that Duet's own bound model configuration.
+            if not self._init_agent():
+                return True
             build = (self._episode_host().continue_build() if action == "continue"
                      else self._episode_host().start_build())
             attempt = build.get("build_attempt_id") or "pending"
