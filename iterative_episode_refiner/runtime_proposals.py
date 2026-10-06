@@ -21,7 +21,11 @@ from .assignment_choices import (
 _ASSIGNMENT_SHAPE = {
     "role": "one permitted child role",
     "goal": "precise behavioral contribution, not a file grouping",
-    "requirements": ["original specification requirement address"],
+    "requirements": [
+        "Specification addresses for this child's contribution. For role=parts, choose a "
+        "nonempty strict subset of the parent's assignment.requirements. The inherited "
+        "context retains the other requirements and their protections."
+    ],
     "writable_paths": ["an exact path within the parent's editable scope"],
     "return_contract": RETURN_SHAPE,
     "measure_request": (
@@ -35,7 +39,10 @@ _ASSIGNMENT_SHAPE = {
     "prerequisites": [{
         "kind": "Copy from a returned open_decisions entry marked assignment_prerequisite=true; use [] for new work.",
         "purpose": "Copy that entry's literal judgment category.",
-        "requirements": ["copy that entry's specification addresses"],
+        "requirements": [
+            "copy that returned need's full specification addresses; its scope may be "
+            "broader than this child's contribution"
+        ],
     }],
 }
 
