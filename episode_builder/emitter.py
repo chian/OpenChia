@@ -30,7 +30,7 @@ from ._contract_plan import (
 from .declaration import DECLARATION_EXPORT, build_module_declaration
 from .evidence import ModelCallObserver, observe_model_call
 from .reference import EpisodeReferenceContext
-from .admission import constructor_signatures
+from .admission import constructor_signatures, goal_state_protocol_members
 from .planner import materializer_function_catalog
 
 
@@ -746,7 +746,9 @@ _MODULE_CONTRACT = {
             "cover BINDING"
         ),
         "root_build_goal_state": (
-            "root only: def build_goal_state(request, collaborators)"
+            "root only: def build_goal_state(request, collaborators) returning an "
+            "object that satisfies method_loop.GoalState (see goal_state_protocol); "
+            "the runtime linker rejects a dict, mapping, MappingProxyType or literal"
         ),
         "root_scope_goal_state": (
             "root only: def scope_goal_state(goal_state, goal) returning "
@@ -862,6 +864,25 @@ _MODULE_CONTRACT = {
         ),
         "edge.<slot>.receive_result": (
             "matching EpisodeChildSlot.receive_result"
+        ),
+    },
+    "goal_state_protocol": {
+        "members": list(goal_state_protocol_members()),
+        "contract": (
+            "state_id is a str property that changes only when commit() changes "
+            "state; preview(proposal: method_loop.GoalProposal, unit_ref) must not "
+            "mutate state and returns method_loop.GoalPreview(controller_input=..., "
+            "candidate_result_ids=(...), state_id=<current state_id>); commit(preview, "
+            "result_ids) is called only with a non-empty subset of the previewed "
+            "candidate_result_ids after numerical control admits them and applies "
+            "the change"
+        ),
+        "how_to_satisfy": (
+            "define one small class in this module that owns the Episode's mutable "
+            "goal data (for example a ledger) and implements exactly these members, "
+            "and return an instance of it from build_goal_state; an Episode that "
+            "never proposes Goal results may instead import and return "
+            "function_library.reasoning.ReasoningGoalState()"
         ),
     },
     "constructor_signatures": {

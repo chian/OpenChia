@@ -343,6 +343,8 @@ def constructor_signatures() -> dict[str, dict[str, list[str]]]:
         "method_loop.EpisodeControllerBinding": method_loop.EpisodeControllerBinding,
         "method_loop.EpisodeFunctionBinding": method_loop.EpisodeFunctionBinding,
         "method_loop.EpisodeChildSlot": method_loop.EpisodeChildSlot,
+        "method_loop.GoalPreview": method_loop.GoalPreview,
+        "method_loop.GoalProposal": method_loop.GoalProposal,
         "method_loop.EpisodeRequest": method_loop.EpisodeRequest,
         "method_loop.ChildEpisodeUnit": method_loop.ChildEpisodeUnit,
         "method_loop.ReportContract": method_loop.ReportContract,
@@ -372,6 +374,46 @@ def constructor_signatures() -> dict[str, dict[str, list[str]]]:
         "members": [member.name for member in method_loop.EpisodeTopologyRole],
     }
     return signatures
+
+
+def goal_state_protocol_members() -> tuple[str, ...]:
+    """The members ``method_loop.GoalState`` requires, read from the Protocol itself."""
+    import method_loop
+
+    return tuple(sorted(method_loop.GoalState.__protocol_attrs__))
+
+
+_PLAIN_RETURN_CALLS = frozenset({"dict", "list", "tuple", "set", "frozenset", "MappingProxyType"})
+
+
+def _goal_state_return_deficits(tree: ast.Module) -> tuple[str, ...]:
+    """Flag a root build_goal_state that returns a plain mapping or literal.
+
+    The runtime linker requires the returned object to satisfy
+    ``method_loop.GoalState`` (``state_id``, ``preview``, ``commit``); a dict,
+    MappingProxyType or literal fails ``isinstance`` at link time, after
+    admission, inside the isolated Run.
+    """
+    found: list[str] = []
+    for statement in tree.body:
+        if not isinstance(statement, ast.FunctionDef) or statement.name != "build_goal_state":
+            continue
+        for node in ast.walk(statement):
+            if not isinstance(node, ast.Return) or node.value is None:
+                continue
+            value = node.value
+            plain = isinstance(value, (ast.Dict, ast.List, ast.Set, ast.Tuple, ast.Constant, ast.DictComp, ast.ListComp))
+            if isinstance(value, ast.Call):
+                callee = value.func
+                name = callee.id if isinstance(callee, ast.Name) else (callee.attr if isinstance(callee, ast.Attribute) else "")
+                plain = plain or name in _PLAIN_RETURN_CALLS
+            if plain:
+                found.append(
+                    f"build_goal_state returns a plain mapping or literal at line {node.lineno}; "
+                    "the runtime linker requires an object satisfying method_loop.GoalState "
+                    f"(members {', '.join(goal_state_protocol_members())})"
+                )
+    return tuple(found)
 
 
 def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
@@ -981,6 +1023,9 @@ def _inspect_source(
 
     for detail in _constructor_argument_deficits(tree):
         add("constructor_arguments_invalid", "module_source", detail)
+
+    for detail in _goal_state_return_deficits(tree):
+        add("goal_state_not_protocol", "module_source.build_goal_state", detail)
 
     if frozen_contract is not None:
         expected: dict[str, object] = {
