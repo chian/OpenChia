@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import queue
 import subprocess
 import sys
 import threading
@@ -9,7 +10,11 @@ from types import SimpleNamespace
 
 import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.application import Application, create_app_session
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout
 from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.widgets import TextArea
 
 from openchia_cli.inspector.refiner import Refiner
 from openchia_cli.inspector.refiner_controller import RefinerController
@@ -104,7 +109,7 @@ async def test_keyboard_navigation_history_and_reference_context(observer_home, 
             assert not terminal.navigation.snapshot.nodes
             assert terminal.detail is None
             assert terminal.details.text == ''
-            pipe.send_bytes(b'\x03')
+            pipe.send_text('q')
             await asyncio.wait_for(task, timeout=5)
         finally:
             if not task.done():
@@ -134,3 +139,102 @@ async def test_shell_entry_and_slash_dispatch_share_projection_without_host_crea
     assert json.loads(output[0])['nodes'] == data['nodes']
     assert cli._openchia_host is None
     assert '\x1b' not in display_text('untrusted\x1b[2J\x07')
+    # A dispatch outside the inline handoff cannot claim the terminal input.
+    output.clear()
+    monkeypatch.setattr(sys, 'stdin', SimpleNamespace(isatty=lambda: True))
+    assert getattr(OpenChiaCommandMixin, handler)(cli, '/refiner')
+    assert 'IterativeEpisodeRefiner' in output[0]
+
+
+@pytest.mark.asyncio
+async def test_interactive_slash_hands_terminal_back_to_idle_and_busy_cli(observer_home, campaign, monkeypatch):
+    from openchia_cli.duet_cli import OpenChiaCLI
+    from openchia_cli.inspector import terminal as terminal_module
+
+    viewers, output = [], []
+
+    class ObservedTerminal(InspectorTerminal):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            viewers.append(self)
+
+    monkeypatch.setattr(terminal_module, 'InspectorTerminal', ObservedTerminal)
+    cli = OpenChiaCLI.__new__(OpenChiaCLI)
+    cli._openchia_host = SimpleNamespace(root=observer_home / 'openchia', identity=SimpleNamespace(
+        duet_id=SimpleNamespace(value=campaign.session.duet_id)))
+    cli._print_openchia = output.append
+    cli._tui_enter_overlay = lambda event: False
+    cli._tui_multiline_shortcuts = False
+    cli._attached_images = []
+    cli._pending_input = queue.Queue()
+    keys = KeyBindings()
+    keys.add('enter')(cli._tui_handle_enter)
+
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        entry = TextArea(multiline=False)
+        outer = Application(layout=Layout(entry), key_bindings=keys, full_screen=True)
+        running = asyncio.create_task(outer.run_async())
+        try:
+            await until(lambda: outer.is_running)
+            for number, busy in enumerate((False, True), 1):
+                cli._agent_running = busy
+                pipe.send_text('/refiner\r' if not busy else '/REFINER\r')
+                await until(lambda: len(viewers) == number and viewers[-1].view is not None)
+                viewer = viewers[-1]
+                assert outer._running_in_terminal
+                assert viewer.application.input is outer.input
+                assert cli._pending_input.empty()
+                pipe.send_text('h')
+                await until(lambda: viewer.view.snapshot.position['mode'] == 'history' and not viewer.loading)
+                pipe.send_text(':quit\r') if busy else pipe.send_bytes(b'\x03')
+                await until(lambda: not outer._running_in_terminal)
+                assert outer.is_running and not viewer.application.is_running
+                pipe.send_text('resumed')
+                await until(lambda: entry.text == 'resumed')
+                entry.buffer.reset()
+            assert output == []
+        finally:
+            if viewers and viewers[-1].application.is_running:
+                pipe.send_bytes(b'\x03')
+                await until(lambda: not outer._running_in_terminal)
+            if outer.is_running:
+                outer.exit()
+            await asyncio.wait_for(running, 15)
+
+
+@pytest.mark.asyncio
+async def test_navigation_coalesces_pending_reads_and_installs_only_latest_detail(observer_home, campaign, monkeypatch):
+    campaign.implementer()
+    with create_pipe_input() as pipe:
+        terminal = InspectorTerminal(RefinerController(Refiner(observer_home)), input=pipe, output=DummyOutput())
+        await terminal.refresh()
+        view = terminal.view
+        read = view.detail
+        calls = []
+        started, release = asyncio.Event(), threading.Event()
+        loop = asyncio.get_running_loop()
+        identities = [node.identity for node in view.snapshot.nodes]
+
+        def blocked_detail(identity):
+            calls.append(identity)
+            if len(calls) == 1:
+                loop.call_soon_threadsafe(started.set)
+                if not release.wait(15):
+                    raise AssertionError('Detail reader was not released')
+            return read(identity)
+
+        monkeypatch.setattr(view, 'detail', blocked_detail)
+        terminal.navigation.selected = identities[0]
+        pending = terminal.request_detail()
+        try:
+            await asyncio.wait_for(started.wait(), 15)
+            for identity in identities * 20:
+                terminal.navigation.selected = identity
+                assert terminal.request_detail() is pending
+            terminal.navigation.selected = identities[-1]
+            terminal.request_detail()
+        finally:
+            release.set()
+        await asyncio.wait_for(pending, 15)
+        assert calls == [identities[0], identities[-1]]
+        assert terminal.detail.identity == identities[-1]

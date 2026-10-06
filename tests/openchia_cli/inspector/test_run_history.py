@@ -90,3 +90,55 @@ async def test_reference_from_campaign_history_reports_missing_run_boundary(obse
     detail = view.reference('run', registration.run_id.value)
     assert detail.gaps
     assert 'events' not in detail.sections
+
+
+@pytest.mark.asyncio
+async def test_bad_run_publication_is_a_gap_and_selected_bad_event_is_an_observation_error(observer_home, campaign):
+    from openchia_cli.inspector.archive import canonical_hash
+
+    session = campaign.session
+    runs, registration = session.store.evidence.runs, session.registration
+    claim_store(runs.root, registration, store=runs)
+    put_record(campaign.duets, 'refinement_job', duet_id=session.duet_id,
+               campaign_id=campaign.campaign_id.value, record={
+                   'campaign_ref': session.contract.ref.as_record(), 'registration': registration.as_record(),
+               })
+    directory = runs.root / 'registrations'
+    (directory / 'partial.json').write_text('{')
+    (directory / 'array.json').write_text('[]')
+    (directory / 'symlink.json').symlink_to(directory / f'{registration.run_id.value}.json')
+    (directory / 'bad_predecessor.json').write_text(json.dumps({
+        'run_id': 'bad_predecessor', 'registration_hash': 'sha256:fixture', 'resume_from': [],
+    }))
+    (directory / '.publication.json').write_text('{')
+
+    source = Refiner(observer_home)
+    controller = RefinerController(source)
+    view = controller.capture()
+    assert registration.run_id.value in {link.identity for link in view.run_links()}
+    detail = view.detail(view.snapshot.nodes[0].identity)
+    assert len(detail.gaps) == 4
+    assert all(any(name in gap for gap in detail.gaps)
+               for name in ('partial.json', 'array.json', 'symlink.json', 'bad_predecessor.json'))
+    with pytest.raises(InspectionError, match='partial.json'):
+        view.reference('run', 'partial')
+    for name in ('partial', 'array', 'symlink', 'bad_predecessor'):
+        (directory / f'{name}.json').unlink()
+    assert not controller.capture().snapshot.gaps
+    assert detail.gaps  # Already captured observations retain their original gaps.
+
+    empty = source.capture(Selection(run=registration.run_id.value))
+    assert empty.reference('run', registration.run_id.value).sections['summary']['last_event'] is None
+    runs.append_event(run_id=registration.run_id, origin=RunEventOrigin.HOST, sender_sequence=0,
+                      kind=RunEventKind.RUN_STARTED, episode_id=None, payload={})
+    event_path = runs.root / 'events' / registration.run_id.value / f'{0:020d}.json'
+    record = json.loads(event_path.read_text())
+    del record['payload']
+    record['event_hash'] = canonical_hash({key: value for key, value in record.items() if key != 'event_hash'})
+    event_path.write_text(json.dumps(record))
+    output = []
+    assert main(['history', '--home', str(observer_home), '--run', registration.run_id.value, '--json'],
+                emit=output.append) == 2
+    error = json.loads(output[-1])
+    assert error['kind'] == 'observation_unavailable'
+    assert 'payload' in error['error'] and registration.run_id.value in error['error']

@@ -35,6 +35,8 @@ class InspectorTerminal:
         self.loading = False
         self.refresh_pending = False
         self.generation = 0
+        self.detail_request = 0
+        self.detail_task = None
         self.tree = FormattedTextControl(self.tree_fragments, focusable=True,
                                          get_cursor_position=self.tree_cursor)
         self.tree_window = Window(self.tree, wrap_lines=False, width=Dimension(min=25, preferred=55, weight=1))
@@ -53,7 +55,7 @@ class InspectorTerminal:
                     ]), title='Details', width=Dimension(min=25, preferred=55, weight=1)), filter=Condition(lambda: self.detail_visible))]),
             Window(FormattedTextControl(lambda: display_text(self.status)), height=1),
             Window(FormattedTextControl('↑↓ select  ←→ fold  Enter details  Tab pane  z focus  u parent\n'
-                                       '[ ] history  l live  f follow  a all branches  : commands  Esc close'), height=2),
+                                       '[ ] history  l live  f follow  a all branches  : commands  q / :quit close'), height=2),
             self.command,
         ])
         self.application = Application(layout=Layout(root, focused_element=self.tree_window),
@@ -95,7 +97,7 @@ class InspectorTerminal:
             return 'Select an assignment'
         pages = list(self.detail.sections)
         return display_text(f'{self.detail.domain} · {self.detail.title[:100]}\n'
-                            f'{pages[self.page]} · n/p section · Space show/hide details')
+                            f'{pages[self.page] if pages else "No recorded sections"} · n/p section · Space show/hide details')
 
     def link_fragments(self):
         return [('class:selected' if i == self.link_index else '',
@@ -103,7 +105,7 @@ class InspectorTerminal:
                 for i, link in enumerate(self.detail.links if self.detail else [])]
 
     def remember_scroll(self):
-        if self.detail:
+        if self.detail and self.detail.sections:
             key = (self.detail.domain, self.detail.identity, list(self.detail.sections)[self.page])
             self.scroll_positions[key] = (self.details.buffer.cursor_position, self.details.window.vertical_scroll)
 
@@ -112,14 +114,14 @@ class InspectorTerminal:
             self.remember_scroll()
         same = self.detail and (self.detail.domain, self.detail.identity) == (detail.domain, detail.identity)
         self.detail = detail
-        self.page = min(self.page, len(detail.sections) - 1) if same else 0
+        self.page = min(self.page, max(0, len(detail.sections) - 1)) if same else 0
         self.link_index = min(self.link_index, max(0, len(detail.links) - 1)) if same else 0
         self.draw_detail()
 
     def draw_detail(self):
         if not self.detail:
             return
-        page = list(self.detail.sections)[self.page]
+        page = list(self.detail.sections)[self.page] if self.detail.sections else None
         self.details.text = detail_text(self.detail, page)
         cursor, scroll = self.scroll_positions.get((self.detail.domain, self.detail.identity, page), (0, 0))
         self.details.buffer.cursor_position = min(cursor, len(self.details.text))
@@ -165,7 +167,7 @@ class InspectorTerminal:
             else:
                 self.clear_detail()
                 if self.navigation.selected:
-                    self.task(self.selected_detail())
+                    self.request_detail()
         except (ValueError, OSError) as exc:
             self.status = f'Observation unavailable; last display retained: {exc}'
         finally:
@@ -182,20 +184,42 @@ class InspectorTerminal:
             if self.controller.live and not self.back_stack:
                 await self.refresh()
 
-    async def selected_detail(self):
-        if not self.view or not self.navigation.selected:
-            return
+    def request_detail(self):
+        """Keep only the latest selection, with at most one navigation read."""
         self.back_stack.clear()
-        view, identity, generation = self.view, self.navigation.selected, self.generation
-        try:
-            detail = await asyncio.to_thread(view.detail, identity)
-            if generation == self.generation and identity == self.navigation.selected:
-                self.install_detail(detail)
-        except (ValueError, OSError) as exc:
-            self.status = str(exc)
+        self.detail_request += 1
+        if self.detail_task is None or self.detail_task.done():
+            self.detail_task = self.task(self.load_selection())
+        return self.detail_task
+
+    async def selected_detail(self):
+        await self.request_detail()
+
+    async def load_selection(self):
+        while True:
+            # Key repeat is much faster than reading a new evidence section.
+            await asyncio.sleep(0.075)
+            request = self.detail_request
+            view, identity, generation = self.view, self.navigation.selected, self.generation
+            if not view or not identity or self.back_stack:
+                return
+            try:
+                detail = await asyncio.to_thread(view.detail, identity)
+                error = None
+            except (ValueError, OSError) as exc:
+                detail, error = None, str(exc)
+            if (request == self.detail_request and generation == self.generation
+                    and view is self.view and identity == self.navigation.selected and not self.back_stack):
+                if detail is not None:
+                    self.install_detail(detail)
+                else:
+                    self.status = error
+                    self.application.invalidate()
+            if request == self.detail_request:
+                return
 
     async def open_link(self):
-        if not self.detail or not self.detail.links:
+        if not self.view or not self.detail or not self.detail.links:
             return
         link = self.detail.links[self.link_index]
         view, generation = self.view, self.generation
@@ -211,7 +235,7 @@ class InspectorTerminal:
             self.status = str(exc)
 
     def task(self, coro):
-        self.application.create_background_task(coro)
+        return self.application.create_background_task(coro)
 
     def accept_command(self, buffer):
         command = buffer.text
@@ -226,7 +250,7 @@ class InspectorTerminal:
                 return
             action, args = parts[0], parts[1:]
             handlers = {'campaigns': self.show_campaigns, 'runs': self.show_runs,
-                        'help': self.show_help, 'node': self.select_node}
+                        'help': self.show_help, 'node': self.select_node, 'quit': self.quit}
             if action in handlers:
                 await handlers[action](args)
             else:
@@ -238,15 +262,22 @@ class InspectorTerminal:
         self.application.layout.focus(self.tree_window)
         self.application.invalidate()
 
+    async def quit(self, args):
+        if args:
+            raise ValueError('Use :quit with no arguments')
+        self.application.exit()
+
     async def show_campaigns(self, args):
         rows = await asyncio.to_thread(self.controller.campaigns)
         self.open_panel(Detail('campaigns', 'catalog', 'Recorded campaigns', {'campaigns': rows},
             [Link('Select with :campaign', 'campaign', row['campaign_id']) for row in rows]))
 
     async def show_runs(self, args):
+        if self.view is None:
+            raise ValueError('Select an available campaign before listing its Runs')
         links = await asyncio.to_thread(self.view.run_links)
         self.open_panel(Detail('runs', 'catalog', 'Recorded Refiner Runs',
-                                  {'runs': [link.identity for link in links]}, links))
+                                  {'runs': [link.identity for link in links]}, links, list(self.view.snapshot.gaps)))
 
     async def show_help(self, args):
         self.open_panel(Detail('help', 'help', 'Inspector commands', {'commands': [
@@ -258,7 +289,7 @@ class InspectorTerminal:
             'z — focus subtree; u — enclosing subtree; Space — toggle details',
             'a — show all branches, including returned/superseded work, or only active branches',
             'n / p — detail section; Tab — next pane; Enter on reference — inspect',
-            'Backspace — return from reference; Esc — tree then close; Ctrl-C — close viewer',
+            'Backspace — return from reference; Esc — tree then close; q / :quit / Ctrl-C — close viewer',
         ]}))
 
     def open_panel(self, detail):
@@ -267,7 +298,7 @@ class InspectorTerminal:
         self.install_detail(detail)
 
     async def select_node(self, args):
-        if len(args) != 1 or args[0] not in self.navigation.by_id:
+        if self.view is None or len(args) != 1 or args[0] not in self.navigation.by_id:
             raise ValueError('Use :node INVOCATION_ID from the current snapshot')
         self.navigation.selected = args[0]
         self.navigation.follow = False
@@ -281,6 +312,7 @@ class InspectorTerminal:
         browsing = ~has_focus(self.command)
 
         @keys.add('c-c')
+        @keys.add('q', filter=browsing)
         def close(event):
             event.app.exit()
 
@@ -308,13 +340,13 @@ class InspectorTerminal:
         @keys.add('down', filter=has_focus(self.tree_window))
         def move(event):
             self.navigation.move(-1 if event.key_sequence[0].key == 'up' else 1)
-            self.task(self.selected_detail())
+            self.request_detail()
 
         @keys.add('left', filter=has_focus(self.tree_window))
         @keys.add('right', filter=has_focus(self.tree_window))
         def fold(event):
             (self.navigation.collapse if event.key_sequence[0].key == 'left' else self.navigation.expand)()
-            self.task(self.selected_detail())
+            self.request_detail()
 
         @keys.add('enter', filter=has_focus(self.tree_window))
         def details(event):
@@ -342,7 +374,7 @@ class InspectorTerminal:
         @keys.add('n', filter=browsing)
         @keys.add('p', filter=browsing)
         def page(event):
-            if self.detail:
+            if self.detail and self.detail.sections:
                 self.remember_scroll()
                 self.page = (self.page + (1 if event.data == 'n' else -1)) % len(self.detail.sections)
                 self.draw_detail()
@@ -372,7 +404,7 @@ class InspectorTerminal:
             visible = [node.identity for node, _ in self.navigation.visible()]
             if self.navigation.selected not in visible and visible:
                 self.navigation.selected = visible[0]
-            self.task(self.selected_detail())
+            self.request_detail()
 
         @keys.add('l', filter=browsing)
         def live(event):

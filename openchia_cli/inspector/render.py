@@ -37,11 +37,17 @@ def tree_text(snapshot, *, focus=None):
     return display_text('\n'.join(lines))
 
 
-def detail_text(detail, section=None):
+def selected_sections(detail, section=None):
     if section is not None:
         if section not in detail.sections:
             raise ValueError(f'Unknown section {section}; choose: {", ".join(detail.sections)}')
-        data = {section: detail.sections[section]}
+        return {section: detail.sections[section]}
+    return detail.sections
+
+
+def detail_text(detail, section=None):
+    data = selected_sections(detail, section)
+    if section is not None:
         if section == 'summary' and isinstance(detail.sections[section], dict):
             return display_text('\n\n'.join(f'{key.replace("_", " ").title()}\n{value}'
                                           for key, value in detail.sections[section].items()))

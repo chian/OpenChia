@@ -1,15 +1,9 @@
 # Refiner terminal viewer validation
 
 Validated on Linux on 2026-10-06 in the isolated
-`feat/refiner-terminal-viewer` worktree, based on `1335acc6ad`.
+`feat/refiner-terminal-viewer` worktree, based on OpenChia `main` at `c361b32c69`.
 The worktree has its own PM-built `.venv` with the dev/test dependency groups;
 tests use temporary authority and Run stores. No dependency declarations changed.
-
-For the pull request, the viewer commit was rebased onto OpenChia `main` at
-`c361b32c69`, excluding the unpublished Refiner development commits. The same
-26 tests passed again on that base (71.0 seconds, retries disabled).
-The Windows footgun scan also passed after making JSON reads BOM-tolerant;
-both Run history tests passed again with BOM-prefixed registration coverage.
 
 Launch this implementation without restarting the existing OpenChia CLI:
 
@@ -18,8 +12,8 @@ Launch this implementation without restarting the existing OpenChia CLI:
 ```
 
 Add `--home /path/to/profile` to select an explicit profile. The original
-`/home/chia/repos/OpenChia` checkout remains unchanged. Existing-file edits in
-the viewer worktree comprise 13 lines of command registration and dispatch.
+`/home/chia/repos/OpenChia` checkout is untouched by the viewer work. Changes to
+existing files are limited to command registration, dispatch, and terminal handoff.
 Execution, admission, numerical control, persistence schemas, and active
 contracts are unchanged.
 
@@ -30,12 +24,14 @@ HERMES_PYTHON=/home/chia/repos/OpenChia-refiner-viewer/.venv/bin/python \
   scripts/run_tests.sh tests/openchia_cli/inspector \
   tests/openchia_cli/test_openchia_cli_commands.py --file-retries 0 -q -j 2
 .venv/bin/ruff check openchia_cli/inspector openchia_cli/refiner_command.py \
-  tests/openchia_cli/inspector
+  openchia_cli/duet_cli.py tests/openchia_cli/inspector
 git diff --check
 ```
 
-Result: **26 passed, 0 failed**, across four files, with retries disabled
-(67.2 seconds). Ruff and whitespace checks passed.
+Result: **34 passed, 0 failed**, across six files, with retries disabled
+(139.5 seconds). Ruff and whitespace checks passed.
+The four terminal/CLI tests passed again after adding `q` and `:quit`
+(41.7 seconds), exercising both explicit quit and Ctrl-C return to the caller.
 
 The suite covers:
 
@@ -50,10 +46,19 @@ The suite covers:
 | Actual prompt-toolkit input loop | Following, branch filtering, focus, history stepping, reference navigation, scroll/cursor retention, and closing; an in-flight refresh cannot replace an inspected reference's context |
 | Empty historical state | Returning to step zero clears later assignment details |
 | Shell/slash entry points | JSON and plain output use the same projection; `/refiner` dispatch creates no host |
+| Interactive slash handoff | The actual CLI Enter handler opens the viewer with the outer application suspended, for idle and busy sessions; Ctrl-C or `:quit` restores the outer prompt and its input |
+| Observation caching | An unchanged poll does not replay a projection or verify artifacts; a publication between commits is visible on the next poll; cached future records remain unavailable in history |
+| Rapid navigation and concurrent refresh | A burst of selections retains at most one pending detail read and installs only the latest selection; a background capture cannot overwrite a changed history cursor |
+| Damaged observations | SQLite open errors, malformed artifact structures, NaN, bad Run registrations, and malformed events produce observation errors or isolated gaps; empty views remain usable |
+| Cyclic parents | Selection recovers when its old cyclic parent chain disappears, without hanging the terminal loop |
 
 Replacement transitions are published as typed journal fixtures to test the
 reader; they do not claim to validate replacement admission. No test makes a
 live model call.
+
+Six regression cases were also run against the original PR head `e2a96c8b33`:
+terminal handoff, redundant replay, SQLite open failure, malformed artifact,
+bad Run registration, and cyclic navigation. All six failed on that version.
 
 ## Existing-record demonstration
 
@@ -71,6 +76,24 @@ For Run `run_c74206b432ca8fa47d027cd44c7b757e141eee977808bd4e3c1e809e308d4683`,
 event 100 exposed exactly events 0–100 and reconstructed campaign step 2525
 with 153 assignments. The viewer explicitly reported that the most recent
 campaign anchor was event 99.
+
+After the review fixes, a read-only observation of campaign step 2991 with
+184 assignments measured the following. Counts are instrumented reader calls;
+times are one local sample, not test thresholds.
+
+| Operation | Elapsed | SQL reads | Artifacts verified |
+|---|---:|---:|---:|
+| Cold campaign capture | 1,482 ms | 3,835 | 6,821 |
+| First selected detail | 168 ms | 2 | 9 |
+| Repeat selected detail | <0.1 ms | 0 | 0 |
+| Unchanged live poll | 2.9 ms | 1 | 0 |
+| Detail after that poll | <0.1 ms | 0 | 0 |
+
+Cold reconstruction still verifies the campaign history. The caches reuse
+immutable evidence and fetch newly published query rows within the selected
+cutoff; they do not change persisted data or historical boundaries.
+The standalone viewer was also driven directly through a terminal session:
+holding history and sending Ctrl-C closed only the viewer with exit status 0.
 
 ## Data limitations
 

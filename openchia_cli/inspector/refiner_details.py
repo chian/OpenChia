@@ -7,8 +7,9 @@ from . import run_reader
 
 def references(value):
     found = {}
-
-    def visit(item, path):
+    pending = [(value, '')]
+    while pending:
+        item, path = pending.pop()
         if isinstance(item, dict):
             artifact = item.get('artifact_id')
             if isinstance(artifact, str):
@@ -16,14 +17,13 @@ def references(value):
             run = item.get('run_id')
             if isinstance(run, str):
                 found[('run', run)] = Link(path or 'Run', 'run', run)
-            for key, child in item.items():
-                visit(child, f'{path}.{key}' if path else key)
-                if key == 'check_key' and isinstance(child, str):
-                    found[('artifact', child)] = Link('Check', 'artifact', child)
+            pending.extend((child, f'{path}.{key}' if path else key)
+                           for key, child in reversed(item.items()))
+            check = item.get('check_key')
+            if isinstance(check, str):
+                found[('artifact', check)] = Link('Check', 'artifact', check)
         elif isinstance(item, list):
-            for index, child in enumerate(item):
-                visit(child, f'{path}[{index}]')
-    visit(value, '')
+            pending.extend((child, f'{path}[{index}]') for index, child in reversed(list(enumerate(item))))
     return list(found.values())
 
 
@@ -38,14 +38,11 @@ def assignment_detail(view, identity):
     assignment = view.assignments.get(identity)
     if assignment is None:
         raise InspectionError(f'Invocation {identity} is unavailable at this position')
-    node = next(n for n in view.snapshot.nodes if n.identity == identity)
+    node = next((n for n in view.snapshot.nodes if n.identity == identity), None)
+    if node is None:
+        raise InspectionError(f'Invocation {identity} has no recorded tree node')
     kinds = [f'refinement.{kind}.v1' for kind in _DETAIL_KINDS]
-    records = {}
-    for selector in (identity, assignment.identity):
-        for item in view.archive.records(view.duet, view.cutoff, kinds, contains=selector):
-            if (item.record.get('invocation_id') == identity or item.body.get('invocation_id') == identity
-                    or ref_id(item.body.get('assignment_ref')) == assignment.identity):
-                records[item.identity] = item
+    records = view.archive.records(view.duet, view.cutoff, kinds, related=(identity, assignment.identity))
     admitted = {row['record_id']: row['status'] for row in view.index.values()}
     committed_attempts = {attempt.identity for _, attempt in view.operations}
     for _, attempt in view.operations:
@@ -57,7 +54,7 @@ def assignment_detail(view, identity):
     destinations = {'unit_receipt': iterations, 'parent_report': reports, 'observation': checks,
                     'parent_assessment': checks, 'evaluation': checks, 'evaluation_run': checks,
                     'evaluation_source': checks, 'proposal_rejection': rejections, 'change': changes}
-    for item in sorted(records.values(), key=lambda r: r.ordinal):
+    for item in records:
         kind = item.kind.split('.')[1]
         status = ('committed' if item.identity in committed_attempts else admitted.get(item.identity, 'recorded'))
         destinations.get(kind, activity).append({
@@ -77,7 +74,7 @@ def assignment_detail(view, identity):
         if link.identity != assignment.identity:
             unique.setdefault((link.domain, link.identity), link)
     links = list(unique.values())
-    return Detail(identity, 'refiner', f'{node.label}: {node.summary}', sections, links)
+    return Detail(identity, 'refiner', f'{node.label}: {node.summary}', sections, links, list(view.snapshot.gaps))
 
 
 def reference_detail(view, domain, identity):
@@ -93,7 +90,6 @@ def reference_detail(view, domain, identity):
         'kind': item.kind, 'content_hash': item.content_hash, 'created_at': item.created_at,
         'artifact_ordinal': item.ordinal,
     }}
-    gaps = []
     if domain == 'candidate':
         parent = ref_id(item.body.get('parent_candidate_ref'))
         before = view.artifact(parent).body['files'] if parent else {}
@@ -115,7 +111,7 @@ def reference_detail(view, domain, identity):
                                 'meaning': 'The approved Target Workflow being built; separate from Refiner assignments.'},
                     'episode_topology': topology, **sections}
     return Detail(identity, domain, f'{domain.replace("_", " ").title()} · {identity}',
-                  sections, [link for link in references(item.record) if link.identity != identity], gaps)
+                  sections, [link for link in references(item.record) if link.identity != identity])
 
 
 def run_detail(view, identity):
@@ -127,14 +123,13 @@ def run_detail(view, identity):
                          if link.domain == 'run')
         if identity not in known:
             raise InspectionError('Run is not recorded at this historical position')
-        registration = run_reader.read_json(
-            run_reader.run_path(view.archive.root, identity) / 'registrations' / f'{identity}.json')
+        registration = run_reader.read_registration(view.archive.root, identity)
         return Detail(identity, 'run', f'Run · {identity}', {'registration': registration}, [],
                       ['No exact Run event boundary is established by this campaign cursor. '
                        'Select this Run with --run and --event to inspect its journal; current results are not substituted.'])
     registration, events = view.run if same_run else run_reader.read_run(view.archive.root, identity)
     status = events[-1]['payload'].get('terminal_status', 'no recorded terminal event') if events else 'no recorded events'
-    sections = {'summary': {'recorded_status': status, 'last_event': len(events) - 1,
+    sections = {'summary': {'recorded_status': status, 'last_event': events[-1]['sequence'] if events else None,
                            'meaning': 'Journal observation, not a process liveness probe.'},
                 'registration': registration, 'events': events}
     return Detail(identity, 'run', f'Run · {identity}', sections, references(sections),

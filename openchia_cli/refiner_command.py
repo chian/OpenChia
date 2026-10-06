@@ -9,7 +9,7 @@ import sys
 
 from openchia_cli.inspector.archive import InspectionError
 from openchia_cli.inspector.refiner import Refiner, Selection
-from openchia_cli.inspector.render import detail_text, position_text, tree_text
+from openchia_cli.inspector.render import detail_text, position_text, selected_sections, tree_text
 from openchia_cli.inspector.model import display_text
 
 
@@ -33,7 +33,7 @@ def parser():
     return result
 
 
-def main(argv=None, *, emit=print, default_home=None, default_duet=None):
+def main(argv=None, *, emit=print, default_home=None, default_duet=None, interactive=None):
     args = parser().parse_args(argv)
     try:
         if args.home is None:
@@ -47,7 +47,8 @@ def main(argv=None, *, emit=print, default_home=None, default_duet=None):
             emit(json.dumps(data, ensure_ascii=False, indent=2) if args.json else display_text(
                 '\n'.join(f'{r["campaign_id"]} · Duet {r["duet_id"]} · step {r["sequence"]}' for r in data) or 'No recorded campaigns.'))
             return 0
-        if args.action == 'view' and not (args.json or args.plain) and sys.stdin.isatty():
+        is_terminal = sys.stdin.isatty() if interactive is None else interactive
+        if args.action == 'view' and not (args.json or args.plain) and is_terminal:
             from openchia_cli.inspector.refiner_controller import RefinerController
             from openchia_cli.inspector.terminal import InspectorTerminal
 
@@ -72,11 +73,9 @@ def main(argv=None, *, emit=print, default_home=None, default_duet=None):
                 detail = view.detail(args.node)
             else:
                 raise InspectionError('show requires --node or --reference')
-            if args.section and args.section not in detail.sections:
-                raise InspectionError(f'Unknown section; choose: {", ".join(detail.sections)}')
             data = {'position': view.snapshot.position, 'detail': detail.as_dict()}
             if args.section:
-                data['detail']['sections'] = {args.section: detail.sections[args.section]}
+                data['detail']['sections'] = selected_sections(detail, args.section)
             if not args.json:
                 emit(position_text(view.snapshot) + '\n' + detail_text(detail, args.section))
                 return 0
@@ -88,24 +87,37 @@ def main(argv=None, *, emit=print, default_home=None, default_duet=None):
         text = json.dumps(data, ensure_ascii=False, indent=2)
         emit(text if args.json else display_text(text))
         return 0
-    except (InspectionError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         error = {'error': str(exc), 'kind': 'observation_unavailable'}
         emit(json.dumps(error) if args.json else display_text(f'Refiner inspection unavailable: {exc}'))
         return 2
 
 
-def open_from_cli(cli, stripped):
-    """Use an already-owned profile/Duet without creating or modifying a host."""
+def open_from_cli(cli, stripped, *, interactive=False):
+    """Only the terminal handoff opts into interactive input ownership."""
     host = getattr(cli, '_openchia_host', None)
     home = host.root.parent if host else None
     duet = host.identity.duet_id.value if host else None
     try:
-        main(shlex.split(stripped.partition(' ')[2]), emit=cli._print_openchia,
-             default_home=home, default_duet=duet)
+        parts = stripped.split(maxsplit=1)
+        main(shlex.split(parts[1] if len(parts) == 2 else ''), emit=cli._print_openchia,
+             default_home=home, default_duet=duet, interactive=interactive)
     except SystemExit:
         # argparse help/errors must not terminate the owning Duet session.
         pass
+    except ValueError as exc:
+        cli._print_openchia(f'Refiner inspection unavailable: {exc}')
     return True
+
+
+def open_inline(cli, event, text):
+    """Transfer terminal ownership before running the viewer's input loop."""
+    from prompt_toolkit.application import run_in_terminal
+
+    event.app.current_buffer.reset(append_to_history=True)
+    future = run_in_terminal(lambda: open_from_cli(cli, text, interactive=True), in_executor=True)
+    event.app.invalidate()
+    return future
 
 
 if __name__ == '__main__':

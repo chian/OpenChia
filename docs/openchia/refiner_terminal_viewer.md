@@ -14,6 +14,8 @@ python -m openchia_cli.refiner_command --home /path/to/profile
 
 Inside a newly started OpenChia CLI, `/refiner` opens the same viewer for the
 owning profile and current Duet. `/refiner --help` lists the shell options.
+The CLI hands terminal input to the viewer and restores its prompt on exit,
+including when a Duet turn is running in the background.
 The standalone entry can observe a build already running in another terminal;
 the build's CLI does not need a restart. The default profile is resolved through
 `get_hermes_home()` at command time. An explicit `--home` selects another store
@@ -48,6 +50,7 @@ sections; hide details or focus a subtree for more tree width.
 | `l` | Return to live campaign observation |
 | Backspace | Return from a reference or catalog |
 | Escape | Return to tree; from tree, close the viewer |
+| `q` / `:quit` | Close the viewer and return to the calling terminal |
 | Ctrl-C | Close the viewer, leaving execution alone |
 | `:` | Enter an inspector command |
 
@@ -64,6 +67,7 @@ Inspector commands:
 :node INVOCATION_ID
 :live
 :help
+:quit
 ```
 
 The campaign catalog has selectable references. Run references open recorded
@@ -71,8 +75,11 @@ Run details; `:run ID` selects that Run's event timeline and holds its latest
 recorded event until you navigate. Opening a reference
 holds the captured context until you return, so refreshing cannot retarget
 the evidence you are reading. Selection, expansion, and detail scroll/cursor
-positions survive refresh. Live campaign observation refreshes every three
-seconds; history refreshes when you navigate. These are display controls, not
+positions survive refresh. Live campaign observation checks for publications every
+three seconds and reuses the current projection when nothing changed. Navigation
+coalesces rapid key presses into the latest selection; details already opened at
+the same observation boundary are reused. History refreshes when you navigate.
+These are display controls, not
 pause/resume controls for the build.
 
 ## Shell and coding-agent access
@@ -126,7 +133,11 @@ Evidence keeps the recorded candidate, request, check, and Run references.
 Run event files are read as an immutable, hash-linked published prefix, without
 acquiring the execution claim lock. Temporary publication files are ignored.
 Continuation registrations retain distinct physical Run identities and their
-recorded predecessor links.
+recorded predecessor links. A malformed or unreadable registration is skipped
+with a reported gap, leaving other campaigns and Runs inspectable. Selecting
+that Run explicitly reports the unavailable record. SQLite open failures and
+malformed stored structures report their source while retaining the last usable
+terminal display.
 
 There is no shared timestamp clock across the campaign database and Run
 journal. Run events have sequence numbers, not wall-clock timestamps:
@@ -163,6 +174,13 @@ All new implementation lives under `openchia_cli`:
 | `inspector/refiner_details.py` | Assignment evidence and Target Workflow/candidate/Run drill-down |
 | `inspector/refiner_controller.py` | Refiner-specific cursor and navigation commands |
 | `refiner_command.py` | Standalone argparse interface and slash-command adapter |
+
+Artifact verification uses a bounded cache keyed by profile-owned artifact
+identity; each read still enforces its historical publication cutoff. Cached
+queries read only newly published rows and match assignment identities through
+JSON fields. Live polling checks the campaign head, artifact ordinal, and Run
+registration file metadata before rebuilding a projection. None of these caches
+or observation cursors is written into the authority or Run stores.
 
 The only existing code changes are command registration/dispatch in
 `openchia_main.py`, `openchia_commands.py`, and `duet_cli.py`. No refiner,

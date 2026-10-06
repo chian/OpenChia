@@ -23,7 +23,9 @@ class Navigation:
             if active:
                 self.selected = active[-1].identity
                 self.focus = None
-        while self.selected not in nodes and self.selected in previous:
+        seen = set()
+        while self.selected not in nodes and self.selected in previous and self.selected not in seen:
+            seen.add(self.selected)
             self.selected = previous[self.selected].parent
         if self.selected not in nodes:
             self.selected = next(iter(nodes), None)
