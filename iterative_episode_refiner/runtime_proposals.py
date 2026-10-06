@@ -39,6 +39,20 @@ _ASSIGNMENT_SHAPE = {
     }],
 }
 
+_PREREQUISITE_ROLES = {
+    "designer": ("support", "question", "measure"),
+    "implementer": ("question",),
+    "measure": ("question",),
+}
+
+
+def _prerequisite_shape(role):
+    return {
+        **_ASSIGNMENT_SHAPE,
+        "role": "one of: " + ", ".join(_PREREQUISITE_ROLES[role]),
+    }
+
+
 _MEASURE_SHAPE = {
     "requirements": ["the parent's exact requested specification requirement addresses"],
     "purpose": "the parent's requested local, acceptance, composition or adequacy purpose",
@@ -130,7 +144,7 @@ def proposal_schemas(role):
                     "verification_return_contract": RETURN_SHAPE,
                     "replace_previous": "true to replace the latest returned Implementer for this work; otherwise false",
                 },
-                {"prerequisite": _ASSIGNMENT_SHAPE},
+                {"prerequisite": _prerequisite_shape("designer")},
                 _RETURN_PREREQUISITE_SHAPE,
             ],
         },
@@ -151,7 +165,7 @@ def proposal_schemas(role):
                         }
                     ],
                 },
-                {"prerequisite": _ASSIGNMENT_SHAPE},
+                {"prerequisite": _prerequisite_shape("implementer")},
             ],
         },
         "support": {
@@ -173,7 +187,7 @@ def proposal_schemas(role):
                 {"check_design": _CHECK_DESIGN_SHAPE},
                 {"submit_reviewed_design": True},
                 {"resume_instrument": True},
-                {"prerequisite": _ASSIGNMENT_SHAPE},
+                {"prerequisite": _prerequisite_shape("measure")},
                 {
                     "prerequisite_request": {
                         "kind": "a kind from measure_needs",
@@ -412,9 +426,7 @@ def _design(session, call, proposal, producer):
     if "return_prerequisite" in proposal:
         return _return_prerequisite(session, call, proposal, producer)
     if "prerequisite" in proposal:
-        return _prerequisite(
-            session, call, proposal, producer, {"support", "question", "measure"}
-        )
+        return _prerequisite(session, call, proposal, producer)
     fields = {"plan", "implementation_return_contract", "verification_return_contract", "replace_previous"}
     exact(proposal, fields, "design proposal")
     fields = {
@@ -468,10 +480,13 @@ def _return_prerequisite(session, call, proposal, producer):
     return session.reply(call, proceed=False)
 
 
-def _prerequisite(session, call, proposal, producer, roles):
+def _prerequisite(session, call, proposal, producer):
     exact(proposal, {"prerequisite"}, "prerequisite proposal")
+    roles = _PREREQUISITE_ROLES[call.assignment.body["role"]]
     if proposal["prerequisite"]["role"] not in roles:
-        raise ValueError("this role cannot use that child as a prerequisite")
+        raise ValueError(
+            "prerequisite child role must be one of: " + ", ".join(roles)
+        )
     return session.reply(
         call, child=assign_child(session, call, proposal["prerequisite"], producer)
     )
@@ -479,7 +494,7 @@ def _prerequisite(session, call, proposal, producer, roles):
 
 def _change(session, call, proposal, producer):
     if "prerequisite" in proposal:
-        return _prerequisite(session, call, proposal, producer, {"question"})
+        return _prerequisite(session, call, proposal, producer)
     fields = {"files"}
     if "implementation_detail_operations" in proposal:
         fields.add("implementation_detail_operations")
@@ -622,7 +637,7 @@ def _resume_measure(session, call, proposal, producer):
 
 
 def _measure_prerequisite(session, call, proposal, producer):
-    return _prerequisite(session, call, proposal, producer, {"question"})
+    return _prerequisite(session, call, proposal, producer)
 
 
 def _measure_request(session, call, proposal, producer):
