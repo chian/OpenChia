@@ -26,18 +26,30 @@ def _measurements(session, view, call):
     catalog = requirement_catalog(view)
     role = assignment.body["role"]
     purposes = INPUT_MEASUREMENTS[role] or (judgment_purpose(view, assignment),)
-    requirements = assigned_addresses(session, assignment, "scope_requirement_keys")
+    requirements = assigned_addresses(session, assignment)
+    preservation = [
+        address for address in assigned_addresses(session, assignment, "preservation_requirement_keys")
+        if address not in requirements
+    ]
+    # A descendant inherits the wider scope for regression protection. Its own
+    # work remains the parent's selected contribution, not that entire scope.
     measurements = {
-        purpose: _measurement(view, assignment, report.body, {
-            "purpose": purpose, "requirements": requirements,
-        }, catalog)
-        for purpose in purposes
+        name: {
+            purpose: _measurement(view, assignment, report.body, {
+                "purpose": purpose, "requirements": addresses,
+            }, catalog)
+            for purpose in purposes
+        }
+        for name, addresses in (
+            ("measurements", requirements),
+            ("preservation_measurements", preservation),
+        )
     }
     availability = evaluation_availability(resolve_evaluations(
         view, session.policy, assignment, judgment_purpose(view, assignment)
     ))
     return {
-        "measurements": measurements,
+        **measurements,
         "iteration_history": iteration_history(session, view, call),
         "evaluation_availability": {
             "executable": availability["executable"],
@@ -216,7 +228,7 @@ def model_inputs(session, view, call):
     goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
     role = assignment.body["role"]
     catalog = requirement_catalog(view)
-    scope = assignment.body["scope_requirement_keys"]
+    contribution = set(assignment.body["contribution_requirement_keys"])
     need = goal.get("measure_request")
     result = {
         "assignment": {
@@ -232,13 +244,22 @@ def model_inputs(session, view, call):
             },
             "return_contract": assigned_return_contract(view, assignment),
         },
-        "requirements": {
-            requirement_address(catalog[key]): {
-                "evidence_scope": catalog[key]["evidence_scope"],
-                "requirement": _thaw_json(catalog[key]["approved_value"])
-                if "approved_value" in catalog[key] else catalog[key]["description"],
-                "mandatory": catalog[key]["mandatory"],
-            } for key in scope
+        **{
+            name: {
+                requirement_address(catalog[key]): {
+                    "evidence_scope": catalog[key]["evidence_scope"],
+                    "requirement": _thaw_json(catalog[key]["approved_value"])
+                    if "approved_value" in catalog[key] else catalog[key]["description"],
+                    "mandatory": catalog[key]["mandatory"],
+                } for key in keys
+            }
+            for name, keys in (
+                ("requirements", assignment.body["contribution_requirement_keys"]),
+                ("preservation_requirements", [
+                    key for key in assignment.body["preservation_requirement_keys"]
+                    if key not in contribution
+                ]),
+            )
         },
     }
     for component in MODEL_INPUT_COMPONENTS[role]:

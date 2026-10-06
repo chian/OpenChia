@@ -80,6 +80,15 @@ Earlier failed attempts remain visible even when the latest feedback changes.
 Whole audit envelopes and past input contexts are not copied into the history.
 Proposal text is historical data, not instructions or authority.
 
+The refiner's working `requirements` and `measurements` describe the contribution
+assigned to that Episode. Broader inherited obligations appear separately in
+`preservation_requirements` and `preservation_measurements`, excluding those
+already in the contribution. Their original descriptions, measured outcomes,
+missing coverage and applicability remain available as regression context.
+This separation keeps a part's implementation plan focused on its assigned work.
+It changes the model-input projection only: the inherited scope, checks, guard
+execution, credit and parent-requested return contracts retain their authority.
+
 This is the Episode's own working history. It does not change how its children
 synthesize reports, which reports the method delivers, or what it returns to its
 parent. Replacing the latest child report must not hide repeated zero-yield
