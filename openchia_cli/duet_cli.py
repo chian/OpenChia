@@ -71,6 +71,7 @@ class OpenChiaCLI(
         "welcome": "OpenChia Duet ready.",
     }
     _openchia_commands = {
+        "/refiner": "Inspect live or historical Refiner work",
         "/episode": "Browse Architecture and Materialized Specification",
         "/duet": "Show the current design and approval state",
         "/queue": "Manage the foreground Duet's FIFO prompt queue",
