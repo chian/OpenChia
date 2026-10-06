@@ -99,6 +99,16 @@ This separation keeps a part's implementation plan focused on its assigned work.
 It changes the model-input projection only: the inherited scope, checks, guard
 execution, credit and parent-requested return contracts retain their authority.
 
+The Designer's response template pre-fills `plan.requirement_mapping` with the
+exact contribution addresses for its current assignment. The model supplies
+the design reasoning for each key; preservation-only obligations remain in
+their separate working context. The same response schema includes a complete
+prerequisite-format example using one contribution address, a literal purpose,
+and a boolean replacement choice. All child fields, including `role` and
+`writable_paths`, are nested inside `prerequisite`. The example teaches the
+envelope; the Designer still chooses the operation, scope and return contract
+from its actual findings, and ordinary host admission checks that choice.
+
 This is the Episode's own working history. It does not change how its children
 synthesize reports, which reports the method delivers, or what it returns to its
 parent. Replacing the latest child report must not hide repeated zero-yield

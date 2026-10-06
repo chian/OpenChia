@@ -119,7 +119,7 @@ _FINDING_SHAPE = {"observations": [{
 }]}
 
 
-def proposal_schemas(role):
+def proposal_schemas(role, contribution_requirements):
     from episode_runtime.testing_harness.schema import experiment_schema
 
     schemas = {
@@ -139,10 +139,8 @@ def proposal_schemas(role):
                     "plan": {
                         "approach_key": "stable description of this approach",
                         "requirement_mapping": {
-                            "each assigned contribution requirement address": (
-                                "how the design meets it; include every contribution key "
-                                "and no other keys, including preservation-only keys"
-                            )
+                            address: "Explain how this design meets this assigned requirement."
+                            for address in contribution_requirements
                         },
                         "intended_change_scope": ["exact editable path"],
                         "dependency_effects": {},
@@ -211,6 +209,38 @@ def proposal_schemas(role):
             ]
         },
     }
+    if role == "designer":
+        # One scoped example teaches the envelope without duplicating the whole
+        # assignment or selecting the Designer's next operation for it.
+        example_requirements = list(contribution_requirements[:1])
+        schemas["design"]["format_example"] = {
+            "guidance": (
+                "This example shows the complete JSON nesting for a new local-measure "
+                "prerequisite. Choose your operation, purpose, contribution, requested "
+                "return and replacement decision from the current assignment and findings. "
+                "All child assignment fields, including role and writable_paths, belong "
+                "inside prerequisite. Return just the chosen one_of response shape."
+            ),
+            "response": {
+                "prerequisite": {
+                    "role": "measure",
+                    "goal": "Establish local checks for the selected requirement so implementation progress can be measured.",
+                    "requirements": example_requirements,
+                    "writable_paths": [],
+                    "return_contract": {
+                        "decision": "Determine whether local measurement is ready or which prerequisite to resolve next.",
+                        "measurements": [],
+                        "include": ["measurement_findings", "open_decisions"],
+                    },
+                    "measure_request": {
+                        "purpose": "local",
+                        "requirements": example_requirements,
+                    },
+                    "replace_previous": False,
+                    "prerequisites": [],
+                },
+            },
+        }
     tasks = {
         "parts": ("choose_part",),
         "designer": ("design",),
@@ -744,7 +774,9 @@ _HANDLERS = {
 
 
 def admit_proposal(session, call, task, proposal, producer):
-    if task not in proposal_schemas(call.assignment.body["role"]):
+    if task not in proposal_schemas(
+        call.assignment.body["role"], assigned_addresses(session, call.assignment)
+    ):
         raise ValueError("proposal task does not belong to this role")
     if task == "experiment":
         from .evaluation_experiments import propose_experiment
