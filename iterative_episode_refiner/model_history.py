@@ -46,6 +46,8 @@ def _proposals(session, view, call):
 
 
 def iteration_history(session, view, call):
+    from .candidate_environment import findings
+
     units = [entry.record for entry in view.entries("unit")
              if entry.record.invocation_id == call.invocation_id]
     catalog = requirement_catalog(view)
@@ -82,4 +84,5 @@ def iteration_history(session, view, call):
     return {
         "completed_units": len(history), "units": history,
         "proposals": _proposals(session, view, call),
+        "environment_preparations": findings(view, invocation_id=call.invocation_id.value),
     }

@@ -237,7 +237,7 @@ def validate_instrument_intent(artifacts, builds, runs, row, registration):
     }
 
 
-def _prepare(service, dispatch, instrument):
+def _prepare(service, dispatch, instrument, target_environment=None):
     from .contracts import ExperimentSpec
 
     parent = dispatch["record"]
@@ -248,7 +248,7 @@ def _prepare(service, dispatch, instrument):
     }
     existing = read_record(service.artifacts, "instrument", **identity)
     if existing is not None:
-        return existing, None
+        return existing, _unclaimed_dispatch(service, dispatch, instrument, existing)
     gap = read_record(service.artifacts, "instrument_result", **identity)
     if gap is not None:
         return None, None
@@ -297,6 +297,7 @@ def _prepare(service, dispatch, instrument):
         prepared.launch,
         RunRegistration.from_record(parent["registration"]).runtime_policy,
         execution_scope=prepared.execution_scope,
+        target_environment=target_environment,
     )
     record = {
         "experiment_ref": _ref(dispatch),
@@ -340,6 +341,36 @@ def _prepare(service, dispatch, instrument):
     )
 
 
+def _unclaimed_dispatch(service, dispatch, instrument, row):
+    """Reuse an unstarted checker through the ordinary execution admission."""
+    from ..records.experiments import execution_attempts
+    from ..store import RunStoreNotFound
+    from .recovery import execution_owner_status
+
+    attempts = execution_attempts(
+        service.artifacts, service.runs, row["record"]["registration"]["run_id"],
+    )
+    if not attempts:
+        return None
+    registration = RunRegistration.from_record(attempts[-1]["record"]["registration"])
+    try:
+        service.runs.read_claim(registration.run_id)
+    except RunStoreNotFound:
+        pass
+    else:
+        return None  # Claimed workers require explicit existing Run continuation.
+    if execution_owner_status(service.artifacts, registration)["state"] not in {"released", "stopped"}:
+        return None
+    inputs = service.builds.inspection_inputs_for_receipt(registration.build_receipt_id)
+    package = service.builds.verify_source_package(inputs.manifest)
+    launch = None if instrument["mode"] == "recorded" else service._resolve_live_launch(
+        dispatch["record"]["spec"], inputs, duet_id=dispatch["duet_id"],
+    )
+    # RunExecution revalidates this exact intent and atomically reacquires its
+    # lease; a concurrent recovery cannot obtain a second execution owner.
+    return registration, inputs, launch, package
+
+
 def _save_result(service, dispatch, instrument_id, result):
     from .contracts import ExperimentSpec
 
@@ -374,6 +405,8 @@ def _save_result(service, dispatch, instrument_id, result):
 
 
 async def run_instruments(service, experiment_id):
+    from .service import environment_unavailable
+
     dispatch = await asyncio.to_thread(
         read_record, service.artifacts, "dispatch", experiment_id=experiment_id
     )
@@ -387,11 +420,44 @@ async def run_instruments(service, experiment_id):
         return []
     results = []
     for key, instrument in _declared(dispatch["record"]).items():
-        row, prepared = await asyncio.to_thread(_prepare, service, dispatch, instrument)
+        environment = None
+        current = await asyncio.to_thread(
+            instrument_status, service.artifacts, service.runs, experiment_id, key,
+        )
+        if current["execution_status"] == "not_dispatched":
+            from ..target_environment_preparation import (
+                EnvironmentPreparationFailure, EnvironmentPreparationService,
+            )
+
+            inputs = await asyncio.to_thread(
+                service.builds.inspection_inputs_for_receipt,
+                instrument["build_receipt_ref"]["artifact_id"],
+            )
+            if inputs.manifest.environment_recipe is not None:
+                preparation = EnvironmentPreparationService(
+                    artifacts=service.artifacts, builds=service.builds, runs=service.runs,
+                    executor=service.executor,
+                )
+                try:
+                    environment = await preparation.prepare_manifest(
+                        inputs.manifest, duet_id=dispatch["duet_id"],
+                    )
+                except EnvironmentPreparationFailure as exc:
+                    # The preparation artifact retains the failed attempt. An
+                    # immutable instrument_result would permanently suppress
+                    # retry even when the same saved environment can be rebuilt.
+                    results.append(environment_unavailable(
+                        exc, instrument_id=key, instrument_ref=None, run_id=None,
+                    ))
+                    continue
+        row, prepared = await asyncio.to_thread(_prepare, service, dispatch, instrument, environment)
         if prepared is not None:
-            await service._execute_registered(
+            unavailable = await service._execute_registered(
                 *prepared, _ref(row), launch_id=f"{experiment_id}:{key}"
             )
+            if unavailable is not None:
+                results.append({**unavailable, "instrument_id": key, "instrument_ref": _ref(row)})
+                continue
         result = await asyncio.to_thread(
             instrument_status, service.artifacts, service.runs, experiment_id, key
         )

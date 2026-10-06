@@ -225,6 +225,8 @@ async def execute_experiment(evaluations, session, call, payload, *, request_eve
 
 
 def _receive(evaluations, session, call, spec, assigned, result):
+    from .candidate_environment import experiment_findings
+
     if isinstance(assigned, dict) and assigned.get("kind") == "grounded_control":
         from .measure_experiments import receive
 
@@ -341,11 +343,14 @@ def _receive(evaluations, session, call, spec, assigned, result):
         "experiment_result",
         {
             "experiment_id": spec.experiment_id,
+            "invocation_id": call.invocation_id.value,
+            "candidate_ref": candidate.ref.as_record(),
             "evaluation_request_ref": request.ref.as_record(),
             "measurement_ref": None
             if measurement is None
             else measurement["measurement_ref"],
             "execution_status": result["execution_status"],
+            "environment_findings": experiment_findings(result),
             "observed_check_keys": [check.artifact_id.value for check in observed],
         },
     )

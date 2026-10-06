@@ -61,6 +61,31 @@ def _run(command, *, cwd: Path, env: dict) -> str:
     return result.stdout.strip()
 
 
+@pytest.fixture
+def admitted_pm_tools(tmp_path):
+    """Real uv bytes in a disposable admitted store; never install into live state."""
+    from pm.lock import Facts, Lockfile
+    from pm.paths import lockfile_path
+    from pm.registry import walk
+    from pm.store import current_target, tree_digest
+
+    uv = shutil.which("uv")
+    assert uv, "preparation tests require the installed uv tool"
+    target, store = current_target(), tmp_path / "tools"
+    lock = Lockfile(lockfile_path())
+    facts = Facts(store / "facts.json")
+    for package in walk(["uv"]):
+        version = lock.version(package.name)
+        entry = store / package.store_entry(version, target)
+        binary = package.binary(entry, target)
+        binary.parent.mkdir(parents=True)
+        shutil.copy2(uv if package.name == "uv" else sys.executable, binary)
+        facts.record(package.name, version, entry.name, package.env(entry, target), store,
+                     target=target, artifacts=[item["sha256"] for item in lock.artifacts(package.name, target)],
+                     digest=tree_digest(entry))
+    return store, target, Path(uv)
+
+
 def _ar_member(name: str, data: bytes) -> bytes:
     hdr = (
         name.ljust(16).encode()

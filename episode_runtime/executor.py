@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import secrets
 import stat
 import sys
+import sysconfig
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
 
@@ -601,6 +602,11 @@ class RunExecutor(Protocol):
     repository_root: Path
     python_executable: Path | PurePosixPath
 
+    async def prepare_environment(
+        self, command: tuple[str, ...], *, read_only_paths: tuple[tuple[str, str], ...],
+        writable_directory: Path, environment: Mapping[str, str], network_access: bool,
+    ) -> dict[str, object]: ...
+
     def inspect_runtime_identity(
         self,
         *,
@@ -646,6 +652,33 @@ class _RunExecutorBase:
         source_package: Path,
     ) -> tuple[ReadOnlyRuntimeMount, ...]:
         raise NotImplementedError
+
+    def _dependency_read_paths(self, mounts):
+        raise NotImplementedError
+
+    def _environment_mount(self, registration, base):
+        environment = registration.target_environment
+        if environment is None:
+            return ()
+        from .environment_runtime import verify_target_environment
+
+        package = self.run_store.root / "target_environments" / environment.environment_id.value
+        verify_target_environment(package, environment)
+        return (ReadOnlyRuntimeMount(
+            kind=RuntimeMountKind.TARGET_ENVIRONMENT,
+            source_path=str(package), target_path=str(base / environment.environment_id.value),
+        ),)
+
+    @staticmethod
+    def _environment_arguments(registration, mounts):
+        if registration.target_environment is None:
+            return ()
+        mount = next(item for item in mounts if item.kind is RuntimeMountKind.TARGET_ENVIRONMENT)
+        return (
+            "--bootstrap-target-environment", mount.target_path,
+            "--bootstrap-target-environment-id", registration.target_environment.environment_id.value,
+            "--bootstrap-target-environment-hash", registration.target_environment.content_hash.value,
+        )
 
     async def _launch(
         self,
@@ -746,14 +779,14 @@ class _RunExecutorBase:
                 return {"previous_executor": stopped, "current_authority": authority}
 
             await authorize_continuation()
-        self.run_store.publish_registration(registration)
-
         launch_identity = self._launch_identity(registration.run_id)
-        mounts = self._runtime_mounts(
+        mounts = await asyncio.to_thread(
+            self._runtime_mounts,
             registration,
             runtime_source_package,
             source_package,
         )
+        self.run_store.publish_registration(registration)
         launcher: Optional[asyncio.subprocess.Process] = None
         stderr_tail: Optional[asyncio.Task[bytes]] = None
         channel: Optional[_HostChannel] = None
@@ -805,6 +838,9 @@ class _RunExecutorBase:
             seccomp_receipt = SeccompPolicyReceipt.from_record(
                 ready.body["seccomp_receipt"]
             )
+            expected_reads = self._dependency_read_paths(mounts) if registration.target_environment is not None else ()
+            if receipt.read_only_paths != tuple(sorted(expected_reads)):
+                raise ProtocolError("worker dependency read roots differ from backend-inspected runtime")
             if (
                 receipt.executor_instance_id != facts.executor_instance_id
                 or seccomp_receipt.executor_instance_id
@@ -1070,6 +1106,14 @@ class SystemdRunExecutor(_RunExecutorBase):
     env_executable: Path = Path("/usr/bin/env")
     _python_executable_relative: Optional[Path] = field(init=False, repr=False)
 
+    async def prepare_environment(self, command, *, read_only_paths, writable_directory, environment, network_access):
+        from .environment_executor import systemd_preparation
+
+        return await systemd_preparation(
+            self, command, read_only_paths=read_only_paths, writable_directory=writable_directory,
+            environment=environment, network_access=network_access,
+        )
+
     def __post_init__(self) -> None:
         if not isinstance(self.run_store, RunStore):
             raise TypeError("run_store must be a RunStore")
@@ -1170,7 +1214,18 @@ class SystemdRunExecutor(_RunExecutorBase):
                     target_path=str(base / "python-runtime"),
                 )
             )
-        return tuple(mounts)
+        return (*mounts, *self._environment_mount(registration, base))
+
+    def _dependency_read_paths(self, mounts):
+        by_kind = {mount.kind: mount for mount in mounts}
+        stdlib = Path(sysconfig.get_path("stdlib")).resolve(strict=True)
+        python_mount = by_kind.get(RuntimeMountKind.PYTHON_RUNTIME)
+        if python_mount is not None:
+            stdlib = Path(python_mount.target_path) / stdlib.relative_to(self.python_runtime_root)
+        return (
+            str(Path(by_kind[RuntimeMountKind.TARGET_ENVIRONMENT].target_path) / "site-packages"),
+            str(stdlib),
+        )
 
     def _launch_arguments(
         self,
@@ -1248,6 +1303,7 @@ class SystemdRunExecutor(_RunExecutorBase):
                 str(runtime_source),
             )
         )
+        arguments.extend(self._environment_arguments(registration, mounts))
         return tuple(arguments)
 
     async def _stop_exact(

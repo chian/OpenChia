@@ -109,11 +109,18 @@ independent parent acceptance, credit, rarefaction and continuation are unchange
 Diagnostic commands inside the coding session do not certify acceptance.
 
 This workspace belongs to Implementer. Its sandbox configures the coding tools,
-not the Target Workflow's eventual execution environment. Workflow-specific
-environment preparation is separate work; do not copy the coding sandbox into
-Target Workflow configuration. The assignment/change/report contract is shared
-across coding backends; Codex is the initial adapter, not a requirement of the
-Episode design or a claim of implemented Claude Code support.
+not the Target Workflow's execution environment. Implementer receives the
+available runtime, installation authority and saved preparation findings, and
+can edit its assigned `.openchia-environment.json` with the candidate source.
+The shared environment service resolves packages through the selected execution
+backend and retains the exact lock with the admitted build. Diagnostics,
+independent validation and subsequent Runs use that saved recipe and lock, not
+packages installed incidentally in the coding session. Preparation failures
+remain typed working feedback; setup itself earns no correctness credit.
+Parent reports include environment findings only when requested by their
+report contract. See [Target Workflow environments](target_workflow_environment.md).
+The assignment/change/report contract is shared across Codex and Claude Code
+adapters; their OS-specific sandbox verification remains separate.
 
 Coding activity, native thread identity and turn results use the existing
 campaign artifact store and model-call events. The ordinary Run model response

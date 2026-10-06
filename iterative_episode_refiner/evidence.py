@@ -201,6 +201,9 @@ class EvidenceReader:
             projection = project_candidate_sources(
                 self, contract, candidate, request.body
             )
+            from .candidate_environment import validate_manifest
+
+            validate_manifest(self, contract, candidate, projection, inputs)
             expected_plan = replace(
                 projection.plan,
                 build_request_id=inputs.build_request.build_request_id,
@@ -283,6 +286,7 @@ class EvidenceReader:
                     runtime_identity=registration.runtime_identity,
                     runtime_policy=registration.runtime_policy,
                     execution_scope=execution_scope,
+                    target_environment=registration.target_environment,
                 )
                 references["admitted_registration"] = admitted.as_record()
                 references["root_request_payload_contract"] = next(

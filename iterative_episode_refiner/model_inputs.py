@@ -111,6 +111,26 @@ def _source(session, view, call):
     }
 
 
+def _environment(session, view, call):
+    from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+    from .candidate_environment import findings
+
+    paths = [path for path in call.assignment.body["writable_paths"]
+             if path == ENVIRONMENT_RECIPE_PATH or path.endswith("/" + ENVIRONMENT_RECIPE_PATH)]
+    return {"target_environment": {
+        **session.evaluations.environment_context(),
+        "recipe_paths": paths,
+        "recipe_format": {
+            "schema_version": 1, "python": "available runtime major.minor",
+            "dependencies": ["registry requirement with exact version or lower and upper bounds"],
+            "import_roots": ["imported package roots supplied by those dependencies"],
+            "setup_instructions": "Human-readable setup notes; never a host shell script.",
+        },
+        "preparation_findings": findings(view, candidate_ref=view.candidate.ref.as_record()),
+        "boundary": "The Target Workflow environment is separate from the coding agent's workspace and OpenChia's own environment.",
+    }}
+
+
 def _design(session, view, call):
     assignment = call.assignment
     owner = assignment.body["parent_assignment_ref"] if assignment.body["role"] == "implementer" else assignment.ref.as_record()
@@ -187,6 +207,7 @@ _COMPONENTS = {
     "source": _source, "design": _design, "measure_design": _measure_design,
     "grounding": _grounding, "investigation": _investigation,
     "prerequisites": _prerequisites,
+    "environment": _environment,
 }
 
 
@@ -235,6 +256,10 @@ def model_inputs(session, view, call):
 def _feedback(session, view, call):
     """Deliver the last operation's actionable result, not its audit envelope."""
     value = view.data(call.feedback_ref)
+    if "source_workflow_ref" in value and "result" in value:
+        from .candidate_environment import project_finding
+
+        return {"task": "environment_preparation", **project_finding(value, call.feedback_ref)}
     if "proposal_ref" in value and "reason" in value:
         from .evaluation_experiments import feedback
 
@@ -248,6 +273,7 @@ def _feedback(session, view, call):
             "task": "experiment", "execution_status": value["execution_status"],
             "observed_checks": len(value.get("observed_check_keys", ())),
             "control_observed": value.get("observed_control_ref") is not None,
+            "environment_findings": value["environment_findings"],
         }
     if "plan" in value:
         plan = value["plan"]

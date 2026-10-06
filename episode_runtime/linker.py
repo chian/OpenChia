@@ -244,10 +244,14 @@ def _import_names(tree: ast.Module) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
-def _preload_declared_imports(tree: ast.Module) -> None:
+def _preload_declared_imports(tree: ast.Module, *, excluded_roots=frozenset()) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    deferred = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
+                if alias.name.split(".", 1)[0] in excluded_roots:
+                    deferred.append((alias.name, ()))
+                    continue
                 importlib.import_module(alias.name)
             continue
         if not isinstance(node, ast.ImportFrom):
@@ -255,7 +259,11 @@ def _preload_declared_imports(tree: ast.Module) -> None:
         if node.level or node.module is None:
             raise RuntimeLinkError("generated imports must be absolute")
         fromlist = tuple(alias.name for alias in node.names)
+        if node.module.split(".", 1)[0] in excluded_roots:
+            deferred.append((node.module, fromlist))
+            continue
         builtins.__import__(node.module, fromlist=fromlist, level=0)
+    return tuple(deferred)
 
 
 def _library_implementation_modules(import_names, selected_bindings) -> tuple[str, ...]:
@@ -396,6 +404,7 @@ class PreparedModule:
     import_names: tuple[str, ...]
     implementation_modules: tuple[str, ...]
     code: object = field(repr=False, compare=False)
+    dependency_imports: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -416,11 +425,17 @@ class PreparedSourcePackage:
     def activate(self) -> "ActivatedSourcePackage":
         """Execute admitted code after the caller has installed confinement."""
 
+        if self.registration.target_environment is not None:
+            from .environment_runtime import require_dependency_imports_enabled
+
+            require_dependency_imports_enabled()
         activated: dict[str, ActivatedModule] = {}
         inserted: list[str] = []
         try:
             for node in self.plan.nodes:
                 prepared = self.modules[node.local_id]
+                for name, fromlist in prepared.dependency_imports:
+                    builtins.__import__(name, fromlist=fromlist, level=0)
                 required_resident = set(prepared.import_names) | (
                     set(prepared.implementation_modules)
                     - {prepared.module_name}
@@ -707,6 +722,34 @@ def prepare_source_package(
         raise RuntimeLinkError("source package differs from the Run registration")
 
     expected_paths = set(_METADATA_FILES)
+    if manifest.environment_recipe is not None:
+        from .target_environment import TargetEnvironmentLock, TargetEnvironmentRecipe
+
+        recipe_path = ".openchia-environment.json"
+        lock_path = "TARGET_ENVIRONMENT_LOCK.json"
+        expected_paths.update((recipe_path, lock_path))
+        if (
+            canonical_json(_read_record(root / recipe_path, "environment recipe")) != canonical_json(manifest.environment_recipe)
+            or canonical_json(_read_record(root / lock_path, "environment lock")) != canonical_json(manifest.environment_lock)
+        ):
+            raise RuntimeLinkError("source package environment differs from its manifest")
+        recipe = TargetEnvironmentRecipe.from_record(manifest.environment_recipe)
+        locked = TargetEnvironmentLock.from_record(manifest.environment_lock)
+        environment = registration.target_environment
+        if environment is None or (
+            environment.recipe_hash != recipe.recipe_hash
+            or environment.runtime_hash != registration.runtime_identity.content_hash
+            or locked.recipe_hash != recipe.recipe_hash
+            or locked.runtime_hash != environment.runtime_hash
+            or locked.content_hash != environment.lock_hash
+            or not set(recipe.import_roots).issubset(environment.import_roots)
+        ):
+            raise RuntimeLinkError("prepared environment differs from admitted recipe, resolution or runtime")
+        dependency_roots = frozenset(environment.import_roots)
+    else:
+        if registration.target_environment is not None:
+            raise RuntimeLinkError("Run environment has no admitted recipe")
+        dependency_roots = frozenset()
     prepared: dict[str, PreparedModule] = {}
     generated_names = {node.module_name for node in plan.nodes}
     for node in plan.nodes:
@@ -740,13 +783,17 @@ def prepare_source_package(
         imports = _import_names(tree)
         if set(imports) & generated_names:
             raise RuntimeLinkError("generated modules cannot import each other")
-        _preload_declared_imports(tree)
+        dependency_imports = _preload_declared_imports(tree, excluded_roots=dependency_roots)
+        trusted_imports = tuple(name for name in imports if name.split(".", 1)[0] not in dependency_roots)
         implementation_modules = tuple(sorted(
             set(_implementation_modules(tree))
-            | set(_library_implementation_modules(imports, node.selected_function_bindings))
+            | set(_library_implementation_modules(trusted_imports, node.selected_function_bindings))
         ))
         for imported in implementation_modules:
             if imported == node.module_name:
+                continue
+            if imported.split(".", 1)[0] in dependency_roots:
+                dependency_imports += ((imported, ()),)
                 continue
             importlib.import_module(imported)
         prepared[node.local_id] = PreparedModule(
@@ -757,6 +804,7 @@ def prepare_source_package(
             import_names=imports,
             implementation_modules=implementation_modules,
             code=code,
+            dependency_imports=dependency_imports,
         )
     if set(package_files) != expected_paths:
         unknown = sorted(set(package_files) - expected_paths)

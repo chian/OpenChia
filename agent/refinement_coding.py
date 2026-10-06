@@ -19,6 +19,17 @@ does not define the Target Workflow's execution environment. Create a first
 implementation when source is missing.
 Use your file and command tools to inspect, implement, and diagnose the assigned
 work. Read-only source dependencies are context, not permission to change them.
+Read target_environment for the available runtime, libraries, package manager,
+installation authority and preparation findings. Author or repair the assigned
+.openchia-environment.json recipe when the Target Workflow needs dependencies.
+Use bounded registry requirements and explicit import roots; setup_instructions
+are notes, not arbitrary host commands. The host resolves and records exact
+packages separately from your candidate files. Do not run installers against
+OpenChia, personal environments or the coding backend's own environment. Use a
+prepared diagnostic interpreter only when the assignment supplies one. A missing
+or broken environment is repair work, not evidence that the workflow is correct.
+An independent checking workflow uses its own namespaced recipe, not the Target
+Workflow's environment.
 
 Make one coherent candidate revision for the parent's design. Edit actual files;
 do not return file contents in JSON. If implementation plan details must change,

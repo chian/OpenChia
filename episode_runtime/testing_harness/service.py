@@ -17,10 +17,22 @@ from llm_call_library.transport import ModelCallFailed
 from ..broker import ScopedModelBroker
 from ..contracts import RuntimePolicy
 from ..http_broker import HttpxHostTransport, ScopedHttpBroker
+from ..target_environment_preparation import EnvironmentPreparationFailure
 from .inputs import workflow_template
 from .execution import RunExecution, register_build
 from .planning import preview_experiment
 from ..records.experiments import artifact_fields, read_record, read_reference
+
+
+def environment_unavailable(failure, **context):
+    """Preparation diagnostics are feedback, not terminal execution evidence."""
+    return {
+        **context,
+        "execution_status": "unavailable",
+        "candidate_verdict": "unmeasured",
+        "environment_preparation": failure.result,
+        "progress": {"admitted": False},
+    }
 
 
 class ExperimentService:
@@ -155,7 +167,7 @@ class ExperimentService:
             }
         return result
 
-    def _prepare(self, spec):
+    def _prepare_launch(self, spec):
         request = spec.as_record()
         plan = self.preview(spec)
         gaps = list(plan["gaps"])
@@ -225,6 +237,43 @@ class ExperimentService:
             address,
             root.request_payload_contract,
         )
+        return plan, {
+            "request": request, "inputs": inputs, "duet_id": duet_id,
+            "duet": duet, "refiner_job": refiner_job, "subject": subject,
+            "launch": launch, "launch_request": launch_request,
+        }
+
+    async def _prepare(self, spec):
+        plan, context = await asyncio.to_thread(self._prepare_launch, spec)
+        if context is None:
+            return plan, None
+        manifest = context["inputs"].manifest
+        environment = None
+        if manifest.environment_recipe is not None:
+            from ..target_environment_preparation import (
+                EnvironmentPreparationFailure, EnvironmentPreparationService,
+            )
+
+            service = EnvironmentPreparationService(
+                artifacts=self.artifacts, builds=self.builds, runs=self.runs, executor=self.executor,
+            )
+            try:
+                environment = await service.prepare_manifest(manifest, duet_id=context["duet_id"])
+            except EnvironmentPreparationFailure as exc:
+                return {
+                    **plan, "resolved": False,
+                    "gaps": [*plan["gaps"], "Target Workflow environment preparation failed"],
+                    "environment_preparation": exc.result,
+                }, None
+        return await asyncio.to_thread(self._commit_dispatch, spec, plan, context, environment)
+
+    def _commit_dispatch(self, spec, plan, context, environment):
+        request, inputs, duet_id, duet, refiner_job, subject, launch, launch_request = (
+            context[key] for key in (
+                "request", "inputs", "duet_id", "duet", "refiner_job", "subject",
+                "launch", "launch_request",
+            )
+        )
         registration, package = register_build(
             self.executor,
             self.builds,
@@ -232,6 +281,7 @@ class ExperimentService:
             launch_request,
             self.runtime_policy,
             execution_scope=_run_scope(plan["execution_scope"]),
+            target_environment=environment,
         )
         refinement_session = None
         if refiner_job:
@@ -348,7 +398,7 @@ class ExperimentService:
             return await self.continue_interrupted(experiment_id=spec.experiment_id)
         if prior["execution_status"] != "not_dispatched":
             return await self._finish_measurement(spec.experiment_id, prior)
-        plan, prepared = await asyncio.to_thread(self._prepare, spec)
+        plan, prepared = await self._prepare(spec)
         if not plan["resolved"]:
             return {
                 "experiment_id": spec.experiment_id,
@@ -364,7 +414,7 @@ class ExperimentService:
         binding = await asyncio.to_thread(
             read_record, self.artifacts, "dispatch", experiment_id=spec.experiment_id
         )
-        await self._execute_registered(
+        unavailable = await self._execute_registered(
             registration,
             inputs,
             launch,
@@ -376,6 +426,8 @@ class ExperimentService:
             launch_id=spec.experiment_id,
             refinement_session=refinement_session,
         )
+        if unavailable is not None:
+            return {"experiment_id": spec.experiment_id, **unavailable}
         result = await asyncio.to_thread(
             self.status, self.artifacts, self.runs, spec.experiment_id
         )
@@ -428,6 +480,20 @@ class ExperimentService:
                     max_frame_bytes=registration.runtime_policy.max_frame_bytes,
                 ),
                 refinement_session=refinement_session,
+            )
+        except EnvironmentPreparationFailure as exc:
+            from ..records.experiments import read_run_intent
+
+            intent = await asyncio.to_thread(
+                read_run_intent, self.artifacts, intent_ref, registration,
+            )
+            # Shared execution released its host lease without claiming a
+            # worker. Retrying the exact dispatch remains possible; no terminal
+            # evidence or refinement result exists to publish.
+            return environment_unavailable(
+                exc, run_id=registration.run_id.value, intent_ref=intent_ref,
+                environment_subject="measurement"
+                if intent["kind"] == "experiment.instrument.v1" else "target_workflow",
             )
         except ModelCallFailed:
             if refinement_session is not None:
@@ -541,10 +607,12 @@ class ExperimentService:
             prepared = await asyncio.to_thread(self._prepare_continuation, experiment_id, resume_from)
             if prepared is not None:
                 registration, inputs, launch, package, intent_ref, launch_id, session = prepared
-                await self._execute_registered(
+                unavailable = await self._execute_registered(
                     registration, inputs, launch, package, intent_ref,
                     launch_id=launch_id, refinement_session=session,
                 )
+                if unavailable is not None:
+                    return {"experiment_id": experiment_id, **unavailable}
             result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
             return await self._finish_measurement(experiment_id, result)
 
@@ -581,7 +649,9 @@ class ExperimentService:
             from ..continuation import resumable_run
 
             if evidence is None or not await asyncio.to_thread(resumable_run, self.runs, registration.run_id):
-                await self._recover_dispatch(dispatch, registration, evidence)
+                unavailable = await self._recover_dispatch(dispatch, registration, evidence)
+                if unavailable is not None:
+                    return {"experiment_id": experiment_id, **unavailable}
                 result = await asyncio.to_thread(self.status, self.artifacts, self.runs, experiment_id)
                 return await self._finish_measurement(experiment_id, result)
             reference = await asyncio.to_thread(InterruptedRunRef.from_run, self.runs, registration.run_id)
@@ -605,7 +675,7 @@ class ExperimentService:
         inputs, package, launch, session = await asyncio.to_thread(prepare)
         experiment_id = ExperimentSpec.from_record(dispatch["record"]["spec"]).experiment_id
         if evidence is None:
-            await self._execute_registered(
+            return await self._execute_registered(
                 registration, inputs, launch, package,
                 {"artifact_id": dispatch["artifact_id"], "content_hash": dispatch["content_hash"]},
                 launch_id=experiment_id, refinement_session=session,
@@ -625,6 +695,12 @@ class ExperimentService:
             from .instruments import run_instruments
 
             instrument_runs = await run_instruments(self, experiment_id)
+            if any(row.get("environment_preparation") is not None for row in instrument_runs):
+                return {
+                    **{key: value for key, value in result.items() if key != "measurement"},
+                    "candidate_verdict": "unmeasured",
+                    "instrument_runs": instrument_runs,
+                }
             if any(
                 row["execution_status"] == "terminal_evidence_unavailable"
                 for row in instrument_runs

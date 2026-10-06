@@ -48,8 +48,14 @@ class CodingWorkspace:
             path = self._path(name)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
-        for name, value in ((CONTEXT, context), (PLAN_EDITS, {"implementation_detail_operations": []})):
-            self._path(name).write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.refresh_context(context)
+        self._path(PLAN_EDITS).write_text(
+            json.dumps({"implementation_detail_operations": []}, indent=2), encoding="utf-8",
+        )
+
+    def refresh_context(self, context):
+        """Refresh host facts on continuation without replacing unfinished edits."""
+        self._path(CONTEXT).write_text(json.dumps(context, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def capture(self):
         changes = []

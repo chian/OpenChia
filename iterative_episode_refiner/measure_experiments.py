@@ -123,6 +123,10 @@ def validate(evaluations, session, call, proposal):
 
 
 def receive(evaluations, session, call, spec, subject, result):
+    from .candidate_environment import experiment_findings
+
+    with session.view() as view:
+        candidate_ref = view.candidate.ref.as_record()
     measurement = result.get("measurement")
     observed = False
     job = tuple(
@@ -215,11 +219,14 @@ def receive(evaluations, session, call, spec, subject, result):
         "experiment_result",
         {
             "experiment_id": spec.experiment_id,
+            "invocation_id": call.invocation_id.value,
+            "candidate_ref": candidate_ref,
             "control_target_ref": subject["reference"],
             "measurement_ref": None
             if measurement is None
             else measurement["measurement_ref"],
             "execution_status": result["execution_status"],
+            "environment_findings": experiment_findings(result),
             "observed_control_ref": job[2].as_record() if observed else None,
         },
     )

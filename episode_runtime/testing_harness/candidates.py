@@ -52,6 +52,9 @@ def resolve_candidate(request, inputs, *, artifacts, builds, subject=None):
     projection = project_candidate_sources(
         reader, contract, candidate, subject["binding"] if campaign_source else None
     )
+    from iterative_episode_refiner.candidate_environment import validate_manifest
+
+    validate_manifest(reader, contract, candidate, projection, inputs)
     plan = replace(
         projection.plan,
         build_request_id=inputs.build_request.build_request_id,

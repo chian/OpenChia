@@ -16,12 +16,14 @@ from .checking import checker_descriptor
 
 
 def _paths(reference, inputs):
+    from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+
     prefix = f"__refinement_instruments/{reference.artifact_id.value}/"
     return {
         path: prefix + path
-        for path in source_paths(
+        for path in (*source_paths(
             inputs.build_request.frozen_workflow.workflow, inputs.plan
-        ).values()
+        ).values(), ENVIRONMENT_RECIPE_PATH)
     }
 
 
@@ -333,6 +335,9 @@ def source_scope(reader, contract, candidate, binding=None):
             inputs.build_request.frozen_workflow.workflow, inputs.plan
         ).values()
     }
+    from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+
+    paths[ENVIRONMENT_RECIPE_PATH] = ENVIRONMENT_RECIPE_PATH
     if set(candidate.body["files"]) - set(paths) - auxiliary_paths:
         raise ValueError(
             "candidate contains source outside its declared build namespaces"

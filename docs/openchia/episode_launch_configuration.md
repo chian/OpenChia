@@ -47,8 +47,11 @@ tools and limits command writes to the candidate workspace. Other refiner calls
 retain the ordinary Duet transport. See [ADR 0009](../adr/0009-implementer-uses-an-existing-coding-agent.md).
 The sandbox belongs to [Implementer's coding workspace](implementer_coding_workspace.md),
 not the Target Workflow. Its setup must not become an implicit Target Workflow
-environment requirement. Other coding backends use the same Implementer contract;
-the current adapter is Codex-only.
+environment requirement. Codex and Claude Code adapters use the same Implementer
+contract; live Claude Code verification remains separate. The Target Workflow's
+[saved environment recipe](target_workflow_environment.md) supplies its own
+dependencies through the shared preparation service; it does not select model
+routes or inherit the coding agent's mutable environment.
 
 Builder slots in a Target Workflow launch file configure the existing target
 Builder calls. They do not select the refiner's reasoning model. A typed

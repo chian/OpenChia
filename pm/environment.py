@@ -261,6 +261,7 @@ class PythonEnvironment:
     offline: bool = False
     output: TextIO | None = None
     no_config: bool = False
+    no_build: bool = False
 
     @property
     def executable(self) -> Path:
@@ -286,9 +287,14 @@ class PythonEnvironment:
             env = {key: value for key, value in env.items() if not is_index_redirect(key)}
         env.update(UV_PYTHON=str(self.python), UV_PROJECT_ENVIRONMENT=str(self.destination),
                    UV_CACHE_DIR=str(self.cache), UV_PYTHON_DOWNLOADS="never")
+        if self.no_build:
+            # An operation policy, not an ambient UV option. Apply after filtering.
+            env["UV_NO_BUILD"] = "1"
         with tempfile.TemporaryDirectory(prefix="pm-uv-config-") as config:
             env.update(XDG_CONFIG_HOME=config, XDG_CONFIG_DIRS=config)
             command = [str(self.uv), *args]
+            if self.no_build and args[0] in {"lock", "sync"}:
+                command.append("--no-build")
             if self.no_config and "--no-config" not in command:
                 command.append("--no-config")
             if self.offline:
@@ -351,7 +357,7 @@ class PythonEnvironment:
     def sync(self, source: Path, *, extras: Sequence[str] = (), groups: Sequence[str] = (),
              timeout: int = 1800, frozen: bool = True, all_extras: bool = False,
              no_install_project: bool = False, locked: bool = False,
-             no_default_groups: bool = False) -> None:
+             no_default_groups: bool = False, compile_bytecode: bool = True) -> None:
         """Install the root and every member; resolve only in a writable workspace.
 
         ``frozen=False`` is reserved for the caller-owned generated workspace,
@@ -363,7 +369,9 @@ class PythonEnvironment:
         # uv writes no __pycache__ (pip does): without --compile-bytecode the first import
         # of every module in the foreground of a user request compiles it (#100461).
         command = ["sync", "--locked" if locked else "--frozen", "--all-packages",
-                   "--python", str(self.python), "--compile-bytecode"]
+                   "--python", str(self.python)]
+        if compile_bytecode:
+            command.append("--compile-bytecode")
         if no_default_groups:
             command.append("--no-default-groups")
         if all_extras:
@@ -409,9 +417,11 @@ class PythonEnvironment:
                                    timeout: int = 1800) -> None:
         command = ["pip", "install", "--no-config", "--python", str(self.executable),
                    "--requirements", str(requirements)]
+        if self.no_build or wheelhouse is not None:
+            # pip install does not share lock/sync's UV_NO_BUILD environment option.
+            command += ["--only-binary", ":all:"]
         if wheelhouse is not None:
-            command += ["--no-index", "--only-binary", ":all:",
-                        "--find-links", str(wheelhouse.absolute())]
+            command += ["--no-index", "--find-links", str(wheelhouse.absolute())]
         result = self._run(command, cwd=requirements.parent, timeout=timeout)
         if result.returncode:
             raise classify_uv_failure("pip", result.returncode, result.stderr or result.stdout)

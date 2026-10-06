@@ -24,6 +24,7 @@ from .landlock import (
     landlock_abi7_policy_hash,
 )
 from .seccomp import SeccompPolicyReceipt, seccomp_policy_hash
+from .target_environment import PreparedTargetEnvironment, TargetEnvironmentLock, TargetEnvironmentRecipe
 
 if TYPE_CHECKING:
     from .continuation import InterruptedRunRef
@@ -359,6 +360,7 @@ class RuntimeMountKind(str, Enum):
     RUNTIME_SOURCE_PACKAGE = "runtime_source_package"
     SOURCE_PACKAGE = "source_package"
     PYTHON_RUNTIME = "python_runtime"
+    TARGET_ENVIRONMENT = "target_environment"
 
 
 @dataclass(frozen=True)
@@ -433,10 +435,13 @@ class RuntimePolicy:
     )
     seccomp_policy_hash: Sha256Digest = field(default_factory=seccomp_policy_hash)
     max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES
+    dependency_reads: bool = False
     policy_id: OpaqueId = field(init=False)
     content_hash: Sha256Digest = field(init=False)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.dependency_reads, bool):
+            raise TypeError("dependency_reads must be boolean")
         if self.deliverable_kind is not EpisodeDeliverableKind.TYPED_STATUS:
             raise ValueError("the initial runtime admits only typed_status Runs")
         if self.effect_mode is not RunEffectMode.NO_EFFECTS:
@@ -445,11 +450,11 @@ class RuntimePolicy:
             raise ValueError("runtime policy requires exact Landlock ABI 7")
         if not isinstance(self.landlock_policy_hash, Sha256Digest):
             raise TypeError("landlock_policy_hash must be a Sha256Digest")
-        if self.landlock_policy_hash != landlock_abi7_policy_hash():
+        if self.landlock_policy_hash != landlock_abi7_policy_hash(dependency_reads=self.dependency_reads):
             raise ValueError("runtime policy names another Landlock policy")
         if not isinstance(self.seccomp_policy_hash, Sha256Digest):
             raise TypeError("seccomp_policy_hash must be a Sha256Digest")
-        if self.seccomp_policy_hash != seccomp_policy_hash():
+        if self.seccomp_policy_hash != seccomp_policy_hash(dependency_reads=self.dependency_reads):
             raise ValueError("runtime policy names another seccomp policy")
         frame_limit = _integer(
             self.max_frame_bytes,
@@ -476,6 +481,7 @@ class RuntimePolicy:
             "landlock_policy_hash": self.landlock_policy_hash.value,
             "seccomp_policy_hash": self.seccomp_policy_hash.value,
             "max_frame_bytes": self.max_frame_bytes,
+            **({"dependency_reads": True} if self.dependency_reads else {}),
         }
 
     def as_record(self) -> dict[str, Any]:
@@ -499,7 +505,7 @@ class RuntimePolicy:
                 "landlock_policy_hash",
                 "seccomp_policy_hash",
                 "max_frame_bytes",
-            },
+            } | ({"dependency_reads"} if isinstance(value, Mapping) and "dependency_reads" in value else set()),
         )
         try:
             deliverable = EpisodeDeliverableKind(record["deliverable_kind"])
@@ -513,6 +519,7 @@ class RuntimePolicy:
             landlock_policy_hash=Sha256Digest(record["landlock_policy_hash"]),
             seccomp_policy_hash=Sha256Digest(record["seccomp_policy_hash"]),
             max_frame_bytes=record["max_frame_bytes"],
+            dependency_reads=record.get("dependency_reads", False),
         )
         if (
             result.policy_id.value != record["policy_id"]
@@ -893,6 +900,7 @@ class RunRegistration:
     )
     execution_scope: Optional["RunScope | ComponentScope"] = None
     resume_from: Optional["InterruptedRunRef"] = None
+    target_environment: Optional[PreparedTargetEnvironment] = None
     run_id: OpaqueId = field(init=False)
     registration_hash: Sha256Digest = field(init=False)
     logical_run_id: OpaqueId = field(init=False)
@@ -929,6 +937,13 @@ class RunRegistration:
             raise TypeError("runtime_identity must be a RuntimeIdentity")
         if not isinstance(self.runtime_policy, RuntimePolicy):
             raise TypeError("runtime_policy must be a RuntimePolicy")
+        if self.target_environment is not None:
+            if not isinstance(self.target_environment, PreparedTargetEnvironment):
+                raise TypeError("target_environment must be a PreparedTargetEnvironment")
+            if self.target_environment.runtime_hash != self.runtime_identity.content_hash:
+                raise ValueError("Target Workflow environment names another execution runtime")
+        if self.runtime_policy.dependency_reads != (self.target_environment is not None):
+            raise ValueError("dependency read policy must match the bound Target Workflow environment")
         from .scoped import RunScope
         from .components import ComponentScope
         from .continuation import InterruptedRunRef
@@ -976,6 +991,7 @@ class RunRegistration:
             "egress_policy": _egress_policy_record(self.egress_policy),
             **({"execution_scope": self.execution_scope.as_record()} if self.execution_scope is not None else {}),
             **({"resume_from": self.resume_from.as_record()} if self.resume_from is not None else {}),
+            **({"target_environment": self.target_environment.as_record()} if self.target_environment is not None else {}),
         }
 
     def as_record(self) -> dict[str, Any]:
@@ -998,6 +1014,7 @@ class RunRegistration:
         runtime_policy: RuntimePolicy,
         execution_scope: Optional["RunScope | ComponentScope"] = None,
         resume_from: Optional["InterruptedRunRef"] = None,
+        target_environment: Optional[PreparedTargetEnvironment] = None,
     ) -> "RunRegistration":
         """Bind already-admitted Builder artifacts without copying their prose."""
 
@@ -1021,6 +1038,21 @@ class RunRegistration:
             raise TypeError("runtime_identity must be a RuntimeIdentity")
         if not isinstance(runtime_policy, RuntimePolicy):
             raise TypeError("runtime_policy must be a RuntimePolicy")
+        recipe = build_manifest.environment_recipe
+        if (recipe is None) != (target_environment is None):
+            raise ValueError("admitted environment recipe requires its prepared Target Workflow environment")
+        if target_environment is not None and target_environment.recipe_hash != digest_record(recipe):
+            raise ValueError("prepared environment differs from admitted recipe")
+        if target_environment is not None:
+            locked = TargetEnvironmentLock.from_record(build_manifest.environment_lock)
+            declared = TargetEnvironmentRecipe.from_record(recipe)
+            if (
+                locked.recipe_hash != target_environment.recipe_hash
+                or locked.runtime_hash != target_environment.runtime_hash
+                or locked.content_hash != target_environment.lock_hash
+                or not set(declared.import_roots).issubset(target_environment.import_roots)
+            ):
+                raise ValueError("prepared environment differs from admitted dependency resolution")
 
         if build_attempt.build_request_id != build_request.build_request_id:
             raise ValueError("build attempt belongs to another approved request")
@@ -1081,6 +1113,7 @@ class RunRegistration:
             runtime_policy=runtime_policy,
             execution_scope=execution_scope,
             resume_from=resume_from,
+            target_environment=target_environment,
             egress_policy={
                 episode.local_id: episode.contract.egress_allowlist
                 for episode in frozen.workflow.episodes
@@ -1117,7 +1150,7 @@ class RunRegistration:
                 "runtime_identity",
                 "runtime_policy",
                 "egress_policy",
-            } | {key for key in ("execution_scope", "resume_from") if isinstance(value, Mapping) and key in value},
+            } | {key for key in ("execution_scope", "resume_from", "target_environment") if isinstance(value, Mapping) and key in value},
         )
         result = cls(
             duet_id=OpaqueId(record["duet_id"]),
@@ -1152,6 +1185,7 @@ class RunRegistration:
             egress_policy=_egress_policy_from_record(record["egress_policy"]),
             execution_scope=scope_from_record(record.get("execution_scope")),
             resume_from=InterruptedRunRef.from_record(record["resume_from"]) if "resume_from" in record else None,
+            target_environment=PreparedTargetEnvironment.from_record(record["target_environment"]) if "target_environment" in record else None,
         )
         if (
             result.run_id.value != record["run_id"]
@@ -1234,9 +1268,9 @@ class InspectedExecutorAttestation:
             != self.executor_instance_id
         ):
             raise ValueError("seccomp receipt belongs to another executor")
-        if self.landlock_receipt.policy_hash != landlock_abi7_policy_hash():
+        if self.landlock_receipt.policy_hash != landlock_abi7_policy_hash(dependency_reads=self.landlock_receipt.dependency_reads):
             raise ValueError("executor installed another Landlock policy")
-        if self.seccomp_receipt.policy_hash != seccomp_policy_hash():
+        if self.seccomp_receipt.policy_hash != seccomp_policy_hash(dependency_reads=self.seccomp_receipt.dependency_reads):
             raise ValueError("executor installed another seccomp policy")
         if not isinstance(self.executor_kind, ExecutorKind):
             raise TypeError("executor_kind must be an ExecutorKind")
@@ -1418,6 +1452,18 @@ class InspectedExecutorAttestation:
         ):
             raise ValueError("executor attestation does not match its registration")
         mounts = {item.kind: item for item in self.read_only_runtime_mounts}
+        environment_mount = mounts.get(RuntimeMountKind.TARGET_ENVIRONMENT)
+        if (environment_mount is None) != (registration.target_environment is None):
+            raise ValueError("executor environment mount differs from registration")
+        if environment_mount is not None:
+            expected = registration.target_environment.environment_id.value
+            if (
+                PurePosixPath(environment_mount.source_path).name != expected
+                or PurePosixPath(environment_mount.target_path).name != expected
+                or str(PurePosixPath(environment_mount.target_path) / "site-packages") not in self.landlock_receipt.read_only_paths
+                or len(self.landlock_receipt.read_only_paths) != 2
+            ):
+                raise ValueError("executor dependency mount or read policy differs from registered environment")
         runtime_mount = mounts[RuntimeMountKind.RUNTIME_SOURCE_PACKAGE]
         source_mount = mounts[RuntimeMountKind.SOURCE_PACKAGE]
         if (

@@ -212,6 +212,7 @@ class ContainerRuntime:
     interpreter_runtime: InterpreterRuntimeIdentity
     daemon_cpus: int
     daemon_memory_bytes: int
+    stdlib_path: PurePosixPath | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.cli, Path):
@@ -222,6 +223,10 @@ class ContainerRuntime:
             raise ValueError("python_executable must be an absolute container path")
         if not isinstance(self.interpreter_runtime, InterpreterRuntimeIdentity):
             raise TypeError("interpreter_runtime must be an InterpreterRuntimeIdentity")
+        if self.stdlib_path is not None and (
+            not isinstance(self.stdlib_path, PurePosixPath) or not self.stdlib_path.is_absolute()
+        ):
+            raise ValueError("stdlib_path must be an absolute container path")
         for name in ("daemon_cpus", "daemon_memory_bytes"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -314,6 +319,7 @@ def inspect_container_runtime(
         interpreter_runtime=interpreter_runtime_from_inspection(record),
         daemon_cpus=cpus,
         daemon_memory_bytes=memory,
+        stdlib_path=PurePosixPath(record["stdlib_path"]),
     )
 
 
@@ -391,6 +397,14 @@ class ContainerRunExecutor(_RunExecutorBase):
     runtime: ContainerRuntime
     python_executable: PurePosixPath = field(init=False)
 
+    async def prepare_environment(self, command, *, read_only_paths, writable_directory, environment, network_access):
+        from .environment_executor import container_preparation
+
+        return await container_preparation(
+            self, command, read_only_paths=read_only_paths, writable_directory=writable_directory,
+            environment=environment, network_access=network_access,
+        )
+
     def __post_init__(self) -> None:
         if not isinstance(self.run_store, RunStore):
             raise TypeError("run_store must be a RunStore")
@@ -449,7 +463,14 @@ class ContainerRunExecutor(_RunExecutorBase):
                 source_path=str(source_package),
                 target_path=str(base / registration.manifest_id.value),
             ),
+            *self._environment_mount(registration, base),
         )
+
+    def _dependency_read_paths(self, mounts):
+        if self.runtime.stdlib_path is None:
+            raise RunExecutionError("container runtime inspection omitted its standard-library path")
+        mount = next(item for item in mounts if item.kind is RuntimeMountKind.TARGET_ENVIRONMENT)
+        return (str(PurePosixPath(mount.target_path) / "site-packages"), str(self.runtime.stdlib_path))
 
     def _worker_arguments(
         self,
@@ -492,6 +513,7 @@ class ContainerRunExecutor(_RunExecutorBase):
             source,
             "--runtime-source-package",
             runtime_source,
+            *self._environment_arguments(registration, mounts),
         )
 
     def _launch_arguments(

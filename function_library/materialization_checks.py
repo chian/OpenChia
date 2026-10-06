@@ -157,6 +157,8 @@ def module_admission(
     request: ApprovedBuildRequest,
     plan: WorkflowMaterializationPlan,
     module: EmittedEpisodeModule,
+    *,
+    environment_recipe=None,
 ) -> dict[str, object]:
     """Inspect one module with the exact checks used by source admission."""
     from episode_builder._contract_base import EmittedEpisodeModule
@@ -181,6 +183,13 @@ def module_admission(
     if {edge.slot_name for edge in edges} != set(node.child_slot_names):
         return _result([_diagnostic("edge_unplanned", "child_slots", "parent-owned edges do not yet cover every planned slot", local_id)], status="blocked")
     try:
+        dependency_import_roots = frozenset()
+        if environment_recipe is not None:
+            from episode_runtime.target_environment import TargetEnvironmentRecipe
+            from .models import _thaw_json
+
+            recipe = TargetEnvironmentRecipe.from_record(_thaw_json(environment_recipe))
+            dependency_import_roots = frozenset(recipe.as_record()["import_roots"])
         declaration = build_module_declaration(design.contract, node, edges)
         findings = _inspect_source(
             module,
@@ -189,6 +198,7 @@ def module_admission(
             frozenset(item.module_name for item in plan.nodes),
             Path(__file__).resolve().parents[1],
             design.contract,
+            dependency_import_roots,
         )
     except Exception as exc:
         return _error(exc, "module_source", local_id)

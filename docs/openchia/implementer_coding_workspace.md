@@ -3,7 +3,9 @@
 This environment belongs to Implementer. It contains the candidate source and
 the admitted assignment so a coding agent can inspect, create, edit and run
 diagnostic commands. It is **not the Target Workflow's execution environment**.
-The latter depends on the particular workflow and is not configured here.
+The latter depends on the particular workflow. Implementer now authors its
+saved recipe through the separate [Target Workflow environment path](target_workflow_environment.md);
+the coding sandbox still does not become that environment.
 
 OpenChia captures actual file differences and permitted plan edits as proposals.
 The existing host admission, shared validation harness, parent reports, credit
@@ -49,7 +51,9 @@ Completion requires all of the following:
   checks remain explicitly unverified.
 
 Reuse the shared test runner; do not add a separate replay mechanism. Target
-Workflow environment preparation remains excluded. This goal does not claim
+Workflow environment preparation was excluded from this focused coding-launch
+goal and is now addressed separately in [ADR 0010](../adr/0010-target-workflow-environments-follow-candidate-revisions.md).
+This goal does not claim
 full build/refine/Target Workflow acceptance or a live Claude Code result.
 
 ## Coding backends

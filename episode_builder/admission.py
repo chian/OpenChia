@@ -697,6 +697,7 @@ def _inspect_source(
     generated_module_names: frozenset[str],
     repository_root: Path | None = None,
     frozen_contract: object | None = None,
+    dependency_import_roots: frozenset[str] = frozenset(),
 ) -> tuple[BuildDeficit, ...]:
     local_id = node.local_id
     deficits: list[BuildDeficit] = []
@@ -933,7 +934,7 @@ def _inspect_source(
             )
             continue
         root = imported.split(".", 1)[0]
-        if root not in _ALLOWED_IMPORT_ROOTS:
+        if root not in _ALLOWED_IMPORT_ROOTS | dependency_import_roots:
             add(
                 "module_import_forbidden",
                 "module_source",
@@ -1068,12 +1069,15 @@ class EpisodeBuildAdmission:
         build_attempt: BuildAttempt,
         plan: WorkflowMaterializationPlan,
         emitted_modules: tuple[EmittedEpisodeModule, ...],
+        *,
+        environment_recipe=None,
     ) -> BuildAdmissionReport:
         return self.admit_outcome(
             build_request,
             build_attempt,
             plan,
             emitted_modules,
+            environment_recipe=environment_recipe,
         ).report
 
     def admit_outcome(
@@ -1082,6 +1086,8 @@ class EpisodeBuildAdmission:
         build_attempt: BuildAttempt,
         plan: WorkflowMaterializationPlan,
         emitted_modules: tuple[EmittedEpisodeModule, ...],
+        *,
+        environment_recipe=None,
     ) -> AdmissionOutcome:
         if not isinstance(build_request, ApprovedBuildRequest):
             raise TypeError("admission requires ApprovedBuildRequest")
@@ -1097,6 +1103,13 @@ class EpisodeBuildAdmission:
                 "emitted_modules must contain EmittedEpisodeModule values"
             )
 
+        dependency_import_roots = frozenset()
+        if environment_recipe is not None:
+            from episode_runtime.target_environment import TargetEnvironmentRecipe
+            from function_library.models import _thaw_json
+
+            recipe = TargetEnvironmentRecipe.from_record(_thaw_json(environment_recipe))
+            dependency_import_roots = frozenset(recipe.as_record()["import_roots"])
         deficits: list[BuildDeficit] = list(plan.deficits)
         try:
             plan.validate_against(build_request, build_attempt)
@@ -1192,6 +1205,7 @@ class EpisodeBuildAdmission:
                 generated_module_names,
                 self.repository_root,
                 frozen_by_id[local_id].contract,
+                dependency_import_roots,
             )
             deficits.extend(node_deficits)
             if not node_deficits:

@@ -24,13 +24,13 @@ RETURN_SHAPE = {
     }],
     "include": [
         "select needed sections: candidate_changes, investigation_findings, "
-        "measurement_findings, check_review, open_decisions"
+        "measurement_findings, environment_findings, check_review, open_decisions"
     ],
 }
 
 SECTIONS = frozenset({
     "candidate_changes", "investigation_findings", "measurement_findings",
-    "check_review", "open_decisions",
+    "check_review", "open_decisions", "environment_findings",
 })
 PURPOSES = frozenset({"local", "acceptance", "composition", "adequacy", "question", "support"})
 
@@ -224,6 +224,20 @@ def _measurement_findings(view, assignment, body, catalog):
     return result
 
 
+def _environment_findings(view, assignment, body, catalog):
+    from .candidate_environment import findings
+
+    # Parent communication contains requested findings and actionable paths.
+    # Exact candidate/ledger/log identities remain in the child's audit record.
+    own = [{key: row[key] for key in (
+        "recipe_path", "subject", "status", "diagnostics", "resolved_distributions", "meaning",
+    ) if key in row} for row in findings(view, invocation_id=body["invocation_id"])]
+    children = [item for reference in body["child_report_refs"]
+                for report in (view.read(Ref.from_record(reference), "parent_report"),)
+                for item in report.body["return_value"].get("environment_findings", ())]
+    return _unique([*own, *children])
+
+
 def _check_reviews(view, assignment, body, catalog):
     own = [
         {key: _thaw_json(row.record.body[key]) for key in ("criteria", "counterexamples", "limitations")}
@@ -327,6 +341,7 @@ def _open_decisions(view, assignment, body, catalog):
 _SECTION_PROJECTORS = {
     "candidate_changes": _candidate_changes,
     "measurement_findings": _measurement_findings,
+    "environment_findings": _environment_findings,
     "check_review": _check_reviews,
     "investigation_findings": _investigation_findings,
     "open_decisions": _open_decisions,

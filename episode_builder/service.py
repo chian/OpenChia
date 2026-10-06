@@ -873,6 +873,8 @@ class EpisodeBuilder:
         plan: WorkflowMaterializationPlan,
         emitted_modules: tuple[EmittedEpisodeModule, ...],
         source_deficits: tuple[BuildDeficit, ...] = (),
+        environment_recipe=None,
+        environment_lock=None,
         progress_callback: ProgressCallback | None = None,
         cancel_event: CancellationSignal | None = None,
     ) -> BuildReceipt:
@@ -913,11 +915,13 @@ class EpisodeBuilder:
             emission_deficits=source_deficits,
             progress_callback=progress_callback,
             cancel_event=cancel_event,
+            environment_recipe=environment_recipe,
+            environment_lock=environment_lock,
         )
 
     async def _admit_and_publish(
         self, *, build_request, build_attempt, plan, emitted, emission_deficits,
-        progress_callback, cancel_event,
+        progress_callback, cancel_event, environment_recipe=None, environment_lock=None,
     ) -> BuildReceipt:
         total = len(build_request.frozen_workflow.workflow.episodes)
         node_by_id = {node.local_id: node for node in plan.nodes}
@@ -928,6 +932,7 @@ class EpisodeBuilder:
                 build_attempt,
                 plan,
                 tuple(emitted[key] for key in sorted(emitted)),
+                environment_recipe=environment_recipe,
             )
             report = replace(
                 outcome.report,
@@ -1014,6 +1019,8 @@ class EpisodeBuilder:
                 module_hashes_by_local_id=report.module_source_hashes,
                 module_dispositions_by_local_id=plan.node_dispositions,
                 function_definition_ids=outcome.function_definition_ids,
+                environment_recipe=environment_recipe,
+                environment_lock=environment_lock,
             )
             self.store.put_manifest(manifest)
             self.store.publish_source_package(manifest)

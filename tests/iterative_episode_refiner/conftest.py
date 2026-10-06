@@ -120,7 +120,7 @@ class CampaignFixture:
     def designer(self):
         return self.enter("designer")
 
-    def implementer(self):
+    def implementer(self, *, additional_paths=()):
         designer = self.designer()
         self.plan = self.record(
             "design_plan",
@@ -130,7 +130,7 @@ class CampaignFixture:
                 "requirement_mapping": {key: "Preserve the independently checked property" for key in self.requirements},
                 "assumption_refs": [],
                 "proposed_component_refs": [],
-                "intended_change_scope": [self.source_path],
+                "intended_change_scope": [self.source_path, *additional_paths],
                 "dependency_effects": [],
                 "local_measure_ref": designer.body["local_measure_ref"],
                 "acceptance_measure_ref": designer.body["acceptance_measure_ref"],

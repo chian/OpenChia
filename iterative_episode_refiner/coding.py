@@ -34,9 +34,10 @@ class RefinementCodingTransport:
         prompt = json.loads(request.messages[-1]["content"])
         if prompt.get("task") != "change":
             return await self.transport(request)
+        diagnostics = await self._prepare_diagnostics(request)
         cancel = threading.Event()
         active = []
-        task = asyncio.create_task(asyncio.to_thread(self._run, request, prompt, cancel, active))
+        task = asyncio.create_task(asyncio.to_thread(self._run, request, prompt, cancel, active, diagnostics))
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
@@ -49,6 +50,49 @@ class RefinementCodingTransport:
                 await join_local(task, propagate_cancel=False)
             finally:
                 raise asyncio.CancelledError from None
+
+    def _diagnostic_sources(self, request):
+        from .candidate_source import project_candidate_sources
+        from .measures import evaluation_bindings
+
+        call, _, _ = self._assignment(request)
+        with self.session.view() as view:
+            candidate = view.candidate
+            bindings = evaluation_bindings(view, self.session.policy, call.assignment)
+        writable = set(call.assignment.body["writable_paths"])
+        projections = {}
+        for binding in (None, *(row for row in bindings if row["purpose"] == "local")):
+            projection = project_candidate_sources(
+                self.session.store.evidence, self.session.contract, candidate, binding,
+            )
+            if not writable.intersection(projection.scope.paths.values()):
+                continue
+            projections[projection.scope.workflow_ref["artifact_id"]] = projection
+        return call, candidate, projections.values()
+
+    async def _prepare_diagnostics(self, request):
+        from .candidate_environment import prepare_candidate
+
+        await self.session.evaluations.prepare_context(self.session)
+        call, candidate, projections = await asyncio.to_thread(self._diagnostic_sources, request)
+        diagnostics = []
+        for projection in projections:
+            preparation = await prepare_candidate(
+                self.session.evaluations, self.session, call, candidate, projection,
+            )
+            if preparation is not None:
+                result = preparation["result"]
+                execution = result.get("diagnostic_execution") or self.session.evaluations.environment_context()["coding_diagnostics"]
+                diagnostics.append({
+                    "source_paths": sorted(projection.scope.paths.values()),
+                    "status": result["status"], "diagnostics": result["diagnostics"],
+                    "python_executable": result["python_executable"],
+                    "site_packages": result["site_packages"] if execution["direct_interpreter_available"] else None,
+                    "execution": execution,
+                    "preparation_ref": result["preparation_ref"], "log_refs": result["log_refs"],
+                    "meaning": execution["guidance"],
+                })
+        return diagnostics
 
     def _assignment(self, request):
         if request.model_type not in self.binding.record["model_types"]:
@@ -96,14 +140,17 @@ class RefinementCodingTransport:
             "assignment_ref": call.assignment.ref.as_record(),
         }
         previous = self._latest("coding_workspace", call.invocation_id.value)
+        assignment_context = _thaw_json({
+            "host_context": context, "episode_request": prompt,
+            "workspace": {"write_paths": sorted(workspace.writable_paths)},
+        })
         if previous != identity:
-            workspace.stage(_thaw_json({
-                "host_context": context, "episode_request": prompt,
-                "workspace": {"write_paths": sorted(workspace.writable_paths)},
-            }))
+            workspace.stage(assignment_context)
             self.session.put_data("coding_workspace", identity)
         elif not workspace.root.is_dir():
             raise ValueError("Saved coding workspace is missing; cannot silently discard unfinished edits")
+        else:
+            workspace.refresh_context(assignment_context)
         # A model/instruction change opens a new native context instead of
         # silently mutating an existing conversation's cached prefix.
         context_id = digest_record({"binding": self.binding.reference, "instructions": instructions,
@@ -111,8 +158,10 @@ class RefinementCodingTransport:
         resume = saved["thread_id"] if saved and saved["context_id"] == context_id else None
         return workspace, root / "sessions" / context_id, resume, context_id, identity
 
-    def _run(self, request, prompt, cancel, active):
+    def _run(self, request, prompt, cancel, active, diagnostics):
         call, candidate, context = self._assignment(request)
+        context = _thaw_json(context)
+        context["inputs"]["target_environment"]["coding_diagnostics"] = diagnostics
         backend = coding_backend(self.binding)
         instructions = request.messages[0]["content"] + "\n\n" + CODING_INSTRUCTIONS
         workspace, native_home, resume, context_id, identity = self._prepare(

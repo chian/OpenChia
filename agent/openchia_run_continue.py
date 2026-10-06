@@ -81,7 +81,30 @@ async def prepare_continuation(host, executor, previous):
     return replace(previous, resume_from=reference), None
 
 
+def _saved_environment_failure(host, baseline):
+    # Preparation may fail before registration, so no run_requested event or
+    # RunStore entry exists. A newer request supersedes this host-side failure.
+    for event in reversed(host.store.events(host.identity.duet_id.value)):
+        record = event["record"]
+        if record.get("build_receipt_id") != baseline.build_receipt_id.value:
+            continue
+        kind = event["event_type"]
+        if kind in {"run_requested", "run_continue_requested", "run_cancelled_before_claim"}:
+            return None
+        if kind == "run_host_failure":
+            preparation = record.get("environment_preparation")
+            return record if preparation is not None and preparation["status"] == "failed" else None
+    return None
+
+
 def saved_run_status(host, baseline):
+    failure = _saved_environment_failure(host, baseline)
+    if failure is not None and failure["run_id"] is None:
+        return {
+            **host._run_status_record(state="host_error", registration=None, evidence=None, error=failure["error"]),
+            "build_receipt_id": baseline.build_receipt_id.value,
+            "environment_preparation": failure["environment_preparation"],
+        }
     selected = select_run(host, baseline)
     if selected is None:
         return None
@@ -109,4 +132,9 @@ def saved_run_status(host, baseline):
         result["run_record"] = facts
         reference = None if record is None else record["evidence_ref"]
         result["evidence_id"] = None if reference is None else reference["artifact_id"]
+    if failure is not None and failure["run_id"] == registration.run_id.value:
+        result.update(
+            state="host_error", error=failure["error"],
+            environment_preparation=failure["environment_preparation"],
+        )
     return result

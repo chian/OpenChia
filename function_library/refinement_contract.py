@@ -41,6 +41,8 @@ ROLES = MappingProxyType({
         "normally returns measurement_findings and open_decisions; a repair child normally returns its "
         "measured changes and unresolved requirements. Follow-up verification has its own declared "
         "verification_return_contract. Select only information needed for the next decision. "
+        "When dependencies or setup need work, include the supplied environment recipe path in "
+        "the repair scope and request environment_findings in the child's return_contract. "
         "Use measurement outcomes and changes to distinguish new evidence, regression, stale evidence "
         "and missing measurement. Child disposition alone does not establish whole-build acceptance. "
         "Use the full iteration_history to compare attempted approaches, rejection reasons and "
@@ -78,6 +80,9 @@ ROLES = MappingProxyType({
         "Supply implementation_return_contract for local outcomes and changes, and "
         "verification_return_contract for the independent acceptance information you need. "
         "These reports remain distinct: local progress is not independent acceptance. "
+        "Include the assigned environment recipe path in intended_change_scope when the solution "
+        "needs dependencies or setup changes; request environment_findings for preparation failures, "
+        "resolved packages and full log references. Setup success is not behavioral acceptance. "
         "Use replace_previous to replace your latest returned Implementer for this work. "
         "Keep earlier obligations through inherited measurements. The design input contains the "
         "latest approach, while child_reports contains the information requested from completed work. "
@@ -100,7 +105,11 @@ ROLES = MappingProxyType({
         "Implement the admitted design, choosing and revising concrete implementation details "
         "to satisfy the required behavior. Use local measurements and the full iteration_history "
         "to diagnose unsuccessful approaches and try meaningful changes. Change only assigned "
-        "paths and permitted specification details. "
+        "paths and permitted specification details. Use target_environment for the actual runtime, "
+        "available libraries, package-management route and host-granted installation access. "
+        "When needed, author or repair its assigned environment recipe alongside source. "
+        "Do not install into OpenChia, personal environments or the coding backend's environment. "
+        "Independent checking workflows have their own recipes and do not inherit target dependencies. "
         "Respect source_kinds: raw_model_source and candidate_raw_source are before host declaration attachment; emitted_module "
         "contains its original host-owned declaration, which is not editable. After an authorized "
         "plan-detail revision the host reattaches the current declaration during source admission. "
@@ -222,9 +231,9 @@ CHILDREN = MappingProxyType({name: role.children for name, role in ROLES.items()
 # Each Episode declares its working inputs. The method loop supplies child
 # reports through its separate, parent-contracted communication boundary.
 MODEL_INPUT_COMPONENTS = MappingProxyType({
-    "parts": ("measurements", "prerequisites", "coordination"),
-    "designer": ("measurements", "prerequisites", "materialization", "source", "design"),
-    "implementer": ("measurements", "prerequisites", "materialization", "source", "design"),
+    "parts": ("measurements", "prerequisites", "coordination", "environment"),
+    "designer": ("measurements", "prerequisites", "materialization", "source", "design", "environment"),
+    "implementer": ("measurements", "prerequisites", "materialization", "source", "design", "environment"),
     "measure": ("measurements", "prerequisites", "measure_design", "grounding", "investigation"),
     "question": ("measurements", "prerequisites", "measure_design", "investigation"),
     "support": ("measurements", "investigation"),

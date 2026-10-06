@@ -209,6 +209,7 @@ class RefinementSession:
         from episode_runtime.host_tasks import join_local
 
         call = self._caller(episode_id, episode_path)
+        await self.evaluations.prepare_context(self)
         if operation == "evaluate":
             self._require_unit(call, payload)
             if "experiment_proposal_ref" in payload:
@@ -217,6 +218,9 @@ class RefinementSession:
                 return await execute_experiment(
                     self.evaluations, self, call, payload, request_event=request_event
                 )
+            # Dependency resolution/install belongs outside the Duet writer
+            # transaction; the committed operation only reads its saved receipt.
+            await self.evaluations.prepare_environment(self, call, payload)
         task = asyncio.create_task(asyncio.to_thread(
             self._dispatch_committed, call, episode_id, operation, payload, request_event
         ))

@@ -646,6 +646,12 @@ def _expected_package_files(
         "STATIC_ADMISSION.json": report.as_record(),
         "BUILD_MANIFEST.json": manifest.as_record(),
     }
+    if manifest.environment_recipe is not None:
+        from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+
+        records[ENVIRONMENT_RECIPE_PATH] = manifest.as_record()["environment_recipe"]
+    if manifest.environment_lock is not None:
+        records["TARGET_ENVIRONMENT_LOCK.json"] = manifest.as_record()["environment_lock"]
     expected = {
         path: Sha256Digest.of_bytes(canonical_json(record).encode("utf-8"))
         for path, record in records.items()
