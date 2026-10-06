@@ -101,6 +101,17 @@ assignment, measured history and typed Episode input in a managed workspace.
 The coding agent can read, create, edit and run diagnostic commands there.
 It can create missing initial implementation; it does not require preexisting code.
 
+Implementer's complete working context is saved as a `coding_assignment` artifact
+and staged in `.openchia-assignment.json`. The worker carries its exact reference,
+not another inline copy of the source, plans and complete iteration history.
+The coding transport checks the reference against the active campaign,
+invocation, unit and candidate before opening that assignment. This delivery
+preserves all working information without making its growth consume the Run's
+per-frame transport limit. Other Episodes retain their declared model inputs;
+parent/child reports retain their separate synthesis boundary.
+Model-call failures stop before proposal submission and retain their original
+diagnostic; an absent response cannot become a fabricated empty proposal.
+
 Actual file differences and `.openchia-plan-edits.json` become the ordinary
 typed change proposal. The coding agent's final prose is retained as evidence,
 not substituted for the change set or a parent report. Source admission and

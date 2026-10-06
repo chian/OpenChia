@@ -10,7 +10,7 @@ import json
 import threading
 import time
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from agent.duet_contracts import digest_record
 from agent.episode_launch_transport import provider_failure
@@ -21,6 +21,7 @@ from function_library.models import _thaw_json
 from llm_call_library.transport import ModelCallFailed, ModelTransportResponse
 
 from .coding_workspace import CodingWorkspace
+from .records import Ref
 
 
 class RefinementCodingTransport:
@@ -33,7 +34,18 @@ class RefinementCodingTransport:
             return await self.transport(request)
         prompt = json.loads(request.messages[-1]["content"])
         if prompt.get("task") != "change":
-            return await self.transport(request)
+            # Experiment planning is a completion, not a coding turn. Resolve
+            # only this invocation's declared working snapshot at the same
+            # host boundary; child reports still come from the method loop.
+            _, _, context = self._assignment(request)
+            prompt["assignment_context"] = {
+                **context["inputs"],
+                "child_reports": prompt["assignment_context"]["child_reports"],
+            }
+            messages = (*request.messages[:-1], {
+                **request.messages[-1], "content": json.dumps(prompt),
+            })
+            return await self.transport(replace(request, messages=messages))
         diagnostics = await self._prepare_diagnostics(request)
         cancel = threading.Event()
         active = []
@@ -105,7 +117,23 @@ class RefinementCodingTransport:
             if view.entry("invocation", call.invocation_id.value).status != "active":
                 raise ValueError("Coding invocation is not active")
             candidate = view.candidate.ref
-        return call, candidate, self.session.snapshot(call)["context"]
+            prompt = json.loads(request.messages[-1]["content"])
+            inputs = prompt["assignment_context"]
+            if set(inputs) != {"coding_assignment_ref", "child_reports"}:
+                raise ValueError("Coding input requires its exact assignment reference and method reports")
+            reference = Ref.from_record(inputs["coding_assignment_ref"])
+            context = view.data(reference)
+            if (
+                context["campaign_id"] != self.session.campaign_id.value
+                or context["invocation_id"] != call.invocation_id.value
+                or context["unit_id"] != call.unit_id.value
+                or context["candidate_ref"] != candidate.as_record()
+                or self.session.store.data_reference(
+                    self.session.duet_id, "coding_assignment", context,
+                ) != reference
+            ):
+                raise ValueError("Coding assignment differs from the active unit and candidate")
+        return call, candidate, context["context"]
 
     def _latest(self, kind, invocation_id):
         # Use the shared artifact store. Neither native transcript discovery nor
