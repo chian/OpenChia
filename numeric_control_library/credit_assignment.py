@@ -885,10 +885,10 @@ class MarginalHypervolumeAssignment:
 
         point_current: list[float] = []
         point_projected: list[float] = []
-        current_lower: list[float] = []
         current_upper: list[float] = []
         projected_lower: list[float] = []
-        projected_upper: list[float] = []
+        maximizing_current: list[float] = []
+        maximizing_projected: list[float] = []
         for index in range(self.schema.width):
             count = float(after_counts[index])
             total = after_projection.expected_totals[index]
@@ -912,14 +912,11 @@ class MarginalHypervolumeAssignment:
                 and total.upper == 0.0
                 and next_yield.upper == 0.0
             ):
-                current_lower.append(1.0)
                 current_upper.append(1.0)
                 projected_lower.append(1.0)
-                projected_upper.append(1.0)
+                maximizing_current.append(1.0)
+                maximizing_projected.append(1.0)
             else:
-                current_lower.append(
-                    count / max(1.0, total.upper, count + 1.0)
-                )
                 current_upper.append(
                     count / max(1.0, total.lower, count + 1.0)
                 )
@@ -930,13 +927,21 @@ class MarginalHypervolumeAssignment:
                         / max(1.0, total.upper, count + 1.0),
                     )
                 )
-                projected_upper.append(
-                    min(
-                        1.0,
-                        (count + next_yield.upper)
-                        / max(1.0, total.lower, count + 1.0),
-                    )
+                # Both sides of a marginal credit share the same scale.
+                # With other coordinates fixed, credit increases with scale
+                # while this projected coordinate is clipped at one, then
+                # decreases after scale reaches count + next_yield. Thus the
+                # clipped breakpoint maximizes each coordinate independently
+                # over the joint interval box. Crossing unrelated scale
+                # endpoints instead leaves positive credit even at zero yield.
+                scale_lower = max(1.0, total.lower, count + 1.0)
+                scale_upper = max(1.0, total.upper, count + 1.0)
+                maximizing_scale = max(
+                    scale_lower, min(scale_upper, count + next_yield.upper)
                 )
+                current, projected = coordinates(maximizing_scale, next_yield.upper)
+                maximizing_current.append(current)
+                maximizing_projected.append(projected)
 
         point_credit = marginal_dominated_hypervolume(
             point_current,
@@ -948,10 +953,10 @@ class MarginalHypervolumeAssignment:
             dominated_hypervolume(projected_lower, self.schema.reference_point)
             - dominated_hypervolume(current_upper, self.schema.reference_point),
         )
-        upper_credit = max(
-            0.0,
-            dominated_hypervolume(projected_upper, self.schema.reference_point)
-            - dominated_hypervolume(current_lower, self.schema.reference_point),
+        upper_credit = marginal_dominated_hypervolume(
+            maximizing_current,
+            maximizing_projected,
+            self.schema.reference_point,
         )
         lower_credit = min(lower_credit, point_credit)
         upper_credit = min(1.0, max(upper_credit, point_credit))
