@@ -5,6 +5,7 @@ are inherited; replacement and prerequisite routing are explicit operations,
 not model-authored artifact identities.
 """
 
+from agent.duet_contracts import canonical_json
 from function_library.epistemic_contract import exact, names
 
 from .records import Ref
@@ -83,9 +84,11 @@ def prerequisite_choice(session, view, assignment, choice, *, include_inherited=
         and row.record.body["need"]["purpose"] == choice["purpose"]
         and set(row.record.body["need"]["requirement_keys"]) == set(requirements)
     ]
-    if len(matches) != 1:
+    if len({canonical_json(record.body["need"]) for record in matches}) != 1:
         raise ValueError("prerequisite choice must identify one returned need by kind, purpose and requirement scope")
-    return matches[0].ref.as_record()
+    # Repeated returns can record the same exact need. Use the latest eligible
+    # provenance; assignment inheritance retains its earlier references too.
+    return matches[-1].ref.as_record()
 
 
 def conflict_choice(session, view, assignment, choice):

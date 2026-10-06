@@ -93,8 +93,11 @@ An explicitly inherited measurement prerequisite retains its original identity
 when its producing assignment is replaced. The replacement can pass that exact
 requested need to a permitted child even though the predecessor's invocation
 is now `superseded`. This preserves the recorded dependency; it grants no new
-scope or measurement authority. Ordinary upward forwarding still requires an
-exact returned direct-child need.
+scope or measurement authority. Repeated returns of an identical complete need
+select the latest eligible record; earlier inherited references remain attached.
+Different need contents remain ambiguous even when their displayed kind and scope
+match. Ordinary upward forwarding still requires an exact returned direct-child
+need.
 
 ## Materialization
 
