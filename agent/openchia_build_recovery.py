@@ -48,6 +48,7 @@ def builder_owner_status(host, job):
         return {
             "state": "finished",
             "build_state": final["record"].get("state", "host_error"),
+            "error": final["record"].get("error"),
             "event_sequence": final["sequence"],
         }
     owner = job.get("owner")
@@ -87,7 +88,7 @@ def unfinished_builder_status(host, current):
         "build_receipt_id": None if not receipts else receipts[0].receipt_id.value,
         "materialized_specification_id": None, "refinement_baseline_id": None,
         "progress": host._empty_progress(state) if not progress else progress[-1],
-        "refinement": None, "error": None,
+        "refinement": None, "error": ownership.get("error"),
         "ownership": ownership,
         "continuation": {
             "command": "/build continue", "stage": "builder", "owner_verification_required": True,
