@@ -17,6 +17,17 @@ class RefinementRole:
     instructions: str
 
 
+_MEASUREMENT_STAGING = (
+    "EstablishMeasure authors checks using registered predicates, supported observations, "
+    "explicit cases and controls, and separate review. RefineImplementation owns source edits "
+    "and local coding diagnostics, under an established local measure. When obtaining an "
+    "observation first requires code, Parts can stage a prerequisite contribution covered by "
+    "existing checks, retaining the broader behavioral need in prerequisites. A Designer "
+    "forwards that need to Parts when the prerequisite lies outside its contribution scope. "
+    "Static construction provides implementation evidence; behavioral acceptance is measured separately."
+)
+
+
 ROLES = MappingProxyType({
     "parts": RefinementRole(
         "RefineParts",
@@ -58,7 +69,7 @@ ROLES = MappingProxyType({
         "Use conflict to coordinate the named kind and requirement scope under this Parts owner. "
         "A nested Parts can forward a returned measurement need using return_prerequisite; "
         "the root retains responsibility for resolving the whole inside refinement, not seeking "
-        "a new Duet or Builder decision.",
+        "a new Duet or Builder decision. " + _MEASUREMENT_STAGING,
     ),
     "designer": RefinementRole(
         "DesignPart",
@@ -94,7 +105,7 @@ ROLES = MappingProxyType({
         "measurement need requires work outside your assigned scope, forward that exact need "
         "to your internal parent using return_prerequisite with its kind, purpose and requirement "
         "locations. Cross-part repair belongs to Parts. Do not invent a prerequisite category "
-        "or route an implementation decision to Duet or Builder.",
+        "or route an implementation decision to Duet or Builder. " + _MEASUREMENT_STAGING,
     ),
     "implementer": RefinementRole(
         "RefineImplementation",
