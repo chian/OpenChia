@@ -22,8 +22,8 @@ _ASSIGNMENT_SHAPE = {
     "role": "one permitted child role",
     "goal": "precise behavioral contribution, not a file grouping",
     "requirements": [
-        "Specification addresses for this child's contribution. For role=parts, choose a "
-        "nonempty strict subset of the parent's assignment.requirements. The inherited "
+        "Choose a nonempty set of specification addresses for this child's contribution "
+        "from the parent's assignment.requirements. The inherited "
         "context retains the other requirements and their protections."
     ],
     "writable_paths": ["an exact path within the parent's editable scope"],
@@ -126,7 +126,16 @@ def proposal_schemas(role, contribution_requirements):
         "choose_part": {
             "one_of": [
                 {
-                    "assignment": _ASSIGNMENT_SHAPE,
+                    "assignment": {
+                        **_ASSIGNMENT_SHAPE,
+                        "goal": (
+                            "Precise behavioral contribution. For a nested Parts child, "
+                            "prefer a smaller requirement set to give it a distinct part "
+                            "of the work. When one requirement covers several steps, "
+                            "describe the narrower behavioral contribution here while "
+                            "retaining that requirement address."
+                        ),
+                    },
                     "conflict": "null, or {kind, requirements} for a returned coordination problem",
                     "verification_return_contract": RETURN_SHAPE,
                 },

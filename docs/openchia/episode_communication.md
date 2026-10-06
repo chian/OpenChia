@@ -95,6 +95,8 @@ assigned to that Episode. Broader inherited obligations appear separately in
 `preservation_requirements` and `preservation_measurements`, excluding those
 already in the contribution. Their original descriptions, measured outcomes,
 missing coverage and applicability remain available as regression context.
+The assignment header and detailed preservation context use the same filtered
+requirement set.
 This separation keeps a part's implementation plan focused on its assigned work.
 It changes the model-input projection only: the inherited scope, checks, guard
 execution, credit and parent-requested return contracts retain their authority.
@@ -108,6 +110,14 @@ and a boolean replacement choice. All child fields, including `role` and
 `writable_paths`, are nested inside `prerequisite`. The example teaches the
 envelope; the Designer still chooses the operation, scope and return contract
 from its actual findings, and ordinary host admission checks that choice.
+
+The Parts selection template guides nested Parts toward a smaller requirement
+set. When one requirement covers several steps, the child can retain its address
+and describe a narrower behavioral contribution in its goal. This is design
+guidance: host admission validates inherited scope, while semantic narrowing
+remains the parent's responsibility. Prerequisite templates share the ordinary
+contribution fields; the Parts-specific narrowing guidance belongs to Parts
+selection.
 
 This is the Episode's own working history. It does not change how its children
 synthesize reports, which reports the method delivers, or what it returns to its

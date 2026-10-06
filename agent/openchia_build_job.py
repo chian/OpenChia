@@ -7,7 +7,7 @@ it is not a second Episode runner or retry loop.
 
 import asyncio
 
-from agent.duet_contracts import DuetProvenance
+from agent.duet_contracts import DuetProvenance, canonical_json
 from agent.duet_store import DuetConflictError
 from episode_builder import BuildReceipt
 from llm_call_library.transport import ModelCallFailed
@@ -132,7 +132,18 @@ def _publish_result(host, request, initial, receipt, result, state, error, *, co
         # A provider failure or cancellation can precede the first receipt.
         # The job event still closes ownership and preserves the real failure;
         # there is no materialization artifact to publish in this case.
-        with host.store.transaction():
+        with host.store.transaction() as connection:
+            previous = connection.execute(
+                "SELECT record_json FROM duet_events "
+                "WHERE duet_id = ? AND event_type = 'build_finished' "
+                "AND json_extract(record_json, '$.build_request_id') = ? "
+                "ORDER BY sequence DESC LIMIT 1",
+                (host.identity.duet_id.value, request.build_request_id.value),
+            ).fetchone()
+            if previous is not None:
+                if previous["record_json"] != canonical_json(record):
+                    raise DuetConflictError("build result differs from its recorded terminal result")
+                return
             duet = host.store.get_duet(host.identity.duet_id.value)
             if (
                 duet["state"] != "sealed"

@@ -229,12 +229,18 @@ def model_inputs(session, view, call):
     role = assignment.body["role"]
     catalog = requirement_catalog(view)
     contribution = set(assignment.body["contribution_requirement_keys"])
+    preservation = [
+        key for key in assignment.body["preservation_requirement_keys"]
+        if key not in contribution
+    ]
     need = goal.get("measure_request")
     result = {
         "assignment": {
             "role": role, "goal": goal["goal"],
             "requirements": assigned_addresses(session, assignment),
-            "preservation_requirements": assigned_addresses(session, assignment, "preservation_requirement_keys"),
+            "preservation_requirements": [
+                requirement_address(catalog[key]) for key in preservation
+            ],
             "writable_paths": list(assignment.body["writable_paths"]),
             "protected_paths": list(assignment.body["protected_paths"]),
             "allowed_children": list(assignment.body["allowed_child_bindings"]),
@@ -255,10 +261,7 @@ def model_inputs(session, view, call):
             }
             for name, keys in (
                 ("requirements", assignment.body["contribution_requirement_keys"]),
-                ("preservation_requirements", [
-                    key for key in assignment.body["preservation_requirement_keys"]
-                    if key not in contribution
-                ]),
+                ("preservation_requirements", preservation),
             )
         },
     }
@@ -311,7 +314,7 @@ def _feedback(session, view, call):
 
 def _experiment_findings(view, recorded):
     """Keep the chosen experiment's diagnostics visible without expanding audit logs."""
-    spec = recorded["spec"]
+    spec = recorded.get("spec")
     if spec is None:
         return {}
     result = {
