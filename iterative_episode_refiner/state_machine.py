@@ -155,7 +155,14 @@ def admit_assignment(view, attempt, resolved, assignment, invocation_id):
         if body["role"] == "parts" and not set(body["owned_slice_keys"]) < set(
             parent.body["owned_slice_keys"]
         ):
-            raise ValueError("nested Parts requires a proper behavioral sub-scope")
+            raise ValueError(
+                "nested Parts requires fewer owned requirement slices than its parent "
+                f"(child={len(body['owned_slice_keys'])}, "
+                f"parent={len(parent.body['owned_slice_keys'])}). "
+                "Select a proper subset through requirements, or assign a Designer "
+                "for work retaining the same requirement scope. Goal text describes "
+                "the work; requirement selections determine slice ownership."
+            )
         replacements = validate_replacements(
             view, attempt, parent, assignment, resolved.references["policy"]
         )

@@ -129,11 +129,12 @@ def proposal_schemas(role, contribution_requirements):
                     "assignment": {
                         **_ASSIGNMENT_SHAPE,
                         "goal": (
-                            "Precise behavioral contribution. For a nested Parts child, "
-                            "prefer a smaller requirement set to give it a distinct part "
-                            "of the work. When one requirement covers several steps, "
-                            "describe the narrower behavioral contribution here while "
-                            "retaining that requirement address."
+                            "Precise behavioral contribution. A nested Parts child owns "
+                            "a nonempty proper subset of the parent's assigned requirement "
+                            "slices, selected through requirements. Assign a Designer "
+                            "when the work retains the parent's complete requirement set, "
+                            "including a single remaining requirement; describe its "
+                            "focused implementation contribution here."
                         ),
                     },
                     "conflict": "null, or {kind, requirements} for a returned coordination problem",
