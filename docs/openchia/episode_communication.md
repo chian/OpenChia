@@ -101,14 +101,17 @@ assignment, measured history and typed Episode input in a managed workspace.
 The coding agent can read, create, edit and run diagnostic commands there.
 It can create missing initial implementation; it does not require preexisting code.
 
-Implementer's complete working context is saved as a `coding_assignment` artifact
-and staged in `.openchia-assignment.json`. The worker carries its exact reference,
-not another inline copy of the source, plans and complete iteration history.
-The coding transport checks the reference against the active campaign,
-invocation, unit and candidate before opening that assignment. This delivery
-preserves all working information without making its growth consume the Run's
-per-frame transport limit. Other Episodes retain their declared model inputs;
-parent/child reports retain their separate synthesis boundary.
+Each refiner Episode's complete working context is saved as a `working_context`
+artifact. The worker carries its exact reference, not another inline copy of
+source, plans and complete iteration history. The existing model transport checks
+that reference against the active campaign, Episode path, invocation, unit and
+candidate. Ordinary reasoning calls receive the resolved declared inputs;
+Implementer coding receives them in `.openchia-assignment.json`. This preserves
+all working information without making its growth consume the Run's per-frame
+transport limit, including when a parent receives a completed child.
+Child reports still arrive separately through the method loop's admitted
+synthesis. Working-context resolution never expands a child's stored report or
+changes the parent's requested return contract.
 Model-call failures stop before proposal submission and retain their original
 diagnostic; an absent response cannot become a fabricated empty proposal.
 

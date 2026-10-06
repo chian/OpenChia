@@ -361,20 +361,20 @@ class RefinementSession:
                 "evaluation_purpose": purpose,
                 "proposal_schemas": proposal_schemas(role),
             }
-            if role == "implementer":
-                # Coding consumes its full assignment from the managed workspace.
-                # Keep the exact snapshot in the existing store instead of
-                # copying growing source/history through both protocol directions.
-                reference = self.put_data("coding_assignment", {
-                    "campaign_id": self.campaign_id.value,
-                    "invocation_id": call.invocation_id.value,
-                    "unit_id": None if call.unit_id is None else call.unit_id.value,
-                    "candidate_ref": view.candidate.ref.as_record(),
-                    "context": context,
-                })
-                context = {**context, "inputs": {
-                    "coding_assignment_ref": reference.as_record(),
-                }}
+            # Every role's source, plans and own history can grow independently
+            # of its compact child reports. Keep the exact working snapshot in
+            # the existing store; the model boundary resolves only this caller's
+            # reference. Control replies never carry the whole snapshot.
+            reference = self.put_data("working_context", {
+                "campaign_id": self.campaign_id.value,
+                "invocation_id": call.invocation_id.value,
+                "unit_id": None if call.unit_id is None else call.unit_id.value,
+                "candidate_ref": view.candidate.ref.as_record(),
+                "context": context,
+            })
+            context = {**context, "inputs": {
+                "working_context_ref": reference.as_record(),
+            }}
             status = view.entry("invocation", call.invocation_id.value).status
         return {
             "context": context,
