@@ -416,6 +416,66 @@ def _goal_state_return_deficits(tree: ast.Module) -> tuple[str, ...]:
     return tuple(found)
 
 
+def _module_literal_names(tree: ast.Module) -> set[str]:
+    names: set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+            try:
+                ast.literal_eval(statement.value)
+            except (ValueError, TypeError, SyntaxError):
+                continue
+            names.add(statement.targets[0].id)
+    return names
+
+
+def _json_shaped_expression(node: ast.AST, literal_names: set[str]) -> bool:
+    """True when the expression can only evaluate to JSON-shaped data."""
+    if isinstance(node, ast.Constant):
+        return node.value is None or isinstance(node.value, (str, bool, int, float))
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return all(_json_shaped_expression(item, literal_names) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(
+            isinstance(key, ast.Constant) and isinstance(key.value, str)
+            and _json_shaped_expression(value, literal_names)
+            for key, value in zip(node.keys, node.values)
+        )
+    if isinstance(node, ast.Name):
+        return node.id in literal_names
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "as_record":
+        return True
+    return False
+
+
+def _binding_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
+    """EpisodeFunctionBinding.arguments must be JSON-shaped data.
+
+    method_loop rejects any other value when the binding is constructed, which
+    happens at module import inside the isolated Run. The common slip is
+    passing the REQUEST_PAYLOAD_CONTRACT object instead of its
+    ``.as_record()`` JSON record.
+    """
+    literal_names = _module_literal_names(tree)
+    binding_names = {"EpisodeFunctionBinding"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "method_loop":
+            for alias in node.names:
+                if alias.name == "EpisodeFunctionBinding":
+                    binding_names.add(alias.asname or alias.name)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id not in binding_names:
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "arguments" and not _json_shaped_expression(keyword.value, literal_names):
+                found.append(
+                    f"EpisodeFunctionBinding at line {node.lineno}: arguments must be JSON-shaped "
+                    "literals (a payload_contract argument is the contract's .as_record() JSON "
+                    "record, never the HandoffPayloadContract object)"
+                )
+    return tuple(found)
+
+
 def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
     """Check keyword/positional arguments of library class constructions statically.
 
@@ -1026,6 +1086,9 @@ def _inspect_source(
 
     for detail in _goal_state_return_deficits(tree):
         add("goal_state_not_protocol", "module_source.build_goal_state", detail)
+
+    for detail in _binding_argument_deficits(tree):
+        add("binding_arguments_not_json", "module_source.binding", detail)
 
     if frozen_contract is not None:
         expected: dict[str, object] = {

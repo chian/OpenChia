@@ -567,7 +567,9 @@ BINDING = EpisodeBindingDeclaration(
     topology_role=EpisodeTopologyRole.LEAF,          # or .BRANCH, per plan.topology_role
     goal=<contract.goal>, unit=<contract.unit>, result=<contract.result>,
     progress=<contract.progress>, stopping=<contract.stopping>,          # verbatim strings
-    admit_request=_binding("admit_request", <entry role admit_request>, ADMIT_DUET_LAUNCH_REQUEST.definition_id),
+    admit_request=EpisodeFunctionBinding(name="admit_request", library=<entry.library>, function_id=<entry.function_id>,
+                                         interface=<entry.interface>, definition_id=ADMIT_DUET_LAUNCH_REQUEST.definition_id,
+                                         arguments={"payload_contract": REQUEST_PAYLOAD_CONTRACT.as_record()}),  # JSON, not the object
     open_source=_binding("open_source", <entry role open_source>, OPEN_TASK_SOURCE.definition_id),
     controller=EpisodeControllerBinding(
         schema=_binding("schema", <entry role controller.schema>, <that LibraryFunction>.definition_id),
@@ -576,7 +578,7 @@ BINDING = EpisodeBindingDeclaration(
         rarefaction=_binding("rarefaction", ..., PAIRED_INCIDENCE.definition_id),
         continuation=_binding("continuation", ..., PREDICTED_CREDIT_UPPER_BOUND.definition_id),
     ),
-    build_result=_binding("build_result", <entry role build_result>, <that LibraryFunction>.definition_id),
+    build_result=EpisodeFunctionBinding(name="build_result", ..., arguments={"payload_contract": RESULT_PAYLOAD_CONTRACT.as_record()}),
     components=(_binding("<binding-name>", <entry role component.<binding-name>>, <that LibraryFunction>.definition_id), ...),
     child_slots=(),                                    # tuple of EpisodeChildSlot for a branch
 )
@@ -900,7 +902,11 @@ _MODULE_CONTRACT = {
             "one per admitted_node_plan.selected_function_bindings entry: name is "
             "the entry role without its 'component.' or 'controller.' prefix with "
             "'.' replaced by '_'; library, function_id, interface and arguments "
-            "are copied verbatim from the entry; definition_id is the "
+            "are copied verbatim from the entry as JSON-shaped literals (a "
+            "payload_contract argument is the JSON record, written as "
+            "REQUEST_PAYLOAD_CONTRACT.as_record() or RESULT_PAYLOAD_CONTRACT.as_record(), "
+            "never the HandoffPayloadContract object: method_loop rejects "
+            "non-JSON arguments when the binding is constructed); definition_id is the "
             ".definition_id of the LibraryFunction object the binding selects "
             "(an imported library constant for source 'library', this module's "
             "generated LibraryFunction constant for source 'generated')"
