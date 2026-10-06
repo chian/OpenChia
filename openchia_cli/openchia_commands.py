@@ -13,6 +13,7 @@ RESUMABLE_RUN_STATES = frozenset({"interrupted", "resource_limited", "cancelled"
 
 _HELP_TEXT = (
     "OpenChia controls:\n"
+    "  /refiner          inspect live Refiner work or history; /refiner --help\n"
     "  /episode          browse Architecture and Materialized Specification\n"
     "  /episode edit     edit the mutable Workflow Architecture\n"
     "  /episode diff     show stable changes in both Workspace views\n"
@@ -161,6 +162,7 @@ class OpenChiaCommandMixin:
 
     _openchia_command_dispatch = {
         "/help": "_handle_openchia_help",
+        "/refiner": "_handle_openchia_refiner",
         "/bg": "_handle_openchia_background",
         "/episode": "_handle_openchia_episode",
         "/duet": "_handle_openchia_duet",
@@ -187,6 +189,11 @@ class OpenChiaCommandMixin:
     def _handle_openchia_help(self, stripped: str) -> bool:
         self._print_openchia(_HELP_TEXT)
         return True
+
+    def _handle_openchia_refiner(self, stripped: str) -> bool:
+        from openchia_cli.refiner_command import open_from_cli
+
+        return open_from_cli(self, stripped)
 
     def _handle_openchia_background(self, stripped: str) -> bool:
         return self._process_background_duet_command(stripped)

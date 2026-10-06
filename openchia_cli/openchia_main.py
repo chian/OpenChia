@@ -25,6 +25,7 @@ Materialized Specification, and /help for the complete control list.
 
 Structured commands:
   openchia test --help    inspect Episode experiment contracts and scope plans
+  openchia refiner --help inspect live or historical Refiner work (read only)
 """
 
 
@@ -68,6 +69,10 @@ def _openchia_provider_setup(_args) -> bool:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "refiner":
+        from openchia_cli.refiner_command import main as refiner_main
+
+        raise SystemExit(refiner_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "test":
         from openchia_cli.episode_test_command import main as test_main
 
