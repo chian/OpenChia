@@ -44,6 +44,7 @@ from .evidence import BuildCallEvidenceRecorder
 from .planner import (
     EpisodeMaterializationPlanner,
     approved_refinement_evidence_for_episode,
+    inherited_refinement_requests,
     materializer_function_catalog,
 )
 from .reference import EpisodeReferenceResolver
@@ -588,6 +589,9 @@ class EpisodeBuilder:
                 build_attempt,
                 predecessor_plan=predecessor_plan,
                 model_call_observer=model_call_observer,
+                inherited_requests=inherited_refinement_requests(
+                    build_request, self.store
+                ),
             )
         except ModelCallFailed:
             raise
@@ -778,6 +782,9 @@ class EpisodeBuilder:
                             approved_refinement_evidence_for_episode(
                                 build_request,
                                 node.local_id,
+                                inherited=inherited_refinement_requests(
+                                    build_request, self.store
+                                ),
                             )
                         ),
                         predecessor_module=predecessor_modules.get(node.local_id),

@@ -526,6 +526,31 @@ def _imported_modules(tree: ast.Module) -> tuple[str, ...]:
     return tuple(modules)
 
 
+def _forbidden_call_name(call: ast.Call) -> str | None:
+    """The forbidden builtin or effect a call reaches, or None.
+
+    Bare names are checked against the builtin list (``compile(...)``,
+    ``open(...)``); attribute calls against the effect list (``os.system``,
+    ``path.write_text``) and, only when the receiver is the ``builtins`` module,
+    the builtin list too. A library attribute that merely shares a builtin's
+    name — ``re.compile(...)`` — is not an effect and is admitted.
+    """
+    if isinstance(call.func, ast.Name):
+        return call.func.id if call.func.id in _FORBIDDEN_CALL_NAMES else None
+    if isinstance(call.func, ast.Attribute):
+        attribute = call.func.attr
+        if attribute in _FORBIDDEN_CALL_ATTRIBUTES:
+            return attribute
+        receiver = call.func.value
+        if (
+            isinstance(receiver, ast.Name)
+            and receiver.id == "builtins"
+            and attribute in _FORBIDDEN_CALL_NAMES
+        ):
+            return attribute
+    return None
+
+
 def _call_terminal_name(call: ast.Call) -> str:
     if isinstance(call.func, ast.Name):
         return call.func.id
@@ -977,11 +1002,12 @@ def _inspect_source(
         if not isinstance(item, ast.Call):
             continue
         terminal = _call_terminal_name(item)
-        if terminal in _FORBIDDEN_CALL_NAMES or terminal in _FORBIDDEN_CALL_ATTRIBUTES:
+        forbidden = _forbidden_call_name(item)
+        if forbidden is not None:
             add(
                 "direct_effect_forbidden",
                 "module_source",
-                f"call {terminal!r} bypasses declared collaborators",
+                f"call {forbidden!r} bypasses declared collaborators",
             )
         if terminal != "FunctionImplementation":
             continue
