@@ -74,7 +74,11 @@ def prerequisite_choice(session, view, assignment, choice, *, include_inherited=
             row.record.body["owner_assignment_ref"] == assignment.ref.as_record()
             or row.record.ref in inherited
         )
-        and view.entry("invocation", row.record.invocation_id.value).status == "returned"
+        # Replacement preserves explicitly inherited needs from its returned
+        # predecessor, whose invocation is now marked superseded.
+        and view.entry("invocation", row.record.invocation_id.value).status in (
+            {"returned", "superseded"} if row.record.ref in inherited else {"returned"}
+        )
         and row.record.body["need"]["kind"] == choice["kind"]
         and row.record.body["need"]["purpose"] == choice["purpose"]
         and set(row.record.body["need"]["requirement_keys"]) == set(requirements)

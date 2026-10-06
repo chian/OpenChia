@@ -89,6 +89,13 @@ uses its permitted measurement children; an existing returned measurement need
 goes to its internal parent when resolving it requires a wider scope. Prompts
 must not invent child capabilities or promise unavailable external interactions.
 
+An explicitly inherited measurement prerequisite retains its original identity
+when its producing assignment is replaced. The replacement can pass that exact
+requested need to a permitted child even though the predecessor's invocation
+is now `superseded`. This preserves the recorded dependency; it grants no new
+scope or measurement authority. Ordinary upward forwarding still requires an
+exact returned direct-child need.
+
 ## Materialization
 
 ### Implementer's coding capability
