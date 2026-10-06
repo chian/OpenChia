@@ -269,11 +269,15 @@ def _feedback(session, view, call):
             "rejected_output": rejected["raw_response"],
         }
     if "execution_status" in value:
+        from .evaluation_experiments import feedback
+
+        recorded = feedback(session, call.feedback_ref)
         return {
             "task": "experiment", "execution_status": value["execution_status"],
             "observed_checks": len(value.get("observed_check_keys", ())),
             "control_observed": value.get("observed_control_ref") is not None,
             "environment_findings": value["environment_findings"],
+            **_experiment_findings(view, recorded),
         }
     if "plan" in value:
         plan = value["plan"]
@@ -282,3 +286,50 @@ def _feedback(session, view, call):
             "gaps": plan["gaps"],
         }
     raise ValueError("refinement feedback has no declared model-facing projection")
+
+
+def _experiment_findings(view, recorded):
+    """Keep the chosen experiment's diagnostics visible without expanding audit logs."""
+    spec = recorded["spec"]
+    if spec is None:
+        return {}
+    result = {
+        "question": spec["question"], "scope": spec["scope"], "mode": spec["mode"],
+        "candidate_matches_current": recorded["candidate_ref"] == view.candidate.ref.as_record(),
+        "interpretation": "Findings apply to this experiment's scope and inputs. Campaign acceptance and credit are recorded separately.",
+    }
+    measurement = recorded["measurement"]
+    if measurement is not None:
+        catalog = requirement_catalog(view)
+        outcomes = []
+        for row in measurement["outcomes"]:
+            observed = row["observed"]
+            if isinstance(observed, dict) and observed.get("schema_id") == "openchia.measurement.observation-reference":
+                observed = {
+                    "source": observed["source"], "path": observed["path"],
+                    "coverage": observed["coverage"], "detail": "Exact evidence retained in this experiment's measurement report.",
+                }
+            outcomes.append({
+                "requirement": requirement_address(catalog[row["requirement_key"]])
+                if row["requirement_key"] in catalog else None,
+                **{key: row[key] for key in (
+                    "status", "predicted", "falsifying", "criterion_expected", "reason", "limitations",
+                )},
+                "observed": observed,
+            })
+        result.update(outcomes=outcomes, limitations=measurement["limitations"])
+    numerical = recorded["numerical"]
+    if numerical is not None:
+        result.update(
+            controller_comparison=numerical["controller_comparison"],
+            unobserved_local_ids=numerical["unobserved_local_ids"],
+            limitations=numerical["limitations"],
+            invocations=[{
+                "local_id": row["local_id"], "episode_path": row["episode_path"],
+                "units_compared": len(row["units"]),
+                "matching_units": sum(unit["matches"] for unit in row["units"]),
+                "differences": [{key: unit[key] for key in ("unit_id", "recorded", "recomputed")}
+                                for unit in row["units"] if not unit["matches"]],
+            } for row in numerical["invocations"]],
+        )
+    return result
