@@ -272,7 +272,6 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None,
             view,
             parent,
             selected_prerequisites,
-            contribution,
         )
         slices = owned_slices(view, parent, contribution)
         prior = replacements(view, parent, role, contribution, draft["replace_previous"])

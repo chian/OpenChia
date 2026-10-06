@@ -124,6 +124,14 @@ Different need contents remain ambiguous even when their displayed kind and scop
 match. Ordinary upward forwarding still requires an exact returned direct-child
 need.
 
+Routing a returned prerequisite retains that complete need as working context.
+The parent can assign a smaller contribution to stage its resolution, just as
+descendants can retain an inherited need while narrowing their work. The child's
+requirements, writable paths and measurements remain separately admitted; the
+need supplies context rather than authority. The parent retains the original
+unresolved obligations, and routing a need establishes neither coverage nor
+credit.
+
 ## Materialization
 
 ### Implementer's coding capability
