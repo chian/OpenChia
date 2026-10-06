@@ -19,6 +19,12 @@ has no upward reporting obligation; it still owns its children's contracts.
 - Useful task addresses, such as a requirement location or a file to modify,
   belong in a return when the parent actually acts on them.
 
+Refiner measurement findings retain a check's recorded textual `reason` alongside
+status, diagnostics and applicability. This lets the parent distinguish an absent
+source or prerequisite from a failed implementation. The reason describes the
+recorded observation; current applicability remains separate, and the rest of the
+structured evidence stays in the audit record.
+
 ## Shared interfaces
 
 `method_loop.ReportContract` contains `decision`, `measurements`, and
