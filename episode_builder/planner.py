@@ -1057,16 +1057,38 @@ def _plan_shape_for_children(
     return shape
 
 
-def approved_refinement_evidence_for_episode(
+def inherited_refinement_requests(
     build_request: ApprovedBuildRequest,
-    local_id: str,
-) -> Mapping[str, object] | None:
-    """Project only human-approved directives and referenced note evidence."""
+    store: Any,
+) -> tuple[ApprovedBuildRequest, ...]:
+    """Every earlier build request in this request's refinement chain, oldest first.
 
+    A successor request names only its direct predecessor receipt; the chain is
+    walked through the store so the approved directives of every earlier
+    refinement can be projected again. Without this a later build sees only the
+    newest refinement's directives and asks the Duet to settle choices it already
+    settled.
+    """
+    chain: list[ApprovedBuildRequest] = []
+    seen = {build_request.build_request_id.value}
+    current = build_request
+    while current.predecessor_receipt is not None:
+        previous_id = current.predecessor_receipt.build_request_id
+        if previous_id.value in seen:
+            break
+        seen.add(previous_id.value)
+        current = store.read_build_request(previous_id)
+        chain.append(current)
+    return tuple(reversed(chain))
+
+
+def _approved_directive_records(
+    build_request: ApprovedBuildRequest, local_id: str
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     proposal = build_request.refinement_proposal
     decision = build_request.refinement_decision
     if proposal is None or decision is None:
-        return None
+        return [], []
     approved_ids = {item.value for item in decision.implementation_directive_ids}
     directives = [
         {
@@ -1087,6 +1109,45 @@ def approved_refinement_evidence_for_episode(
         for item in build_request.refinement_notes
         if item.target.episode_local_id in {None, local_id}
     ]
+    return directives, notes
+
+
+def approved_refinement_evidence_for_episode(
+    build_request: ApprovedBuildRequest,
+    local_id: str,
+    *,
+    inherited: tuple[ApprovedBuildRequest, ...] = (),
+) -> Mapping[str, object] | None:
+    """Project every human-approved directive in the chain and its note evidence.
+
+    ``inherited`` holds the earlier requests of the refinement chain, oldest
+    first (see :func:`inherited_refinement_requests`). Their approved directives
+    stay in force and are projected before the current request's, each tagged
+    with the build request that approved it; a directive or note is projected
+    once even if a later request repeats it.
+    """
+
+    directives: list[dict[str, object]] = []
+    notes: list[dict[str, object]] = []
+    seen_directives: set[str] = set()
+    seen_notes: set[str] = set()
+    for request in (*inherited, build_request):
+        request_directives, request_notes = _approved_directive_records(request, local_id)
+        inherited_from = (
+            None if request is build_request else request.build_request_id.value
+        )
+        for item in request_directives:
+            if item["directive_id"] in seen_directives:
+                continue
+            seen_directives.add(str(item["directive_id"]))
+            directives.append(
+                item if inherited_from is None else {**item, "inherited_from": inherited_from}
+            )
+        for item in request_notes:
+            if item["note_id"] in seen_notes:
+                continue
+            seen_notes.add(str(item["note_id"]))
+            notes.append(item)
     if not directives and not notes:
         return None
     return {
@@ -1399,6 +1460,7 @@ class EpisodeMaterializationPlanner:
         *,
         predecessor_plan: WorkflowMaterializationPlan | None = None,
         model_call_observer: ModelCallObserver | None = None,
+        inherited_requests: tuple[ApprovedBuildRequest, ...] = (),
     ) -> WorkflowMaterializationPlan:
         if not isinstance(build_request, ApprovedBuildRequest):
             raise TypeError("planner requires ApprovedBuildRequest")
@@ -1520,6 +1582,7 @@ class EpisodeMaterializationPlanner:
                 approved_refinement_evidence=approved_refinement_evidence_for_episode(
                     build_request,
                     node.local_id,
+                    inherited=inherited_requests,
                 ),
                 predecessor_node=predecessor_nodes.get(node.local_id),
                 architecture_numeric_bindings=architecture_numeric_bindings,
