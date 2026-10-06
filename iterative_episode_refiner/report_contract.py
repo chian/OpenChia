@@ -125,6 +125,9 @@ def _check_outcome(view, row):
         result["value"] = original
     else:
         result["observation"] = "structured evidence retained in the stored check result"
+    if isinstance(original, Mapping) and isinstance(original.get("reason"), str):
+        # A blocker explanation steers the parent without expanding its audit evidence.
+        result["reason"] = original["reason"]
     if isinstance(original, Mapping) and "diagnostics" in original:
         result["diagnostics"] = [
             {key: diagnostic[key] for key in ("code", "detail", "blocking", "field_path") if key in diagnostic}
@@ -271,7 +274,8 @@ def _decision_need(view, record, catalog):
     need = record.body["need"]
     return [{"assignment_prerequisite": True,
              "kind": need["kind"], "purpose": need["purpose"],
-             "requirements": [requirement_address(catalog[key]) for key in need["requirement_keys"]]}]
+             "requirements": [requirement_address(catalog[key]) for key in need["requirement_keys"]],
+             **({"explanation": record.body["explanation"]} if "explanation" in record.body else {})}]
 
 
 def _decision_evaluation(view, record, catalog):

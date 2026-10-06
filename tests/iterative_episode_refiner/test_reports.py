@@ -346,6 +346,49 @@ def test_missing_or_conflicting_current_evidence_does_not_rewrite_history(
         )
 
 
+@pytest.mark.parametrize("status", ["blocked", "error"])
+def test_structured_check_reason_reaches_the_parent_without_audit_expansion(
+    report_campaign, status,
+):
+    from iterative_episode_refiner.report_contract import _check_outcome
+    from iterative_episode_refiner.reports import check_result
+
+    store, campaign_id, _, _, _, _, checks, observations = report_campaign
+    reason = f"The {status} check needs its prerequisite artifact."
+    with store.duet_store.transaction() as connection:
+        view = CampaignView(connection, campaign_id)
+        predicate = store.put_data(view.head["duet_id"], "predicate", {
+            "function_id": "source_shape",
+        })
+        check = replace(checks[0], body={
+            **checks[0].body, "predicate_ref": predicate.as_record(),
+        })
+        observation = replace(observations[0], body={
+            **observations[0].body, "check_key": check.artifact_id.value,
+            "outcome": status,
+            "observed_value": {
+                "status": status, "reason": reason, "diagnostics": [],
+                "candidate_ref": view.candidate.ref.as_record(),
+            },
+        })
+        for record in (check, observation):
+            store._put(connection, view.head["duet_id"], record)
+        state = replace(view.entry("check_state", checks[0].artifact_id.value),
+                        record=observation, status=status)
+        row = {
+            "check_key": check.artifact_id.value, "outcome": status,
+            "observation_ref": observation.ref.as_record(),
+            "test_result": check_result(view, check, state),
+        }
+        before = observation.as_record()
+        projected = _check_outcome(view, row)
+        assert projected["reason"] == reason
+        assert projected["status"] == status
+        assert projected["applicable"] is False  # A later candidate changed the dependency.
+        assert view.read(observation.ref).as_record() == before
+        assert view.candidate.artifact_id.value not in json.dumps(projected)
+
+
 def test_history_uses_indexed_scope_and_cli_pages_without_reconstructing_audit(
     report_campaign,
     monkeypatch,

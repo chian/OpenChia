@@ -19,6 +19,22 @@ has no upward reporting obligation; it still owns its children's contracts.
 - Useful task addresses, such as a requirement location or a file to modify,
   belong in a return when the parent actually acts on them.
 
+Refiner measurement findings retain a check's recorded textual `reason` alongside
+status, diagnostics and applicability. This lets the parent distinguish an absent
+source or prerequisite from a failed implementation. The reason describes the
+recorded observation; current applicability remains separate, and the rest of the
+structured evidence stays in the audit record.
+
+When EstablishMeasure returns a prerequisite, its model proposal includes a brief
+`explanation` of the missing observation, grounding or capability, why the
+available routes cannot supply it, and the concrete work its parent needs to
+assign. The original explanation accompanies `open_decisions` and follows an
+exact need through upward forwarding and subsequent assigned-prerequisite input.
+It is recorded diagnostic reasoning, separate from the host-resolved need's
+kind, purpose, requirement scope and authority. It grants no execution capability,
+establishes no check adequacy and earns no credit. Machine-only need records may
+omit the explanation; the projection does not invent one where none was recorded.
+
 ## Shared interfaces
 
 `method_loop.ReportContract` contains `decision`, `measurements`, and
@@ -74,6 +90,35 @@ Earlier failed attempts remain visible even when the latest feedback changes.
 Whole audit envelopes and past input contexts are not copied into the history.
 Proposal text is historical data, not instructions or authority.
 
+The refiner's working `requirements` and `measurements` describe the contribution
+assigned to that Episode. Broader inherited obligations appear separately in
+`preservation_requirements` and `preservation_measurements`, excluding those
+already in the contribution. Their original descriptions, measured outcomes,
+missing coverage and applicability remain available as regression context.
+The assignment header and detailed preservation context use the same filtered
+requirement set.
+This separation keeps a part's implementation plan focused on its assigned work.
+It changes the model-input projection only: the inherited scope, checks, guard
+execution, credit and parent-requested return contracts retain their authority.
+
+The Designer's response template pre-fills `plan.requirement_mapping` with the
+exact contribution addresses for its current assignment. The model supplies
+the design reasoning for each key; preservation-only obligations remain in
+their separate working context. The same response schema includes a complete
+prerequisite-format example using one contribution address, a literal purpose,
+and a boolean replacement choice. All child fields, including `role` and
+`writable_paths`, are nested inside `prerequisite`. The example teaches the
+envelope; the Designer still chooses the operation, scope and return contract
+from its actual findings, and ordinary host admission checks that choice.
+
+The Parts selection template guides nested Parts toward a smaller requirement
+set. When one requirement covers several steps, the child can retain its address
+and describe a narrower behavioral contribution in its goal. This is design
+guidance: host admission validates inherited scope, while semantic narrowing
+remains the parent's responsibility. Prerequisite templates share the ordinary
+contribution fields; the Parts-specific narrowing guidance belongs to Parts
+selection.
+
 This is the Episode's own working history. It does not change how its children
 synthesize reports, which reports the method delivers, or what it returns to its
 parent. Replacing the latest child report must not hide repeated zero-yield
@@ -89,6 +134,24 @@ uses its permitted measurement children; an existing returned measurement need
 goes to its internal parent when resolving it requires a wider scope. Prompts
 must not invent child capabilities or promise unavailable external interactions.
 
+An explicitly inherited measurement prerequisite retains its original identity
+when its producing assignment is replaced. The replacement can pass that exact
+requested need to a permitted child even though the predecessor's invocation
+is now `superseded`. This preserves the recorded dependency; it grants no new
+scope or measurement authority. Repeated returns of an identical complete need
+select the latest eligible record; earlier inherited references remain attached.
+Different need contents remain ambiguous even when their displayed kind and scope
+match. Ordinary upward forwarding still requires an exact returned direct-child
+need.
+
+Routing a returned prerequisite retains that complete need as working context.
+The parent can assign a smaller contribution to stage its resolution, just as
+descendants can retain an inherited need while narrowing their work. The child's
+requirements, writable paths and measurements remain separately admitted; the
+need supplies context rather than authority. The parent retains the original
+unresolved obligations, and routing a need establishes neither coverage nor
+credit.
+
 ## Materialization
 
 ### Implementer's coding capability
@@ -100,6 +163,20 @@ the broker-stamped Episode path. It stages the authorized candidate source,
 assignment, measured history and typed Episode input in a managed workspace.
 The coding agent can read, create, edit and run diagnostic commands there.
 It can create missing initial implementation; it does not require preexisting code.
+
+Each refiner Episode's complete working context is saved as a `working_context`
+artifact. The worker carries its exact reference, not another inline copy of
+source, plans and complete iteration history. The existing model transport checks
+that reference against the active campaign, Episode path, invocation, unit and
+candidate. Ordinary reasoning calls receive the resolved declared inputs;
+Implementer coding receives them in `.openchia-assignment.json`. This preserves
+all working information without making its growth consume the Run's per-frame
+transport limit, including when a parent receives a completed child.
+Child reports still arrive separately through the method loop's admitted
+synthesis. Working-context resolution never expands a child's stored report or
+changes the parent's requested return contract.
+Model-call failures stop before proposal submission and retain their original
+diagnostic; an absent response cannot become a fabricated empty proposal.
 
 Actual file differences and `.openchia-plan-edits.json` become the ordinary
 typed change proposal. The coding agent's final prose is retained as evidence,

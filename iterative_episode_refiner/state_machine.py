@@ -238,10 +238,15 @@ def _admit_plan(view, attempt, resolved):
     required = set(assignment.body["contribution_requirement_keys"])
     provided = set(body["requirement_mapping"])
     if provided != required:
+        from .report_contract import requirement_address, requirement_catalog
+
+        catalog = requirement_catalog(view)
+        missing = sorted(requirement_address(catalog[key]) for key in required - provided)
+        unexpected = sorted(requirement_address(catalog[key]) for key in provided - required)
         raise ValueError(
-            "plan requirement_mapping must contain exactly the assigned "
-            f"contribution_requirement_keys: missing={sorted(required - provided)!r}, "
-            f"unexpected={sorted(provided - required)!r}. "
+            "plan requirement_mapping must contain exactly the specification "
+            "addresses in assignment.requirements: "
+            f"missing={missing!r}, unexpected={unexpected!r}. "
             "Keep preservation-only requirements separate; do not add them "
             "to requirement_mapping."
         )

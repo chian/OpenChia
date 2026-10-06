@@ -1226,6 +1226,15 @@ and falsifiers from this reference; they do not invent them after observing outp
 The child's next context reads shared measurements by reference, including
 diagnostic results that did not create a campaign observation.
 
+That working feedback preserves the experiment's question, exact scope, mode,
+predictions, measured outcomes and limitations. It identifies whether the tested
+candidate is still current. Numerical replay feedback summarizes the selected
+invocations and retains their differing recorded/recomputed decisions. Feedback
+reads the immutable result returned to that invocation, rather than substituting
+a later continuation's measurement. Verified audit observations remain references;
+their journals are not automatically expanded into model context. These diagnostic
+findings do not change campaign acceptance or award progress.
+
 The host supplies `RefinementEvaluations.target_launch_ref` from the built
 target's registered configuration. A missing selection is reported, not replaced
 by the refiner's Duet broker. Refiner-job experiments separately use the owning

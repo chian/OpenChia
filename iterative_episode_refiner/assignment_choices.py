@@ -5,6 +5,7 @@ are inherited; replacement and prerequisite routing are explicit operations,
 not model-authored artifact identities.
 """
 
+from agent.duet_contracts import canonical_json
 from function_library.epistemic_contract import exact, names
 
 from .records import Ref
@@ -60,21 +61,34 @@ def replacements(view, assignment, role, requirements, replace_previous):
     return [candidates[-1].ref.as_record()]
 
 
-def prerequisite_choice(session, view, assignment, choice):
+def prerequisite_choice(session, view, assignment, choice, *, include_inherited=False):
     exact(choice, {"kind", "purpose", "requirements"}, "returned prerequisite choice")
     requirements = requirement_keys(session, assignment, choice["requirements"])
+    inherited = set()
+    if include_inherited:
+        goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
+        inherited = set(map(Ref.from_record, goal.get("prerequisite_refs", ())))
     matches = [
         row.record for row in view.entries("measure_need")
         if row.status == "requested"
-        and row.record.body["owner_assignment_ref"] == assignment.ref.as_record()
-        and view.entry("invocation", row.record.invocation_id.value).status == "returned"
+        and (
+            row.record.body["owner_assignment_ref"] == assignment.ref.as_record()
+            or row.record.ref in inherited
+        )
+        # Replacement preserves explicitly inherited needs from its returned
+        # predecessor, whose invocation is now marked superseded.
+        and view.entry("invocation", row.record.invocation_id.value).status in (
+            {"returned", "superseded"} if row.record.ref in inherited else {"returned"}
+        )
         and row.record.body["need"]["kind"] == choice["kind"]
         and row.record.body["need"]["purpose"] == choice["purpose"]
         and set(row.record.body["need"]["requirement_keys"]) == set(requirements)
     ]
-    if len(matches) != 1:
+    if len({canonical_json(record.body["need"]) for record in matches}) != 1:
         raise ValueError("prerequisite choice must identify one returned need by kind, purpose and requirement scope")
-    return matches[0].ref.as_record()
+    # Repeated returns can record the same exact need. Use the latest eligible
+    # provenance; assignment inheritance retains its earlier references too.
+    return matches[-1].ref.as_record()
 
 
 def conflict_choice(session, view, assignment, choice):

@@ -19,6 +19,7 @@ from handoff_library import (
     admit_parent_request,
 )
 from llm_call_library import (
+    CallFailureKind,
     CallOptions,
     StructuredJSONRequest,
     structured_json_completion,
@@ -330,8 +331,8 @@ class RefinementUnit:
         )
         # The host looks up the actual model event. The worker does not turn its
         # parsed proposal into an admitted record or fabricate producer evidence.
-        if response.raw_response is None:
-            raise RuntimeError("refinement proposal has no model response")
+        if response.failure is not None and response.failure.kind is CallFailureKind.MODEL_CALL:
+            raise RuntimeError(f"refinement model call failed: {response.failure.message}")
         return await self.host(
             "propose",
             {

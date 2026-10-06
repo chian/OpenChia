@@ -1,4 +1,4 @@
-"""Implementer coding turns at the existing host model boundary.
+"""Refiner working-context delivery and Implementer coding at the model boundary.
 
 The returned response is still an unadmitted change proposal. Ordinary model
 response journaling, proposal admission, measurements and Episode control apply.
@@ -10,7 +10,7 @@ import json
 import threading
 import time
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from agent.duet_contracts import digest_record
 from agent.episode_launch_transport import provider_failure
@@ -21,6 +21,7 @@ from function_library.models import _thaw_json
 from llm_call_library.transport import ModelCallFailed, ModelTransportResponse
 
 from .coding_workspace import CodingWorkspace
+from .records import Ref
 
 
 class RefinementCodingTransport:
@@ -29,11 +30,20 @@ class RefinementCodingTransport:
         self.transport, self.record_attempt = transport, record_attempt
 
     async def __call__(self, request):
-        if request.episode_local_id != self.session.nodes["implementer"].local_id:
-            return await self.transport(request)
         prompt = json.loads(request.messages[-1]["content"])
-        if prompt.get("task") != "change":
-            return await self.transport(request)
+        call, _, context = self._working_context(request)
+        if call.assignment.body["role"] != "implementer" or prompt.get("task") != "change":
+            # Reasoning receives this invocation's exact declared working inputs.
+            # The method loop still supplies the separately admitted child reports;
+            # resolving working context never opens a child report artifact.
+            prompt["assignment_context"] = {
+                **context["inputs"],
+                "child_reports": prompt["assignment_context"]["child_reports"],
+            }
+            messages = (*request.messages[:-1], {
+                **request.messages[-1], "content": json.dumps(prompt),
+            })
+            return await self.transport(replace(request, messages=messages))
         diagnostics = await self._prepare_diagnostics(request)
         cancel = threading.Event()
         active = []
@@ -55,7 +65,7 @@ class RefinementCodingTransport:
         from .candidate_source import project_candidate_sources
         from .measures import evaluation_bindings
 
-        call, _, _ = self._assignment(request)
+        call, _, _ = self._working_context(request)
         with self.session.view() as view:
             candidate = view.candidate
             bindings = evaluation_bindings(view, self.session.policy, call.assignment)
@@ -94,18 +104,37 @@ class RefinementCodingTransport:
                 })
         return diagnostics
 
-    def _assignment(self, request):
+    def _working_context(self, request):
         if request.model_type not in self.binding.record["model_types"]:
-            raise ValueError("Coding request names a slot outside the frozen Duet binding")
+            raise ValueError("Refinement request names a slot outside the frozen Duet binding")
         path = [{"grain": grain, "key": key} for grain, key in request.episode_path]
         call = self.session._caller(episode_id_for_path(self.session.registration.logical_run_id, path), path)
-        if call.assignment.body["role"] != "implementer" or call.unit_id is None:
-            raise ValueError("Coding requires an active host-admitted Implementer unit")
+        if (
+            call.unit_id is None
+            or request.episode_local_id != self.session.nodes_by_grain[call.path[-1][0]].local_id
+        ):
+            raise ValueError("Refinement context requires its active host-admitted Episode unit")
         with self.session.view() as view:
             if view.entry("invocation", call.invocation_id.value).status != "active":
-                raise ValueError("Coding invocation is not active")
+                raise ValueError("Refinement invocation is not active")
             candidate = view.candidate.ref
-        return call, candidate, self.session.snapshot(call)["context"]
+            prompt = json.loads(request.messages[-1]["content"])
+            inputs = prompt["assignment_context"]
+            if set(inputs) != {"working_context_ref", "child_reports"}:
+                raise ValueError("Refinement input requires its exact working reference and method reports")
+            reference = Ref.from_record(inputs["working_context_ref"])
+            context = view.data(reference)
+            if (
+                context["campaign_id"] != self.session.campaign_id.value
+                or context["invocation_id"] != call.invocation_id.value
+                or context["unit_id"] != call.unit_id.value
+                or context["candidate_ref"] != candidate.as_record()
+                or self.session.store.data_reference(
+                    self.session.duet_id, "working_context", context,
+                ) != reference
+            ):
+                raise ValueError("Refinement working context differs from the active unit and candidate")
+        return call, candidate, context["context"]
 
     def _latest(self, kind, invocation_id):
         # Use the shared artifact store. Neither native transcript discovery nor
@@ -159,7 +188,7 @@ class RefinementCodingTransport:
         return workspace, root / "sessions" / context_id, resume, context_id, identity
 
     def _run(self, request, prompt, cancel, active, diagnostics):
-        call, candidate, context = self._assignment(request)
+        call, candidate, context = self._working_context(request)
         context = _thaw_json(context)
         context["inputs"]["target_environment"]["coding_diagnostics"] = diagnostics
         backend = coding_backend(self.binding)

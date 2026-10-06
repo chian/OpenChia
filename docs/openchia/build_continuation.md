@@ -63,6 +63,9 @@ not discharge requirements, assign credit, or weaken acceptance.
 Cancellation before the first Run dispatch publishes a job result without inventing
 a Run ID or per-Run result. The continuation request records its requester; only
 the execution service's fenced lease establishes ownership of the successor Run.
+Before the first Builder receipt, terminal publication is keyed by Duet and build
+request in the same transaction as its event append. Repeating the same result
+leaves one terminal event; conflicting terminal content is rejected.
 
 ## Supported boundaries and current limits
 

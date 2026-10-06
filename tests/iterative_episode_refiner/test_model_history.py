@@ -99,3 +99,102 @@ def test_proposal_history_retains_outputs_and_rejections_across_physical_runs(hi
         history = iteration_history(session, view, call)
         assert history["proposals"] == expected
         assert history["units"] == []  # Proposals alone are not completed units or credit.
+
+
+def test_experiment_feedback_preserves_selected_diagnostics_without_campaign_credit(history_campaign):
+    from agent.duet_contracts import digest_record
+    from episode_runtime.records.experiments import put_record, record_id
+    from episode_runtime.records.outcomes import RequirementOutcome
+    from iterative_episode_refiner.model_inputs import _feedback
+
+    store, campaign_id, call, session, baseline, _, _ = history_campaign
+    session.store = store
+    with store.duet_store.transaction() as connection:
+        view = CampaignView(connection, campaign_id)
+        session.duet_id = view.head["duet_id"]
+        experiment_id = content_id("experiment", "selected diagnostic").value
+        scope = {"kind": "episode", "entry_local_id": "selected", "included_local_ids": ["selected"],
+                 "component_definition_id": None, "unit_label": None, "invocation_path": []}
+        outcomes = [RequirementOutcome(
+            requirement_ref=call.assignment.ref.as_record(), requirement_key="ordered",
+            measure_ref=dict(call.assignment.body["local_measure_ref"]),
+            predicted="The selected count is zero.", falsifying="A nonzero count.",
+            status="pass", observed=0, criterion_expected=0, evidence_ref=None,
+            reason=None, limitations=["Only the selected input was measured."],
+        ).model_dump(mode="json")]
+        report = {
+            "experiment_id": experiment_id, "scope": scope, "mode": "recorded",
+            "outcomes": outcomes, "limitations": ["Recorded external responses were reused."],
+        }
+        put_record(store.duet_store, "measurement", duet_id=session.duet_id,
+                   experiment_id=experiment_id, record=report)
+        put_record(store.duet_store, "dispatch", duet_id=session.duet_id,
+                   experiment_id=experiment_id, record={"spec": {
+                       "question": "Does this invocation return a zero count?", "scope": scope, "mode": "recorded",
+                   }})
+        # Another experiment in the same store must never supply this feedback.
+        other_id = content_id("experiment", "sibling diagnostic").value
+        put_record(store.duet_store, "measurement", duet_id=session.duet_id,
+                   experiment_id=other_id, record={**report, "experiment_id": other_id,
+                       "outcomes": [{**outcomes[0], "observed": "unrelated result"}]})
+        call.feedback_ref = store.put_data(session.duet_id, "experiment_result", {
+            "experiment_id": experiment_id, "invocation_id": call.invocation_id.value,
+            "candidate_ref": baseline.ref.as_record(), "measurement_ref": {
+                "artifact_id": record_id("measurement", experiment_id=experiment_id),
+                "content_hash": digest_record(report).value,
+            }, "execution_status": "succeeded", "environment_findings": [], "observed_check_keys": [],
+        })
+        before = dict(view.head)
+        result = _feedback(session, view, call)
+        assert result["scope"] == scope and result["mode"] == "recorded"
+        assert result["outcomes"][0]["observed"] == 0
+        assert result["outcomes"][0]["requirement"] == "/requirements/ordered"
+        assert result["outcomes"][0]["predicted"] == outcomes[0]["predicted"]
+        assert result["outcomes"][0]["limitations"] == outcomes[0]["limitations"]
+        assert result["candidate_matches_current"] is False
+        assert result["observed_checks"] == 0  # Diagnostic pass is not campaign acceptance.
+        assert dict(CampaignView(connection, campaign_id).head) == before
+        assert store.duet_store.get_artifact(record_id("measurement", experiment_id=experiment_id))["record"] == report
+
+
+def test_numerical_feedback_retains_only_selected_comparisons(history_campaign):
+    from agent.duet_contracts import digest_record
+    from episode_runtime.records.experiments import put_record, record_id
+    from iterative_episode_refiner.model_inputs import _feedback
+
+    store, campaign_id, call, session, _, current, _ = history_campaign
+    session.store = store
+    with store.duet_store.transaction() as connection:
+        view = CampaignView(connection, campaign_id)
+        session.duet_id = view.head["duet_id"]
+        experiment_id = content_id("experiment", "controller diagnostic").value
+        spec = {"question": "Does the selected controller reproduce its decisions?",
+                "scope": {"kind": "episode", "entry_local_id": "selected", "included_local_ids": ["selected"]},
+                "mode": "numerical"}
+        differences = {"unit_id": "unit-b", "recorded": {"stop": False}, "recomputed": {"stop": True}}
+        report = {
+            "experiment_id": experiment_id, "controller_comparison": "different",
+            "unobserved_local_ids": [], "limitations": ["Reused observations are not new credit."],
+            "invocations": [{"local_id": "selected", "episode_path": [{"grain": "selected", "key": "one"}],
+                "units": [{"unit_id": "unit-a", "matches": True}, {**differences, "matches": False}]}],
+        }
+        saved = {"spec": spec, "report": report}
+        put_record(store.duet_store, "numerical", duet_id=session.duet_id,
+                   experiment_id=experiment_id, record=saved)
+        call.feedback_ref = store.put_data(session.duet_id, "experiment_result", {
+            "experiment_id": experiment_id, "invocation_id": call.invocation_id.value,
+            "candidate_ref": current.ref.as_record(), "measurement_ref": None,
+            "numerical_result_ref": {
+                "artifact_id": record_id("numerical", experiment_id=experiment_id),
+                "content_hash": digest_record(saved).value,
+            }, "execution_status": "evaluated", "environment_findings": [], "observed_check_keys": [],
+        })
+        before = dict(view.head)
+        result = _feedback(session, view, call)
+        assert result["question"] == spec["question"] and result["scope"] == spec["scope"]
+        assert result["invocations"] == [{
+            "local_id": "selected", "episode_path": report["invocations"][0]["episode_path"],
+            "units_compared": 2, "matching_units": 1, "differences": [differences],
+        }]
+        assert result["candidate_matches_current"] is True
+        assert result["observed_checks"] == 0 and dict(CampaignView(connection, campaign_id).head) == before

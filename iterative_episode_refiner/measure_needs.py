@@ -146,8 +146,10 @@ def prerequisite_record(view, attempt):
     payload = exact(
         attempt.body["payload"], {"prerequisite_request"}, "measurement prerequisite"
     )
+    request = payload["prerequisite_request"]
     choice = exact(
-        payload["prerequisite_request"], {"need_key"}, "measurement prerequisite choice"
+        request, {"need_key"} | ({"explanation"} if "explanation" in request else set()),
+        "measurement prerequisite choice",
     )
     policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
     selected = [
@@ -178,6 +180,7 @@ def prerequisite_record(view, attempt):
             "assignment_ref": assignment.ref.as_record(),
             "owner_assignment_ref": assignment.body["parent_assignment_ref"],
             "need": need,
+            **({"explanation": choice["explanation"]} if "explanation" in choice else {}),
         },
         evidence=evidence,
     )
@@ -227,6 +230,7 @@ def return_prerequisite(view, attempt):
             "assignment_ref": assignment.ref.as_record(),
             "owner_assignment_ref": assignment.body["parent_assignment_ref"],
             "need": source.body["need"],
+            **({"explanation": source.body["explanation"]} if "explanation" in source.body else {}),
         },
         evidence=(EvidenceRef(
             "duet_artifact", OpaqueId(view.head["duet_id"]),
@@ -272,8 +276,8 @@ def prerequisite_assignments(view, references):
     return assignments
 
 
-def assignment_prerequisites(view, parent, selected, requirements):
-    """Keep the original request through assignment, without copying its authority."""
+def assignment_prerequisites(view, parent, selected):
+    """Retain the owner's whole need as context for separately scoped child work."""
     parent_goal = view.data(Ref.from_record(parent.body["goal_record_ref"]))
     inherited = {
         Ref.from_record(ref) for ref in parent_goal.get("prerequisite_refs", ())
@@ -300,8 +304,9 @@ def assignment_prerequisites(view, parent, selected, requirements):
                 raise ValueError(
                     "only the assigning owner may route a returned prerequisite"
                 )
-            if not set(record.body["need"]["requirement_keys"]) <= set(requirements):
-                raise ValueError("assignment omits part of its selected prerequisite")
+        # A prerequisite describes why the owner needs work. The child's
+        # contribution and measurement obligations are admitted separately, so
+        # staged work can retain the whole need without taking on its full scope.
         result[reference] = None
     return [
         ref.as_record() for ref in sorted(result, key=lambda ref: ref.artifact_id.value)
@@ -314,7 +319,6 @@ def validate_assignment_prerequisites(view, parent, assignment):
         view,
         parent,
         goal.get("prerequisite_refs", ()),
-        assignment.body["contribution_requirement_keys"],
     )
     if expected != list(goal.get("prerequisite_refs", ())) or not set(
         map(Ref.from_record, expected)

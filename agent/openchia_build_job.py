@@ -7,7 +7,8 @@ it is not a second Episode runner or retry loop.
 
 import asyncio
 
-from agent.duet_contracts import DuetProvenance
+from agent.duet_contracts import DuetProvenance, canonical_json
+from agent.duet_store import DuetConflictError
 from episode_builder import BuildReceipt
 from llm_call_library.transport import ModelCallFailed
 from episode_runtime.records.experiments import (
@@ -127,6 +128,36 @@ def _publish_result(host, request, initial, receipt, result, state, error, *, co
     receipts = {
         item.receipt_id.value for item in (initial, receipt) if item is not None
     }
+    if not receipts:
+        # A provider failure or cancellation can precede the first receipt.
+        # The job event still closes ownership and preserves the real failure;
+        # there is no materialization artifact to publish in this case.
+        with host.store.transaction() as connection:
+            previous = connection.execute(
+                "SELECT record_json FROM duet_events "
+                "WHERE duet_id = ? AND event_type = 'build_finished' "
+                "AND json_extract(record_json, '$.build_request_id') = ? "
+                "ORDER BY sequence DESC LIMIT 1",
+                (host.identity.duet_id.value, request.build_request_id.value),
+            ).fetchone()
+            if previous is not None:
+                if previous["record_json"] != canonical_json(record):
+                    raise DuetConflictError("build result differs from its recorded terminal result")
+                return
+            duet = host.store.get_duet(host.identity.duet_id.value)
+            if (
+                duet["state"] != "sealed"
+                or duet["authority_head_approval_id"]
+                != request.authority_approval.approval_id.value
+            ):
+                raise DuetConflictError("Duet state or authority head changed concurrently")
+            host.store.append_event(
+                duet_id=host.identity.duet_id.value,
+                event_type="build_finished",
+                provenance=DuetProvenance.HOST_VALIDATION.value,
+                record=record,
+            )
+        return
     run_id = None if continued_job is None else latest_job_run(host, continued_job)
     # Setup can be cancelled before the first dispatch. Publish the initial
     # receipt-to-job result then, never an attempt indexed by a nonexistent Run.

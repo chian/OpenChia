@@ -311,6 +311,7 @@ class RefinementSession:
         return self.store.commit_attempt(attempt)
 
     def snapshot(self, call):
+        from .assignment_choices import assigned_addresses
         from .runtime_proposals import proposal_schemas
         from .measures import authorized_check_refs, evaluation_bindings
         from .judgment import current_check_states, judgment_purpose
@@ -359,8 +360,24 @@ class RefinementSession:
                 and any(states.get(check.artifact_id.value) not in {"pass", "fail"}
                         for check in relevant),
                 "evaluation_purpose": purpose,
-                "proposal_schemas": proposal_schemas(role),
+                "proposal_schemas": proposal_schemas(
+                    role, assigned_addresses(self, assignment)
+                ),
             }
+            # Every role's source, plans and own history can grow independently
+            # of its compact child reports. Keep the exact working snapshot in
+            # the existing store; the model boundary resolves only this caller's
+            # reference. Control replies never carry the whole snapshot.
+            reference = self.put_data("working_context", {
+                "campaign_id": self.campaign_id.value,
+                "invocation_id": call.invocation_id.value,
+                "unit_id": None if call.unit_id is None else call.unit_id.value,
+                "candidate_ref": view.candidate.ref.as_record(),
+                "context": context,
+            })
+            context = {**context, "inputs": {
+                "working_context_ref": reference.as_record(),
+            }}
             status = view.entry("invocation", call.invocation_id.value).status
         return {
             "context": context,

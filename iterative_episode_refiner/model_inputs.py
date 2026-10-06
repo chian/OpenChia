@@ -26,18 +26,30 @@ def _measurements(session, view, call):
     catalog = requirement_catalog(view)
     role = assignment.body["role"]
     purposes = INPUT_MEASUREMENTS[role] or (judgment_purpose(view, assignment),)
-    requirements = assigned_addresses(session, assignment, "scope_requirement_keys")
+    requirements = assigned_addresses(session, assignment)
+    preservation = [
+        address for address in assigned_addresses(session, assignment, "preservation_requirement_keys")
+        if address not in requirements
+    ]
+    # A descendant inherits the wider scope for regression protection. Its own
+    # work remains the parent's selected contribution, not that entire scope.
     measurements = {
-        purpose: _measurement(view, assignment, report.body, {
-            "purpose": purpose, "requirements": requirements,
-        }, catalog)
-        for purpose in purposes
+        name: {
+            purpose: _measurement(view, assignment, report.body, {
+                "purpose": purpose, "requirements": addresses,
+            }, catalog)
+            for purpose in purposes
+        }
+        for name, addresses in (
+            ("measurements", requirements),
+            ("preservation_measurements", preservation),
+        )
     }
     availability = evaluation_availability(resolve_evaluations(
         view, session.policy, assignment, judgment_purpose(view, assignment)
     ))
     return {
-        "measurements": measurements,
+        **measurements,
         "iteration_history": iteration_history(session, view, call),
         "evaluation_availability": {
             "executable": availability["executable"],
@@ -216,13 +228,19 @@ def model_inputs(session, view, call):
     goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
     role = assignment.body["role"]
     catalog = requirement_catalog(view)
-    scope = assignment.body["scope_requirement_keys"]
+    contribution = set(assignment.body["contribution_requirement_keys"])
+    preservation = [
+        key for key in assignment.body["preservation_requirement_keys"]
+        if key not in contribution
+    ]
     need = goal.get("measure_request")
     result = {
         "assignment": {
             "role": role, "goal": goal["goal"],
             "requirements": assigned_addresses(session, assignment),
-            "preservation_requirements": assigned_addresses(session, assignment, "preservation_requirement_keys"),
+            "preservation_requirements": [
+                requirement_address(catalog[key]) for key in preservation
+            ],
             "writable_paths": list(assignment.body["writable_paths"]),
             "protected_paths": list(assignment.body["protected_paths"]),
             "allowed_children": list(assignment.body["allowed_child_bindings"]),
@@ -232,13 +250,19 @@ def model_inputs(session, view, call):
             },
             "return_contract": assigned_return_contract(view, assignment),
         },
-        "requirements": {
-            requirement_address(catalog[key]): {
-                "evidence_scope": catalog[key]["evidence_scope"],
-                "requirement": _thaw_json(catalog[key]["approved_value"])
-                if "approved_value" in catalog[key] else catalog[key]["description"],
-                "mandatory": catalog[key]["mandatory"],
-            } for key in scope
+        **{
+            name: {
+                requirement_address(catalog[key]): {
+                    "evidence_scope": catalog[key]["evidence_scope"],
+                    "requirement": _thaw_json(catalog[key]["approved_value"])
+                    if "approved_value" in catalog[key] else catalog[key]["description"],
+                    "mandatory": catalog[key]["mandatory"],
+                } for key in keys
+            }
+            for name, keys in (
+                ("requirements", assignment.body["contribution_requirement_keys"]),
+                ("preservation_requirements", preservation),
+            )
         },
     }
     for component in MODEL_INPUT_COMPONENTS[role]:
@@ -269,11 +293,15 @@ def _feedback(session, view, call):
             "rejected_output": rejected["raw_response"],
         }
     if "execution_status" in value:
+        from .evaluation_experiments import feedback
+
+        recorded = feedback(session, call.feedback_ref)
         return {
             "task": "experiment", "execution_status": value["execution_status"],
             "observed_checks": len(value.get("observed_check_keys", ())),
             "control_observed": value.get("observed_control_ref") is not None,
             "environment_findings": value["environment_findings"],
+            **_experiment_findings(view, recorded),
         }
     if "plan" in value:
         plan = value["plan"]
@@ -282,3 +310,50 @@ def _feedback(session, view, call):
             "gaps": plan["gaps"],
         }
     raise ValueError("refinement feedback has no declared model-facing projection")
+
+
+def _experiment_findings(view, recorded):
+    """Keep the chosen experiment's diagnostics visible without expanding audit logs."""
+    spec = recorded.get("spec")
+    if spec is None:
+        return {}
+    result = {
+        "question": spec["question"], "scope": spec["scope"], "mode": spec["mode"],
+        "candidate_matches_current": recorded["candidate_ref"] == view.candidate.ref.as_record(),
+        "interpretation": "Findings apply to this experiment's scope and inputs. Campaign acceptance and credit are recorded separately.",
+    }
+    measurement = recorded["measurement"]
+    if measurement is not None:
+        catalog = requirement_catalog(view)
+        outcomes = []
+        for row in measurement["outcomes"]:
+            observed = row["observed"]
+            if isinstance(observed, dict) and observed.get("schema_id") == "openchia.measurement.observation-reference":
+                observed = {
+                    "source": observed["source"], "path": observed["path"],
+                    "coverage": observed["coverage"], "detail": "Exact evidence retained in this experiment's measurement report.",
+                }
+            outcomes.append({
+                "requirement": requirement_address(catalog[row["requirement_key"]])
+                if row["requirement_key"] in catalog else None,
+                **{key: row[key] for key in (
+                    "status", "predicted", "falsifying", "criterion_expected", "reason", "limitations",
+                )},
+                "observed": observed,
+            })
+        result.update(outcomes=outcomes, limitations=measurement["limitations"])
+    numerical = recorded["numerical"]
+    if numerical is not None:
+        result.update(
+            controller_comparison=numerical["controller_comparison"],
+            unobserved_local_ids=numerical["unobserved_local_ids"],
+            limitations=numerical["limitations"],
+            invocations=[{
+                "local_id": row["local_id"], "episode_path": row["episode_path"],
+                "units_compared": len(row["units"]),
+                "matching_units": sum(unit["matches"] for unit in row["units"]),
+                "differences": [{key: unit[key] for key in ("unit_id", "recorded", "recomputed")}
+                                for unit in row["units"] if not unit["matches"]],
+            } for row in numerical["invocations"]],
+        )
+    return result

@@ -349,6 +349,8 @@ def _receive(evaluations, session, call, spec, assigned, result):
             "measurement_ref": None
             if measurement is None
             else measurement["measurement_ref"],
+            "numerical_result_ref": result.get("result_ref")
+            if spec.as_record()["mode"] == "numerical" else None,
             "execution_status": result["execution_status"],
             "environment_findings": experiment_findings(result),
             "observed_check_keys": [check.artifact_id.value for check in observed],
@@ -386,14 +388,38 @@ def feedback(session, reference):
         }
     if row["kind"] != "refinement.experiment_result.v1":
         return value
-    from episode_runtime.testing_harness.measurements import saved_measurements
+    from episode_runtime.records.experiments import read_record
 
-    measurement = saved_measurements(
-        session.store.evidence.duets, value["experiment_id"]
-    )
-    if (
-        measurement is not None
-        and measurement["measurement_ref"] != value["measurement_ref"]
-    ):
-        raise ValueError("experiment feedback differs from its committed measurement")
-    return {**value, "measurement": measurement}
+    measurement = None
+    spec = None
+    if value["measurement_ref"] is not None:
+        # Read the result this invocation received, not a later continuation's
+        # latest measurement of the same experiment.
+        measured = read_reference(
+            session.store.evidence.duets, value["measurement_ref"], session.duet_id
+        )
+        if measured["kind"] not in {
+            "experiment.measurement.v1", "experiment.measurement_attempt.v1",
+        } or measured["record"]["experiment_id"] != value["experiment_id"]:
+            raise ValueError("experiment feedback differs from its committed measurement")
+        from episode_runtime.records.outcomes import RequirementOutcome
+
+        measurement = {**measured["record"], "measurement_ref": value["measurement_ref"]}
+        for outcome in measurement["outcomes"]:
+            RequirementOutcome.model_validate(outcome)
+        dispatch = read_record(
+            session.store.evidence.duets, "dispatch", experiment_id=value["experiment_id"]
+        )
+        spec = dispatch["record"]["spec"]
+    numerical = None
+    if value.get("numerical_result_ref") is not None:
+        saved = read_reference(
+            session.store.evidence.duets, value["numerical_result_ref"], session.duet_id
+        )
+        if saved["kind"] != "experiment.numerical.v1" or (
+            saved["record"]["report"]["experiment_id"] != value["experiment_id"]
+        ):
+            raise ValueError("experiment feedback differs from its numerical result")
+        numerical = saved["record"]["report"]
+        spec = saved["record"]["spec"]
+    return {**value, "measurement": measurement, "numerical": numerical, "spec": spec}
