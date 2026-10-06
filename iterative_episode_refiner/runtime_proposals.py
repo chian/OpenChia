@@ -256,7 +256,12 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None,
         verification_return_contract = validate_return_contract(verification_return_contract, scope)
 
     with session.view() as view:
-        selected_prerequisites = [prerequisite_choice(session, view, parent, choice) for choice in draft["prerequisites"]]
+        selected_prerequisites = [
+            prerequisite_choice(
+                session, view, parent, choice, include_inherited=True
+            )
+            for choice in draft["prerequisites"]
+        ]
         prerequisite_refs = assignment_prerequisites(
             view,
             parent,
