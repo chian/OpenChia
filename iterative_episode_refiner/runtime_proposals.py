@@ -107,7 +107,7 @@ _CHECK_DESIGN_SHAPE = {
 
 _RETURN_PREREQUISITE_SHAPE = {
     "return_prerequisite": {
-        "kind": "returned measurement prerequisite kind",
+        "kind": "exact kind from a returned child need or assigned_prerequisites",
         "purpose": "its judgment purpose",
         "requirements": ["original specification requirement address"],
     }
@@ -532,7 +532,10 @@ def _design(session, call, proposal, producer):
 def _return_prerequisite(session, call, proposal, producer):
     exact(proposal, {"return_prerequisite"}, "prerequisite return")
     with session.view() as view:
-        reference = prerequisite_choice(session, view, call.assignment, proposal["return_prerequisite"])
+        reference = prerequisite_choice(
+            session, view, call.assignment, proposal["return_prerequisite"],
+            include_inherited=True,
+        )
     session.commit(call, "propose_measure", {"return_prerequisite_ref": reference}, producer=producer)
     return session.reply(call, proceed=False)
 
