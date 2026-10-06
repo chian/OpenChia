@@ -329,12 +329,9 @@ class ExperimentSession:
         spec = ExperimentSpec.from_record(payload["spec"])
         await asyncio.to_thread(self._authorize, contract, caller, spec)
         await asyncio.to_thread(self._remember, caller, spec)
-        result = await self.service.run(spec)
-        if self.registration.resume_from is not None and result["execution_status"] in {
-            "interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable",
-        }:
-            return await self.service.continue_interrupted(experiment_id=spec.experiment_id)
-        return result
+        return await self.service.run(
+            spec, resume_interrupted=self.registration.resume_from is not None,
+        )
 
     async def _status(self, contract, caller, payload):
         await asyncio.to_thread(self._read_owned, caller, payload["experiment_id"])

@@ -1,6 +1,7 @@
 # Continuing interrupted Duet-owned work
 
 In the original Duet, use `/build continue`; use `/build status` to inspect it.
+Use `/build continue BUILD_REQUEST_ID` to select an earlier saved job explicitly.
 For an ordinary Target Workflow Run, use `/run continue` and `/run status`.
 For an already open background Duet, use `/bg DUET_ID build continue`.
 Reopening a saved background Duet restores its own model route, not the foreground
@@ -12,10 +13,14 @@ continuation, resumable interruption and unknown ownership.
 create a replacement for an already worked refinement campaign.
 
 The host selects the saved job under the current exact workflow approval,
-restores its original Duet model binding with current owning-Duet credentials,
+binds future refiner calls to the owning Duet's current model and reasoning settings,
 and resolves the original approved Target Workflow launch configuration. The
-refiner's route and the Target Workflow's launch remain separate. Stored route
-policies are preserved, including absence of a newer recovery policy.
+refiner's route and the Target Workflow's launch remain separate. `/model` and
+`/reasoning` changes take effect on an explicit continuation, not mid-Run. The
+new physical attempt stores its actual `duet_model_binding_ref`; the experiment,
+completed responses and their original model records are unchanged. This is
+provenance, not another approval stage. With unchanged model settings, credentials
+are refreshed while the saved recovery policy is preserved, including its absence.
 Each new Builder successor launch records the current host commit, dirty state,
 client package versions and transport source hashes. Only the approved routing
 configuration is reused, never the predecessor's host-environment attestation.
@@ -41,6 +46,17 @@ the saved prefix matches and current authority is rechecked. The provider may
 have processed that abandoned request; only its new committed response can
 affect OpenChia state. Provider-side exactly-once billing is not promised.
 
+Implementer coding turns use that same model-response boundary. A completed
+response replays its captured proposal without running the coding tools again.
+An unanswered coding request retains its unadmitted workspace edits and native
+thread reference in the shared campaign artifacts. Continuation checks the old
+coding subprocess identity before reusing the workspace and resumes the existing
+Codex thread. A changed Duet binding or instruction prefix opens a new native
+context. Explicit cancellation joins the coding operation and closes its process
+tree before publishing the Run terminal; a live or unverifiable old coding
+process is never treated as safe to overwrite. These records grant no admission
+or credit: the proposal must still pass the normal checks.
+
 Job results are append-only per physical attempt. A continued success must still
 produce the same independently verified build receipt; continuation itself does
 not discharge requirements, assign credit, or weaken acceptance.
@@ -53,12 +69,19 @@ the execution service's fenced lease establishes ownership of the successor Run.
 - Stopped Builder, refiner, and ordinary Target Workflow jobs use their normal
   public continue commands. Empty worker prefixes and missing terminal/result
   publication use the same shared ownership, execution and RunStore APIs.
-- Exact admitted source, worker runtime, inputs, approvals, model binding and
-  campaign state must remain available. Changed code/contracts are not hidden
-  inside the same execution.
+- Exact admitted source, worker runtime, inputs, approvals and
+  campaign state must remain available. The host can be updated while the worker
+  still executes its original hash-verified staged runtime. Every recorded frame
+  must match before new work; incompatible protocol or host state fails closed.
+  Changed worker code/contracts are not hidden inside the same execution.
+  A new physical refiner attempt can select the
+  owning Duet's current model binding; the selected binding is fixed for that
+  attempt. Fresh launches still require their original selected binding.
 - `invalid` is not an interruption. Continuation does not repair an invalid
-  request, invent producer evidence, or relabel a failed execution so it can be
-  retried. Such a defect must be fixed in the owning implementation and admitted
+  request or invent producer evidence. A narrow historical exception allows a
+  host-recorded `LaunchModelError` ending at an unanswered model request to
+  continue without rewriting its old `failed` terminal record. Ordinary failed
+  executions cannot be continued. Such a defect must be fixed in the owning implementation and admitted
   as a new execution when its frozen source changes.
 - Local Refiner changes and their host reply/state receipt share one Duet
   transaction. Reconstruction uses that receipt if the Run response is missing.
@@ -83,7 +106,7 @@ the execution service's fenced lease establishes ownership of the successor Run.
 - A live or unverifiable old executor cannot be continued. Elapsed time is not
   evidence of process death. Legacy terminal Runs without host ownership events
   still use their exact stopped-worker attestation; new Runs additionally record
-  and fence the host lease. Historical missing ownership cannot be reconstructed.
+and fence the host lease. Historical missing ownership cannot be reconstructed.
 - Initial Builder interruption is supported for new jobs with recorded process
   ownership and model binding, using its existing call evidence. Refiner setup
   can reuse a completed shipped-program build and idempotent campaign preparation.
@@ -97,6 +120,28 @@ the execution service's fenced lease establishes ownership of the successor Run.
   independently checked result without another Run.
 
 ## Implementation map
+
+### API errors stop the owning job
+
+A failed Builder, refiner or Target Workflow model API request stops the active
+job. It does not trigger a fallback route, another component, a repair iteration,
+or an automatic continuation. Rejected JSON or an inadequate *returned answer*
+remains ordinary refinement feedback and can be iterated.
+
+Builder call evidence is committed before the failure propagates; no failed
+Builder receipt is handed to the refiner as if the API outage were a code defect.
+The normal Builder continuation adapter reuses completed responses and retries
+the unanswered request. Runs record `interrupted` with
+`stop_reason: model_api_error`; nested validation failure propagates to the owning
+refiner and build. `/launch calls` retains the provider diagnostics. The stopped
+experiment remains inspectable without silently rerunning it.
+
+An explicit parent continuation can resume a child that was already interrupted.
+If that new attempt gets another API error, it stops again; no same-invocation
+retry is performed. Health probes during a still-pending silent call remain the
+separate [health mechanism](model_call_recovery.md), not error-result retries.
+
+### Code ownership
 
 `agent/openchia_build_continue.py` restores job ownership/configuration;
 `agent/openchia_build_job.py` remains the lifecycle/final acceptance owner.

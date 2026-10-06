@@ -38,6 +38,21 @@ for that Run; it does not replace the caller's configuration. This remains
 true when both happen to select the same model. Shared Duet/refiner model
 settings do not mean shared prompts, transcripts, capabilities or authority.
 
+Implementer's `change` calls use the existing Codex app-server coding runtime,
+with that same pinned Duet model, effort and explicit credential. The initial
+adapter supports the official `codex_responses` route; unsupported routes fail
+explicitly rather than selecting an ambient Codex account or the target launch.
+Its private native configuration disables extra agents and unrequested app/web
+tools and limits command writes to the candidate workspace. Other refiner calls
+retain the ordinary Duet transport. See [ADR 0009](../adr/0009-implementer-uses-an-existing-coding-agent.md).
+The sandbox belongs to [Implementer's coding workspace](implementer_coding_workspace.md),
+not the Target Workflow. Its setup must not become an implicit Target Workflow
+environment requirement. Codex and Claude Code adapters use the same Implementer
+contract; live Claude Code verification remains separate. The Target Workflow's
+[saved environment recipe](target_workflow_environment.md) supplies its own
+dependencies through the shared preparation service; it does not select model
+routes or inherit the coding agent's mutable environment.
+
 Builder slots in a Target Workflow launch file configure the existing target
 Builder calls. They do not select the refiner's reasoning model. A typed
 `DuetLaunchRequest` supplies task inputs and is not a model/provider setting.
@@ -52,7 +67,10 @@ refiner execution nor target correctness.
 Implementation status: `OpenChiaHost.refinement_experiment_service` binds the
 campaign's owning Duet agent through `DuetEpisodeBinding.from_bound_agent`.
 It freezes that agent's concrete route and the refiner build's declared model
-slots; credentials remain in host memory. Refiner-job experiments use this
+slots for each physical attempt; credentials remain in host memory. Explicit
+`/build continue` uses current owning-Duet model/effort settings for future calls.
+Completed responses keep their original binding and are not regenerated merely
+because the model changed. Refiner-job experiments use this
 binding through the shared service, while target tests retain their approved
 Target Workflow launch. Missing owning-Duet binding is an error, not a target fallback.
 The lower-level `execute_refinement` entry still accepts a supplied broker;
@@ -287,11 +305,12 @@ routing settings, not exact credentials, provider internals or model output.
 While reuse mode is selected, `/launch reload` asks you to select a file with
 `/launch load FILE`; it keeps the frozen selection intact.
 
-`fallbacks` is an ordered list of route names. After a route fails, only the
-listed routes are attempted, once each; a route's frozen recovery policy can
-permit bounded physical replacements within that same route. Fallback lists on those entries are not
-recursively expanded. Cancellation stops the call rather than advancing to a
-fallback. SDK retries and implicit provider/account hopping are disabled.
+API failures stop the owning build/refinement/Run and require explicit
+continuation. `fallbacks` remains readable in historical launch configurations,
+but a failed API request does not advance to those routes. SDK retries and
+implicit provider/account hopping are disabled. A still-pending silent call can
+use bounded physical replacement under its frozen health policy; this is not
+retry-on-error. See [continuation](build_continuation.md#api-errors-stop-the-owning-job).
 
 ## Durable receipts and boundaries
 
@@ -306,9 +325,16 @@ survive reopening the same Duet.
 
 Every physical model attempt records launch ID, configuration hash, call ID,
 Episode local ID, call role, model slot, provider, model, endpoint, credential source,
-operator account label, outcome and elapsed time. Failed attempts retain error
-type and HTTP status without storing raw provider errors that may contain
-secrets. An interrupted process can leave a `started` receipt without a terminal
+operator account label, outcome and elapsed time. Failed attempts retain exception
+type, HTTP status and OpenChia's classification separately from the provider's
+error code/type, parameter, redacted bounded message, request ID and retry-after
+header when present. `/launch calls` exposes these in the existing call records;
+physical-attempt records also preserve a response-header request ID when the
+SDK's streaming exception omits it. Missing, redacted and truncated information
+is explicit. Raw response bodies and credentials are not stored. See
+[failure reporting](model_call_recovery.md#audit-and-implementation) for the
+redaction and size limits.
+An interrupted process can leave a `started` receipt without a terminal
 receipt; it must not be interpreted as success.
 
 The worker supplies its structural Episode path; the protocol checks its

@@ -136,7 +136,7 @@ async def reference_package(tmp_path, family):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("family", ("refinement", "reasoning", "testing"))
-async def test_admitted_reference_wrappers_require_the_same_frozen_runtime_without_activation(
+async def test_admitted_wrappers_bind_verified_worker_runtime_not_host_checkout(
     tmp_path, family
 ):
     async with reference_package(tmp_path, family) as (prepared, package, manifest):
@@ -161,16 +161,22 @@ async def test_admitted_reference_wrappers_require_the_same_frozen_runtime_witho
             b"another reference implementation"
         )
         different = replace(manifest, local_source_hashes=changed)
-        forged = replace(
+        frozen = replace(
             prepared,
             registration=replace(
                 prepared.registration,
                 runtime_identity=runtime_identity_from_manifest(different),
             ),
         )
-        with pytest.raises(ValueError, match="different reference runtime"):
+        # The executor supplies an already verified staged worker manifest.
+        # It need not match today's host checkout, but must match registration.
+        receipt = admit_reconstruction_source(
+            frozen, source_package_path=package, runtime_manifest=different
+        )
+        assert receipt["runtime_identity"] == frozen.registration.runtime_identity.as_record()
+        with pytest.raises(ValueError, match="runtime differs from the frozen registration"):
             admit_reconstruction_source(
-                forged, source_package_path=package, runtime_manifest=different
+                prepared, source_package_path=package, runtime_manifest=different
             )
 
 

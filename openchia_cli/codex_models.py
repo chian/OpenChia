@@ -1,10 +1,9 @@
-"""Codex model discovery from API, local cache, and config."""
+"""Codex model discovery from API and OpenChia's private cache/config."""
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -210,7 +209,9 @@ def get_codex_model_ids(access_token: Optional[str] = None, base_url: Optional[s
 
     Pass the ``base_url`` resolved together with ``access_token`` (runtime/pool route) so live
     discovery asks the credential's own host."""
-    codex_home = Path(os.getenv("CODEX_HOME", "").strip() or str(Path.home() / ".codex")).expanduser()
+    from openchia_cli.codex_runtime_home import resolve_codex_home
+
+    codex_home = resolve_codex_home()
     if access_token:
         api_models = _fetch_models_from_api(access_token, base_url=base_url)
         if api_models:

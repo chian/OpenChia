@@ -94,7 +94,9 @@ def require_assignment(view, policy, assignment):
         assignment.body["contribution_requirement_keys"]
     ):
         raise ValueError(
-            "investigation needs parent-owned decision meanings for every contribution"
+            "No authorized investigation observations and decision meanings cover every "
+            "assigned contribution. This child cannot search arbitrary repository files. "
+            "Rewording its goal or return contract cannot create the missing observations."
         )
 
 

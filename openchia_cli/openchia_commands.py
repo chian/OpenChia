@@ -33,7 +33,7 @@ _HELP_TEXT = (
     "  /decline          reject the pending refinement and keep the baseline\n"
     "  /build            start a fresh build → refine → validate job\n"
     "  /build status     inspect the current build job\n"
-    "  /build continue   continue the saved job with its original execution identity\n"
+    "  /build continue [BUILD_REQUEST_ID] resume saved work; future refiner calls use current Duet settings\n"
     "  /launch load FILE select project/model configuration for future launches\n"
     "  /launch [status|calls] inspect selected settings and actual routing receipts\n"
     "  /launch preview   resolve and display settings before launching (no model call)\n"
@@ -226,7 +226,11 @@ class OpenChiaCommandMixin:
         return True
 
     def _handle_openchia_build(self, stripped: str) -> bool:
-        action = self._command_arguments(stripped).lower()
+        parts = self._command_arguments(stripped).split()
+        action = parts[0].lower() if parts else ""
+        if len(parts) > (2 if action == "continue" else 1):
+            self._print_openchia("Usage: /build [status|continue [BUILD_REQUEST_ID]]")
+            return True
         if action == "status":
             try:
                 self._print_openchia(
@@ -242,10 +246,14 @@ class OpenChiaCommandMixin:
                 )
             return True
         if action not in {"", "continue"}:
-            self._print_openchia("Usage: /build [status|continue]")
+            self._print_openchia("Usage: /build [status|continue [BUILD_REQUEST_ID]]")
             return True
         try:
-            build = (self._episode_host().continue_build() if action == "continue"
+            # A resumed Duet can start/continue a build before its next chat turn.
+            # The refiner still needs that Duet's own bound model configuration.
+            if not self._init_agent():
+                return True
+            build = (self._episode_host().continue_build(*parts[1:]) if action == "continue"
                      else self._episode_host().start_build())
             attempt = build.get("build_attempt_id") or "pending"
             operation = "Build job continued" if action == "continue" else "EpisodeBuilder started fresh request"

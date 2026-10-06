@@ -130,6 +130,31 @@ def make_session(client: FakeClient, **kwargs) -> CodexAppServerSession:
     )
 
 
+@pytest.mark.parametrize("status", ["interrupted", "failed"])
+def test_provider_terminal_without_error_payload_is_not_success(status):
+    client = FakeClient()
+    client.queue_notification("turn/completed", turn={"id": "tu1", "status": status})
+    result = make_session(client).run_turn("work", turn_timeout=None)
+    assert result.interrupted if status == "interrupted" else result.error
+
+
+def test_unbounded_turn_still_honors_explicit_cancellation():
+    client = FakeClient()
+    session = make_session(client)
+    session.request_interrupt()
+    result = session.run_turn("work", turn_timeout=None)
+    assert result.interrupted
+    assert not any(method == "turn/start" for method, _ in client.requests)
+
+
+def test_terminal_notification_drained_for_approval_still_finishes_turn():
+    client = FakeClient()
+    client.queue_server_request("item/commandExecution/requestApproval", command="inspect candidate")
+    client.queue_notification("turn/completed", turn={"id": "tu1", "status": "completed"})
+    result = make_session(client).run_turn("work", turn_timeout=2)
+    assert not result.interrupted and result.error is None
+
+
 # ---- choice mapping ----
 
 class TestApprovalChoiceMapping:
@@ -179,8 +204,8 @@ class TestLifecycle:
         method_calls = [m for (m, _) in client.requests if m == "thread/start"]
         assert len(method_calls) == 1
 
-    def test_thread_start_carries_hermes_prompt_and_disables_codex_personality(self):
-        """thread/start carries cwd, Hermes' composed prompt as developerInstructions and
+    def test_thread_start_carries_openchia_prompt_and_disables_codex_personality(self):
+        """thread/start carries cwd, OpenChia's composed prompt as developerInstructions and
         personality "none" (#74712, #72104, #26035). We intentionally do NOT pass `permissions`
         (experimentalApi-gated + requires a matching config.toml [permissions] table)."""
         client = FakeClient()
@@ -1139,7 +1164,7 @@ class TestTransportLoss:
         steer_session._issue_interrupt("turn-fake-001")  # must not raise
 
 
-def test_only_current_turn_progress_reaches_hermes_activity_clock():
+def test_only_current_turn_progress_reaches_openchia_activity_clock():
     from agent.activity_tracking import ActivityTrackingMixin
     from agent.codex_runtime import make_codex_app_server_event_bridge
 

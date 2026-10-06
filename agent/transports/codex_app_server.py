@@ -91,33 +91,38 @@ class CodexAppServerClient:
     def __init__(
         self, codex_bin: str = "codex", codex_home: Optional[str] = None,
         extra_args: Optional[list[str]] = None, env: Optional[dict[str, str]] = None,
+        *, inherit_credentials: bool = True, inherit_delegation: bool = True,
+        cwd: Optional[str] = None,
     ) -> None:
         self._codex_bin = codex_bin
-        # codex needs LLM provider creds but must not receive Tier-1 Hermes secrets (gateway/GitHub/infra tokens).
+        # codex needs LLM provider creds but must not receive Tier-1 OpenChia secrets (gateway/GitHub/infra tokens).
         # codex app-server is a model-driving CLI executor: it runs a model-chosen agentic loop that
         # executes shell commands, so it legitimately needs LLM provider credentials
         # (inherit_credentials=True) to authenticate against the model endpoint. But the previous
-        # `os.environ.copy()` also handed it every Tier-1 Hermes secret — gateway bot tokens, GitHub auth,
+        # `os.environ.copy()` also handed it every Tier-1 OpenChia secret — gateway bot tokens, GitHub auth,
         # Modal/Daytona infra tokens, the dashboard session token, AUXILIARY_* side-LLM keys,
         # GATEWAY_RELAY_* auth — none of which a coding subprocess has any use for. Route through the
         # centralized helper so Tier-1 + dynamic-internal secrets are always stripped while provider creds
         # still flow, matching copilot_acp_client (#29157 sibling spawn-site gap).
-        spawn_env = hermes_subprocess_env(inherit_credentials=True)
+        spawn_env = hermes_subprocess_env(inherit_credentials=inherit_credentials)
         if env:
             spawn_env.update(env)
-        if codex_home:
-            spawn_env["CODEX_HOME"] = codex_home
+        from openchia_cli.codex_runtime_home import codex_child_env
+
+        # Use the same private configuration as scripts/openchia-codex. Ambient
+        # CODEX_HOME may belong to the user's enclosing Codex session.
+        spawn_env = codex_child_env(spawn_env, codex_home)
 
         cmd = [codex_bin, "app-server", *(extra_args or [])]
         from agent.delegation_context import (
             DELEGATED_CHILD_ENV_MARKER, KANBAN_ENV_KEYS,
             delegated_child_subprocess_env, is_dispatcher_owned_worker_context,
         )
-        # Native shell children remain unowned. Only Hermes' managed MCP tool
+        # Native shell children remain unowned. Only OpenChia's managed MCP tool
         # endpoint acts for this worker; grant it scope via its existing per-server
         # environment (the entry the runtime migration registers), never by granting
         # the whole executor process ownership.
-        owned_task = os.environ.get("HERMES_KANBAN_TASK") and is_dispatcher_owned_worker_context()
+        owned_task = inherit_delegation and os.environ.get("HERMES_KANBAN_TASK") and is_dispatcher_owned_worker_context()
         if owned_task:
             for key in (*KANBAN_ENV_KEYS, "HERMES_KANBAN_DB", "HERMES_KANBAN_BOARD"):
                 if key in os.environ:
@@ -145,7 +150,7 @@ class CodexAppServerClient:
 
         self._proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            bufsize=0, env=spawn_env, creationflags=windows_hide_flags(),
+            bufsize=0, env=spawn_env, cwd=cwd, creationflags=windows_hide_flags(),
         )
         self._next_id = 1
         self._pending: dict[int, queue.Queue] = {}  # request id -> single-slot reply queue
@@ -163,7 +168,7 @@ class CodexAppServerClient:
         self._stderr_reader.start()
 
     def initialize(
-        self, client_name: str = "hermes", client_title: str = "Hermes Agent",
+        self, client_name: str = "openchia", client_title: str = "OpenChia",
         client_version: str = "0.1", capabilities: Optional[dict] = None, timeout: float = 10.0,
     ) -> dict:
         """Send ``initialize`` + ``initialized``; return the server's InitializeResponse."""
@@ -289,6 +294,15 @@ class CodexAppServerClient:
 
     def is_alive(self) -> bool:
         return self._proc.poll() is None
+
+    def process_identity(self) -> dict:
+        """Verifiable subprocess owner for callers that persist resumable work."""
+        from openchia_cli.active_sessions import _process_start_time
+
+        started = _process_start_time(self._proc.pid)
+        if started is None or not self.is_alive():
+            raise RuntimeError("Codex subprocess has no verifiable live identity")
+        return {"pid": self._proc.pid, "process_start_time": started}
 
     def _send(self, obj: dict) -> None:
         if self._closed:

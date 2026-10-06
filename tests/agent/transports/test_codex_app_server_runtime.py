@@ -216,7 +216,7 @@ class TestSpawnEnvIsolation:
     """
 
 
-    def test_spawn_env_sets_CODEX_HOME_when_provided(self, monkeypatch):
+    def test_spawn_env_sets_CODEX_HOME_when_provided(self, monkeypatch, tmp_path):
         """CODEX_HOME isolation must still work — that's the whole point
         of the codex_home arg."""
         import subprocess
@@ -247,17 +247,20 @@ class TestSpawnEnvIsolation:
 
         monkeypatch.setattr(subprocess, "Popen", FakePopen)
         monkeypatch.setenv("HOME", "/users/alice")
+        monkeypatch.setenv("CODEX_THREAD_ID", "personal-thread")
+        monkeypatch.setenv("CODEX_PERMISSION_PROFILE", ":danger-full-access")
 
-        client = cas.CodexAppServerClient(
-            codex_bin="codex", codex_home="/tmp/profile/codex"
-        )
+        private_home = tmp_path / "profile" / "codex"
+        client = cas.CodexAppServerClient(codex_bin="codex", codex_home=str(private_home))
         client._closed = True
 
-        assert captured["env"].get("CODEX_HOME") == "/tmp/profile/codex"
+        assert captured["env"].get("CODEX_HOME") == str(private_home)
+        assert "CODEX_THREAD_ID" not in captured["env"]
+        assert "CODEX_PERMISSION_PROFILE" not in captured["env"]
         # And HOME still passes through unchanged
         assert captured["env"].get("HOME") == "/users/alice"
 
-    def test_kanban_worker_adds_only_kanban_writable_root(self, monkeypatch):
+    def test_kanban_worker_adds_only_kanban_writable_root(self, monkeypatch, tmp_path):
         """Codex-runtime Kanban workers need to write board state outside
         their scratch/worktree workspace, but should not fall back to
         danger-full-access. Hermes passes a narrow app-server config override
@@ -292,7 +295,7 @@ class TestSpawnEnvIsolation:
 
         monkeypatch.setattr(subprocess, "Popen", FakePopen)
         monkeypatch.setenv("HOME", "/users/alice")
-        monkeypatch.setenv("HERMES_HOME", "/users/alice/.hermes/profiles/backend-worker")
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "backend-worker"))
         monkeypatch.setenv("HERMES_KANBAN_TASK", "t_smoke")
         monkeypatch.setenv(
             "HERMES_KANBAN_DB",
@@ -387,4 +390,3 @@ class TestSpawnEnvSecretStripping:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-codex-needs-this")
         env = self._capture_spawn_env(monkeypatch)
         assert env.get("OPENAI_API_KEY") == "sk-codex-needs-this"
-

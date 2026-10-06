@@ -104,12 +104,12 @@ def local_context(view, invocation_id):
             "check_states": check_states,
             "assessment_refs": [
                 reference
-                for unit in units[-8:]
+                for unit in units
                 for reference in unit.body.get("assessment_refs", ())
             ],
             "prerequisite_assessment_refs": [
                 reference
-                for unit in units[-8:]
+                for unit in units
                 for reference in unit.body.get("prerequisite_assessment_refs", ())
             ],
             "eligible_actions": actions,
@@ -118,7 +118,8 @@ def local_context(view, invocation_id):
                 item.ref.as_record() for item in lessons if item not in active_lessons
             ],
             "conflict_refs": [item.ref.as_record() for item in conflicts],
-            "recent_unit_refs": [item.ref.as_record() for item in units[-8:]],
+            # Retain the stored v1 field name, but never discard older units.
+            "recent_unit_refs": [item.ref.as_record() for item in units],
             "history_cursor": view.head["sequence"],
             "complete_index_ref": cursor.as_record(),
         },

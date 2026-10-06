@@ -15,6 +15,8 @@ from agent.episode_contracts import OpaqueId
 from ..broker import ScopedModelBroker
 from ..http_broker import ScopedHttpBroker
 from ..contracts import RunRegistration
+from ..landlock import landlock_abi7_policy_hash
+from ..seccomp import seccomp_policy_hash
 from ..store import RunStoreNotFound
 from ..records.experiments import (
     artifact_fields,
@@ -31,8 +33,10 @@ class ExecutionPending(RuntimeError):
 
 
 def register_build(
-    executor, builds, inputs, launch, runtime_policy, *, execution_scope=None
+    executor, builds, inputs, launch, runtime_policy, *, execution_scope=None,
+    target_environment=None,
 ):
+    dependency_reads = target_environment is not None
     registration = RunRegistration.from_admitted_build(
         build_request=inputs.build_request,
         build_attempt=inputs.build_attempt,
@@ -42,8 +46,13 @@ def register_build(
         runtime_identity=executor.inspect_runtime_identity(
             destination_root=executor.run_store.runtime_sources_root
         ),
-        runtime_policy=runtime_policy,
+        runtime_policy=replace(
+            runtime_policy, dependency_reads=dependency_reads,
+            landlock_policy_hash=landlock_abi7_policy_hash(dependency_reads=dependency_reads),
+            seccomp_policy_hash=seccomp_policy_hash(dependency_reads=dependency_reads),
+        ),
         execution_scope=execution_scope,
+        target_environment=target_environment,
     )
     return registration, builds.verify_source_package(inputs.manifest)
 
@@ -121,11 +130,11 @@ class RunExecution:
             }
         if evidence.registration_hash != registration.registration_hash:
             raise ValueError("terminal evidence belongs to another execution binding")
-        from ..continuation import InterruptedRunRef
+        from ..continuation import InterruptedRunRef, resumable_run
 
         resume_from = (
             InterruptedRunRef.from_run(runs, run_id).as_record()
-            if evidence.terminal_status.value in {"interrupted", "cancelled", "resource_limited"}
+            if resumable_run(runs, run_id)
             else None
         )
         return {
@@ -160,6 +169,7 @@ class RunExecution:
             runtime_policy=registration.runtime_policy,
             execution_scope=registration.execution_scope,
             resume_from=registration.resume_from,
+            target_environment=registration.target_environment,
         )
         if admitted != registration:
             raise ValueError("experiment Run differs from its admitted build")
@@ -290,7 +300,11 @@ class RunExecution:
 
             if self.duet_binding is None:
                 raise ValueError("Refinement execution needs its owning Duet's host-bound model configuration.")
-            self.duet_binding.validate(artifacts=self.artifacts, reference=request["launch_ref"], owner_duet_id=subject["owner_duet_id"], model_types=required_slots(inputs))
+            # The original experiment pins its first binding. An explicit
+            # continuation can use the owning Duet's new selection for future
+            # calls; this attempt's execution record below pins that binding.
+            reference = self.duet_binding.reference if registration.resume_from is not None else request["launch_ref"]
+            self.duet_binding.validate(artifacts=self.artifacts, reference=reference, owner_duet_id=subject["owner_duet_id"], model_types=required_slots(inputs))
         elif mode in {"live_fresh", "live_saved"} and intent["kind"] in {
             "experiment.dispatch.v1", "experiment.instrument.v1", "experiment.launch_intent.v1"
         }:
@@ -500,6 +514,15 @@ class RunExecution:
         self, *, registration, inputs, package, cursor, intent_ref,
         model_broker, http_broker, refinement_session,
     ):
+        if registration.target_environment is not None:
+            from ..target_environment_preparation import EnvironmentPreparationService
+
+            preparation = EnvironmentPreparationService(
+                artifacts=self.artifacts, builds=self.builds, runs=self.runs, executor=self.executor,
+            )
+            prepared = await preparation.prepare_manifest(inputs.manifest, duet_id=registration.duet_id.value)
+            if prepared != registration.target_environment:
+                raise ValueError("prepared dependencies differ from the exact registered Run environment")
         plan = inputs.plan
         experiment_session = None
         if any(

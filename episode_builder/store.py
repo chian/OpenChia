@@ -625,6 +625,16 @@ class BuildStore:
             "STATIC_ADMISSION.json": _canonical_bytes(report.as_record()),
             "BUILD_MANIFEST.json": _canonical_bytes(manifest.as_record()),
         }
+        if manifest.environment_recipe is not None:
+            from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+
+            records[ENVIRONMENT_RECIPE_PATH] = _canonical_bytes(
+                manifest.as_record()["environment_recipe"]
+            )
+        if manifest.environment_lock is not None:
+            records["TARGET_ENVIRONMENT_LOCK.json"] = _canonical_bytes(
+                manifest.as_record()["environment_lock"]
+            )
         for node in plan.nodes:
             digest = manifest.module_hashes_by_local_id[node.local_id]
             relative = self._package_module_path(node.module_name).as_posix()

@@ -4,7 +4,8 @@ The worker installs this filter only after its asyncio pipe transport, source
 closure, and admitted imports are ready.  Existing descriptor I/O and the
 event loop's existing socketpair remain usable; creating network endpoints,
 opening paths, mutating the filesystem, spawning processes, and replacing the
-process image are denied with ``EPERM``.
+process image are denied with ``EPERM``. The registered dependency variant
+admits read-only open/openat; Landlock restricts those reads to the frozen roots.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ SECCOMP_MODE_FILTER = 2
 
 _BPF_LD_W_ABS = 0x20
 _BPF_JMP_JEQ_K = 0x15
+_BPF_JMP_JSET_K = 0x45
 _BPF_RET_K = 0x06
 _SECCOMP_RET_KILL_PROCESS = 0x80000000
 _SECCOMP_RET_ERRNO = 0x00050000
@@ -114,6 +116,11 @@ _DENIED_SYSCALLS = {
 }
 _DENIED_SYSCALLS["arm64"] = _DENIED_SYSCALLS["aarch64"]
 
+# Linux flags are policy data, not the registering host's os.O_* constants.
+# O_TMPFILE's private bit is included, not its shared O_DIRECTORY bit.
+_WRITE_OPEN_FLAGS = 0x3 | 0x40 | 0x200 | 0x400 | 0x400000
+_OPEN_FLAGS_ARGUMENT = {"open": 1, "openat": 2}
+
 
 class SeccompError(RuntimeError):
     """The exact syscall boundary could not be installed."""
@@ -161,11 +168,13 @@ def _machine() -> str:
     return machine
 
 
-def seccomp_policy_record(machine: str | None = None) -> dict[str, object]:
+def seccomp_policy_record(machine: str | None = None, *, dependency_reads: bool = False) -> dict[str, object]:
+    if type(dependency_reads) is not bool:
+        raise TypeError("dependency_reads must be a boolean")
     selected = _machine() if machine is None else normalize_machine(machine)
     if selected not in _AUDIT_ARCH or selected not in _DENIED_SYSCALLS:
         raise ValueError("seccomp machine is unsupported")
-    return {
+    record = {
         "machine": selected,
         "audit_arch": _AUDIT_ARCH[selected],
         "default_action": "allow",
@@ -173,13 +182,24 @@ def seccomp_policy_record(machine: str | None = None) -> dict[str, object]:
         "denied_syscalls": {
             name: number
             for name, number in sorted(_DENIED_SYSCALLS[selected].items())
+            if not dependency_reads or name not in _OPEN_FLAGS_ARGUMENT
         },
         "no_new_privs": True,
     }
+    if dependency_reads:
+        record.update(
+            dependency_reads=True,
+            read_only_open_syscalls={
+                name: {"number": _DENIED_SYSCALLS[selected][name], "flags_argument": argument}
+                for name, argument in _OPEN_FLAGS_ARGUMENT.items() if name in _DENIED_SYSCALLS[selected]
+            },
+            denied_open_flags=_WRITE_OPEN_FLAGS,
+        )
+    return record
 
 
-def seccomp_policy_hash(machine: str | None = None) -> Sha256Digest:
-    return digest_record(seccomp_policy_record(machine))
+def seccomp_policy_hash(machine: str | None = None, *, dependency_reads: bool = False) -> Sha256Digest:
+    return digest_record(seccomp_policy_record(machine, dependency_reads=dependency_reads))
 
 
 @dataclass(frozen=True)
@@ -188,6 +208,7 @@ class SeccompPolicyReceipt:
     executor_instance_id: OpaqueId
     machine: str
     policy_hash: Sha256Digest
+    dependency_reads: bool = False
     receipt_id: OpaqueId = field(init=False)
     content_hash: Sha256Digest = field(init=False)
 
@@ -201,7 +222,7 @@ class SeccompPolicyReceipt:
             raise ValueError("seccomp receipt machine is unsupported")
         if not isinstance(self.policy_hash, Sha256Digest):
             raise TypeError("policy_hash must be a Sha256Digest")
-        if self.policy_hash != seccomp_policy_hash(self.machine):
+        if self.policy_hash != seccomp_policy_hash(self.machine, dependency_reads=self.dependency_reads):
             raise ValueError("seccomp receipt names another policy")
         receipt_id = content_id("seccomp_receipt", self.semantic_record())
         object.__setattr__(self, "receipt_id", receipt_id)
@@ -215,7 +236,7 @@ class SeccompPolicyReceipt:
         return {
             "run_id": self.run_id.value,
             "executor_instance_id": self.executor_instance_id.value,
-            "policy": seccomp_policy_record(self.machine),
+            "policy": seccomp_policy_record(self.machine, dependency_reads=self.dependency_reads),
             "policy_hash": self.policy_hash.value,
         }
 
@@ -242,13 +263,15 @@ class SeccompPolicyReceipt:
         if not isinstance(policy, Mapping):
             raise ValueError("seccomp receipt policy must be an object")
         machine = policy.get("machine")
-        if not isinstance(machine, str) or policy != seccomp_policy_record(machine):
+        dependency_reads = policy.get("dependency_reads", False)
+        if not isinstance(machine, str) or policy != seccomp_policy_record(machine, dependency_reads=dependency_reads):
             raise ValueError("seccomp receipt policy differs from the exact policy")
         result = cls(
             run_id=OpaqueId(value["run_id"]),
             executor_instance_id=OpaqueId(value["executor_instance_id"]),
             machine=machine,
             policy_hash=Sha256Digest(value["policy_hash"]),
+            dependency_reads=dependency_reads,
         )
         if (
             result.receipt_id.value != value["receipt_id"]
@@ -269,19 +292,21 @@ def apply_seccomp_policy(
     *,
     run_id: OpaqueId,
     executor_instance_id: OpaqueId,
+    dependency_reads: bool = False,
 ) -> SeccompPolicyReceipt:
     if not isinstance(run_id, OpaqueId):
         raise TypeError("run_id must be an OpaqueId")
     if not isinstance(executor_instance_id, OpaqueId):
         raise TypeError("executor_instance_id must be an OpaqueId")
     machine = _machine()
+    policy = seccomp_policy_record(machine, dependency_reads=dependency_reads)
     instructions: list[_SockFilter] = [
         _SockFilter(_BPF_LD_W_ABS, 0, 0, 4),
         _SockFilter(_BPF_JMP_JEQ_K, 1, 0, _AUDIT_ARCH[machine]),
         _SockFilter(_BPF_RET_K, 0, 0, _SECCOMP_RET_KILL_PROCESS),
         _SockFilter(_BPF_LD_W_ABS, 0, 0, 0),
     ]
-    denied = sorted(set(_DENIED_SYSCALLS[machine].values()))
+    denied = sorted(set(policy["denied_syscalls"].values()))
     for number in denied:
         instructions.extend(
             (
@@ -294,6 +319,16 @@ def apply_seccomp_policy(
                 ),
             )
         )
+    # openat2 keeps its unconditional denial: its flags live behind a pointer
+    # and cannot be checked by this classic BPF filter.
+    for operation in policy.get("read_only_open_syscalls", {}).values():
+        instructions.extend((
+            _SockFilter(_BPF_JMP_JEQ_K, 0, 4, operation["number"]),
+            _SockFilter(_BPF_LD_W_ABS, 0, 0, 16 + 8 * operation["flags_argument"]),
+            _SockFilter(_BPF_JMP_JSET_K, 0, 1, _WRITE_OPEN_FLAGS),
+            _SockFilter(_BPF_RET_K, 0, 0, _SECCOMP_RET_ERRNO | errno.EPERM),
+            _SockFilter(_BPF_RET_K, 0, 0, _SECCOMP_RET_ALLOW),
+        ))
     instructions.append(_SockFilter(_BPF_RET_K, 0, 0, _SECCOMP_RET_ALLOW))
     array_type = _SockFilter * len(instructions)
     array = array_type(*instructions)
@@ -315,7 +350,8 @@ def apply_seccomp_policy(
         run_id=run_id,
         executor_instance_id=executor_instance_id,
         machine=machine,
-        policy_hash=seccomp_policy_hash(machine),
+        policy_hash=seccomp_policy_hash(machine, dependency_reads=dependency_reads),
+        dependency_reads=dependency_reads,
     )
 
 

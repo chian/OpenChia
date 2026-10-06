@@ -1,4 +1,4 @@
-"""Migrate Hermes MCP server config and Codex's installed curated plugins into ~/.codex/config.toml.
+"""Project MCP servers and plugins into OpenChia's private Codex configuration.
 """
 
 from __future__ import annotations
@@ -363,43 +363,14 @@ def _query_codex_plugins(
     return list(out.values()), None
 
 
-# pytest tempdir shapes: ``pytest-of-<user>/pytest-<n>/``, macOS ``/private/var/folders/…/T``.
-_TEST_TEMPDIR_NEEDLES = ("pytest-of-", "/pytest-", "/tmp/pytest", "/private/var/folders/")  # no-tmp: ok — detection needle for pytest temp homes
-
-
-def _looks_like_test_tempdir(path: str) -> bool:
-    """Heuristic: does ``path`` look like a pytest/transient tempdir?
-
-    Such dirs are reaped between sessions; a HERMES_HOME pointing there burned into
-    ``~/.codex/config.toml`` makes every codex-routed call fail silently once GC'd. Err on
-    refusing: a false positive is far less harmful than silently bricking codex's tool surface.
-    """
-    return bool(path) and any(needle in path.lower() for needle in _TEST_TEMPDIR_NEEDLES)
-
-
 def _build_hermes_tools_mcp_entry() -> dict:
-    """Codex stdio entry launching Hermes' own tool surface as an MCP server (browser/web/
-    delegate_task/vision/memory/skills call-backs).
-
-    HERMES_HOME passes through only IF SET, read from os.environ (not get_hermes_home()): when
-    unset the codex subprocess must inherit its launcher's runtime HERMES_HOME (systemd, gateway,
-    kanban), not a migrate-time default burned into config.toml that pins the wrong profile. The
-    pytest-tempdir guard keeps a sibling test's monkeypatched HERMES_HOME out of the user's real
-    config. PYTHONPATH passes through so a worktree-launched hermes finds the branch's modules.
-    """
+    """Bind the tool callback to the owner of this private Codex configuration."""
     import sys
-    env: dict[str, str] = {}
-    # HERMES_HOME passes through IF SET so the MCP subprocess sees the same config / auth / sessions DB as
-    # the parent CLI. Read from os.environ (not get_hermes_home()) on purpose: when the env var is unset we
-    # want codex's subprocess to inherit whatever HERMES_HOME its launcher sets at runtime (systemd unit,
-    # gateway, kanban dispatcher, custom shell), rather than burning the migrate-time resolved default into
-    # config.toml — that would override the launcher's HERMES_HOME and pin the subprocess to the wrong
-    # profile. The pytest-tempdir guard below catches the issue #26250 Bug C scenario: a sibling test's
-    # monkeypatch.setenv("HERMES_HOME", tmp_path) would otherwise leak a transient pytest tempdir into the
-    # user's real ~/.codex/config.toml and silently brick codex once the tempdir is GC'd.
-    hermes_home = os.environ.get("HERMES_HOME") or ""
-    if hermes_home and not _looks_like_test_tempdir(hermes_home):
-        env["HERMES_HOME"] = hermes_home
+    from hermes_constants import get_hermes_home
+
+    # Config is now private to the owning profile. Under multiplexing, ambient
+    # HERMES_HOME identifies the launch profile, not necessarily this owner.
+    env: dict[str, str] = {"HERMES_HOME": str(get_hermes_home())}
     if os.environ.get("PYTHONPATH"):
         env["PYTHONPATH"] = os.environ["PYTHONPATH"]
     # Quiet mode + redaction defaults so the MCP wire stays clean.
@@ -424,7 +395,7 @@ def migrate(
     hermes_config: dict, *, codex_home: Optional[Path] = None, dry_run: bool = False,
     discover_plugins: bool = True, default_permission_profile: Optional[str] = ":workspace",
     expose_hermes_tools: bool = True) -> MigrationReport:
-    """Translate Hermes mcp_servers config + Codex curated plugins into ~/.codex/config.toml.
+    """Translate MCP servers and plugins into OpenChia's private Codex config.
 
     ``discover_plugins`` spawns the live codex CLI (set False in tests); discovery is best-effort
     and never blocks the migration. ``default_permission_profile`` (default ":workspace"; built-ins
@@ -433,9 +404,10 @@ def migrate(
     (agent/transports/hermes_tools_mcp_server.py, launched on demand by codex over stdio) as an MCP
     server so the codex subprocess can call back for tools it lacks.
     """
+    from openchia_cli.codex_runtime_home import resolve_codex_home
+
     report = MigrationReport(dry_run=dry_run)
-    codex_home = codex_home or Path(
-        os.getenv("CODEX_HOME", "").strip() or str(Path.home() / ".codex")).expanduser()
+    codex_home = resolve_codex_home(codex_home)
     target = codex_home / "config.toml"
     report.target_path = target
     hermes_servers = (hermes_config or {}).get("mcp_servers") or {}
@@ -488,6 +460,17 @@ def migrate(
                     "; existing config.toml was unloadable — re-run `hermes codex-runtime migrate` "
                     "to migrate plugins")
         without_managed = _strip_existing_managed_block(existing)
+        try:
+            private_config = tomllib.loads(without_managed)
+        except tomllib.TOMLDecodeError as exc:
+            report.errors.append(f"refusing to overwrite invalid private Codex config: {exc}")
+            return report
+        # The checked-in launch default and operator settings are outside the
+        # migration's managed block. Preserve them rather than emit a duplicate
+        # TOML key or mix permission profiles with legacy sandbox settings.
+        if any(key in private_config for key in ("default_permissions", "sandbox_mode", "sandbox_workspace_write")):
+            default_permission_profile = None
+            report.wrote_permissions_default = None
         if plugin_query_succeeded:
             without_managed = _strip_unmanaged_plugin_tables(without_managed)
         # Preserve-user policy: a name the user already declares outside the managed block is

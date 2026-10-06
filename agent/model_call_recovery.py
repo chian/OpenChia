@@ -69,6 +69,7 @@ class CallActivity:
 
 class _Attempt:
     def __init__(self, invoke, request, progress):
+        self.request = request
         self.cancel = threading.Event()
         self.activity = CallActivity(progress)
         self.task = asyncio.create_task(invoke(request, self.cancel, self.activity))
@@ -89,13 +90,14 @@ class _Attempt:
 
 
 class _CallSupervisor:
-    def __init__(self, route, request, cancel, progress, record, invoke):
+    def __init__(self, route, request, cancel, progress, record, invoke, describe_failure):
         self.route = route
         self.request = request
         self.cancel = cancel
         self.progress = progress
         self.record = record
         self.invoke = invoke
+        self.describe_failure = describe_failure
         self.policy = frozen_recovery_policy(route)
         self.started = time.monotonic()
         self.primary = None
@@ -192,9 +194,9 @@ class _CallSupervisor:
             self.emit("probe_cancelled", probe_id=self.probe_id, reason="provider_attempt_cancelled")
             healthy = False
         except Exception as exc:
-            from agent.episode_launch_transport import provider_failure
-
-            self.emit("probe_failed", probe_id=self.probe_id, **provider_failure(exc, self.route))
+            self.emit("probe_failed", probe_id=self.probe_id, **self.describe_failure(
+                exc, self.probe.request, self.probe.activity,
+            ))
             healthy = False
         else:
             healthy = bool(text.strip())
@@ -256,7 +258,13 @@ class _CallSupervisor:
                 if self.cancel.is_set():
                     raise asyncio.CancelledError
                 if self.primary.task.done():
-                    result = self.primary.task.result()
+                    try:
+                        result = self.primary.task.result()
+                    except Exception as exc:
+                        self.emit("physical_attempt_failed", **self.describe_failure(
+                            exc, self.primary.request, self.primary.activity,
+                        ))
+                        raise
                     self.emit("physical_attempt_succeeded")
                     return result
                 snapshot = self.activity_record()
@@ -300,6 +308,6 @@ class _CallSupervisor:
         )
 
 
-async def supervise_model_call(*, route, request, cancel, progress, record, invoke):
+async def supervise_model_call(*, route, request, cancel, progress, record, invoke, describe_failure):
     """One logical call, bounded replacement attempts, and one accepted result."""
-    return await _CallSupervisor(route, request, cancel, progress, record, invoke).run()
+    return await _CallSupervisor(route, request, cancel, progress, record, invoke, describe_failure).run()

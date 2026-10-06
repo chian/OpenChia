@@ -367,47 +367,23 @@ class TestStripUnmanagedPluginTables:
         tomllib.loads(new_text)
 
 
-# ---- Bug C: HERMES_HOME tempdir leak into ~/.codex/config.toml ----
+class TestCallbackProfile:
+    """Private Codex configurations pin their callback to the owning profile."""
 
-
-class TestHermesHomeLeakGuard:
-    """Regression tests for issue #26250 Bug C.
-
-    Previously ``_build_hermes_tools_mcp_entry()`` read ``HERMES_HOME``
-    directly from ``os.environ``, so a pytest ``monkeypatch.setenv`` would
-    leak a transient tempdir path into the user's real ``~/.codex/config.toml``
-    once codex spawned the hermes-tools MCP subprocess.
-    """
-
-
-
-
-    def test_real_hermes_home_propagates(self, monkeypatch, tmp_path):
-        """A legitimate HERMES_HOME (not a tempdir path) DOES propagate so the
-        MCP subprocess sees the same config as the parent CLI."""
-        # Use a path that looks real — under /Users or /home, not /var/folders.
-        # We can't easily create one in the test, so just use a stable path
-        # outside any tempdir-detector needle. The detector checks for tempdir
-        # markers, not for path existence.
-        real_path = "/Users/alice/.hermes"
-        monkeypatch.setenv("HERMES_HOME", real_path)
+    def test_explicit_profile_propagates(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         entry = _build_hermes_tools_mcp_entry()
         env = entry.get("env", {})
-        assert env.get("HERMES_HOME") == real_path
+        assert env.get("HERMES_HOME") == str(tmp_path)
 
-    def test_unset_hermes_home_omits_env_key(self, monkeypatch):
-        """When HERMES_HOME is unset in the environment, the MCP entry MUST
-        NOT bake in a resolved-default path. The codex subprocess should
-        inherit whatever HERMES_HOME its launcher (systemd, gateway, shell)
-        sets at runtime, rather than being pinned to migrate-time defaults.
-        Regression guard for issue #26250 follow-up review."""
+    def test_default_profile_remains_callback_owner(self, monkeypatch, tmp_path):
+        from pathlib import Path
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.delenv("HERMES_HOME", raising=False)
         entry = _build_hermes_tools_mcp_entry()
         env = entry.get("env", {})
-        assert "HERMES_HOME" not in env, (
-            f"HERMES_HOME should not be set when env var is unset, got: "
-            f"{env.get('HERMES_HOME')!r}"
-        )
+        assert env["HERMES_HOME"] == str(tmp_path / ".hermes")
 
 
 # ---- same-name user-owned [mcp_servers.X] tables (issue #79023) ----
@@ -455,17 +431,19 @@ class TestSameNameUserMcpTable:
 
     def test_cli_migrate_dry_run_json_reports_without_writing(self, tmp_path, monkeypatch, capsys):
         """`hermes codex-runtime migrate --dry-run --json` is the supported automation seam:
-        drive it through the real ``hermes`` argparse tree so the subcommand registration in
-        openchia_cli/main.py stays pinned, and honour ``CODEX_HOME`` like every codex sibling."""
+        drive it through the real argparse tree and use the OpenChia profile,
+        never an ambient personal CODEX_HOME."""
         import json
 
         import openchia_cli.main as main
 
-        codex_home = tmp_path / "alt-codex"
-        codex_home.mkdir()
+        profile = tmp_path / "openchia-profile"
+        codex_home = profile / "codex"
+        codex_home.mkdir(parents=True)
         target = codex_home / "config.toml"
         target.write_text('[mcp_servers.gbrain]\ncommand = "existing-gbrain"\n', encoding="utf-8")
-        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        monkeypatch.setenv("HERMES_HOME", str(profile))
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / "personal-codex"))
         monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
         monkeypatch.setattr(
             "openchia_cli.config.load_config",

@@ -12,7 +12,8 @@ import json
 
 from agent.duet_contracts import canonical_json, content_id
 from agent.episode_contracts import OpaqueId, Sha256Digest
-from llm_call_library.contracts import StructuredJSONResult
+from llm_call_library.contracts import CallFailureKind, StructuredJSONResult
+from llm_call_library.transport import ModelCallFailed
 
 from ._contract_base import BuildAttempt
 from .store import BuildStore, BuildStoreCorruptionError
@@ -34,34 +35,39 @@ def observe_model_call(
 ) -> None:
     """Hand exact call evidence to its owner before handling the outcome."""
 
-    if observer is None:
-        return
-    observer(
-        {
-            "stage": stage,
-            "local_id": local_id,
-            "system_prompt": system_prompt,
-            "prompt": prompt,
-            "prompt_record": prompt_record,
-            "raw_response": result.raw_response,
-            "module_source": module_source,
-            "response_admitted": result.succeeded and result.value is not None,
-            "trace": {
-                "role": result.trace.role.value,
-                "tier": result.trace.tier.value,
-                "auxiliary_task": result.trace.auxiliary_task,
-                "route": dict(result.trace.route),
-            },
-            "failure": (
-                None
-                if result.failure is None
-                else {
-                    "kind": result.failure.kind.value,
-                    "message": result.failure.message,
-                }
-            ),
-        }
-    )
+    record = {
+        "stage": stage,
+        "local_id": local_id,
+        "system_prompt": system_prompt,
+        "prompt": prompt,
+        "prompt_record": prompt_record,
+        "raw_response": result.raw_response,
+        "module_source": module_source,
+        "response_admitted": result.succeeded and result.value is not None,
+        "trace": {
+            "role": result.trace.role.value,
+            "tier": result.trace.tier.value,
+            "auxiliary_task": result.trace.auxiliary_task,
+            "route": dict(result.trace.route),
+        },
+        "failure": (
+            None
+            if result.failure is None
+            else {
+                "kind": result.failure.kind.value,
+                "message": result.failure.message,
+            }
+        ),
+    }
+    if observer is not None:
+        observer(record)
+    # Persist the unanswered request before stopping. Schema/answer rejection
+    # is ordinary Builder evidence; unavailable model service is not.
+    if result.failure is not None and result.failure.kind is CallFailureKind.MODEL_CALL:
+        raise ModelCallFailed(
+            "Builder model API request failed; execution stopped. Inspect /launch calls before explicitly continuing.",
+            result.trace.route,
+        )
 
 
 class BuildCallEvidenceRecorder:

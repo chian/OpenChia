@@ -15,8 +15,16 @@ from tests.episode_runtime.conftest import claim_store
 from tests.episode_runtime.testing_harness.refinement_fixture import prepared_refiner
 
 
+def pytest_addoption(parser):
+    parser.addoption("--live-coding-profile", default=None,
+                     help="Opt in to reading this profile's Codex credential for a live coding check (no profile writes)")
+    parser.addoption("--live-coding-binding", default=None,
+                     help="Exact saved Duet model-binding artifact to use for the live coding check")
+
+
 class CampaignFixture:
     def __init__(self, session):
+        self.session = session
         self.store = session.store
         self.duets = self.store.evidence.duets
         self.builds = self.store.evidence.builds
@@ -42,8 +50,22 @@ class CampaignFixture:
         return RefinementRecord(kind, self.campaign_id, body, self.producer, **kwargs)
 
     def assignment(self, role, parent):
+        from iterative_episode_refiner.records import Ref
+        from iterative_episode_refiner.report_contract import requirement_address, requirement_catalog
+
+        with self.session.view() as view:
+            returned = view.data(Ref.from_record(parent.body["return_projection_ref"]))
+            catalog = requirement_catalog(view)
+        addresses = {requirement_address(catalog[key]) for key in self.requirements}
+        return_ref = self.store.put_data(self.session.duet_id, "fixture_return", {
+            **returned, "measurements": [
+                {**item, "requirements": [address for address in item["requirements"] if address in addresses]}
+                for item in returned["measurements"] if addresses.intersection(item["requirements"])
+            ],
+        })
         body = {
             **parent.as_record()["body"],
+            "return_projection_ref": return_ref.as_record(),
             "parent_assignment_ref": parent.ref.as_record(),
             "role": role,
             "scope_requirement_keys": self.requirements,
@@ -98,17 +120,17 @@ class CampaignFixture:
     def designer(self):
         return self.enter("designer")
 
-    def implementer(self):
+    def implementer(self, *, additional_paths=()):
         designer = self.designer()
         self.plan = self.record(
             "design_plan",
             {
                 "assignment_ref": designer.ref.as_record(),
                 "approach_key": "preserve both independently assigned properties",
-                "requirement_mapping": self.requirements,
+                "requirement_mapping": {key: "Preserve the independently checked property" for key in self.requirements},
                 "assumption_refs": [],
                 "proposed_component_refs": [],
-                "intended_change_scope": [self.source_path],
+                "intended_change_scope": [self.source_path, *additional_paths],
                 "dependency_effects": [],
                 "local_measure_ref": designer.body["local_measure_ref"],
                 "acceptance_measure_ref": designer.body["acceptance_measure_ref"],

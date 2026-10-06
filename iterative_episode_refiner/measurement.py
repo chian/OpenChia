@@ -17,6 +17,8 @@ from .state_machine import actor, derived, index, proposed
 
 
 def dependency_hashes(check, candidate):
+    from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+
     paths = check.body["dependency_paths"]
     if paths is None:
         return {
@@ -30,6 +32,13 @@ def dependency_hashes(check, candidate):
     return {
         "": digest_record(candidate.body["materialization_ref"]).value,
         **{path: candidate.body["files"].get(path) for path in paths},
+        # An unchanged function can behave differently after dependency edits.
+        # Include absent primary recipe as well, so adding one stales old checks.
+        **{path: candidate.body["files"].get(path) for path in {
+            ENVIRONMENT_RECIPE_PATH,
+            *(path for path in candidate.body["files"]
+              if path.endswith("/" + ENVIRONMENT_RECIPE_PATH)),
+        }},
     }
 
 

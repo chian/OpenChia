@@ -1030,6 +1030,8 @@ class BuildManifest:
     module_hashes_by_local_id: Mapping[str, Sha256Digest]
     module_dispositions_by_local_id: Mapping[str, str]
     function_definition_ids: tuple[str, ...]
+    environment_recipe: Mapping[str, Any] | None = None
+    environment_lock: Mapping[str, Any] | None = None
     manifest_id: OpaqueId = field(init=False)
 
     def __post_init__(self) -> None:
@@ -1089,6 +1091,19 @@ class BuildManifest:
             pattern=_DEFINITION_ID,
         )
         object.__setattr__(self, "function_definition_ids", definition_ids)
+        from episode_runtime.target_environment import TargetEnvironmentLock, TargetEnvironmentRecipe
+        from function_library.models import _freeze_json, _thaw_json
+
+        if self.environment_recipe is not None:
+            recipe = TargetEnvironmentRecipe.from_record(_thaw_json(self.environment_recipe))
+            object.__setattr__(self, "environment_recipe", _freeze_json(recipe.as_record(), "environment_recipe"))
+        if self.environment_lock is not None:
+            if self.environment_recipe is None:
+                raise ValueError("resolved environment requires its admitted recipe")
+            lock = TargetEnvironmentLock.from_record(_thaw_json(self.environment_lock))
+            if lock.recipe_hash != recipe.recipe_hash:
+                raise ValueError("resolved environment lock belongs to a different recipe")
+            object.__setattr__(self, "environment_lock", _freeze_json(lock.as_record(), "environment_lock"))
         object.__setattr__(
             self,
             "manifest_id",
@@ -1118,7 +1133,15 @@ class BuildManifest:
                 self.module_dispositions_by_local_id
             ),
             "function_definition_ids": list(self.function_definition_ids),
+            "environment_recipe": self._environment_record(self.environment_recipe),
+            "environment_lock": self._environment_record(self.environment_lock),
         }
+
+    @staticmethod
+    def _environment_record(value):
+        from function_library.models import _thaw_json
+
+        return None if value is None else _thaw_json(value)
 
     def as_record(self) -> dict[str, Any]:
         return {"manifest_id": self.manifest_id.value, **self.semantic_record()}
@@ -1190,6 +1213,8 @@ class BuildManifest:
                 "module_hashes_by_local_id",
                 "module_dispositions_by_local_id",
                 "function_definition_ids",
+                "environment_recipe",
+                "environment_lock",
             },
         )
         result = cls(
@@ -1216,6 +1241,8 @@ class BuildManifest:
                     "function_definition_ids",
                 )
             ),
+            environment_recipe=record["environment_recipe"],
+            environment_lock=record["environment_lock"],
         )
         if result.manifest_id.value != record["manifest_id"]:
             raise ValueError("build manifest identity is stale")

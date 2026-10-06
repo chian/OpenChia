@@ -366,14 +366,11 @@ def _apply_change(view, attempt, resolved):
             "after": candidate.artifact_id.value,
         }
     ]
+    from .measurement import dependency_hashes
+
     for entry in view.entries("check_state"):
         check = view.entry("check", entry.key).record
-        dependencies = check.body["dependency_paths"]
-        if (
-            materialization is not None
-            or dependencies is None
-            or touched.intersection(dependencies)
-        ):
+        if dependency_hashes(check, view.candidate) != dependency_hashes(check, candidate):
             deltas.append(index("check_state", entry.key, entry.record, "stale"))
     conflicts = exact_revisit(view, attempt, candidate, materialization)
     deltas.extend(

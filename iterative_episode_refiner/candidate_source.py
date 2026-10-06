@@ -6,6 +6,7 @@ to masquerade as a completed module or a fabricated model response.
 """
 
 import asyncio
+import json
 from dataclasses import dataclass, replace
 
 from agent.duet_contracts import content_id
@@ -37,6 +38,8 @@ class CandidateSources:
     deficits: tuple[BuildDeficit, ...]
     raw_sources: dict[str, str]
     scope: SourceScope
+    environment_recipe: dict | None = None
+    environment_lock: dict | None = None
 
     @property
     def completed_files(self):
@@ -57,7 +60,9 @@ def project_candidate_sources(evidence, contract, candidate, binding=None):
     inputs = scope.baseline
     if scope.fixed:
         return CandidateSources(
-            inputs, inputs.plan, inputs.emitted_modules, (), {}, scope
+            inputs, inputs.plan, inputs.emitted_modules, (), {}, scope,
+            None if inputs.manifest is None else inputs.manifest.as_record()["environment_recipe"],
+            None if inputs.manifest is None else inputs.manifest.as_record()["environment_lock"],
         )
     plan = candidate_plan(
         evidence, contract, candidate, inputs, instrument=scope.instrument
@@ -69,6 +74,19 @@ def project_candidate_sources(evidence, contract, candidate, binding=None):
         for node in inputs.build_request.frozen_workflow.workflow.episodes
     }
     modules, deficits, raw_sources = [], [], {}
+    from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH, TargetEnvironmentRecipe
+
+    environment_recipe = None
+    recipe_path = scope.paths.get(ENVIRONMENT_RECIPE_PATH)
+    if recipe_path is not None and recipe_path in candidate.body["files"]:
+        try:
+            raw = evidence.builds.read_blob(candidate.body["files"][recipe_path]).decode("utf-8")
+            environment_recipe = TargetEnvironmentRecipe.from_record(json.loads(raw)).as_record()
+        except (ValueError, TypeError, UnicodeError) as exc:
+            deficits.append(BuildDeficit(
+                code="environment_recipe_invalid", field_path="environment_recipe",
+                detail=f"{recipe_path}: {exc}".replace("\x00", " ")[:2048],
+            ))
     original_nodes = {node.local_id: node for node in inputs.plan.nodes}
     for node in plan.nodes:
         path = scope.paths[paths[node.local_id]]
@@ -149,13 +167,27 @@ def project_candidate_sources(evidence, contract, candidate, binding=None):
                 )
             )
     return CandidateSources(
-        inputs, plan, tuple(modules), tuple(deficits), raw_sources, scope
+        inputs, plan, tuple(modules), tuple(deficits), raw_sources, scope, environment_recipe
     )
 
 
 def _inputs(store, contract, candidate, builder, binding=None):
+    from .candidate_environment import saved_preparation
+
     projection = project_candidate_sources(store.evidence, contract, candidate, binding)
     inputs = projection.baseline
+    preparation = saved_preparation(store.evidence, contract, candidate, projection.scope)
+    if projection.environment_recipe is not None and not projection.scope.fixed:
+        outcome = None if preparation is None else preparation["result"]
+        if outcome is not None and outcome["status"] == "prepared":
+            projection = replace(projection, environment_lock=outcome["resolved_lock"])
+        else:
+            diagnostics = [] if outcome is None else outcome["diagnostics"]
+            detail = "; ".join(str(item.get("detail", item.get("message", item))) for item in diagnostics)
+            projection = replace(projection, deficits=(*projection.deficits, BuildDeficit(
+                code="environment_preparation_failed", field_path="environment_recipe",
+                detail=(detail or "The candidate environment has not been prepared through the shared execution service.")[:2048],
+            )))
     baseline_files = {
         module.module_name.replace(".", "/") + ".py": module.source_hash.value
         for module in inputs.emitted_modules
@@ -165,12 +197,19 @@ def _inputs(store, contract, candidate, builder, binding=None):
         and projection.plan == inputs.plan
         and projection.completed_files == baseline_files
         and inputs.receipt.materialized
+        and projection.environment_recipe == inputs.manifest.as_record()["environment_recipe"]
+        and projection.environment_lock == inputs.manifest.as_record()["environment_lock"]
     ):
         return inputs.receipt
     materializer = _materializer_identity(builder.planner.call_options, builder.emitter.call_options)
     request = replace(inputs.build_request, request_nonce=content_id("candidate_admission", {
         "campaign_ref": contract.ref.as_record(), "candidate_ref": candidate.ref.as_record(),
         "binding": binding, "materializer": materializer.as_record(),
+        "environment_recipe": projection.environment_recipe,
+        "environment_lock": projection.environment_lock,
+        "environment_preparation": None if preparation is None else {
+            key: preparation["result"][key] for key in ("status", "diagnostics", "resolved_lock")
+        },
     }).value)
     attempt = BuildAttempt(
         build_request_id=request.build_request_id,
@@ -207,6 +246,8 @@ def admit_candidate(store, contract, candidate, builder, binding=None):
         plan=plan,
         emitted_modules=projection.modules,
         source_deficits=projection.deficits,
+        environment_recipe=projection.environment_recipe,
+        environment_lock=projection.environment_lock,
     ))
 
 

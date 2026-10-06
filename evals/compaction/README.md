@@ -29,6 +29,11 @@ Transcripts are NOT committed (they contain real session data). Point
 `--transcript` at a local file. See `fixtures.py` for the expected shape and
 a synthetic-transcript generator used by CI smoke tests.
 
+The optional `scripts/codex_arm.py` uses the selected OpenChia profile's private
+Codex configuration and sessions, including when resuming. Authenticate that
+profile with the repository's `scripts/openchia-codex login` if needed. It does
+not borrow the personal Codex configuration, login or transcripts.
+
 ## Building transcripts from real sessions (`scripts/`)
 
 Compaction rotations mean a single active session rarely exceeds ~300K

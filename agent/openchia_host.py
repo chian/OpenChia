@@ -228,6 +228,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         self._run_cancel_requested = False
         self._run_state = "not_started"
         self._run_registration: Optional[RunRegistration] = None
+        self._run_environment_preparation = None
         self._run_evidence: Optional[RunEvidence] = None
         self._run_baseline: Optional[RefinementBaseline] = None
         self._run_error: Optional[str] = None
@@ -995,11 +996,11 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 raise
         return self.build_status()
 
-    def continue_build(self) -> dict[str, Any]:
+    def continue_build(self, build_request_id: str | None = None) -> dict[str, Any]:
         """Continue the saved build job without restarting completed work."""
         from agent.openchia_build_continue import continue_build
 
-        return continue_build(self)
+        return continue_build(self, build_request_id)
 
     def cancel_build(self) -> bool:
         """Cancel the whole job, including refiner and nested validation Runs."""
@@ -1441,7 +1442,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
     def _current_in_memory_run(self) -> bool:
         registration = self._run_registration
         if registration is None:
-            return False
+            return self._run_baseline is not None and self.workspace.current_baseline() == self._run_baseline
         baseline = self.workspace.current_baseline()
         return bool(
             baseline is not None
@@ -1508,12 +1509,15 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
 
         with self._run_lock:
             if self._current_in_memory_run():
-                return self._run_status_record(
+                status = self._run_status_record(
                     state=self._run_state,
                     registration=self._run_registration,
                     evidence=self._run_evidence,
                     error=self._run_error,
                 )
+                if self._run_environment_preparation is not None:
+                    status["environment_preparation"] = self._run_environment_preparation
+                return status
         baseline = self.workspace.current_baseline()
         if baseline is None:
             return self._run_status_record(

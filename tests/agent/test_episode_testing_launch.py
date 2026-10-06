@@ -57,6 +57,17 @@ class HostExecutor(LinkedExecutor):
         self.repository_root = Path(__file__).resolve().parents[2]
         self.python_executable = Path(sys.executable)
 
+    async def prepare_environment(self, *args, **kwargs):
+        raise AssertionError("The in-process launch fixture cannot prepare Target Workflow dependencies")
+
+    def inspect_runtime_identity(self, *, destination_root):
+        from episode_runtime.identity import materialize_runtime_source_package
+
+        identity, _ = materialize_runtime_source_package(
+            repository_root=self.repository_root, destination_root=destination_root,
+        )
+        return identity
+
 
 def _build_then_cancel_refinement(host, contract, reference, refining):
     workflow = EpisodeWorkflowSpec((
@@ -130,7 +141,7 @@ def test_ordinary_run_preserves_approval_and_launches_nested_experiments(
     raw, selections = {}, []
     refining = threading.Event()
 
-    def respond(route, key, request, cancel, progress):
+    def respond(route, key, request, cancel, progress, activity=None, *, report_client=None):
         if route["model"] == "duet-refiner-fixture":
             refining.set()
             assert cancel.wait(90), "test did not cancel its refinement job"

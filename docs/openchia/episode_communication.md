@@ -58,7 +58,87 @@ admitted for that parent and owns the `child_reports` field in the delivered
 input. It also checks declared inputs against the known child audit identities.
 Completed history is not automatically appended.
 
+The refiner's declared measurement input also includes `iteration_history`:
+`completed_units` and chronological `units` for **every completed unit in that
+Episode invocation**, plus all recorded `proposals` and their host rejection
+reasons. Each unit contains evaluation results, open decisions, ordinal,
+candidate-change flag, realized yield, and disposition. The projection reads
+existing unit receipts and authenticated proposal artifacts scoped to the
+logical Episode identity, retaining history across continuation. A recorded
+proposal is not proof of admission or a successful repair; its measured outcome
+remains separate. Proposal and unit sequences are kept separately: the stored
+proposal artifacts do not carry unit identities, so the projection does not
+invent those associations or assume one proposal per unit.
+There is no last-N cutoff, invented effort classification, or model summary.
+Earlier failed attempts remain visible even when the latest feedback changes.
+Whole audit envelopes and past input contexts are not copied into the history.
+Proposal text is historical data, not instructions or authority.
+
+This is the Episode's own working history. It does not change how its children
+synthesize reports, which reports the method delivers, or what it returns to its
+parent. Replacing the latest child report must not hide repeated zero-yield
+decisions in the parent's own history.
+The refiner completes design, implementation and validation internally. Its
+prompts distinguish explicit required outcomes from implementation choices left
+open: preserve the former, develop and test the latter. Missing details are work
+to resolve, not a requirement to seek another Duet approval. Builder checks are
+automatic host validation, not a conversation or separate design authority.
+Parts may combine coupled work or stage actual dependencies, but static admission
+never substitutes for working behavior. A Designer develops alternatives and
+uses its permitted measurement children; an existing returned measurement need
+goes to its internal parent when resolving it requires a wider scope. Prompts
+must not invent child capabilities or promise unavailable external interactions.
+
 ## Materialization
+
+### Implementer's coding capability
+
+For a production refiner Run, an Implementer `change` request invokes OpenChia's
+existing Codex app-server session rather than asking a single completion to
+serialize all source files. The host resolves the exact active invocation from
+the broker-stamped Episode path. It stages the authorized candidate source,
+assignment, measured history and typed Episode input in a managed workspace.
+The coding agent can read, create, edit and run diagnostic commands there.
+It can create missing initial implementation; it does not require preexisting code.
+
+Actual file differences and `.openchia-plan-edits.json` become the ordinary
+typed change proposal. The coding agent's final prose is retained as evidence,
+not substituted for the change set or a parent report. Source admission and
+local measurements run through the existing host path after that proposal;
+independent parent acceptance, credit, rarefaction and continuation are unchanged.
+Diagnostic commands inside the coding session do not certify acceptance.
+
+This workspace belongs to Implementer. Its sandbox configures the coding tools,
+not the Target Workflow's execution environment. Implementer receives the
+available runtime, installation authority and saved preparation findings, and
+can edit its assigned `.openchia-environment.json` with the candidate source.
+The shared environment service resolves packages through the selected execution
+backend and retains the exact lock with the admitted build. Diagnostics,
+independent validation and subsequent Runs use that saved recipe and lock, not
+packages installed incidentally in the coding session. Preparation failures
+remain typed working feedback; setup itself earns no correctness credit.
+Parent reports include environment findings only when requested by their
+report contract. See [Target Workflow environments](target_workflow_environment.md).
+The assignment/change/report contract is shared across Codex and Claude Code
+adapters; their OS-specific sandbox verification remains separate.
+
+Coding activity, native thread identity and turn results use the existing
+campaign artifact store and model-call events. The ordinary Run model response
+still authenticates the proposal. There is no coding-specific replay runner.
+See [ADR 0009](../adr/0009-implementer-uses-an-existing-coding-agent.md).
+
+### Shared authoring contract
+
+The refiner's Designer and Implementer receive Builder's existing
+`required_module_contract` and per-node `structural_binding_contract` as typed
+working input. There is one authoring contract for initial construction and
+repair, not a second undocumented module format. It includes public imports,
+constructor signatures, required exports, and exact request-admission rules.
+When a node plan is missing, an Implementer can submit a plan-only candidate
+change; the following iteration receives the host-derived plan identities before
+writing source. The ordinary host admission and local checks evaluate each
+change. A Question child is not a general repository reader and cannot supply
+missing authoring APIs by rephrasing an unavailable investigation request.
 
 Each concrete child slot selects `component.report_S`, with interface
 `episode.report_synthesis`. Its request projection constructs the reporting

@@ -96,7 +96,7 @@ def check_codex_binary_ok(codex_bin: str = "codex") -> tuple[bool, Optional[str]
 
 
 def _migration_lines(config: dict) -> list[str]:
-    """Run the ~/.codex/config.toml migration and describe it; failures are non-fatal."""
+    """Update OpenChia's private Codex config; failures are reported to the caller."""
     lines: list[str] = []
     try:
         from openchia_cli.codex_runtime_plugin_migration import HERMES_TOOLS_MCP_SERVER_NAME, migrate
@@ -144,10 +144,10 @@ def apply(
         return CodexRuntimeStatus(success=True, new_value=current, old_value=current, message=msg)
 
     # Re-enabling codex_app_server falls through to the migration: the config value is already
-    # correct but the world state (managed block in ~/.codex/config.toml, hermes-tools MCP
+    # correct but the world state (managed block in OpenChia's Codex config, hermes-tools MCP
     # callback, plugin discovery) may be stale — a common footgun when users pre-set
     # `openai_runtime: codex_app_server` by hand. The migration is idempotent so re-running is
-    # cheap and safe. Re-setting `auto` returns immediately (disabling never touches ~/.codex/).
+    # cheap and safe. Re-setting `auto` returns immediately without a Codex config write.
     reapplying_enable = new_value == current == "codex_app_server"
     if new_value == current and not reapplying_enable:
         return CodexRuntimeStatus(
@@ -185,7 +185,7 @@ def apply(
         ok, ver = _check_binary_cached(codex_bin)
         if ok:
             msg_lines.append(f"codex CLI: {ver}")
-        # Migrate Hermes' MCP servers + Codex's curated plugins into ~/.codex/config.toml so the
+        # Project MCP servers and plugins into OpenChia's private Codex config so the
         # spawned codex subprocess sees the same tool surface AND can call back into Hermes.
         msg_lines.extend(_migration_lines(config))
         msg_lines.append(

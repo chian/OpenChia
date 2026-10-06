@@ -511,6 +511,7 @@ def resolve_control_attempt(reader, attempt):
                 runtime_identity=registration.runtime_identity,
                 runtime_policy=registration.runtime_policy,
                 execution_scope=prepared.execution_scope,
+                target_environment=registration.target_environment,
             )
             result.update(
                 admitted_registration=admitted.as_record(),

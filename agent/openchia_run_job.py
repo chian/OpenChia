@@ -8,7 +8,7 @@ from typing import Any, Optional
 from agent.duet_contracts import DuetProvenance
 from agent.openchia_host import OpenChiaHostError, _describe_exception
 from episode_runtime import (
-    HttpxHostTransport, RunEvidence, RunRegistration, RuntimePolicy,
+    HttpxHostTransport, RunEvidence, RuntimePolicy,
     ScopedHttpBroker, ScopedModelBroker,
 )
 
@@ -43,6 +43,8 @@ def start_run(host, *, continuing=False) -> dict[str, Any]:
 
                 registration, intent_ref, launch_id, launch = restore_run(host, baseline)
                 executor = host._runtime_executor()
+                broker, http_broker = _brokers(host, registration, plan, launch_id, launch)
+                prepare = None
             else:
                 launch_request = host._root_launch_request(request, plan)
                 from episode_builder.planner import required_model_types
@@ -54,43 +56,22 @@ def start_run(host, *, continuing=False) -> dict[str, Any]:
                         raise OpenChiaHostError(f"Episode {node.local_id}: {exc}") from None
                 host._require_approved_launch(model_types=model_types)
                 executor = host._runtime_executor()
-                runtime_identity = executor.inspect_runtime_identity(
-                    destination_root=host.run_store.runtime_sources_root,
-                )
-                registration = RunRegistration.from_admitted_build(
-                    build_request=request,
-                    build_attempt=attempt,
-                    build_receipt=receipt,
-                    build_manifest=manifest,
-                    launch_request=launch_request,
-                    runtime_identity=runtime_identity,
-                    runtime_policy=RuntimePolicy(),
-                )
-                launch_id, launch = host._prepare_model_launch("run", registration.run_id.value,
-                    model_types=model_types)
-            broker = ScopedModelBroker(host._model_launch_transport(launch_id, launch),
-                episode_paths={host._model_node_path(node.local_id, plan): node.local_id for node in plan.nodes})
-            http_broker = ScopedHttpBroker(
-                policy=registration.egress_policy,
-                credentials=host.egress_credentials,
-                transport=HttpxHostTransport(),
-                max_frame_bytes=registration.runtime_policy.max_frame_bytes,
-            )
+                registration = intent_ref = broker = http_broker = None
+
+                async def prepare():
+                    return await _prepare_fresh_run(host, executor, receipt, launch_request, model_types)
+
             from episode_runtime.testing_harness.execution import RunExecution
-            from episode_runtime.testing_harness.launches import record_launch_intent
 
             execution = RunExecution(
                 artifacts=host.store, builds=host.build_store,
                 runs=host.run_store, executor=executor,
             )
-            if not continuing:
-                intent_ref = record_launch_intent(
-                    host.store, registration, launch_id, launch.configuration_hash,
-                )
             host._run_registration = registration
             host._run_evidence = None
-            host._run_baseline = None
+            host._run_baseline = baseline
             host._run_error = None
+            host._run_environment_preparation = None
             host._run_cancel_requested = False
             host._run_loop = None
             host._run_task = None
@@ -100,55 +81,105 @@ def start_run(host, *, continuing=False) -> dict[str, Any]:
             worker = threading.Thread(
                 target=context.run,
                 args=(run_worker, host, baseline, registration, execution,
-                      source_package, intent_ref, broker, http_broker, continuing),
-                name=f"openchia-run-{registration.run_id.value[-12:]}",
+                      source_package, intent_ref, broker, http_broker, continuing, prepare),
+                name=f"openchia-run-{receipt.receipt_id.value[-12:]}",
                 daemon=False,
             )
             host._run_thread = worker
-            from agent.openchia_build_recovery import owner_record
-
-            host.store.append_event(
-                duet_id=host.identity.duet_id.value,
-                event_type="run_continue_requested" if continuing else "run_requested",
-                provenance=DuetProvenance.HUMAN_INPUT.value,
-                record={
-                    "registration": registration.as_record(),
-                    # A continuation request is not ownership of its predecessor.
-                    # RunExecution acquires the successor's fenced lease.
-                    "requester" if continuing else "owner": owner_record(),
-                    "intent_ref": intent_ref,
-                    "run_id": registration.run_id.value,
-                    "registration_hash": (
-                        registration.registration_hash.value
-                    ),
-                    "build_request_id": (
-                        registration.build_request_id.value
-                    ),
-                    "build_attempt_id": (
-                        registration.build_attempt_id.value
-                    ),
-                    "build_receipt_id": (
-                        registration.build_receipt_id.value
-                    ),
-                    "manifest_id": registration.manifest_id.value,
-                },
-            )
+            if continuing:
+                _record_request(host, registration, intent_ref, continuing=True)
             try:
                 worker.start()
             except Exception:
                 host._run_thread = None
                 host._run_state = "host_error"
-                if not continuing:
+                if not continuing and registration is not None:
                     release_unstarted_request(host, registration)
                 raise
     return host.run_status()
 
 
-def run_worker(host, baseline, registration, execution, source_package, intent_ref, broker, http_broker, continuing):
+def _brokers(host, registration, plan, launch_id, launch):
+    return (
+        ScopedModelBroker(host._model_launch_transport(launch_id, launch),
+            episode_paths={host._model_node_path(node.local_id, plan): node.local_id for node in plan.nodes}),
+        ScopedHttpBroker(policy=registration.egress_policy, credentials=host.egress_credentials,
+            transport=HttpxHostTransport(), max_frame_bytes=registration.runtime_policy.max_frame_bytes),
+    )
+
+
+def _record_request(host, registration, intent_ref, *, continuing):
+    from agent.openchia_build_recovery import owner_record
+
+    host.store.append_event(
+        duet_id=host.identity.duet_id.value,
+        event_type="run_continue_requested" if continuing else "run_requested",
+        provenance=DuetProvenance.HUMAN_INPUT.value,
+        record={
+            "registration": registration.as_record(),
+            # A continuation request does not own its predecessor's executor.
+            "requester" if continuing else "owner": owner_record(),
+            "intent_ref": intent_ref,
+            "run_id": registration.run_id.value,
+            "registration_hash": registration.registration_hash.value,
+            "build_request_id": registration.build_request_id.value,
+            "build_attempt_id": registration.build_attempt_id.value,
+            "build_receipt_id": registration.build_receipt_id.value,
+            "manifest_id": registration.manifest_id.value,
+        },
+    )
+
+
+async def _prepare_environment(host, executor, manifest):
+    if manifest.environment_recipe is None:
+        return None
+    from episode_runtime.target_environment_preparation import EnvironmentPreparationFailure, EnvironmentPreparationService
+
+    service = EnvironmentPreparationService(
+        artifacts=host.store, builds=host.build_store, runs=host.run_store, executor=executor,
+    )
+    try:
+        prepared = await service.prepare_manifest(manifest, duet_id=host.identity.duet_id.value)
+    except EnvironmentPreparationFailure as exc:
+        with host._run_lock:
+            host._run_environment_preparation = exc.result
+        raise
+    with host._run_lock:
+        host._run_environment_preparation = {
+            "status": "prepared", "environment_id": prepared.environment_id.value,
+            "content_hash": prepared.content_hash.value,
+        }
+    return prepared
+
+
+async def _prepare_fresh_run(host, executor, receipt, launch_request, model_types):
+    from episode_runtime.testing_harness.execution import register_build
+    from episode_runtime.testing_harness.launches import record_launch_intent
+
+    inputs = await asyncio.to_thread(host.build_store.inspection_inputs_for_receipt, receipt.receipt_id)
+    prepared = await _prepare_environment(host, executor, inputs.manifest)
+    registration, source_package = await asyncio.to_thread(
+        register_build, executor, host.build_store, inputs, launch_request, RuntimePolicy(),
+        target_environment=prepared,
+    )
+    launch_id, launch = await asyncio.to_thread(
+        host._prepare_model_launch, "run", registration.run_id.value, model_types=model_types,
+    )
+    intent_ref = record_launch_intent(host.store, registration, launch_id, launch.configuration_hash)
+    broker, http_broker = _brokers(host, registration, inputs.plan, launch_id, launch)
+    return registration, source_package, intent_ref, broker, http_broker
+
+
+def run_worker(host, baseline, registration, execution, source_package, intent_ref, broker, http_broker, continuing, prepare=None):
     loop = asyncio.new_event_loop()
 
     async def execute():
-        nonlocal registration
+        nonlocal registration, source_package, intent_ref, broker, http_broker
+        if prepare is not None:
+            registration, source_package, intent_ref, broker, http_broker = await prepare()
+            with host._run_lock:
+                host._run_registration = registration
+            _record_request(host, registration, intent_ref, continuing=False)
         if continuing:
             from agent.openchia_run_continue import prepare_continuation
 
@@ -157,6 +188,9 @@ def run_worker(host, baseline, registration, execution, source_package, intent_r
                 host._run_registration = registration
             if evidence is not None:
                 return evidence
+        with host._run_lock:
+            if not host._run_cancel_requested:
+                host._run_state = "running"
         return await execution.execute(
             registration=registration, source_package_path=source_package,
             intent_ref=intent_ref, model_broker=broker, http_broker=http_broker,
@@ -168,25 +202,24 @@ def run_worker(host, baseline, registration, execution, source_package, intent_r
         host._run_task = task
         if host._run_cancel_requested:
             task.cancel()
-        else:
-            host._run_state = "running"
     evidence: Optional[RunEvidence] = None
     error: Optional[str] = None
     try:
         evidence = loop.run_until_complete(task)
     except asyncio.CancelledError:
         try:
-            evidence = host._read_terminal_evidence(
-                registration
-            )
+            evidence = None if registration is None else host._read_terminal_evidence(registration)
         except Exception as exc:
             error = _describe_exception(exc)
     except BaseException as exc:
         error = _describe_exception(exc)
+        from episode_runtime.target_environment_preparation import EnvironmentPreparationFailure
+
+        if isinstance(exc, EnvironmentPreparationFailure):
+            with host._run_lock:
+                host._run_environment_preparation = exc.result
         try:
-            evidence = host._read_terminal_evidence(
-                registration
-            )
+            evidence = None if registration is None else host._read_terminal_evidence(registration)
         except Exception as evidence_exc:
             error = (
                 f"{error}; evidence: "
@@ -226,9 +259,7 @@ def run_worker(host, baseline, registration, execution, source_package, intent_r
                 ),
                 record={
                     "run_id": registration.run_id.value,
-                    "registration_hash": (
-                        registration.registration_hash.value
-                    ),
+                    "registration_hash": registration.registration_hash.value,
                     "evidence_id": evidence.evidence_id.value,
                     "evidence_hash": evidence.content_hash.value,
                     "audit_log_id": (
@@ -265,10 +296,10 @@ def run_worker(host, baseline, registration, execution, source_package, intent_r
                     DuetProvenance.HOST_VALIDATION.value
                 ),
                 record={
-                    "run_id": registration.run_id.value,
-                    "registration_hash": (
-                        registration.registration_hash.value
-                    ),
+                    "run_id": None if registration is None else registration.run_id.value,
+                    "registration_hash": None if registration is None else registration.registration_hash.value,
+                    "build_receipt_id": baseline.build_receipt_id.value,
+                    "environment_preparation": host._run_environment_preparation,
                     "error": error,
                 },
             )
@@ -289,7 +320,7 @@ def run_worker(host, baseline, registration, execution, source_package, intent_r
         loop.run_until_complete(loop.shutdown_default_executor())
         loop.close()
         try:
-            if not continuing:
+            if not continuing and registration is not None:
                 release_unstarted_request(host, registration)
         finally:
             with host._run_lock:

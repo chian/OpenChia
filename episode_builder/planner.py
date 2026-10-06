@@ -923,8 +923,16 @@ there are required values. Empty arrays in a node-level payload-contract shape
 describe an empty vocabulary exactly when the frozen design requires one.
 
 Every proposed choice names its basis in the frozen contract, a supplied child
-interface, a library definition, or the optional reference Episode. Represent
-a material design ambiguity in the unresolved array so the Duet can settle it.
+interface, a library definition, or the optional reference Episode. Make the
+implementation choices needed to satisfy the requirements. Record remaining
+implementation questions in unresolved with what needs to be designed or
+verified, so the IterativeEpisodeRefiner can resolve them internally. Do not
+request another Duet approval or treat an unspecified implementation choice as
+a prohibition on designing a solution.
+Each unresolved entry names exactly one lowercase field_path, using dots or
+single numeric indexes when needed, such as generated_component_specs[2]. Use
+separate entries for separate fields; do not use comma-separated paths, index
+ranges, slices, or prose in field_path. Keep each detail within 2048 characters.
 The host installs architecture_owned_numeric_bindings into the corresponding
 selected_function_bindings roles. You may omit those roles; if you include them,
 copy them exactly. Their function identities and arguments are fixed facts,
@@ -1009,7 +1017,10 @@ _PLAN_SHAPE = {
         }
     ],
     "derivation_basis": {"plan_field": "supplied source"},
-    "unresolved": [{"field_path": "stopping", "detail": "question for Duet"}],
+    "unresolved": [{
+        "field_path": "generated_component_specs",
+        "detail": "Implementation approach or supporting evidence still needed; resolve within refinement.",
+    }],
 }
 
 
@@ -1161,6 +1172,63 @@ def _directive_allows_node_plan(
     )
 
 
+def structural_binding_contract(*, is_root):
+    """The same structural authoring rules for initial planning and repair."""
+    request_admission = (
+        ADMIT_DUET_LAUNCH_REQUEST if is_root else ADMIT_PARENT_REQUEST
+    )
+    return {
+        "required_base_roles": sorted(_BASE_BINDING_ROLES),
+        "child_edge_roles": (
+            "For each child slot S, declare edge.S.build_child, "
+            "edge.S.prepare_request, edge.S.receive_result, and "
+            "component.report_S with interface episode.report_synthesis."
+        ),
+        "additional_component_role_shape": "component.<binding_name>",
+        "required_request_admission_pointer": {
+            "source": "library",
+            "library": request_admission.library,
+            "function_id": request_admission.function_id,
+            "interface": request_admission.interface,
+            "definition_id": request_admission.definition_id,
+        },
+        "child_builder_signature": (
+            "child_builders[slot_name](key, request, goal_view, "
+            "collaborators)"
+        ),
+        "payload_argument_rule": (
+            "admit_request, build_result, and every edge receive_result "
+            "binding carry the exact corresponding payload_contract "
+            "record in arguments.payload_contract"
+        ),
+        "authoritative_child_plan_rule": (
+            "For every child slot, copy child_local_id, child_interface, "
+            "request_payload_contract, and result_payload_contract "
+            "exactly from the matching direct_children record. Only "
+            "slot_name, prepare_request, receive_result, build_child, "
+            "and basis are parent-authored."
+        ),
+        "request_admission_rule": (
+            "admit_request copies required_request_admission_pointer, "
+            "sets role to admit_request, and carries an arguments "
+            "object whose payload_contract is field-identical to the "
+            "node's top-level request_payload_contract"
+        ),
+        "child_result_correlation": (
+            "edge receive_result is a task-specific wrapper that calls "
+            "handoff_library.admit_child_result before projecting "
+            "parent-local credit. The separate component.report_S "
+            "synthesizes requested findings, describing their decision "
+            "purpose, measurement meanings, and next-model-input path."
+        ),
+        "numeric_control_rule": (
+            "the host installs architecture_owned_numeric_bindings; "
+            "omit these fixed roles or copy them exactly, never infer "
+            "replacements or generate components for them"
+        ),
+    }
+
+
 class EpisodeMaterializationPlanner:
     def __init__(
         self,
@@ -1229,9 +1297,6 @@ class EpisodeMaterializationPlanner:
                     detail=str(exc),
                     episode_local_id=node.local_id,
                 )
-        request_admission = (
-            ADMIT_DUET_LAUNCH_REQUEST if is_root else ADMIT_PARENT_REQUEST
-        )
         prompt_record = {
             "approved_model_slots": self.model_slot_catalog,
             "model_selection_rule": (
@@ -1257,56 +1322,7 @@ class EpisodeMaterializationPlanner:
             "architecture_owned_numeric_bindings": list(
                 architecture_numeric_bindings
             ),
-            "structural_binding_contract": {
-                "required_base_roles": sorted(_BASE_BINDING_ROLES),
-                "child_edge_roles": (
-                    "For each child slot S, declare edge.S.build_child, "
-                    "edge.S.prepare_request, edge.S.receive_result, and "
-                    "component.report_S with interface episode.report_synthesis."
-                ),
-                "additional_component_role_shape": "component.<binding_name>",
-                "required_request_admission_pointer": {
-                    "source": "library",
-                    "library": request_admission.library,
-                    "function_id": request_admission.function_id,
-                    "interface": request_admission.interface,
-                    "definition_id": request_admission.definition_id,
-                },
-                "child_builder_signature": (
-                    "child_builders[slot_name](key, request, goal_view, "
-                    "collaborators)"
-                ),
-                "payload_argument_rule": (
-                    "admit_request, build_result, and every edge receive_result "
-                    "binding carry the exact corresponding payload_contract "
-                    "record in arguments.payload_contract"
-                ),
-                "authoritative_child_plan_rule": (
-                    "For every child slot, copy child_local_id, child_interface, "
-                    "request_payload_contract, and result_payload_contract "
-                    "exactly from the matching direct_children record. Only "
-                    "slot_name, prepare_request, receive_result, build_child, "
-                    "and basis are parent-authored."
-                ),
-                "request_admission_rule": (
-                    "admit_request copies required_request_admission_pointer, "
-                    "sets role to admit_request, and carries an arguments "
-                    "object whose payload_contract is field-identical to the "
-                    "node's top-level request_payload_contract"
-                ),
-                "child_result_correlation": (
-                    "edge receive_result is a task-specific wrapper that calls "
-                    "handoff_library.admit_child_result before projecting "
-                    "parent-local credit. The separate component.report_S "
-                    "synthesizes requested findings, describing their decision "
-                    "purpose, measurement meanings, and next-model-input path."
-                ),
-                "numeric_control_rule": (
-                    "the host installs architecture_owned_numeric_bindings; "
-                    "omit these fixed roles or copy them exactly, never infer "
-                    "replacements or generate components for them"
-                ),
-            },
+            "structural_binding_contract": structural_binding_contract(is_root=is_root),
             "reference": (
                 None if reference_context is None else reference_context.as_record()
             ),

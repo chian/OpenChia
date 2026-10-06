@@ -72,6 +72,12 @@ def _source_candidates(store, inputs, calls):
         if digest is not None:
             store.read_blob(digest)
             files[BuildStore._package_module_path(node.module_name).as_posix()] = digest
+    if inputs.manifest is not None and inputs.manifest.environment_recipe is not None:
+        from agent.duet_contracts import canonical_json
+        from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+
+        recipe = inputs.manifest.as_record()["environment_recipe"]
+        files[ENVIRONMENT_RECIPE_PATH] = store.put_blob(canonical_json(recipe).encode("utf-8")).value
     return dict(sorted(files.items())), sources
 
 
@@ -222,7 +228,10 @@ def materialization_handoff(store: BuildStore, receipt_id: OpaqueId | str) -> di
         check(MODULE_ADMISSION, target + "/parts/admission",
               "Episode module passes static admission against its exact plan",
               _blocked("No completed emitted-module record is available") if module is None
-              else MODULE_ADMISSION.load()(request, plan, module),
+              else MODULE_ADMISSION.load()(
+                  request, plan, module,
+                  environment_recipe=None if inputs.manifest is None else inputs.manifest.environment_recipe,
+              ),
               depends_on=(plan_requirement, source_requirement))
     check(RECEIPT_MATERIALIZED, "/workflow_global/parts/outcome",
           "Entire approved workflow has a statically admitted materialization",

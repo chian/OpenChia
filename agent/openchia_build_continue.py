@@ -16,7 +16,11 @@ from episode_runtime.records.experiments import read_record, read_reference
 
 
 def restore_binding(host, reference):
-    """Refresh credentials, not the route or policy of an existing execution."""
+    """Bind future calls to the owning Duet's current selection at continuation.
+
+    Completed responses retain their original route. Each physical Run records
+    its actual binding separately; the original experiment is never rewritten.
+    """
     owner = host.identity.duet_id.value
     row = read_reference(host.store, reference, owner)
     record = row["record"]
@@ -24,24 +28,33 @@ def restore_binding(host, reference):
     identity = getattr(agent, "_duet_identity", None)
     if identity is None or identity.duet_id.value != owner:
         raise ValueError("Continuation requires the original owning Duet's bound agent.")
-    runtime = agent._current_main_runtime()
-    route = record["route"]
     if (
         row["kind"] != "experiment.duet_model_binding.v1"
         or record["owner_duet_id"] != owner
         or record["source"] != "bound_duet_agent"
         or record["credential_source"] != "owning_duet_host_memory"
-        or any(runtime.get(key) != route[key] for key in ("provider", "model", "base_url", "api_mode"))
-        or runtime.get("auth_mode", "") != record["auth_mode"]
-        or getattr(agent, "reasoning_config", None) != route.get("reasoning")
+        or set(record["model_types"]) != {"refinement"}
     ):
-        raise ValueError("Continuation cannot change the frozen owning Duet model route.")
-    binding = DuetEpisodeBinding(owner, dict(reference), record, runtime.get("api_key") or None)
-    binding.validate(artifacts=host.store, reference=reference, owner_duet_id=owner, model_types={"refinement"})
-    return binding
+        raise ValueError("Saved refiner model binding does not belong to this owning Duet.")
+    runtime = agent._current_main_runtime()
+    route = record["route"]
+    if (
+        all(runtime.get(key) == route[key] for key in ("provider", "model", "base_url", "api_mode"))
+        and runtime.get("auth_mode", "") == record["auth_mode"]
+        and getattr(agent, "reasoning_config", None) == route.get("reasoning")
+    ):
+        # A credential refresh alone must not silently install new recovery
+        # defaults into a previously frozen binding.
+        binding = DuetEpisodeBinding(owner, dict(reference), record, runtime.get("api_key") or None)
+        binding.validate(artifacts=host.store, reference=reference, owner_duet_id=owner, model_types={"refinement"})
+        return binding
+    return DuetEpisodeBinding.from_bound_agent(
+        artifacts=host.store, owner_duet_id=owner, agent=agent,
+        model_types=record["model_types"],
+    )
 
 
-def continue_build(host):
+def continue_build(host, build_request_id=None):
     from agent.build_refinement import BuildRefinement
     from agent.openchia_build_job import run_build_job
     from agent.openchia_host import OpenChiaHostError
@@ -51,17 +64,19 @@ def continue_build(host):
         if host._build_thread is not None and host._build_thread.is_alive():
             raise OpenChiaHostError("an Episode build is already active")
         status = host.build_status()
-        if status["state"] == "verified":
+        if build_request_id is None and status["state"] == "verified":
             return status
-        if status["build_request_id"] is None:
+        selected = build_request_id or status["build_request_id"]
+        if selected is None:
             raise OpenChiaHostError("No saved build job is selected for continuation.")
-        request = host.build_store.read_build_request(OpaqueId(status["build_request_id"]))
+        request = host.build_store.read_build_request(OpaqueId(selected))
         authorization = host.service.resolve_current_build_authorization(host.identity.duet_id)
         if (
             request.authority_approval != authorization.authority_approval
             or request.workflow_approval != authorization.workflow_approval
             or request.frozen_workflow != authorization.frozen_workflow
             or request.admission_authority != authorization.admission_authority
+            or request.frozen_workflow.duet_id != host.identity.duet_id
         ):
             raise OpenChiaHostError("Saved build no longer has the current exact workflow authority.")
         row = read_record(host.store, "build_job", build_request_id=request.build_request_id.value)

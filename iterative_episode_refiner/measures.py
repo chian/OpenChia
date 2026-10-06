@@ -124,7 +124,17 @@ def require_implementation_measure(view, assignment, reference, requirements, po
         and row.record.body["environment_ref"] == view.contract.body["environment_ref"]
     }
     if not set(requirements).issubset(covered):
-        raise ValueError("implementation measure has unresolved requirement coverage")
+        from .report_contract import requirement_address, requirement_catalog
+
+        catalog = requirement_catalog(view)
+        missing = sorted(requirement_address(catalog[key]) for key in set(requirements) - covered)
+        raise ValueError(
+            "implementation measure has unresolved requirement coverage: "
+            f"{missing!r}. Establish those local checks, or return the unresolved "
+            "need to Parts so it can assign a measurable prerequisite separately. "
+            "Existing materialization checks can judge a static repair; they "
+            "cannot replace later behavioral acceptance."
+        )
 
 
 def propose_measure(view, attempt, resolved):

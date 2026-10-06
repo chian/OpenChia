@@ -9,6 +9,7 @@ import asyncio
 
 from agent.duet_contracts import DuetProvenance
 from episode_builder import BuildReceipt
+from llm_call_library.transport import ModelCallFailed
 from episode_runtime.records.experiments import (
     artifact_fields,
     read_record,
@@ -253,6 +254,14 @@ def run_build_job(
                 host._build_receipt = receipt
                 host._build_attempt_id = receipt.build_attempt_id
                 host._build_progress = host._receipt_progress(revised_request, receipt)
+    except ModelCallFailed as exc:
+        state, error = "interrupted", _describe_exception(exc)
+        initial = receipt = host._build_receipt
+        saved_job = read_record(
+            host.store, "build_job", build_request_id=request.build_request_id.value,
+        )
+        continued_job = None if saved_job is None else saved_job["record"]
+        _publish_result(host, request, initial, receipt, None, state, error, continued_job=continued_job)
     except asyncio.CancelledError:
         state = "cancelled"
         initial = receipt = host._build_receipt

@@ -240,8 +240,10 @@ def prepare_refinement(
     )
     policy["check_refs"] = [check.ref.as_record() for check in checks]
     planned_paths = source_paths(request.frozen_workflow.workflow, inputs.plan)
+    from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+
     files = dict(handoff["candidate"]["files"])
-    if set(files) - set(planned_paths.values()):
+    if set(files) - set(planned_paths.values()) - {ENVIRONMENT_RECIPE_PATH}:
         raise ValueError("handoff contains source outside its materialized plan")
     from .instrument_builds import prepare_sources
 
@@ -331,10 +333,11 @@ def prepare_refinement(
         "return_projection_ref": projection_ref.as_record(),
         "control_bundle_ref": control_ref.as_record(),
         "supersedes_assignment_refs": [],
-        "writable_paths": sorted([*planned_paths.values(), *instrument_paths]),
+        "writable_paths": sorted([*planned_paths.values(), *instrument_paths, ENVIRONMENT_RECIPE_PATH]),
         "protected_paths": sorted(
             set(specification.expected_source_package_files)
             - set(planned_paths.values())
+            - {ENVIRONMENT_RECIPE_PATH}
         ),
         "judgment_lineage": "",  # derived before record construction
     }

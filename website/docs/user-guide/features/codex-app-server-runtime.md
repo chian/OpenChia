@@ -9,6 +9,13 @@ Hermes can optionally hand `openai/*`, `openai-codex/*` and [named custom provid
 
 This is **opt-in only**. Default Hermes behavior is unchanged unless you flip the flag. Hermes never auto-routes you onto this runtime.
 
+**OpenChia configuration boundary:** Codex state belongs to the active OpenChia
+profile at `<profile>/codex`, not to your personal `~/.codex`. From the repository,
+use `scripts/openchia-codex` for Codex commands that configure this runtime. The
+launcher, app-server and migration share the same private-home resolver.
+Implementer uses separate per-context state and the owning Duet's credential;
+see [Implementer's coding workspace](https://github.com/chian/OpenChia/blob/main/docs/openchia/implementer_coding_workspace.md).
+
 :::tip
 Not using OpenAI Codex? `hermes setup --portal` configures a non-Codex backend with Claude/Gemini/etc. in one step. See [Nous Portal](../../integrations/nous-portal.md).
 :::
@@ -38,9 +45,9 @@ These ship with `codex app-server` itself — no Hermes involvement, no MCP, no 
 
 So **anything you'd do via terminal — read/write/search/find/run — codex does natively**. The sandbox profile (`:workspace` by default when you enable the runtime) controls what's writable.
 
-### 2. Native Codex plugins (auto-migrated from your `codex plugin` install)
+### 2. Native Codex plugins (installed in OpenChia's private Codex home)
 
-When you enable the runtime, Hermes queries codex's `plugin/list` RPC and writes a `[plugins."<name>@openai-curated"]` entry for every plugin you have installed. The plugins themselves are managed by codex and authorized once via codex's own UI.
+When you enable the runtime, OpenChia queries codex's `plugin/list` RPC in the active profile's private Codex home and writes a `[plugins."<name>@openai-curated"]` entry for every plugin installed there. Personal Codex plugins are not imported. The plugins themselves are managed by codex and authorized via its own UI.
 
 Examples (the ones the OpenClaw thread highlighted as "YouTube-video-worthy"):
 
@@ -56,7 +63,7 @@ What's NOT migrated:
 - Plugins you haven't installed yet — install them in Codex first.
 - ChatGPT app marketplace entries (`app/list`) — these are already enabled inside codex by virtue of your account auth.
 
-### 3. Hermes tool callback (MCP server, registered in `~/.codex/config.toml`)
+### 3. Hermes tool callback (MCP server, registered in `<profile>/codex/config.toml`)
 
 Hermes registers itself as an MCP server so codex can call back for tools codex doesn't ship with. Available via the callback:
 
@@ -133,7 +140,7 @@ The kanban tools are gated by `HERMES_KANBAN_TASK` env var the dispatcher sets �
 | Kanban worker dispatch | yes | yes (via callback) |
 | Kanban orchestrator tools | yes | yes (via callback) |
 | All gateway platforms | yes | yes |
-| Named custom providers (`providers.<name>`) | yes | yes — a matching `[model_providers.<name>]` in `~/.codex/config.toml` is required |
+| Named custom providers (`providers.<name>`) | yes | yes — a matching `[model_providers.<name>]` in `<profile>/codex/config.toml` is required |
 | Other non-OpenAI providers | yes | n/a — not routed through codex |
 
 ### Live display
@@ -153,16 +160,20 @@ uses:
 
 ## Prerequisites
 
-1. **Codex CLI installed:**
+1. **An installed Codex CLI:** the repository launcher uses the existing binary;
+   it does not install Codex or change host security settings.
    ```bash
-   npm i -g @openai/codex
-   codex --version   # 0.130.0 or newer
+   scripts/openchia-codex --version
    ```
-2. **Codex OAuth login.** The codex subprocess reads `~/.codex/auth.json`. Two ways to populate it:
+2. **Private Codex OAuth login for standalone runtime use.** Authenticate in the
+   same OpenChia profile that will launch the runtime:
    ```bash
-   codex login                  # writes tokens to ~/.codex/auth.json
+   scripts/openchia-codex login
    ```
-   Hermes' own `hermes auth add openai-codex` writes to `~/.hermes/auth.json` — that's a separate session. **Run `codex login` separately** if you haven't.
+   This uses `<profile>/codex/auth.json`, not personal Codex authentication.
+   OpenChia's `hermes auth add openai-codex` manages a separate credential in
+   the active profile. Implementer receives that owning Duet credential
+   explicitly; it does not require this standalone login.
 
    <a id="named-custom-providers"></a>**Or: a named custom provider.** A `providers.<name>` entry in Hermes config can use this runtime when the **same name** is defined as a Codex provider. Hermes config:
 
@@ -179,7 +190,7 @@ uses:
      openai_runtime: codex_app_server
    ```
 
-   and the matching table in `~/.codex/config.toml`:
+   and the matching table in `<profile>/codex/config.toml`:
 
    ```toml
    [model_providers.my-gateway]
@@ -195,10 +206,10 @@ uses:
 
 3. **(Optional) Install the Codex plugins you want.** When you enable the runtime, Hermes auto-migrates whichever curated plugins you've already installed via Codex CLI:
    ```bash
-   codex plugin marketplace add openai-curated
+   scripts/openchia-codex plugin marketplace add openai-curated
    # then via codex's TUI, install Linear / GitHub / Gmail / etc.
    ```
-   Hermes will discover them and write `[plugins."<name>@openai-curated"]` entries to `~/.codex/config.toml` automatically.
+   OpenChia will discover them and write `[plugins."<name>@openai-curated"]` entries to `<profile>/codex/config.toml` automatically.
 
 ## Enabling
 
@@ -211,10 +222,10 @@ In a Hermes session:
 That command:
 - Verifies the `codex` CLI is installed (blocks with an install hint if not).
 - Persists `model.openai_runtime: codex_app_server` to your config.yaml.
-- Migrates user MCP servers from `~/.hermes/config.yaml` to `~/.codex/config.toml`.
+- Migrates user MCP servers from the active profile's `config.yaml` to its private `codex/config.toml`.
 - **Discovers and migrates installed native Codex plugins** (Linear, GitHub, Gmail, Calendar, Canva, etc.) by querying Codex's `plugin/list` RPC.
 - **Registers Hermes' own tools as an MCP server** so the codex subprocess can call back for tools codex doesn't ship with.
-- **Writes `default_permissions = ":workspace"`** so the sandbox allows writes within the workspace without prompting for every operation.
+- **Initializes `default_permissions = ":workspace"`** when no private permission setting exists. Existing private permission settings are preserved.
 - Tells you what was migrated. Takes effect on the **next** session — the current cached agent keeps the prior runtime so prompt caches stay valid.
 
 Synonyms: `/codex-runtime on`, `/codex-runtime off`, `/codex-runtime auto`.
@@ -296,9 +307,9 @@ For `apply_patch` (file edit) approvals, Hermes shows a summary of what changed 
 Codex has three built-in permission profiles:
 - `:read-only` — no writes; every shell command requires approval
 - `:workspace` — writes within the current workspace allowed without prompts (Hermes' default when you enable the runtime)
-- `:danger-no-sandbox` — no sandbox at all (don't use this unless you understand it)
+- `:danger-full-access` — no sandbox at all (not an OpenChia fallback)
 
-You can override the default in `~/.codex/config.toml` outside Hermes' managed block:
+You can override the default in `<profile>/codex/config.toml` outside the managed block:
 
 ```toml
 default_permissions = ":read-only"
@@ -332,7 +343,7 @@ auxiliary:
 
 The self-improvement review fork inherits the main runtime via `_current_main_runtime()` and Hermes downgrades it from `codex_app_server` to `codex_responses` automatically (so the fork can actually call `memory` and `skill_manage` — Hermes' own agent-loop tools). That fork still uses your subscription auth unless you've routed aux tasks elsewhere.
 
-## Editing `~/.codex/config.toml` safely
+## Editing `<profile>/codex/config.toml` safely
 
 Hermes wraps everything it manages between two marker comments:
 
@@ -366,29 +377,32 @@ hermes codex-runtime migrate --json     # machine-readable report (migrated, pre
 hermes -p work codex-runtime migrate    # a named profile's mcp_servers
 ```
 
-This is the same migration `/codex-runtime codex_app_server` runs; it is idempotent, writes atomically, and exits non-zero when the report contains errors. It writes `$CODEX_HOME/config.toml` when `CODEX_HOME` is set (see below), otherwise `~/.codex/config.toml`.
+This is the same migration `/codex-runtime codex_app_server` runs; it is idempotent, writes atomically, and exits non-zero when the report contains errors. It writes `<active profile>/codex/config.toml`. It does not use an inherited `CODEX_HOME` or the personal `~/.codex/config.toml`.
 
 ## Multi-profile / multi-tenant setups
 
-By default, Hermes points the codex subprocess at `~/.codex/` regardless of which Hermes profile is active. This means `hermes -p work` and `hermes -p personal` share the same Codex auth, plugins, and config. For most users this is the right behavior — it matches what running `codex` CLI directly would do.
-
-If you want per-profile Codex isolation (separate auth, separate installed plugins, separate config), set `CODEX_HOME` explicitly per profile. The cleanest way is to point at a directory under your `HERMES_HOME`:
+Each OpenChia profile has separate Codex configuration, native sessions,
+authentication and plugins. The repository launcher uses the active profile:
 
 ```bash
-# Inside the work profile, you might wrap hermes:
-CODEX_HOME=~/.hermes/profiles/work/codex hermes chat
+HERMES_HOME=/absolute/path/to/work-profile scripts/openchia-codex login
 ```
 
-You'll need to re-run `codex login` once with that `CODEX_HOME` set so the OAuth tokens land in the profile-scoped location. After that, `hermes -p work` will operate on isolated Codex state.
-
-We don't auto-scope this because moving an existing user's `~/.codex/` would silently invalidate their Codex CLI auth — anyone who already ran `codex login` would have to re-authenticate. Opt-in feels safer than surprising users.
+No shell-wide `CODEX_HOME` export is needed. The launcher removes inherited
+`CODEX_*` settings from the child environment, then sets only its private
+`CODEX_HOME`; it does not change the parent's environment or permissions.
+Existing personal authentication and transcripts are not copied. A thread
+stored only in the old personal home cannot resume in the private home; the
+existing resume-failure report applies, with no fallback to personal state.
 
 ## HOME environment variable passthrough
 
-Hermes does NOT rewrite `HOME` when spawning the codex app-server subprocess (we use `os.environ.copy()` and only overlay `CODEX_HOME` and `RUST_LOG`). This means:
+OpenChia does NOT rewrite `HOME` when spawning the codex app-server subprocess.
+It uses the existing profile-aware child environment and overrides Codex-specific
+state only in that child. This means:
 
 - Commands codex runs via its `shell` tool see the real user `HOME` and find `~/.gitconfig`, `~/.gh/`, `~/.aws/`, `~/.npmrc`, etc. correctly.
-- Codex's internal state stays isolated through `CODEX_HOME` (which points at `~/.codex/` by default).
+- Codex's internal state stays separate through its private `CODEX_HOME`.
 
 This matches the boundary OpenClaw arrived at after some early experimentation: isolate Codex's state, leave the user's home alone. (Cf. openclaw/openclaw#81562.)
 
@@ -411,9 +425,9 @@ What's not migrated:
 
 ## Native Codex plugin migration
 
-Plugins installed via `codex plugin` (Linear, GitHub, Gmail, Calendar, Canva, etc.) are discovered through Codex's `plugin/list` RPC. For each plugin where `installed: true`, Hermes writes a `[plugins."<name>@openai-curated"]` block enabling it in your Hermes session.
+Plugins installed via `scripts/openchia-codex plugin` in the active profile are discovered through Codex's `plugin/list` RPC. For each plugin where `installed: true`, OpenChia writes a `[plugins."<name>@openai-curated"]` block enabling it in that profile.
 
-This means: when your friend says "I have Calendar and GitHub set up in my Codex CLI" and they enable Hermes' codex runtime, Hermes activates those automatically. No re-configuration needed.
+Plugins installed only in personal Codex are not copied or activated here.
 
 What's NOT migrated:
 - Plugins you haven't installed yet — install them in Codex first.
@@ -423,7 +437,7 @@ What's NOT migrated:
 
 ## Hermes tool callback (the new MCP server)
 
-Codex's built-in toolset covers shell/file ops/patches but doesn't have web search, browser automation, vision, image generation, etc. To keep those usable in a codex turn, Hermes registers itself as an MCP server in `~/.codex/config.toml`:
+Codex's built-in toolset covers shell/file ops/patches but doesn't have web search, browser automation, vision, image generation, etc. To keep those usable in a codex turn, OpenChia registers its MCP callback in `<profile>/codex/config.toml`:
 
 ```toml
 [mcp_servers.hermes-tools]
@@ -448,7 +462,7 @@ Switch back at any time:
 /codex-runtime auto
 ```
 
-Effective on the next session. The Codex managed block stays in `~/.codex/config.toml` so you can re-enable later without losing config — or remove it manually if you prefer.
+Effective on the next session. The Codex managed block stays in `<profile>/codex/config.toml` so you can re-enable later without losing config — or remove it manually if you prefer.
 
 ## Limitations
 
@@ -465,7 +479,7 @@ This runtime is **opt-in beta**. Working as of Hermes Agent 2026.5 + Codex CLI 0
 
 Known limitations:
 
-- **Hermes auth and codex auth are separate sessions.** You need both `codex login` AND `hermes auth add openai-codex` for the cleanest UX (the runtime uses codex's session for the LLM call). This is a deliberate design choice in Hermes' `_import_codex_cli_tokens` — Hermes won't share OAuth state with codex CLI to avoid clobbering each other on token refresh.
+- **Standalone Codex runtime and Duet authentication are separate.** Use `scripts/openchia-codex login` for the standalone runtime and `hermes auth add openai-codex` for the owning Duet. Implementer receives the Duet credential explicitly. Neither launch path rewrites your personal Codex authentication.
 - **`delegate_task`, `memory`, `session_search`, `todo` are unavailable on this runtime.** They need the running AIAgent context which a stateless MCP callback can't provide. Use `/codex-runtime auto` when you need these.
 - **No inline patch preview in approval prompts when codex doesn't track the changeset.** Codex's `fileChange` approval params don't always carry the changeset. Hermes caches the data from the corresponding `item/started` notification when possible, but if approval arrives before the item has streamed, the prompt falls back to whatever `reason` codex provides.
 - **`fallback_providers` fail over only on quota and rate-limit failures.** When a codex app-server turn fails with a billing / usage-limit / rate-limit error, Hermes switches to the configured [fallback provider](./fallback-providers.md) and retries the same turn on it; auth failures (`codex login` expired), turn timeouts and unknown-model errors do not fail over on this runtime and surface as the turn's error instead.

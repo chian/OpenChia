@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from agent.duet_contracts import FrozenDuetWorkflow, canonical_json
 from agent.episode_contracts import OpaqueId
 from episode_builder._contract_chain import WorkflowMaterializationPlan
+from episode_builder.emitter import _MODULE_CONTRACT
 from episode_builder.plan_choices import CHOICE_FIELDS
 from episode_builder.planner import (
     _BASE_BINDING_ROLES,
@@ -17,6 +18,7 @@ from episode_builder.planner import (
     _module_name,
     _plan_shape_for_children,
     materializer_function_catalog,
+    structural_binding_contract,
 )
 from function_library.epistemic_contract import exact
 from function_library.models import _thaw_json
@@ -210,6 +212,13 @@ def edit_context(view, policy, assignment, *, instrument=None):
         planning_inputs.append({
             "local_id": local_id,
             "design": designs[local_id].as_record(),
+            "target_module_name": nodes[local_id].module_name if local_id in nodes else _module_name(
+                local_id, designs[local_id].contract.spec_hash.value,
+            ),
+            "module_role": "root" if designs[local_id].workflow_parent_local_id is None else "child",
+            "structural_binding_contract": structural_binding_contract(
+                is_root=designs[local_id].workflow_parent_local_id is None,
+            ),
             "architecture_owned_bindings": list(bindings),
             "binding_rule": (
                 "The host installs architecture_owned_bindings when constructing "
@@ -259,6 +268,9 @@ def edit_context(view, policy, assignment, *, instrument=None):
         ],
         "permitted_detail_edits": targets,
         "planning_inputs": planning_inputs,
+        "required_module_contract": _MODULE_CONTRACT
+        if assignment.body["role"] in {"designer", "implementer"}
+        else None,
         "required_base_roles": sorted(_BASE_BINDING_ROLES) if planning_ids else [],
         "function_catalog": list(materializer_function_catalog())
         if planning_ids

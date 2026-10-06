@@ -34,8 +34,40 @@ class RefinementEvaluations:
         self.target_launch_ref = target_launch_ref
         self.http_credentials = http_credentials
         self.progress_callback = progress_callback
+        self._environment_service = None
+        self._environment_context = None
 
-    def _requests(self, session, call, payload):
+    def environment_service(self, session):
+        if self._environment_service is None:
+            from episode_runtime.target_environment_preparation import EnvironmentPreparationService
+
+            self._environment_service = EnvironmentPreparationService(
+                artifacts=session.store.evidence.duets, builds=self.builder.store,
+                runs=session.store.evidence.runs, executor=self.executor,
+            )
+        return self._environment_service
+
+    async def prepare_context(self, session):
+        import asyncio
+
+        if self._environment_context is None:
+            self._environment_context = await asyncio.to_thread(
+                self.environment_service(session).describe,
+            )
+
+    def environment_context(self):
+        if self._environment_context is None:
+            raise ValueError("environment context must be prepared before the refinement transaction")
+        return self._environment_context
+
+    async def prepare_environment(self, session, call, payload):
+        from .candidate_environment import prepare_environment
+
+        if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:
+            return
+        await prepare_environment(self, session, call, payload)
+
+    def _plans(self, session, call, payload):
         from .evaluation_plan import resolve_evaluations
 
         investigation = call.assignment.body["role"] in {"support", "question"}
@@ -80,6 +112,11 @@ class RefinementEvaluations:
                 purpose,
                 selected=selected,
             )
+        return candidate, plans
+
+    def _requests(self, session, call, payload):
+        candidate, plans = self._plans(session, call, payload)
+        purpose = payload["purpose"]
         requests = []
         for plan in plans:
             checks = plan["checks"]

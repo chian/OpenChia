@@ -212,6 +212,7 @@ async def build_campaign_source(tmp_path, builds):
 
 
 async def build_checker(tmp_path, builds):
+    from function_library.refinement import REPORT_CHILD
     from agent.episode_contracts import (
         EpisodeCreationSpec,
         EpisodeDesignSpec,
@@ -314,6 +315,9 @@ def build_checker_episode(grain, key, request):
             )
             for edge in prompt["direct_children"]:
                 slot = edge["local_id"]
+                response["selected_function_bindings"].append(
+                    _binding(f"component.report_{slot}", REPORT_CHILD)
+                )
                 for role, function in (
                     ("build_child", BUILD_REPEATABLE_CHILD),
                     ("prepare_request", ADMIT_PARENT_REQUEST),
@@ -346,6 +350,13 @@ def build_checker_episode(grain, key, request):
                 controller_expression="checker_controller()",
                 episode_expression="build_checker_episode(grain, key, request)",
             )
+            response["module_source"] = (
+                "from function_library.refinement import refinement_function_library\n"
+                + response["module_source"].replace(
+                    "*epistemic_function_library.functions()",
+                    "*refinement_function_library.functions(), *epistemic_function_library.functions()",
+                )
+            )
         return ModelTransportResponse(text=json.dumps(response), route={})
 
     with model_transport_scope(model):
@@ -374,6 +385,7 @@ async def prepared_refiner(
     target_workflow=None,
     registered_grounding=False,
     grouped_measures=False,
+    target_builder=None,
 ):
     from agent.duet_contracts import DuetIdentity, content_id, digest_record
     from agent.duet_service import DuetService
@@ -402,7 +414,7 @@ async def prepared_refiner(
     )
     from tests.episode_runtime.testing_harness.test_scoped_execution import LinkedExecutor
 
-    target, builds, receipt = await build(tmp_path, (), workflow=target_workflow)
+    target, builds, receipt = await (target_builder or build)(tmp_path, (), workflow=target_workflow)
     refiner, refiner_receipt = await build_refiner(tmp_path, builds)
     checker = (
         await build_checker(tmp_path, builds)
@@ -809,6 +821,18 @@ async def prepared_refiner(
             ),
             executor=executor,
         )
+        if executor_type is None:
+            # The in-process executor supplies results and has no staged OS
+            # runtime. State tests disclose that limitation; live fixtures use
+            # the real backend's environment description instead.
+            evaluations._environment_context = {
+                "runtime": {"kind": "inert fixture; no dependency installation"},
+                "libraries": {"base": ["fixture runtime"]},
+                "package_management": {"mechanism": "unavailable in this fixture"},
+                "workspace": {"managed_root": str(executor.run_store.root)},
+                "installation_access": {"network": False},
+                "runtime_access": {}, "credential_references": [],
+            }
         session = RefinementSession(
             store=campaigns,
             campaign_id=prepared.contract.campaign_id,

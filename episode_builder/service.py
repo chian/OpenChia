@@ -20,6 +20,7 @@ from typing import Protocol
 from agent.episode_contracts import OpaqueId, Sha256Digest
 from iterative_episode_refiner.contracts import RefinementChangeKind
 from llm_call_library import CallOptions, ModelTier
+from llm_call_library.transport import ModelCallFailed
 
 from .admission import EpisodeBuildAdmission
 from ._contract_base import (
@@ -588,6 +589,8 @@ class EpisodeBuilder:
                 predecessor_plan=predecessor_plan,
                 model_call_observer=model_call_observer,
             )
+        except ModelCallFailed:
+            raise
         except asyncio.CancelledError:
             plan = self._terminal_plan(
                 build_request,
@@ -793,6 +796,8 @@ class EpisodeBuilder:
                             emission_deficits.append(scope_deficit)
                             continue
                     self.store.put_emitted_module(module)
+                except ModelCallFailed:
+                    raise
                 except asyncio.CancelledError:
                     return self._persist_receipt(
                         build_request=build_request,
@@ -868,6 +873,8 @@ class EpisodeBuilder:
         plan: WorkflowMaterializationPlan,
         emitted_modules: tuple[EmittedEpisodeModule, ...],
         source_deficits: tuple[BuildDeficit, ...] = (),
+        environment_recipe=None,
+        environment_lock=None,
         progress_callback: ProgressCallback | None = None,
         cancel_event: CancellationSignal | None = None,
     ) -> BuildReceipt:
@@ -908,11 +915,13 @@ class EpisodeBuilder:
             emission_deficits=source_deficits,
             progress_callback=progress_callback,
             cancel_event=cancel_event,
+            environment_recipe=environment_recipe,
+            environment_lock=environment_lock,
         )
 
     async def _admit_and_publish(
         self, *, build_request, build_attempt, plan, emitted, emission_deficits,
-        progress_callback, cancel_event,
+        progress_callback, cancel_event, environment_recipe=None, environment_lock=None,
     ) -> BuildReceipt:
         total = len(build_request.frozen_workflow.workflow.episodes)
         node_by_id = {node.local_id: node for node in plan.nodes}
@@ -923,6 +932,7 @@ class EpisodeBuilder:
                 build_attempt,
                 plan,
                 tuple(emitted[key] for key in sorted(emitted)),
+                environment_recipe=environment_recipe,
             )
             report = replace(
                 outcome.report,
@@ -1009,6 +1019,8 @@ class EpisodeBuilder:
                 module_hashes_by_local_id=report.module_source_hashes,
                 module_dispositions_by_local_id=plan.node_dispositions,
                 function_definition_ids=outcome.function_definition_ids,
+                environment_recipe=environment_recipe,
+                environment_lock=environment_lock,
             )
             self.store.put_manifest(manifest)
             self.store.publish_source_package(manifest)

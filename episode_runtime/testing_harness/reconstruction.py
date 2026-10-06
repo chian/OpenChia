@@ -20,7 +20,6 @@ _BOUNDARIES = {
     RunEventKind.UNIT_COMPLETED,
     RunEventKind.EPISODE_COMPLETED,
 }
-_INTERRUPTIONS = {"interrupted", "cancelled", "resource_limited"}
 
 
 class ReconstructionError(ValueError):
@@ -158,7 +157,7 @@ class ReconstructionCursor:
     """A read-only verifier, not a continuation authorization or another journal."""
 
     def __init__(self, runs, run_id, *, artifacts=None):
-        from ..continuation import execution_lineage
+        from ..continuation import execution_lineage, resumable_run
 
         run_id = OpaqueId(run_id) if isinstance(run_id, str) else run_id
         registration = runs.read_registration(run_id)
@@ -167,7 +166,7 @@ class ReconstructionCursor:
         receipts = []
         for attempt in execution_lineage(runs, registration):
             recording = read_recording(runs, attempt.run_id)
-            if not recording["terminal_evidence_available"] or recording["source_terminal_status"] not in _INTERRUPTIONS:
+            if not recording["terminal_evidence_available"] or not resumable_run(runs, attempt.run_id):
                 raise ReconstructionError("reconstruction requires terminal interruption evidence")
             attempt_events = runs.read_audit_log(attempt.run_id)
             fresh = [event for event in attempt_events if event.kind in _BOUNDARIES or event.kind in _REQUESTS]

@@ -260,7 +260,10 @@ class ScopedModelBroker:
             return admit_model_response(
                 self.recording.take("model", value, episode_path)
             )
-        request = replace(request, episode_local_id=local_id, call_role="run")
+        request = replace(
+            request, episode_local_id=local_id, call_role="run",
+            episode_path=tuple((part["grain"], part["key"]) for part in _episode_path(episode_path)),
+        )
         response = await self.transport(request)
         if not isinstance(response, ModelTransportResponse):
             raise ModelBrokerError("host model transport returned another type")

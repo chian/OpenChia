@@ -10,6 +10,7 @@ from function_library.testing_contract import CAPABILITY as TESTING_CAPABILITY
 import argparse
 import asyncio
 import inspect
+from pathlib import Path
 import sys
 from types import MappingProxyType
 from typing import Mapping, Optional
@@ -437,15 +438,30 @@ async def _run_worker(arguments: argparse.Namespace) -> int:
         registration.runtime_identity,
         runtime_source_package=arguments.runtime_source_package,
     )
+    dependency_read_paths = ()
+    if registration.target_environment is not None:
+        import sysconfig
+        from .environment_runtime import enable_dependency_imports, verify_target_environment
+
+        if arguments.target_environment is None:
+            raise WorkerError("Run environment is absent from worker launch")
+        dependency_root = verify_target_environment(arguments.target_environment, registration.target_environment)
+        dependency_read_paths = (str(dependency_root), str(Path(sysconfig.get_path("stdlib")).resolve(strict=True)))
+    elif arguments.target_environment is not None:
+        raise WorkerError("worker launch supplied an unregistered environment")
     prepared = prepare_source_package(registration, arguments.source_package)
     seccomp_receipt = apply_seccomp_policy(
         run_id=registration.run_id,
         executor_instance_id=executor_instance_id,
+        dependency_reads=registration.runtime_policy.dependency_reads,
     )
     landlock_receipt = apply_landlock_abi7(
         run_id=registration.run_id,
         executor_instance_id=executor_instance_id,
+        read_only_paths=dependency_read_paths,
     )
+    if registration.target_environment is not None:
+        enable_dependency_imports()
     activated = prepared.activate()
     await channel.send(
         WorkerFrameType.READY.value,
@@ -546,6 +562,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-frame-bytes", required=True, type=int)
     parser.add_argument("--source-package", required=True)
     parser.add_argument("--runtime-source-package", required=True)
+    parser.add_argument("--target-environment")
     return parser
 
 

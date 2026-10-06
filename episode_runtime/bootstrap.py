@@ -416,6 +416,18 @@ class _ClosedImportFinder(importlib.abc.MetaPathFinder):
         }
         self._stdlib = stdlib.resolve(strict=True)
         self._stdlib_files = dict(stdlib_files)
+        self._dependency_root = None
+        self._dependency_files = {}
+        self._dependencies_enabled = False
+
+    def admit_dependencies(self, root, file_hashes):
+        self._dependency_root = root.resolve(strict=True)
+        self._dependency_files = {
+            Path(os.path.abspath(root / relative)): digest for relative, digest in file_hashes.items()
+        }
+
+    def enable_dependencies(self):
+        self._dependencies_enabled = True
 
     def find_spec(self, fullname: str, path=None, target=None):
         spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
@@ -425,11 +437,17 @@ class _ClosedImportFinder(importlib.abc.MetaPathFinder):
             if spec.submodule_search_locations is not None:
                 for location in spec.submodule_search_locations:
                     resolved = Path(location).resolve(strict=True)
+                    dependency_namespace = self._dependency_root is not None and (
+                        resolved == self._dependency_root or self._dependency_root in resolved.parents
+                    )
+                    if dependency_namespace and not self._dependencies_enabled:
+                        raise BootstrapError("Target Workflow dependencies cannot import before worker confinement")
                     if not (
                         resolved == self._package
                         or self._package in resolved.parents
                         or resolved == self._stdlib
                         or self._stdlib in resolved.parents
+                        or dependency_namespace
                     ):
                         raise BootstrapError(
                             f"namespace import {fullname!r} escapes admitted roots"
@@ -438,12 +456,15 @@ class _ClosedImportFinder(importlib.abc.MetaPathFinder):
         origin = Path(os.path.abspath(spec.origin))
         local_hash = self._local_files.get(origin)
         stdlib_hash = self._stdlib_files.get(origin)
-        if local_hash is None and stdlib_hash is None:
+        dependency_hash = self._dependency_files.get(origin)
+        if dependency_hash is not None and not self._dependencies_enabled:
+            raise BootstrapError("Target Workflow dependencies cannot import before worker confinement")
+        if local_hash is None and stdlib_hash is None and dependency_hash is None:
             raise BootstrapError(
-                f"import {fullname!r} resolves outside staged local source and stdlib"
+                f"import {fullname!r} resolves outside staged source, stdlib and admitted dependencies"
             )
         if origin.suffix == ".py":
-            expected_hash = local_hash if local_hash is not None else stdlib_hash
+            expected_hash = local_hash or stdlib_hash or dependency_hash
             if expected_hash is None:
                 raise AssertionError("admitted import lost its content hash")
             spec.loader = _SourceOnlyLoader(
@@ -453,6 +474,8 @@ class _ClosedImportFinder(importlib.abc.MetaPathFinder):
                 stdlib_entry=stdlib_hash is not None,
             )
             spec.cached = None
+        elif dependency_hash is not None and _digest(_read_regular(origin, f"dependency import {fullname!r}")) != dependency_hash:
+            raise BootstrapError(f"dependency import {fullname!r} changed after verification")
         return spec
 
 
@@ -512,6 +535,7 @@ def _inspect_interpreter_record() -> dict[str, object]:
         "cache_tag": sys.implementation.cache_tag or "none",
         "executable_hash": _digest(_read_regular(executable, "Python executable")),
         "executable_path": str(executable),
+        "stdlib_path": str(stdlib),
         "stdlib_file_hashes": stdlib_hashes,
         "shared_library_hashes": shared,
     }
@@ -522,6 +546,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--bootstrap-package", required=True)
     parser.add_argument("--bootstrap-manifest-id", required=True)
     parser.add_argument("--bootstrap-manifest-hash", required=True)
+    parser.add_argument("--bootstrap-target-environment")
+    parser.add_argument("--bootstrap-target-environment-id")
+    parser.add_argument("--bootstrap-target-environment-hash")
     return parser
 
 
@@ -541,17 +568,46 @@ def main() -> None:
     stdlib, stdlib_files = _verify_interpreter(manifest["interpreter_runtime"])
     sys.dont_write_bytecode = True
     sys.path[:] = [str(package), str(stdlib), str(stdlib / "lib-dynload")]
+    finder = _ClosedImportFinder(
+        package=package,
+        local_hashes=manifest["local_source_hashes"],
+        stdlib=stdlib,
+        stdlib_files=stdlib_files,
+    )
     sys.meta_path[:] = [
         importlib.machinery.BuiltinImporter,
         importlib.machinery.FrozenImporter,
-        _ClosedImportFinder(
-            package=package,
-            local_hashes=manifest["local_source_hashes"],
-            stdlib=stdlib,
-            stdlib_files=stdlib_files,
-        ),
+        finder,
     ]
     _synthetic_packages(package, manifest["synthetic_packages"])
+    environment_arguments = (
+        arguments.bootstrap_target_environment, arguments.bootstrap_target_environment_id,
+        arguments.bootstrap_target_environment_hash,
+    )
+    if any(environment_arguments):
+        if not all(environment_arguments):
+            raise BootstrapError("Target Workflow environment needs its exact directory, identity and hash")
+        from episode_runtime.target_environment import PreparedTargetEnvironment
+        from episode_runtime.environment_runtime import bind_dependency_importer, verify_target_environment
+
+        environment_path = Path(arguments.bootstrap_target_environment)
+        payload = _read_regular(environment_path / "TARGET_ENVIRONMENT.json", "prepared environment record")
+        record = json.loads(payload)
+        if _canonical(record) != payload:
+            raise BootstrapError("prepared environment record is not canonical")
+        prepared = PreparedTargetEnvironment.from_record(record)
+        if (
+            prepared.environment_id.value != arguments.bootstrap_target_environment_id
+            or prepared.content_hash.value != arguments.bootstrap_target_environment_hash
+        ):
+            raise BootstrapError("prepared environment differs from launch identity")
+        dependency_root = verify_target_environment(environment_path, prepared)
+        finder.admit_dependencies(dependency_root, {
+            path: digest.value for path, digest in prepared.file_hashes.items()
+        })
+        bind_dependency_importer(finder)
+        sys.path.append(str(dependency_root))
+        worker_arguments.extend(("--target-environment", str(environment_path)))
     sys.argv = ["episode-runtime-worker", *worker_arguments]
     from episode_runtime.worker import main as worker_main
 

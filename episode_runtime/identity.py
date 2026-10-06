@@ -63,6 +63,8 @@ _SELECTED_LOCAL_SOURCES = (
     "episode_runtime/components.py",
     "episode_runtime/continuation.py",
     "episode_runtime/contracts.py",
+    "episode_runtime/target_environment.py",
+    "episode_runtime/environment_runtime.py",
     "episode_runtime/http_contracts.py",
     "episode_runtime/identity.py",
     "episode_runtime/interpreter.py",
@@ -319,6 +321,7 @@ def interpreter_runtime_from_inspection(value: object) -> InterpreterRuntimeIden
         "cache_tag",
         "executable_hash",
         "executable_path",
+        "stdlib_path",
         "stdlib_file_hashes",
         "shared_library_hashes",
     }

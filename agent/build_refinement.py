@@ -51,7 +51,7 @@ class BuildRefinement:
         )
         try:
             status = await asyncio.to_thread(service.status, host.store, host.run_store, job["experiment_id"])
-            if "refinement" not in status or status["execution_status"] in {"interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable"}:
+            if "refinement" not in status or status["execution_status"] in {"interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable", "failed"}:
                 status = await service.continue_interrupted(experiment_id=job["experiment_id"])
         except asyncio.CancelledError:
             status = await asyncio.to_thread(

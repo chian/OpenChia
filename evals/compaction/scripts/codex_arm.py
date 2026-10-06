@@ -12,16 +12,14 @@ Per transcript:
 
 Usage: codex_arm.py <lineage_json> <questions_json> <workdir> <out_json>
 """
-import glob
 import json
-import os
 import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[0] / "main-co"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 LINEAGE = sys.argv[1]
 QUESTIONS = sys.argv[2]
@@ -63,11 +61,13 @@ def prepare_chunks() -> int:
 
 
 def newest_rollout() -> str:
+    from openchia_cli.codex_runtime_home import resolve_codex_home
+
     files = sorted(
-        glob.glob(os.path.expanduser("~/.codex/sessions/*/*/*/rollout-*.jsonl")),
-        key=os.path.getmtime,
+        (resolve_codex_home() / "sessions").glob("*/*/*/rollout-*.jsonl"),
+        key=lambda path: path.stat().st_mtime,
     )
-    return files[-1] if files else ""
+    return str(files[-1]) if files else ""
 
 
 def rollout_session_id(path: str) -> str:
@@ -113,9 +113,16 @@ def rollout_stats(path: str) -> dict:
 
 
 def codex(args: list, prompt: str, timeout: int = 3600) -> str:
+    from openchia_cli.codex_runtime_home import codex_child_env
+    from openchia_cli.codex_runtime_switch import get_configured_codex_binary
+    from openchia_cli.config import load_config_readonly
+    from tools.environments.local import hermes_subprocess_env
+
+    binary = get_configured_codex_binary(load_config_readonly())
     proc = subprocess.run(
-        ["codex", "exec", *args, "--skip-git-repo-check", prompt],
+        [binary, "exec", *args, "--skip-git-repo-check", prompt],
         cwd=str(WORKDIR), capture_output=True, text=True, timeout=timeout,
+        env=codex_child_env(hermes_subprocess_env()),
     )
     return proc.stdout + proc.stderr
 

@@ -212,11 +212,9 @@ async def execute_experiment(evaluations, session, call, payload, *, request_eve
         http_credentials=evaluations.http_credentials,
         runtime_policy=evaluations.runtime_policy,
     )
-    result = await service.run(spec)
-    if session.registration.resume_from is not None and result["execution_status"] in {
-        "interrupted", "cancelled", "resource_limited", "terminal_evidence_unavailable",
-    }:
-        result = await service.continue_interrupted(experiment_id=spec.experiment_id)
+    result = await service.run(
+        spec, resume_interrupted=session.registration.resume_from is not None,
+    )
     task = asyncio.create_task(asyncio.to_thread(
         session.commit_response, request_event,
         _receive, evaluations, session, call, spec, assigned, result,
@@ -227,6 +225,8 @@ async def execute_experiment(evaluations, session, call, payload, *, request_eve
 
 
 def _receive(evaluations, session, call, spec, assigned, result):
+    from .candidate_environment import experiment_findings
+
     if isinstance(assigned, dict) and assigned.get("kind") == "grounded_control":
         from .measure_experiments import receive
 
@@ -343,11 +343,14 @@ def _receive(evaluations, session, call, spec, assigned, result):
         "experiment_result",
         {
             "experiment_id": spec.experiment_id,
+            "invocation_id": call.invocation_id.value,
+            "candidate_ref": candidate.ref.as_record(),
             "evaluation_request_ref": request.ref.as_record(),
             "measurement_ref": None
             if measurement is None
             else measurement["measurement_ref"],
             "execution_status": result["execution_status"],
+            "environment_findings": experiment_findings(result),
             "observed_check_keys": [check.artifact_id.value for check in observed],
         },
     )
