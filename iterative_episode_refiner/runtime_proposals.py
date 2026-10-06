@@ -5,7 +5,7 @@ identity, authority, inherited constraints, candidate hashes and final records.
 """
 
 from agent.duet_contracts import content_id
-from function_library.epistemic_contract import exact
+from function_library.epistemic_contract import exact, names
 from function_library.models import _thaw_json
 from function_library.refinement_contract import ROLES
 
@@ -193,6 +193,12 @@ def proposal_schemas(role):
                         "kind": "a kind from measure_needs",
                         "purpose": "its judgment purpose",
                         "requirements": ["its specification requirement addresses"],
+                        "explanation": (
+                            "Briefly identify the missing observation, grounding or capability, "
+                            "why the available check-design/acquisition routes cannot supply it, "
+                            "and the concrete prerequisite work your parent needs to assign. "
+                            "This is your diagnostic reasoning, not a new authority grant."
+                        ),
                     }
                 },
             ]
@@ -648,7 +654,8 @@ def _measure_prerequisite(session, call, proposal, producer):
 def _measure_request(session, call, proposal, producer):
     from .measure_needs import catalog
 
-    choice = exact(proposal["prerequisite_request"], {"kind", "purpose", "requirements"}, "measurement need")
+    choice = exact(proposal["prerequisite_request"], {"kind", "purpose", "requirements", "explanation"}, "measurement need")
+    names((choice["explanation"],), "measurement prerequisite explanation", nonempty=True)
     requirements = requirement_keys(session, call.assignment, choice["requirements"])
     with session.view() as view:
         selected = [need for need in catalog(view, call.assignment, session.policy)
@@ -657,7 +664,10 @@ def _measure_request(session, call, proposal, producer):
     if len(selected) != 1:
         raise ValueError("measurement request must identify one authorized need by kind, purpose and requirements")
     session.commit(call, "propose_measure", {
-        "prerequisite_request": {"need_key": selected[0]["need_key"]},
+        "prerequisite_request": {
+            "need_key": selected[0]["need_key"],
+            "explanation": choice["explanation"],
+        },
     }, producer=producer)
     return session.reply(call, proceed=False)
 

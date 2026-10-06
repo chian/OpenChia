@@ -146,8 +146,10 @@ def prerequisite_record(view, attempt):
     payload = exact(
         attempt.body["payload"], {"prerequisite_request"}, "measurement prerequisite"
     )
+    request = payload["prerequisite_request"]
     choice = exact(
-        payload["prerequisite_request"], {"need_key"}, "measurement prerequisite choice"
+        request, {"need_key"} | ({"explanation"} if "explanation" in request else set()),
+        "measurement prerequisite choice",
     )
     policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
     selected = [
@@ -178,6 +180,7 @@ def prerequisite_record(view, attempt):
             "assignment_ref": assignment.ref.as_record(),
             "owner_assignment_ref": assignment.body["parent_assignment_ref"],
             "need": need,
+            **({"explanation": choice["explanation"]} if "explanation" in choice else {}),
         },
         evidence=evidence,
     )
@@ -227,6 +230,7 @@ def return_prerequisite(view, attempt):
             "assignment_ref": assignment.ref.as_record(),
             "owner_assignment_ref": assignment.body["parent_assignment_ref"],
             "need": source.body["need"],
+            **({"explanation": source.body["explanation"]} if "explanation" in source.body else {}),
         },
         evidence=(EvidenceRef(
             "duet_artifact", OpaqueId(view.head["duet_id"]),

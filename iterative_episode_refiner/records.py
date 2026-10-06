@@ -138,7 +138,7 @@ RECORD_FIELDS = {
     },
     "measure_definition": {"assignment_ref", "owner_assignment_ref", "requirement_catalog_ref", "design"},
     "measure_review": {"assignment_ref", "definition_ref", "criteria", "counterexamples", "limitations"},
-    "measure_prerequisite": {"assignment_ref", "owner_assignment_ref", "need"},
+    "measure_prerequisite": {"assignment_ref", "owner_assignment_ref", "need", "explanation"},
     "measure_admission": {
         "proposal_ref",
         "owner_assignment_ref",
@@ -403,6 +403,7 @@ _OPTIONAL_FIELDS["parent_report"].add("child_report_refs")
 _OPTIONAL_FIELDS["evaluation"] = {"availability", "selection_check_keys"}
 _OPTIONAL_FIELDS["check"] = {"execution_binding"}
 _OPTIONAL_FIELDS["measure_admission"] = {"evaluation_bindings", "control_run_refs"}
+_OPTIONAL_FIELDS["measure_prerequisite"] = {"explanation"}
 _OPTIONAL_FIELDS["measure_control_run"] = {"experiment_ref"}
 _OPTIONAL_FIELDS["continuation"] = {"prior_remaining_opportunities"}
 _OPTIONAL_FIELDS["evaluation_run"] = {
@@ -611,6 +612,8 @@ def _validate_body(kind: str, body: Mapping) -> None:
         _validate_control_record(kind, body)
     if kind == "measure_prerequisite":
         _validate_measure_need(body["need"])
+        if "explanation" in body:
+            names((body["explanation"],), "measurement prerequisite explanation", nonempty=True)
     if kind == "measure_definition":
         from .measure_design import validate_design
 

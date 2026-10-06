@@ -25,6 +25,16 @@ source or prerequisite from a failed implementation. The reason describes the
 recorded observation; current applicability remains separate, and the rest of the
 structured evidence stays in the audit record.
 
+When EstablishMeasure returns a prerequisite, its model proposal includes a brief
+`explanation` of the missing observation, grounding or capability, why the
+available routes cannot supply it, and the concrete work its parent needs to
+assign. The original explanation accompanies `open_decisions` and follows an
+exact need through upward forwarding and subsequent assigned-prerequisite input.
+It is recorded diagnostic reasoning, separate from the host-resolved need's
+kind, purpose, requirement scope and authority. It grants no execution capability,
+establishes no check adequacy and earns no credit. Machine-only need records may
+omit the explanation; the projection does not invent one where none was recorded.
+
 ## Shared interfaces
 
 `method_loop.ReportContract` contains `decision`, `measurements`, and

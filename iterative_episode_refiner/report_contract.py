@@ -274,7 +274,8 @@ def _decision_need(view, record, catalog):
     need = record.body["need"]
     return [{"assignment_prerequisite": True,
              "kind": need["kind"], "purpose": need["purpose"],
-             "requirements": [requirement_address(catalog[key]) for key in need["requirement_keys"]]}]
+             "requirements": [requirement_address(catalog[key]) for key in need["requirement_keys"]],
+             **({"explanation": record.body["explanation"]} if "explanation" in record.body else {})}]
 
 
 def _decision_evaluation(view, record, catalog):
