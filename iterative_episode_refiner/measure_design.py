@@ -347,6 +347,7 @@ def context(view, assignment, frozen):
                 "execution": "The selected isolated Run backend executes the exact reviewed code against read-only inputs.",
                 "controls": "Complete positive/negative fixtures {files, materialization, input}; the harness executes the program to obtain observations.",
                 "candidate": "Current scoped source and plan are available even before full workflow admission.",
+                "environment": "Declare checker dependencies in program.files['.openchia-environment.json'] using the supplied environment recipe schema. The shared service prepares this instrument independently of the candidate or fixture recipe; absent a recipe, only standard and frozen runtime libraries are available.",
             },
             "execution_bindings": [
                 item for item in frozen["evaluation_bindings"]

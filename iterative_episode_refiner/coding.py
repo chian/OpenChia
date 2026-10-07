@@ -87,6 +87,22 @@ class RefinementCodingTransport:
         from .candidate_environment import prepare_candidate
 
         await self.session.evaluations.prepare_context(self.session)
+        call, _, context = self._working_context(request)
+        if call.assignment.body["role"] == "measure":
+            from episode_runtime.testing_harness.checker_programs import prepare_program_environment
+
+            current = context["inputs"].get("check_design", {}).get("current_design")
+            program = current.get("program") if current else None
+            if program is None:
+                return []
+            result = await prepare_program_environment(
+                self.session.evaluations.environment_service(self.session), program,
+                duet_id=self.session.duet_id,
+            )
+            return [] if result is None else [{
+                "subject": "checking_instrument",
+                **self._diagnostic_record(result, program["files"]),
+            }]
         call, candidate, projections = await asyncio.to_thread(self._diagnostic_sources, request)
         diagnostics = []
         for projection in projections:
@@ -94,18 +110,22 @@ class RefinementCodingTransport:
                 self.session.evaluations, self.session, call, candidate, projection,
             )
             if preparation is not None:
-                result = preparation["result"]
-                execution = result.get("diagnostic_execution") or self.session.evaluations.environment_context()["coding_diagnostics"]
-                diagnostics.append({
-                    "source_paths": sorted(projection.scope.paths.values()),
-                    "status": result["status"], "diagnostics": result["diagnostics"],
-                    "python_executable": result["python_executable"],
-                    "site_packages": result["site_packages"] if execution["direct_interpreter_available"] else None,
-                    "execution": execution,
-                    "preparation_ref": result["preparation_ref"], "log_refs": result["log_refs"],
-                    "meaning": execution["guidance"],
-                })
+                diagnostics.append(self._diagnostic_record(
+                    preparation["result"], projection.scope.paths.values(),
+                ))
         return diagnostics
+
+    def _diagnostic_record(self, result, paths):
+        execution = result.get("diagnostic_execution") or self.session.evaluations.environment_context()["coding_diagnostics"]
+        return {
+            "source_paths": sorted(paths),
+            "status": result["status"], "diagnostics": result["diagnostics"],
+            "python_executable": result["python_executable"],
+            "site_packages": result["site_packages"] if execution["direct_interpreter_available"] else None,
+            "execution": execution,
+            "preparation_ref": result["preparation_ref"], "log_refs": result["log_refs"],
+            "meaning": execution["guidance"],
+        }
 
     def _working_context(self, request):
         if request.model_type not in self.binding.record["model_types"]:

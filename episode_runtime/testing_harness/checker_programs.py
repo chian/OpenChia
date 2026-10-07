@@ -13,6 +13,7 @@ import tempfile
 
 from agent.duet_contracts import canonical_json
 from episode_runtime.records.experiments import put_data, read_reference
+from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH, TargetEnvironmentRecipe
 
 
 def source_files(value):
@@ -48,7 +49,21 @@ def validate_program(program):
                 compile(text, path, "exec")  # Parse only; generated code never runs in this host.
             except SyntaxError as exc:
                 raise ValueError(f"checking source {path} does not compile: {exc}") from exc
+    program_environment(program)
     return program
+
+
+def program_environment(program):
+    """The instrument owns its imports; target files remain data under examination."""
+    text = program["files"].get(ENVIRONMENT_RECIPE_PATH)
+    return None if text is None else TargetEnvironmentRecipe.from_record(json.loads(text))
+
+
+async def prepare_program_environment(environment_service, program, *, duet_id):
+    recipe = program_environment(program)
+    if recipe is None:
+        return None
+    return await environment_service.prepare(recipe, duet_id=duet_id)
 
 
 def validate_fixture(fixture):
@@ -90,12 +105,13 @@ sys.stdout.write(encoded)
 
 
 async def execute_program(*, executor, artifacts, builds, runs, duet_id, program,
-                          fixture, subject, environment_service, preparation=None):
+                          fixture, subject, environment_service):
     """Return saved process evidence; callers own review, control and credit rules."""
     validate_program(program)
     validate_fixture(fixture)
     if executor.run_store is not runs:
         raise ValueError("checking must use the selected RunStore and executor")
+    preparation = await prepare_program_environment(environment_service, program, duet_id=duet_id)
     runtime = environment_service.runtime_identity
     intent = {
         "program": program, "fixture": fixture, "subject": subject,

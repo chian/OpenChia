@@ -29,8 +29,16 @@ The function takes one context object with source_root (a read-only directory),
 materialization (the candidate plan), and input (the case's frozen input). It
 returns a JSON value measured by the selected registered predicate at /result.
 It may read/import target functions, construct examples, execute them and compare
-results. Imports have the declared Target Workflow dependencies and runtime
-libraries. Network and personal credentials are unavailable during checking.
+results. Declare the instrument's third-party dependencies in
+checker/.openchia-environment.json and include that file in program.files. Use
+the environment recipe schema supplied in target_environment with the selected
+Python runtime. The host prepares this instrument recipe through OpenChia PM,
+independently of the target's recipe, before executing controls and candidate
+checks. A program without a recipe uses the standard library and frozen runtime
+libraries. Submit the instrument and its recipe for review and preparation;
+recorded preparation diagnostics guide any subsequent recipe repair. Target
+environment files in fixtures are data for the checker to examine. Network and
+personal credentials are unavailable during checking.
 
 Each positive/negative control supplies fixture={files,materialization,input}
 and a requirement-grounded rationale. These are complete synthetic inputs, not

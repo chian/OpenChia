@@ -294,7 +294,14 @@ identifies a Question review assignment; Measure consumes its child's report.
 After that review returns,
 Measure submits the frozen definition. The shared testing harness executes its
 program against every control using the selected Run backend's isolated process
-operation. It supplies read-only inputs, frozen runtime and prepared target
+operation. The instrument declares its own dependencies in
+`checker/.openchia-environment.json`, included in `program.files`. The existing
+environment service prepares that recipe and records its resolved lock, runtime
+and preparation evidence. This allows checking an incomplete target, including
+one with a missing or broken environment recipe. Target and fixture environment
+files are data under examination, not the checker's dependency declaration.
+A checker without a recipe receives the standard library and frozen runtime
+libraries. The backend supplies read-only inputs and prepared checker
 dependencies, writable scratch and no network or profile credentials. The function
 receives neither the expected verdict nor the control polarity. An import error
 or process failure is an error, not a successful negative control.
@@ -314,7 +321,22 @@ current control outcomes and errors in its working context. Final publication
 rechecks the original receipts rather than running controls again.
 
 Controls demonstrate discrimination on those examples, not universal correctness.
-Checking code currently uses the Target Workflow's declared dependencies and
-cannot acquire external data or model access during execution. A requirement
+Checking code uses its own declared dependencies and cannot acquire external
+data or model access during execution. Importing target functions in that
+environment is a local check; verification of the Target Workflow's own runtime
+still uses its declared environment through the shared Run harness. A requirement
 needing a different approved instrument or evidence source remains explicit.
 Checker source imports stay in the isolated backend, never the host process.
+
+On 2026-10-06, four real systemd-backed instrument executions checked this
+environment boundary. An undeclared NumPy import produced a recorded error.
+Declaring `numpy>=2.0,<3` in the instrument recipe resolved NumPy 2.5.3 and
+allowed the same checker to execute with either a missing or malformed target
+recipe. A defective target value produced `false` through the same instrument.
+These are environment/execution checks, not Target Workflow acceptance. Their
+`experiment.checker_inputs.v1` subjects use
+`verification: checker_owned_environment` in the existing authority store.
+The successful missing-target-recipe execution is
+`experiment_data_abdb33a6572651bf2ef070cd82adf878975fe10e72c04a8769cd9b70f45243f0`;
+the defective-input execution is
+`experiment_data_be2acbd41f40eef5924efbd7699b8b60df370fa9259f0257f8b61418f0f59bd4`.

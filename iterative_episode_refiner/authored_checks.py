@@ -127,12 +127,6 @@ async def prepare(evaluations, session, call, payload):
                     jobs.append((program, fixture, subject(view, call, candidate=candidate, check=check)))
     if not jobs:
         return
-    from .candidate_source import project_candidate_sources
-    from .candidate_environment import prepare_candidate
-
-    projection = project_candidate_sources(session.store.evidence, session.contract, candidate)
-    prepared = await prepare_candidate(evaluations, session, call, candidate, projection)
-    preparation = None if prepared is None else prepared["result"]
     for program, fixture, expected in jobs:
         with session.view() as view:
             if _saved(view, expected) is not None:
@@ -141,7 +135,7 @@ async def prepare(evaluations, session, call, payload):
             executor=evaluations.executor, artifacts=session.store.evidence.duets,
             builds=evaluations.builder.store, runs=session.store.evidence.runs,
             duet_id=session.duet_id, program=program, fixture=fixture, subject=expected,
-            environment_service=evaluations.environment_service(session), preparation=preparation,
+            environment_service=evaluations.environment_service(session),
         )
         session.put_data("checker_result", {"subject": expected, "execution_ref": execution})
 
