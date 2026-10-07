@@ -351,6 +351,13 @@ def context(view, assignment, frozen):
                 "execution": "The selected isolated Run backend executes the exact reviewed code against read-only inputs.",
                 "controls": "Complete positive/negative fixtures {files, materialization, input}; the harness executes the program to obtain observations.",
                 "candidate": "Current scoped source and plan are available even before full workflow admission.",
+                "materialization": (
+                    "checking_target_materialization is the exact candidate-plan value "
+                    "passed to the program as materialization. Use its actual fields when "
+                    "designing or reviewing observations. Control fixtures are synthetic "
+                    "inputs, not a definition of the host schema; additional authority or "
+                    "lifecycle claims need their own supported observations."
+                ),
                 "environment": "Declare checker dependencies in program.files['.openchia-environment.json'] using the supplied environment recipe schema. The shared service prepares this instrument independently of the candidate or fixture recipe; absent a recipe, only standard and frozen runtime libraries are available.",
             },
             "execution_bindings": [

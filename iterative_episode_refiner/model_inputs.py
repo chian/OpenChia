@@ -124,10 +124,6 @@ def _materialization(session, view, call):
         "source_kinds": {},
     }
     add_context(view, call.assignment, context)
-    if call.assignment.body["role"] == "measure":
-        from .materialization_edits import stored_plan
-
-        context["checking_target_materialization"] = stored_plan(view, view.candidate)
     return context
 
 
@@ -204,7 +200,7 @@ def _measure_design(session, view, call):
     current = proposals[-1:]  # resume_instrument selects this current proposal.
     catalog = requirement_catalog(view)
     controls = control_context(view, (item.ref for item in current))
-    return {
+    result = {
         **context(view, assignment, session.policy),
         "measure_needs": [{
             "kind": need["kind"], "purpose": need["purpose"],
@@ -220,6 +216,17 @@ def _measure_design(session, view, call):
         } for row in controls],
         "checking_program_controls": authored_control_context(view, current),
     }
+    checking = result.get("check_design", {})
+    if assignment.body["role"] == "measure" or (
+        checking.get("review_assigned")
+        and checking["current_design"]["program"] is not None
+    ):
+        from .materialization_edits import stored_plan
+
+        # Author and reviewer need the same real input shape: synthetic fixtures
+        # can contain fields that the host's candidate plan never supplies.
+        result["checking_target_materialization"] = stored_plan(view, view.candidate)
+    return result
 
 
 def _grounding(session, view, call):

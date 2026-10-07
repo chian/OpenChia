@@ -309,7 +309,12 @@ with `program=null` and `input=null`.
 
 Question reviews the exact program, original requirements, expected results,
 fixtures and limitations in a separate invocation automatically scheduled by a
-`check_design` proposal. Measure and Question receive execution-binding choices
+`check_design` proposal. For authored programs, both Measure and its Question
+reviewer receive `checking_target_materialization`: the actual candidate-plan
+value supplied to program execution. This distinguishes the host input shape
+from synthetic fixture metadata; a fixture cannot establish that a host field
+exists. Additional authority or lifecycle claims still require supported
+observations. Measure and Question receive execution-binding choices
 for that design's requested judgment purpose. Local, acceptance and composition
 checks retain their separate purposes through admission and evaluation.
 Returned reviews reach Measure at
