@@ -17,6 +17,7 @@ from .credit_assignment import (
     NumericIncidenceState,
     NumericYieldProjection,
     ResultColumnSchema,
+    is_stable_id,
 )
 from .rarefaction import PAIRED_INCIDENCE, paired_incidence
 
@@ -33,6 +34,7 @@ __all__ = [
     "NumericIncidenceState",
     "NumericYieldProjection",
     "ResultColumnSchema",
+    "is_stable_id",
     "compose_controller",
     "paired_incidence",
     "predicted_credit_upper_bound",
