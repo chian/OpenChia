@@ -127,23 +127,28 @@ def _materialization(session, view, call):
     return context
 
 
-def _source(session, view, call):
-    from .candidate_source import source_kind
-    from .materialization_edits import edit_context
+def _candidate_source_files(session, view, assignment):
     from .measures import authorized_check_refs
 
     candidate = view.candidate
-    readable = set(call.assignment.body["writable_paths"])
-    if call.assignment.body["role"] == "measure":
-        parent = view.read(Ref.from_record(call.assignment.body["parent_assignment_ref"]), "assignment")
+    readable = set(assignment.body["writable_paths"])
+    if assignment.body["role"] == "measure":
+        parent = view.read(Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment")
         readable.update(parent.body["writable_paths"])
-    for reference in authorized_check_refs(view, session.policy, call.assignment):
+    for reference in authorized_check_refs(view, session.policy, assignment):
         check = view.read(reference, "check")
-        if check.body["requirement_key"] in call.assignment.body["scope_requirement_keys"]:
+        if check.body["requirement_key"] in assignment.body["scope_requirement_keys"]:
             readable.update(check.body["dependency_paths"] or ())
     paths = readable & set(candidate.body["files"])
-    files = {path: session.store.evidence.builds.read_blob(candidate.body["files"][path]).decode("utf-8")
-             for path in sorted(paths)}
+    return {path: session.store.evidence.builds.read_blob(candidate.body["files"][path]).decode("utf-8")
+            for path in sorted(paths)}
+
+
+def _source(session, view, call):
+    from .candidate_source import source_kind
+    from .materialization_edits import edit_context
+
+    files = _candidate_source_files(session, view, call.assignment)
     edits = edit_context(view, session.policy, call.assignment)
     return {
         "source_files": files,
@@ -226,6 +231,11 @@ def _measure_design(session, view, call):
         # Author and reviewer need the same real input shape: synthetic fixtures
         # can contain fields that the host's candidate plan never supplies.
         result["checking_target_materialization"] = stored_plan(view, view.candidate)
+        if checking.get("review_assigned"):
+            author = view.read(Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment")
+            # The reviewer compares controls with the same scoped source that
+            # Measure received, rather than inferring it from fixture filenames.
+            result["checking_target_sources"] = _candidate_source_files(session, view, author)
     return result
 
 

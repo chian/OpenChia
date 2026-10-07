@@ -325,7 +325,12 @@ reviewer receive `checking_target_materialization`: the actual candidate-plan
 value supplied to program execution. This distinguishes the host input shape
 from synthetic fixture metadata; a fixture cannot establish that a host field
 exists. Additional authority or lifecycle claims still require supported
-observations. Measure and Question receive execution-binding choices
+observations. The reviewer also receives `checking_target_sources`, using the
+same scoped candidate-source selection supplied to Measure. This lets it compare
+actual candidate code with control implementations instead of inferring their
+relationship from fixture names. Source similarity or difference alone does not
+establish expected-result independence. Measure and Question receive
+execution-binding choices
 for that design's requested judgment purpose. Local, acceptance and composition
 checks retain their separate purposes through admission and evaluation.
 Returned reviews reach Measure at

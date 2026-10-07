@@ -351,6 +351,12 @@ def context(view, assignment, frozen):
                 "execution": "The selected isolated Run backend executes the exact reviewed code against read-only inputs.",
                 "controls": "Complete positive/negative fixtures {files, materialization, input}; the harness executes the program to obtain observations.",
                 "candidate": "Current scoped source and plan are available even before full workflow admission.",
+                "source": (
+                    "Measure receives source_files; its reviewer receives the same scoped "
+                    "candidate files in checking_target_sources. Compare those implementations "
+                    "with the control fixtures when assessing shared behavior and differences. "
+                    "Derive expected outcomes from the original requirements and independent evidence."
+                ),
                 "materialization": (
                     "checking_target_materialization is the exact candidate-plan value "
                     "passed to the program as materialization. Use its actual fields when "
