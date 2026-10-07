@@ -499,6 +499,100 @@ def _binding_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
     return tuple(found)
 
 
+def _function_scope(
+    node: ast.AST,
+    parents: Mapping[ast.AST, ast.AST],
+) -> dict[str, list[ast.expr]] | None:
+    """Values of names assigned or defaulted inside the enclosing function.
+
+    A parameter with a default resolves to that default; one without a
+    default is unknown and shadows any module-level value of the same name.
+    """
+    parent = parents.get(node)
+    while parent is not None and not isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        parent = parents.get(parent)
+    if parent is None:
+        return None
+    scope: dict[str, list[ast.expr]] = {}
+    arguments = parent.args
+    positional = arguments.posonlyargs + arguments.args
+    defaults = [None] * (len(positional) - len(arguments.defaults)) + list(arguments.defaults)
+    for argument, default in zip(positional, defaults):
+        scope[argument.arg] = [default] if default is not None else []
+    for argument, default in zip(arguments.kwonlyargs, arguments.kw_defaults):
+        scope[argument.arg] = [default] if default is not None else []
+    for item in ast.walk(parent):
+        if isinstance(item, ast.Assign):
+            for target in item.targets:
+                if isinstance(target, ast.Name):
+                    scope.setdefault(target.id, []).append(item.value)
+        elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+            scope.setdefault(item.target.id, []).append(item.value) if item.value is not None else scope.setdefault(item.target.id, [])
+    return scope
+
+
+def _string_sequence(
+    node: ast.AST,
+    assigned: Mapping[str, list[ast.expr]],
+    scope: Mapping[str, list[ast.expr]] | None,
+    resolving: frozenset[str] = frozenset(),
+) -> tuple[str, ...] | None:
+    """The string tuple an expression evaluates to, when that is knowable."""
+    if isinstance(node, (ast.Tuple, ast.List)):
+        items = [item.value if isinstance(item, ast.Constant) else None for item in node.elts]
+        if all(isinstance(item, str) for item in items):
+            return tuple(items)
+        return None
+    if isinstance(node, ast.Name):
+        if node.id in resolving:
+            return None
+        values = scope.get(node.id) if scope is not None and node.id in scope else assigned.get(node.id, ())
+        if len(values) != 1:
+            return None
+        return _string_sequence(values[0], assigned, scope, resolving | {node.id})
+    if isinstance(node, ast.Call) and _call_terminal_name(node) in {"tuple", "list"} and len(node.args) == 1 and not node.keywords:
+        return _string_sequence(node.args[0], assigned, scope, resolving)
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or) and node.values:
+        return _string_sequence(node.values[0], assigned, scope, resolving)
+    return None
+
+
+def _result_column_deficits(tree: ast.Module) -> tuple[str, ...]:
+    """ResultColumnSchema.columns must be the host-derived channel IDs.
+
+    numeric_control_library rejects any column that is not a stable opaque ID
+    when the schema is constructed, which happens inside the isolated Run. The
+    slip is building the credit schema from RESULT_CHANNEL_NAMES (human
+    labels) instead of RESULT_CHANNEL_IDS. Only knowable values are judged; a
+    computed sequence is left to the runtime.
+    """
+    from numeric_control_library import is_stable_id
+
+    assigned = _assigned_values(tree)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or _call_terminal_name(node) != "ResultColumnSchema":
+            continue
+        columns: ast.expr | None = node.args[0] if node.args else None
+        for keyword in node.keywords:
+            if keyword.arg == "columns":
+                columns = keyword.value
+        if columns is None:
+            continue
+        resolved = _string_sequence(columns, assigned, _function_scope(node, parents))
+        if resolved is None:
+            continue
+        invalid = [value for value in resolved if not is_stable_id(value)]
+        if invalid:
+            found.append(
+                f"ResultColumnSchema at line {node.lineno}: columns must be the host-derived "
+                f"RESULT_CHANNEL_IDS (stable opaque IDs such as result_channel_<hex>), never "
+                f"RESULT_CHANNEL_NAMES; {invalid!r} are human labels, not credit columns"
+            )
+    return tuple(found)
+
+
 def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
     """Check keyword/positional arguments of library class constructions statically.
 
@@ -1112,6 +1206,9 @@ def _inspect_source(
 
     for detail in _binding_argument_deficits(tree):
         add("binding_arguments_not_json", "module_source.binding", detail)
+
+    for detail in _result_column_deficits(tree):
+        add("result_columns_not_channel_ids", "module_source.controller_schema", detail)
 
     if frozen_contract is not None:
         expected: dict[str, object] = {

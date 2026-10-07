@@ -740,7 +740,8 @@ _MODULE_CONTRACT = {
             "tuple exactly equal to result_channel_names"
         ),
         "RESULT_CHANNEL_IDS": (
-            "tuple exactly equal to host-derived result_channel_ids"
+            "tuple exactly equal to host-derived result_channel_ids; these are "
+            "the credit result columns (see credit_schema)"
         ),
         "BINDING": "EpisodeBindingDeclaration matching the frozen contract and plan",
         "DESIGN": (
@@ -885,6 +886,24 @@ _MODULE_CONTRACT = {
             "and return an instance of it from build_goal_state; an Episode that "
             "never proposes Goal results may instead import and return "
             "function_library.reasoning.ReasoningGoalState()"
+        ),
+    },
+    "credit_schema": {
+        "rule": (
+            "the controller.schema function returns "
+            "numeric_control_library.ResultColumnSchema(columns=RESULT_CHANNEL_IDS, "
+            "reference_point=tuple(0.0 for _ in RESULT_CHANNEL_IDS)); its columns are "
+            "the host-derived stable opaque IDs, never RESULT_CHANNEL_NAMES, which are "
+            "human labels for the same channels; credit_assignment rejects a column "
+            "that is not a stable opaque ID when the isolated worker builds the "
+            "schema, and host admission rejects a knowable slip before the Run"
+        ),
+        "example": (
+            "def result_column_schema():\n"
+            "    return ResultColumnSchema(\n"
+            "        columns=RESULT_CHANNEL_IDS,\n"
+            "        reference_point=tuple(0.0 for _ in RESULT_CHANNEL_IDS),\n"
+            "    )"
         ),
     },
     "constructor_signatures": {

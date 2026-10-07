@@ -63,8 +63,17 @@ def _non_negative_integer(value: object, name: str) -> int:
     return value
 
 
+def is_stable_id(value: object) -> bool:
+    """True when ``value`` is a stable opaque ID (``<prefix>_<hex digest>``).
+
+    Result columns, campaign identities and credit observations are keyed by
+    these; a human label such as ``"asm_health_observation"`` is not one.
+    """
+    return isinstance(value, str) and _STABLE_ID.fullmatch(value) is not None
+
+
 def _stable_id(value: object, name: str) -> str:
-    if not isinstance(value, str) or not _STABLE_ID.fullmatch(value):
+    if not is_stable_id(value):
         raise ValueError(f"{name} must be a stable opaque ID")
     return value
 
@@ -1059,4 +1068,5 @@ __all__ = [
     "dominated_hypervolume",
     "marginal_dominated_hypervolume",
     "open_marginal_dominated_hypervolume",
+    "is_stable_id",
 ]
