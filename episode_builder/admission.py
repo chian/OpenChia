@@ -373,6 +373,37 @@ def constructor_signatures() -> dict[str, dict[str, list[str]]]:
         "derived": [],
         "members": [member.name for member in method_loop.EpisodeTopologyRole],
     }
+    signatures.update(_function_signatures())
+    return signatures
+
+
+def _function_signatures() -> dict[str, dict[str, list[str]]]:
+    """Parameters of the library functions a generated module calls at import.
+
+    Read with inspect so the contract follows the code; keyword-only
+    parameters are listed as such, because a positional call is a TypeError.
+    """
+    import inspect
+
+    from numeric_control_library import controller
+
+    functions = {
+        "numeric_control_library.compose_controller": controller.compose_controller,
+        "numeric_control_library.controller.compose_controller": controller.compose_controller,
+    }
+    signatures: dict[str, dict[str, list[str]]] = {}
+    for qualified, function in functions.items():
+        parameters = list(inspect.signature(function).parameters.values())
+        named = [
+            parameter for parameter in parameters
+            if parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+        ]
+        signatures[qualified] = {
+            "required": [p.name for p in named if p.default is p.empty],
+            "optional": [p.name for p in named if p.default is not p.empty],
+            "derived": [],
+            "keyword_only": [p.name for p in named if p.kind is p.KEYWORD_ONLY],
+        }
     return signatures
 
 
@@ -593,6 +624,21 @@ def _result_column_deficits(tree: ast.Module) -> tuple[str, ...]:
     return tuple(found)
 
 
+def _text_expression(node: ast.expr) -> bool:
+    """False only when the value is knowably not non-empty text."""
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, str) and bool(node.value.strip())
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and len(node.args) == 2
+        and isinstance(node.args[1], ast.Constant)
+    ):
+        return _text_expression(node.args[1])
+    return True
+
+
 def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
     """Check keyword/positional arguments of library class constructions statically.
 
@@ -639,16 +685,33 @@ def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
             continue
         spec = signatures[qualified]
         fields = spec["required"] + spec["optional"]
-        supplied = set(fields[: len(node.args)])
         unknown = sorted(
             keyword.arg for keyword in node.keywords if keyword.arg not in fields
         )
+        keyword_only = spec.get("keyword_only", [])
+        positional = [name for name in fields if name not in keyword_only]
+        supplied = set(positional[: len(node.args)])
         supplied.update(keyword.arg for keyword in node.keywords if keyword.arg in fields)
         missing = [name for name in spec["required"] if name not in supplied]
-        if len(node.args) > len(fields):
+        if len(node.args) > len(positional):
             found.append(
-                f"{qualified} at line {node.lineno} takes at most {len(fields)} "
+                f"{qualified} at line {node.lineno} takes at most {len(positional)} "
                 f"positional arguments; received {len(node.args)}"
+                + (f" (parameters {keyword_only!r} are keyword-only)" if keyword_only else "")
+            )
+        epoch = next((keyword.value for keyword in node.keywords if keyword.arg == "epoch"), None)
+        if isinstance(epoch, ast.Name):
+            assignments = [
+                item.value for item in ast.walk(tree)
+                if isinstance(item, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == epoch.id for target in item.targets)
+            ]
+            if len(assignments) == 1:
+                epoch = assignments[0]
+        if "epoch" in fields and epoch is not None and not _text_expression(epoch):
+            found.append(
+                f"{qualified} at line {node.lineno}: epoch must be non-empty text, "
+                "for example a module constant such as CONTROLLER_EPOCH = \"<local_id>-v1\""
             )
         if unknown or missing:
             parts = []

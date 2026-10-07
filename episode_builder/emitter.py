@@ -841,6 +841,19 @@ _MODULE_CONTRACT = {
             "callable(path) returning the controller composed from the admitted "
             "schema, credit, rarefaction, and continuation functions"
         ),
+        "compose_controller": (
+            "numeric_control_library.compose_controller is keyword-only: "
+            "compose_controller(schema=<ResultColumnSchema>, epoch=<non-empty text "
+            "constant>, credit_function=MARGINAL_DOMINATED_HYPERVOLUME, "
+            "rarefaction_function=PAIRED_INCIDENCE, "
+            "continuation_function=PREDICTED_CREDIT_UPPER_BOUND, "
+            "credit_parameters=<the controller.credit binding arguments>, "
+            "rarefaction_parameters=<the controller.rarefaction binding arguments>, "
+            "continuation_parameters=<the controller.continuation binding arguments>); "
+            "the *_function values are the LibraryFunction objects and the "
+            "*_parameters values are their JSON argument mappings; it returns the "
+            "callable(path) factory that build_controller_factory returns"
+        ),
     },
     "library_exports": {
         "rule": (
@@ -908,11 +921,12 @@ _MODULE_CONTRACT = {
     },
     "constructor_signatures": {
         "rule": (
-            "construct each class below with keyword arguments naming exactly "
-            "its listed fields and supply every required one; a derived field "
-            "is computed by the class and is never passed; host admission "
-            "rejects a call with an unknown or missing field before the "
-            "module can run"
+            "construct each class below, and call each library function "
+            "below, with keyword arguments naming exactly its listed fields "
+            "and supply every required one; a keyword_only parameter is never "
+            "passed positionally; a derived field is computed by the class and "
+            "is never passed; host admission rejects a call with an unknown or "
+            "missing field before the module can run"
         ),
         "classes": constructor_signatures(),
     },
