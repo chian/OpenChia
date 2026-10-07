@@ -277,6 +277,18 @@ feedback and within-invocation history resolve the same bytes, while child
 reports keep their separate parent-selected format. Transport size limits and
 measure adequacy requirements are unchanged.
 
+Reasoning calls retain their exact rendered messages in immutable
+`refinement.reasoning_prompt.v1` artifacts, linked from the response route to
+the original working-context reference, assignment, unit and candidate. During
+check review, identical fixture source appears once in an inline
+`shared_fixture_sources` catalog. Each fixture keeps its original paths and
+references that exact text with `{shared_source: NAME}`. Every control, input,
+materialization and rationale is retained. This lossless reasoning view avoids
+repeating large helper modules across controls; stored definitions, native coding
+workspaces, executable fixtures and parent-selected child reports are unchanged.
+The host applies this rendering when resolving the working reference, including
+an unanswered review call resumed through normal Run continuation.
+
 ## Measure's checking workspace
 
 EstablishMeasure uses this same native coding transport and owning Duet model

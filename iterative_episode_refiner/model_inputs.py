@@ -5,6 +5,8 @@ values cross into reasoning. These projections do not change credit, evidence,
 candidate admission, or continuation.
 """
 
+from collections import Counter
+
 from function_library.models import _thaw_json
 from function_library.refinement_contract import INPUT_MEASUREMENTS, MODEL_INPUT_COMPONENTS
 
@@ -254,6 +256,57 @@ _COMPONENTS = {
     "prerequisites": _prerequisites,
     "environment": _environment,
 }
+
+
+def reasoning_inputs(inputs):
+    """Render a review's repeated fixture files once, retaining every exact control.
+
+    The immutable working context and executable definition keep full file maps.
+    Only the reasoning view uses inline source references; native coding still
+    receives the complete files in its workspace.
+    """
+    checking = inputs.get("check_design")
+    if not checking or not checking["review_assigned"]:
+        return inputs
+    result = _thaw_json(inputs)
+    checking = result["check_design"]
+    design = checking["current_design"]
+    checking["execution_bindings"] = [
+        item for item in checking["execution_bindings"]
+        if item["purpose"] == design["purpose"]
+    ]
+    if design["program"] is None:
+        return result
+    files = [
+        control["fixture"]["files"]
+        for case in design["cases"]
+        for polarity in ("positive_controls", "negative_controls")
+        for control in case[polarity]
+    ]
+    counts = Counter(source for mapping in files for source in mapping.values())
+    shared, labels = {}, {}
+    for mapping in files:
+        for path, source in mapping.items():
+            if counts[source] < 2:
+                continue
+            if source not in labels:
+                label, suffix = path, 2
+                while label in shared:
+                    label = f"{path} ({suffix})"
+                    suffix += 1
+                labels[source] = label
+                shared[label] = source
+            mapping[path] = {"shared_source": labels[source]}
+    if shared:
+        checking["shared_fixture_sources"] = shared
+        checking["fixture_source_format"] = (
+            "Each fixture.files entry is exact source text or {shared_source: NAME}. "
+            "Resolve NAME in shared_fixture_sources to obtain that file's complete "
+            "source at its original path. Shared text appears once in this review "
+            "view; every control, input, materialization and rationale remains separate. "
+            "The stored definition and executed fixtures retain the full file contents."
+        )
+    return result
 
 
 def model_inputs(session, view, call):

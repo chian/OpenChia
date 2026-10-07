@@ -31,20 +31,39 @@ class RefinementCodingTransport:
 
     async def __call__(self, request):
         prompt = json.loads(request.messages[-1]["content"])
-        call, _, context = self._working_context(request)
+        call, candidate, context = self._working_context(request)
         coding_tasks = {"implementer": "change", "measure": "measure"}
         if coding_tasks.get(call.assignment.body["role"]) != prompt.get("task"):
+            from .model_inputs import reasoning_inputs
+
             # Reasoning receives this invocation's exact declared working inputs.
             # The method loop still supplies the separately admitted child reports;
             # resolving working context never opens a child report artifact.
+            working_reference = prompt["assignment_context"]["working_context_ref"]
             prompt["assignment_context"] = {
-                **context["inputs"],
+                **reasoning_inputs(context["inputs"]),
                 "child_reports": prompt["assignment_context"]["child_reports"],
             }
             messages = (*request.messages[:-1], {
                 **request.messages[-1], "content": json.dumps(prompt),
             })
-            return await self.transport(replace(request, messages=messages))
+            rendered = self.session.put_data("reasoning_prompt", {
+                "campaign_id": self.session.campaign_id.value,
+                "run_id": self.session.registration.run_id.value,
+                "invocation_id": call.invocation_id.value,
+                "unit_id": call.unit_id.value,
+                "candidate_ref": candidate.as_record(),
+                "assignment_ref": call.assignment.ref.as_record(),
+                "working_context_ref": working_reference,
+                "task": prompt["task"], "model_task": request.task,
+                "messages": _thaw_json(messages),
+            })
+            response = await self.transport(replace(request, messages=messages))
+            return replace(response, route={
+                **response.route,
+                "reasoning_prompt_id": rendered.artifact_id.value,
+                "reasoning_prompt_hash": rendered.content_hash.value,
+            })
         diagnostics = await self._prepare_diagnostics(request)
         cancel = threading.Event()
         active = []
