@@ -20,6 +20,7 @@ from .reports import parent_report, report_overview
 def _measurements(session, view, call):
     from .judgment import judgment_purpose
     from .evaluation_plan import evaluation_availability, resolve_evaluations
+    from .measures import implementation_covered_requirements
 
     assignment = call.assignment
     report = parent_report(view, call.invocation_id)
@@ -48,7 +49,7 @@ def _measurements(session, view, call):
     availability = evaluation_availability(resolve_evaluations(
         view, session.policy, assignment, judgment_purpose(view, assignment)
     ))
-    return {
+    result = {
         **measurements,
         "iteration_history": iteration_history(session, view, call),
         "evaluation_availability": {
@@ -59,6 +60,29 @@ def _measurements(session, view, call):
             } for gap in availability["gaps"]],
         },
     }
+    if role in {"parts", "designer"}:
+        selected = set(assignment.body["contribution_requirement_keys"])
+        covered = implementation_covered_requirements(
+            view, assignment, assignment.body["local_measure_ref"], session.policy
+        )
+        result["implementation_measure_coverage"] = {
+            "all_contribution_requirements_covered": selected <= covered,
+            "covered_requirements": sorted(
+                requirement_address(catalog[key]) for key in selected & covered
+            ),
+            "missing_requirements": sorted(
+                requirement_address(catalog[key]) for key in selected - covered
+            ),
+            "meaning": (
+                "Implementation-plan admission requires an authorized mandatory local "
+                "check for every selected contribution requirement, bound to this "
+                "local measure and environment. Check outcomes appear separately in "
+                "measurements.local; independent acceptance has its own measure. "
+                "Parts can stage a contribution covered by existing local checks "
+                "while establishing checks for the broader requirements."
+            ),
+        }
+    return result
 
 
 def _coordination(session, view, call):

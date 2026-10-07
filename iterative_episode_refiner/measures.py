@@ -111,10 +111,10 @@ def admission_decision(view, attempt):
     )
 
 
-def require_implementation_measure(view, assignment, reference, requirements, policy):
-    """A design must name a usable coding measure before it invokes a coder."""
+def implementation_covered_requirements(view, assignment, reference, policy):
+    """Share the exact coding-check coverage between admission and planning input."""
     frozen = set(authorized_check_refs(view, policy, assignment))
-    covered = {
+    return frozenset(
         row.record.body["requirement_key"]
         for row in view.entries("check")
         if row.record.ref in frozen
@@ -122,7 +122,12 @@ def require_implementation_measure(view, assignment, reference, requirements, po
         and row.record.body["purpose"] == "local"
         and row.record.body["mandatory"]
         and row.record.body["environment_ref"] == view.contract.body["environment_ref"]
-    }
+    )
+
+
+def require_implementation_measure(view, assignment, reference, requirements, policy):
+    """A design must name a usable coding measure before it invokes a coder."""
+    covered = implementation_covered_requirements(view, assignment, reference, policy)
     if not set(requirements).issubset(covered):
         from .report_contract import requirement_address, requirement_catalog
 
