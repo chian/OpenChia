@@ -12,6 +12,17 @@ The existing host admission, shared validation harness, parent reports, credit
 and rarefaction decide whether those proposals constitute progress. A coding
 agent's final prose or successful command is not acceptance.
 
+Implementer receives its assigned, executable local checking programs under
+`.openchia-local-checks/`. The `local_check_programs` section of its working
+assignment identifies the program files, entrypoints, exact candidate
+materialization, case inputs, requirement locations and result predicates.
+The host uses the same evaluation resolver as actual measurement and stores
+each program once across its cases. These are protected diagnostic references:
+editing or deleting one rejects the captured proposal. Independent acceptance
+instruments and control fixtures are not included. Host evaluation continues
+to execute the immutable reviewed originals; workspace copies and local
+diagnostics grant no measurement credit.
+
 ## Focused implementation goal
 
 Make Implementer's coding workspace operational using a repository-shipped

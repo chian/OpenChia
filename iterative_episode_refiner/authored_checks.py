@@ -43,6 +43,58 @@ def candidate_fixture(view, reader, candidate, harness):
     }
 
 
+def coding_references(view, policy, assignment):
+    """Expose the assigned local predicates as protected diagnostic sources.
+
+    The evaluation resolver owns selection. These copies explain the actual
+    check input; host execution still uses the immutable reviewed instrument.
+    """
+    from .evaluation_plan import resolve_evaluations
+    from .materialization_edits import stored_plan
+    from .report_contract import requirement_address, requirement_catalog
+
+    catalog = requirement_catalog(view)
+    files, programs = {}, {}
+    for plan in resolve_evaluations(view, policy, assignment, "local"):
+        if not plan["availability"]["executable"]:
+            continue
+        selected = instrument(view, plan["binding"])
+        if selected is None:
+            continue
+        harness, program = selected
+        definition_id = harness["definition_ref"]["artifact_id"]
+        if definition_id not in programs:
+            directory = f".openchia-local-checks/program_{len(programs) + 1}"
+            paths = {name: f"{directory}/{name}" for name in program["files"]}
+            files.update({paths[name]: source for name, source in program["files"].items()})
+            programs[definition_id] = {
+                "definition_ref": harness["definition_ref"],
+                "directory": directory, "entrypoint": program["entrypoint"],
+                "files": paths, "cases": [],
+                "materialization_file": ".openchia-local-checks/materialization.json",
+            }
+        item = programs[definition_id]
+        input_file = f"{item['directory']}/.openchia-case-{len(item['cases']) + 1}.json"
+        if input_file in files:
+            raise ValueError("checking program overlaps coding reference metadata")
+        files[input_file] = canonical_json(harness["input"])
+        item["cases"].append({
+            "input_file": input_file,
+            "readable_source_paths": list(harness["readable_paths"]),
+            "checks": [{
+                "requirement": requirement_address(catalog[check.body["requirement_key"]]),
+                "observation_path": check.body["observation_path"],
+                "predicate": view.data(Ref.from_record(check.body["predicate_ref"])),
+                "expected": check.body["expected"],
+            } for check in plan["checks"]],
+        })
+    if programs:
+        files[".openchia-local-checks/materialization.json"] = canonical_json(
+            stored_plan(view, view.candidate)
+        )
+    return list(programs.values()), files
+
+
 def subject(view, call, *, candidate=None, check=None, proposal=None, grounding=None, control=None):
     return {
         "campaign_id": view.campaign_id.value,

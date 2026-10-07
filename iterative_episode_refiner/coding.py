@@ -205,6 +205,16 @@ class RefinementCodingTransport:
         measuring = scope["role"] == "measure"
         workspace_type = MeasureWorkspace if measuring else CodingWorkspace
         sources = context["inputs"].get("source_files", {})
+        if not measuring:
+            from .authored_checks import coding_references
+
+            with self.session.view() as view:
+                local_checks, references = coding_references(view, self.session.policy, call.assignment)
+            if set(references) & (set(sources) | set(scope["writable_paths"])):
+                raise ValueError("candidate paths overlap protected local-check references")
+            sources = {**sources, **references}
+            context = _thaw_json(context)
+            context["inputs"]["local_check_programs"] = local_checks
         workspace = workspace_type(
             root / call.unit_id.value,
             source_files={"target/" + name: text for name, text in sources.items()} if measuring else sources,
@@ -305,7 +315,12 @@ class RefinementCodingTransport:
                 "attempt; inspect them. The host candidate and measured feedback in the "
                 "assignment are authoritative. " + (
                     "Author or revise the requested checking instrument in .openchia-measure.json."
-                    if measuring else "Produce the next scoped candidate revision."
+                    if measuring else
+                    "Inspect host_context.inputs.local_check_programs and their protected files "
+                    "to trace measured failures to the actual predicate and its materialization/case inputs. "
+                    "They are read-only diagnostic copies of your assigned local checks; "
+                    "the host executes the immutable reviewed originals. "
+                    "Produce the next scoped candidate revision."
                 ),
                 turn_timeout=None,
             )
