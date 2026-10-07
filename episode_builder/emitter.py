@@ -831,16 +831,35 @@ _MODULE_CONTRACT = {
             "SourceEnd, or None"
         ),
         "Leaf": (
-            "Leaf(unit, extract, result, label, accept=None); the runtime calls "
-            "extract(unit) -> extracted, accept(unit, extracted) -> accepted, and "
-            "result(unit, accepted) -> controller_input, so result always takes "
-            "two positional parameters (see callback_arities)"
+            "Leaf(unit, extract, result, label, accept=None). unit is the unit's "
+            "input VALUE (for example the probe record), never a function; the "
+            "runtime does not call it. The work happens in extract(unit), which may "
+            "be async and is awaited: it performs the call, records into the goal "
+            "state, and returns what result needs. Then accept(unit, extracted) -> "
+            "accepted (optional) and result(unit, accepted) -> controller_input; "
+            "result always takes two positional parameters (see callback_arities) "
+            "and must return a numeric_control_library.CreditObservation (see "
+            "credit_observation)"
+        ),
+        "credit_observation": (
+            "each Leaf result returns CreditObservation.observed({column_id: "
+            "identities, ...}) (or CreditObservation.failed(...) for a failed unit) "
+            "naming EVERY id in RESULT_CHANNEL_IDS, with an empty tuple for columns "
+            "the unit did not touch; every identity is a stable opaque ID "
+            "(^[a-z][a-z0-9_]{0,31}_[0-9a-f]{24,64}$), e.g. derived as "
+            "'probe_' + hashlib.sha256(label.encode()).hexdigest(), never a plain "
+            "label such as 'asm_health'"
         ),
         "ChildEpisodeUnit": "ChildEpisodeUnit(child, receive_result, synthesize_report)",
         "ReportContract": "ReportContract(decision, measurements, information)",
         "EpisodeRequest": "EpisodeRequest(goal, message, report_contract=None); report_contract is required for every child",
         "ClosedRecord": (
-            "admitted boundary base class whose as_record() returns a JSON mapping"
+            "admitted boundary base class whose as_record() returns a JSON mapping. "
+            "build_result must return a ClosedRecord INSTANCE, never a dict: a root "
+            "Episode defines a small frozen dataclass subclassing "
+            "method_loop.ClosedRecord whose as_record() returns the validated "
+            "typed-status mapping; a child Episode returns the admitted "
+            "handoff_library ChildResult"
         ),
         "controller_factory": (
             "callable(path) returning the controller composed from the admitted "

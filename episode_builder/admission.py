@@ -727,6 +727,15 @@ def _callback_arity_deficits(tree: ast.Module) -> tuple[str, ...]:
         spec = arities[qualified]
         supplied = dict(zip(spec["fields"], node.args))
         supplied.update({keyword.arg: keyword.value for keyword in node.keywords if keyword.arg})
+        unit = supplied.get("unit")
+        if qualified == "method_loop.Leaf" and unit is not None:
+            target = resolve(unit, node)
+            if target is not None and not isinstance(target, ast.Lambda):
+                found.append(
+                    f"method_loop.Leaf.unit at line {node.lineno}: unit is the unit's input value, "
+                    f"but {target.name} (line {target.lineno}) is a function the runtime never calls; "
+                    "do the work in extract(unit)"
+                )
         for field_name, count in spec["callbacks"].items():
             value = supplied.get(field_name)
             function = resolve(value, node) if value is not None else None

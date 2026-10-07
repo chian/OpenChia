@@ -38,8 +38,9 @@ def test_the_runs_actual_shape_is_a_deficit() -> None:
         "        return observation\n"
         "    return Leaf(unit=acquire, extract=extract, result=result, label='p')\n"
     )
-    assert len(found) == 1
-    assert "method_loop.Leaf.result" in found[0] and "2 positional" in found[0]
+    assert len(found) == 2
+    assert any("method_loop.Leaf.result" in item and "2 positional" in item for item in found)
+    assert any("method_loop.Leaf.unit" in item and "acquire" in item for item in found)
 
 
 def test_positional_lambdas_and_module_defs_are_checked() -> None:
@@ -76,3 +77,10 @@ def test_unresolvable_callbacks_are_left_to_the_runtime() -> None:
 
 def test_contract_states_the_leaf_calls() -> None:
     assert "result(unit, accepted)" in str(emitter._MODULE_CONTRACT)
+
+
+def test_contract_states_leaf_credit_and_result_rules() -> None:
+    contract = str(emitter._MODULE_CONTRACT)
+    assert "unit is the unit's input VALUE" in contract
+    assert "naming EVERY id in RESULT_CHANNEL_IDS" in contract
+    assert "ClosedRecord INSTANCE, never a dict" in contract
