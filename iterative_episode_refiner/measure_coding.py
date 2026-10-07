@@ -14,6 +14,12 @@ proposal, independent review and measured feedback. Author the checking
 instrument needed to judge those requirements. Target source under target/ is
 read-only reference material; derive expected behavior from the specification.
 
+Read returned Question feedback at
+episode_request.assignment_context.child_reports[].return.check_review, together
+with that report's open_decisions. host_context.inputs.check_design contains the
+current proposal; its review_assigned flag identifies a Question review assignment.
+Measure receives the returned review through the child report above.
+
 Write your response to .openchia-measure.json using the supplied response schema.
 For a program-backed check_design, write Python files under checker/, and put
 their relative names in program.files (an array of names relative to checker/).
@@ -34,6 +40,7 @@ that discriminate actual correct behavior from plausible defects, including
 trivial implementations. Ordinary predicates over existing Run observations
 remain available with program=null and observed controls.
 
+Submitting check_design automatically schedules its separate Question review.
 Independent review, followed by actual control execution, determines admission.
 After review, submit_reviewed_design=true selects that exact reviewed design.
 If review or controls fail, revise the program/design and obtain a new review.

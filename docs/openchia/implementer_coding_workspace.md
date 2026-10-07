@@ -286,7 +286,12 @@ rationales. Existing predicates over verified Run observations remain available
 with `program=null` and `input=null`.
 
 Question reviews the exact program, original requirements, expected results,
-fixtures and limitations in a separate invocation. After that review returns,
+fixtures and limitations in a separate invocation automatically scheduled by a
+`check_design` proposal. Returned reviews reach Measure at
+`episode_request.assignment_context.child_reports[].return.check_review`, with
+the report's `open_decisions`. The working-context `review_assigned` flag
+identifies a Question review assignment; Measure consumes its child's report.
+After that review returns,
 Measure submits the frozen definition. The shared testing harness executes its
 program against every control using the selected Run backend's isolated process
 operation. It supplies read-only inputs, frozen runtime and prepared target
