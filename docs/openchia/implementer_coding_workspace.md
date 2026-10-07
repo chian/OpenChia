@@ -233,6 +233,7 @@ configuration or a change performed by the launcher. No package was installed,
 the global user-namespace restriction remained enabled, and the personal Codex
 configuration was unchanged. Through the existing app-server with private
 `:workspace` defaults, workspace writes and Python execution then succeeded;
+<!-- no-tmp: ok — names the sandbox's own in-container mount, not host scratch -->
 writes outside the workspace (outside `/tmp`) and network socket creation failed.
 
 On that repaired host the real private-launch coding check **passed** in 170.5
