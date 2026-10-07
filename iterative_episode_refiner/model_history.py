@@ -8,6 +8,7 @@ No recency window or model-authored summary hides earlier attempts.
 from agent.episode_contracts import OpaqueId, Sha256Digest
 from episode_runtime.protocol import episode_id_for_path
 
+from .coding_proposals import proposal_text
 from .records import Ref
 from .report_contract import _check_outcome, _open_decisions, requirement_address, requirement_catalog
 from .reports import check_result
@@ -38,7 +39,7 @@ def _proposals(session, view, call):
     # already passed the host producer check and retain their original order.
     return [{
         "task": value["task"],
-        "output": value["event"]["payload"]["response_text"],
+        "output": proposal_text(session, value["event"]),
         # A recorded proposal is not proof of admission or a successful repair.
         "status": "rejected" if reference in rejections else "recorded",
         "rejection_reason": rejections.get(reference),

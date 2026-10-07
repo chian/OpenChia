@@ -310,11 +310,17 @@ class RefinementCodingTransport:
                 # This is a bad proposed edit, not an API failure. Ordinary
                 # proposal admission returns its rejection as next-unit feedback.
                 proposal = {"invalid_workspace_change": str(exc)}
+            from .coding_proposals import capture_proposal
+
+            response_text, proposal_route = capture_proposal(
+                self.session, call, candidate, prompt["task"], request.task, proposal, turn_ref,
+            )
             self.record_attempt({**receipt, "state": "succeeded", "turn_ref": turn_ref.as_record(),
                                  "elapsed_seconds": time.monotonic() - started})
-            return ModelTransportResponse(text=json.dumps(proposal), route={
+            return ModelTransportResponse(text=response_text, route={
                 **receipt, "coding_turn_ref": turn_ref.artifact_id.value,
                 "coding_turn_hash": turn_ref.content_hash.value,
+                **proposal_route,
                 "response_model": route["model"],
             })
         except asyncio.CancelledError:

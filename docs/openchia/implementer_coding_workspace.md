@@ -267,6 +267,16 @@ backend, model binding or instruction prefix opens a new native context.
 Authoritative candidate revisions and measurements remain in the shared stores.
 See [continuation](build_continuation.md) and [ADR 0009](../adr/0009-implementer-uses-an-existing-coding-agent.md).
 
+Captured coding proposals are immutable `refinement.coding_proposal.v1`
+artifacts. Model response and proposal control frames carry their references;
+source files and control fixtures stay in the store. Proposal admission first
+authenticates the committed model response, then resolves the exact artifact
+bound to its campaign, invocation, unit, assignment, candidate and coding turn.
+The ordinary validators consume the complete captured proposal. Rejection
+feedback and within-invocation history resolve the same bytes, while child
+reports keep their separate parent-selected format. Transport size limits and
+measure adequacy requirements are unchanged.
+
 ## Measure's checking workspace
 
 EstablishMeasure uses this same native coding transport and owning Duet model

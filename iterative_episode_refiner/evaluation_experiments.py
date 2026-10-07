@@ -365,6 +365,8 @@ def _receive(evaluations, session, call, spec, assigned, result):
 
 def feedback(session, reference):
     """Read the shared result by reference, without copying it into campaign state."""
+    from .coding_proposals import proposal_text
+
     row = read_reference(
         session.store.evidence.duets, reference.as_record(), session.duet_id
     )
@@ -381,7 +383,7 @@ def feedback(session, reference):
         return {
             **value,
             "rejected_proposal": {
-                "raw_response": payload["response_text"],
+                "raw_response": proposal_text(session, proposal["record"]["event"]),
                 "producer_call_id": payload["producer_call_id"],
                 "admitted": False,
             },

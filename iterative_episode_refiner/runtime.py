@@ -421,6 +421,7 @@ class RefinementSession:
             raise ValueError("request does not belong to the open refinement unit")
 
     def _propose(self, call, episode_id, payload):
+        from .coding_proposals import proposal_text
         from .runtime_proposals import admit_proposal
 
         self._require_unit(call, payload)
@@ -452,9 +453,10 @@ class RefinementSession:
             "task": payload["task"],
         }
         ref = self.put_data("model_proposal", audit)
+        raw_response = proposal_text(self, producer.as_record(), call=call, task=payload["task"])
         # Malformed or inadmissible output remains evidence and earns no credit.
         try:
-            proposal = _parse_json(payload["raw_response"])
+            proposal = _parse_json(raw_response)
             return admit_proposal(self, call, payload["task"], proposal, ref)
         except (TypeError, ValueError, KeyError, DuetNotFoundError) as exc:
             call.feedback_ref = self.put_data(
