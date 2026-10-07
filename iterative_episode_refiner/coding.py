@@ -32,7 +32,8 @@ class RefinementCodingTransport:
     async def __call__(self, request):
         prompt = json.loads(request.messages[-1]["content"])
         call, _, context = self._working_context(request)
-        if call.assignment.body["role"] != "implementer" or prompt.get("task") != "change":
+        coding_tasks = {"implementer": "change", "measure": "measure"}
+        if coding_tasks.get(call.assignment.body["role"]) != prompt.get("task"):
             # Reasoning receives this invocation's exact declared working inputs.
             # The method loop still supplies the separately admitted child reports;
             # resolving working context never opens a child report artifact.
@@ -68,14 +69,16 @@ class RefinementCodingTransport:
         call, _, _ = self._working_context(request)
         with self.session.view() as view:
             candidate = view.candidate
-            bindings = evaluation_bindings(view, self.session.policy, call.assignment)
+            bindings = [binding for binding in evaluation_bindings(view, self.session.policy, call.assignment)
+                        if view.data(Ref.from_record(binding["harness_ref"])).get("execution_kind") != "checking_program"]
         writable = set(call.assignment.body["writable_paths"])
+        measuring = call.assignment.body["role"] == "measure"
         projections = {}
         for binding in (None, *(row for row in bindings if row["purpose"] == "local")):
             projection = project_candidate_sources(
                 self.session.store.evidence, self.session.contract, candidate, binding,
             )
-            if not writable.intersection(projection.scope.paths.values()):
+            if not measuring and not writable.intersection(projection.scope.paths.values()):
                 continue
             projections[projection.scope.workflow_ref["artifact_id"]] = projection
         return call, candidate, projections.values()
@@ -158,10 +161,16 @@ class RefinementCodingTransport:
         scope = call.assignment.body
         builds = self.session.store.evidence.builds
         root = builds.root / "refinement_coding" / self.session.campaign_id.value / call.invocation_id.value
-        workspace = CodingWorkspace(
+        from .measure_coding import MeasureWorkspace
+
+        measuring = scope["role"] == "measure"
+        workspace_type = MeasureWorkspace if measuring else CodingWorkspace
+        sources = context["inputs"].get("source_files", {})
+        workspace = workspace_type(
             root / call.unit_id.value,
-            source_files=context["inputs"].get("source_files", {}),
-            writable_paths=scope["writable_paths"], protected_paths=scope["protected_paths"],
+            source_files={"target/" + name: text for name, text in sources.items()} if measuring else sources,
+            writable_paths=() if measuring else scope["writable_paths"],
+            protected_paths=scope["protected_paths"],
         )
         identity = {
             "invocation_id": call.invocation_id.value, "unit_id": call.unit_id.value,
@@ -192,7 +201,12 @@ class RefinementCodingTransport:
         context = _thaw_json(context)
         context["inputs"]["target_environment"]["coding_diagnostics"] = diagnostics
         backend = coding_backend(self.binding)
-        instructions = request.messages[0]["content"] + "\n\n" + CODING_INSTRUCTIONS
+        from .measure_coding import INSTRUCTIONS as MEASURE_INSTRUCTIONS
+
+        measuring = call.assignment.body["role"] == "measure"
+        instructions = request.messages[0]["content"] + "\n\n" + (
+            MEASURE_INSTRUCTIONS if measuring else CODING_INSTRUCTIONS
+        )
         workspace, native_home, resume, context_id, identity = self._prepare(
             call, candidate, context, prompt, instructions, backend.runtime_id,
         )
@@ -250,7 +264,10 @@ class RefinementCodingTransport:
                 f"{workspace.root}. This is unit {call.unit_id.value}. "
                 "Existing edits in this workspace may be unfinished work from an interrupted "
                 "attempt; inspect them. The host candidate and measured feedback in the "
-                "assignment are authoritative. Produce the next scoped candidate revision.",
+                "assignment are authoritative. " + (
+                    "Author or revise the requested checking instrument in .openchia-measure.json."
+                    if measuring else "Produce the next scoped candidate revision."
+                ),
                 turn_timeout=None,
             )
             turn_ref = self.session.put_data("coding_turn", {**receipt, "result": asdict(result)})
@@ -286,7 +303,7 @@ class RefinementCodingTransport:
         except Exception as exc:
             details = provider_failure(exc, route, credential=self.binding.api_key, request=request)
             self.record_attempt({**receipt, **details, "state": "failed", "elapsed_seconds": time.monotonic() - started})
-            raise ModelCallFailed("Implementer coding-agent call failed; its owning Run must stop.", receipt) from None
+            raise ModelCallFailed(f"{call.assignment.body['role']} coding call failed; its owning Run must stop.", receipt) from None
         finally:
             if coder is not None:
                 coder.close()

@@ -48,6 +48,7 @@ def propose_design(session, call, proposal, producer):
 def project(view, assignment, reference, data):
     definition, reviews = reviewed(view, reference, assignment)
     design = definition.body["design"]
+    program = design["program"]
     origin = data(
         "reviewed_check_origin",
         {
@@ -96,12 +97,23 @@ def project(view, assignment, reference, data):
             values = [
                 data(
                     "grounding_control",
-                    {"observed": item["observed"], "expected_outcome": polarity},
+                    {("observed" if program is None else "fixture"):
+                     item["observed" if program is None else "fixture"], "expected_outcome": polarity},
                 )
                 for item in case[f"{field}_controls"]
             ]
             controls[f"{field}_control_refs"] = [ref.as_record() for ref in values]
             collected.update({ref: None for ref in values})
+        binding = design["execution_binding"]
+        if program is not None:
+            parent = view.read(Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment")
+            binding = {**binding, "harness_ref": data("checking_program", {
+                "execution_kind": "checking_program",
+                "definition_ref": definition.ref.as_record(),
+                "target_workflow_ref": view.contract.body["target_workflow_ref"],
+                "readable_paths": sorted(parent.body["writable_paths"]),
+                "input": case["input"],
+            }).as_record()}
         cases.append(
             data(
                 "grounded_case",
@@ -113,7 +125,7 @@ def project(view, assignment, reference, data):
                     "observation_path": case["observation_path"],
                     "dependency_paths": None,
                     "environment_ref": view.contract.body["environment_ref"],
-                    "execution_binding": design["execution_binding"],
+                    "execution_binding": binding,
                     "guard_keys": [],
                 },
             )
@@ -123,7 +135,7 @@ def project(view, assignment, reference, data):
         "requirement_keys": sorted({
             case["requirement_key"] for case in design["cases"]
         }),
-        "oracle_kind": "registered_predicate",
+        "oracle_kind": "registered_predicate" if program is None else "checking_program",
         "positive_control_refs": [ref.as_record() for ref in positives],
         "negative_control_refs": [ref.as_record() for ref in negatives],
         "grounding_refs": [ref.as_record() for ref in cases],

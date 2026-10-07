@@ -78,7 +78,7 @@ def grounded_cases(view, proposal, policy):
             "instrument admission cannot replace the assigned adequacy measure"
         )
     view.data(Ref.from_record(grant["adequacy_measure_ref"]))
-    if body["oracle_kind"] not in {"registered_predicate", "independent_execution"}:
+    if body["oracle_kind"] not in {"registered_predicate", "independent_execution", "checking_program"}:
         raise ValueError(
             "this route requires grounded predicates or independently controlled execution, not review claims"
         )
@@ -158,6 +158,21 @@ def grounded_cases(view, proposal, policy):
         bindings[canonical_json(instrument)] = instrument
         executable = view.data(Ref.from_record(instrument["harness_ref"]))
         view.data(Ref.from_record(instrument["capability_ref"]))
+        if body["oracle_kind"] == "checking_program":
+            from .authored_checks import instrument as checking_program
+
+            selected = checking_program(view, instrument)
+            if selected is None or selected[0]["definition_ref"] != body.get("reviewed_definition_ref"):
+                raise ValueError("checking program requires its exact reviewed definition")
+            for field, polarity in (("positive_control_refs", "pass"), ("negative_control_refs", "fail")):
+                if not grounding[field]:
+                    raise ValueError("checking program requires both control polarities")
+                for raw in grounding[field]:
+                    control = exact(view.data(Ref.from_record(raw)), {"fixture", "expected_outcome"}, "checking control")
+                    if control["expected_outcome"] != polarity:
+                        raise ValueError("checking fixture polarity differs from review")
+            cases.append((reference, grounding))
+            continue
         if executable["execution_kind"] not in {
             "target_workflow",
             "instrument_build",
@@ -238,7 +253,13 @@ def _admitted_checks(view, attempt, proposal, measure_ref, policy):
         check_definition, reviews = reviewed(view, body["reviewed_definition_ref"], assignment)
         review_provenance = [check_definition.ref, *(record.ref for record in reviews)]
     for reference, grounding in cases:
-        if body["oracle_kind"] == "independent_execution":
+        if body["oracle_kind"] == "checking_program":
+            from .authored_checks import control_results
+
+            outcomes, evidence = control_results(view, proposal, reference, grounding, selection)
+            results.extend(outcomes)
+            execution_evidence.extend(evidence)
+        elif body["oracle_kind"] == "independent_execution":
             from .measure_controls import control_results
 
             outcomes, evidence = control_results(
@@ -262,7 +283,7 @@ def _admitted_checks(view, attempt, proposal, measure_ref, policy):
                 view.campaign_id,
                 {
                     "requirement_key": grounding["requirement_key"],
-                    "evidence_kind": "execution",
+                    "evidence_kind": "checking_program" if body["oracle_kind"] == "checking_program" else "execution",
                     "origin_refs": [reference.as_record()],
                     "measure_ref": measure_ref.as_record(),
                     "purpose": body["purpose"],

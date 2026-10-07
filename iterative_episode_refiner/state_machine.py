@@ -67,6 +67,7 @@ def actor(view, attempt):
     if pending_decisions(view, invocation.key) and attempt.body["action"] not in {
         "observe",
         "observe_materialization",
+        "observe_checker",
         "observe_measure_control",
         "close_unit",
         "return_child",
@@ -430,6 +431,7 @@ def admit_attempt(
     from .measure_admission import admit_measure
     from .evaluation_admission import bind_run, record_source
     from .measure_controls import bind_control, observe_control
+    from .authored_checks import observe as observe_checker
 
     if (
         attempt.invocation_id is None
@@ -462,6 +464,7 @@ def admit_attempt(
         "bind_evaluation_run": bind_run,
         "observe": observe,
         "observe_materialization": observe_materialization,
+        "observe_checker": observe_checker,
         "admit_lesson": admit_lesson,
         "close_unit": close_unit,
         "select_action": select_action,

@@ -266,3 +266,50 @@ unfinished coding state only after its prior owner has stopped. A changed
 backend, model binding or instruction prefix opens a new native context.
 Authoritative candidate revisions and measurements remain in the shared stores.
 See [continuation](build_continuation.md) and [ADR 0009](../adr/0009-implementer-uses-an-existing-coding-agent.md).
+
+## Measure's checking workspace
+
+EstablishMeasure uses this same native coding transport and owning Duet model
+binding to implement task-specific checks. `MeasureWorkspace` stages its parent's
+scoped source under `target/` and the original requirements, materialization and
+review feedback in `.openchia-assignment.json`. Measure writes its program under
+`checker/` and its proposal in `.openchia-measure.json`. Capture rejects target
+edits and freezes the actual checker files; it does not create a target revision.
+
+A program has `files` (relative path to source text in the persisted definition)
+and `entrypoint` (`module:function`). The native workspace response names the
+checker files; the host captures their bytes. Its function receives
+`{source_root, materialization, input}` and returns JSON. Each case binds the
+result at `/result` to a library predicate and supplies complete satisfactory
+and violating fixtures `{files, materialization, input}`, with requirement-based
+rationales. Existing predicates over verified Run observations remain available
+with `program=null` and `input=null`.
+
+Question reviews the exact program, original requirements, expected results,
+fixtures and limitations in a separate invocation. After that review returns,
+Measure submits the frozen definition. The shared testing harness executes its
+program against every control using the selected Run backend's isolated process
+operation. It supplies read-only inputs, frozen runtime and prepared target
+dependencies, writable scratch and no network or profile credentials. The function
+receives neither the expected verdict nor the control polarity. An import error
+or process failure is an error, not a successful negative control.
+
+Admission rechecks the reviewed definition and original execution receipts. Both
+control polarities must discriminate correctly before checks become operative.
+Candidate checks use the same program on the current scoped source and plan;
+the entire Target Workflow need not be runnable. Observations enter the existing
+measurement ledger, dependency invalidation, parent judgment and numerical credit
+path. Coding diagnostics and review prose are not measured success.
+
+Immutable `experiment.checker_inputs.v1` and `experiment.checker_execution.v1`
+artifacts retain code, inputs, environment/runtime identity, runner hash, process
+status and stdout/stderr blob references. `refinement.checker_result.v1` links
+them to the exact invocation/unit and control or candidate/check. Measure receives
+current control outcomes and errors in its working context. Final publication
+rechecks the original receipts rather than running controls again.
+
+Controls demonstrate discrimination on those examples, not universal correctness.
+Checking code currently uses the Target Workflow's declared dependencies and
+cannot acquire external data or model access during execution. A requirement
+needing a different approved instrument or evidence source remains explicit.
+Checker source imports stay in the isolated backend, never the host process.

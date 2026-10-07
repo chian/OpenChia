@@ -18,10 +18,12 @@ class RefinementRole:
 
 
 _MEASUREMENT_STAGING = (
-    "EstablishMeasure authors checks using registered predicates, supported observations, "
-    "explicit cases and controls, and separate review. RefineImplementation owns source edits "
-    "and local coding diagnostics, under an established local measure. When obtaining an "
-    "observation first requires code, Parts can stage a prerequisite contribution covered by "
+    "EstablishMeasure authors executable checking programs and explicit fixtures, or composes "
+    "registered observation predicates, then obtains separate review and measured controls. "
+    "Its code can inspect scoped source and exercise functions before the whole target runs. "
+    "RefineImplementation owns Target Workflow source edits "
+    "and local coding diagnostics, under an established local measure. When the Target Workflow "
+    "itself needs a prerequisite component, Parts can stage a contribution covered by "
     "existing checks, retaining the broader behavioral need in prerequisites. A Designer "
     "forwards that need to Parts when the prerequisite lies outside its contribution scope. "
     "Static construction provides implementation evidence; behavioral acceptance is measured separately."
@@ -169,6 +171,9 @@ ROLES = MappingProxyType({
         "decision meanings. When check_design.review_assigned is true, instead review current_design "
         "definition against the original requirements and return check_review for every fixed criterion. "
         "Challenge the expected results, control polarities, observation relevance and limitations. "
+        "For an authored checking program, read its actual code and fixtures. Check that it "
+        "exercises the claimed behavior, distinguishes plausible defects, and derives expected "
+        "answers independently of the target. The shared harness executes that code after review. "
         "Check the declared judgment purpose: a local implementation measure can establish necessary "
         "progress without replacing independent acceptance. Do not require a local pass to prove "
         "the entire workflow correct, and do not silently weaken final acceptance. Compare observable "
@@ -186,8 +191,8 @@ ROLES = MappingProxyType({
         "New demonstrated adequacy of the instrument, not the number of assertions.",
         ("question",),
         "Derive expected behavior from the requirement, not the candidate implementation. Supply grounding "
-        "and negative controls. You cannot certify your own instrument by assertion. Route required code "
-        "changes back through the owner; do not create a Designer yourself. "
+        "and negative controls. Author the checking code inside your own coding workspace. "
+        "Keep target source read-only; Target Workflow repair belongs to its owner. "
         "Read measure_needs together with check_design and grounding_acquisitions. Missing pre-existing "
         "grounded cases does not mean that constructing a check is unauthorized. When reviewed check "
         "design is available, derive the check and its controls from the original requirement and "
@@ -205,8 +210,11 @@ ROLES = MappingProxyType({
         "then select its exact acquired_grounding references in the instrument proposal. Keep the "
         "template's original criterion and oracle fields. The host fills expected values and controls "
         "from the independent evidence. When check_design is available, you may design a new check "
-        "using its registered predicates and authorized execution bindings. Submit check_design with "
-        "observation paths from check_design.available_observations only. That catalog is the actual "
+        "using an authored program plus a registered result predicate, or an existing Run "
+        "observation predicate. An authored program receives scoped source, materialization and "
+        "case input, and produces the /result observation. Positive/negative controls contain "
+        "complete fixtures executed by that same program. For program=null, use observation "
+        "paths from check_design.available_observations. That catalog is the actual "
         "harness interface: observation_schema describes it; it cannot add a projector, summary field, "
         "stop-injection Run or other unimplemented behavior. Use verified registration fields for "
         "frozen declarations, actual typed events for what executed, and answer predicates for task "
@@ -214,8 +222,8 @@ ROLES = MappingProxyType({
         "with host judgment. A normal Run cannot establish unexecuted failure branches; preserve that "
         "limitation explicitly rather than inventing a stop matrix. record_conditions_v1 can compare "
         "selected fields, quantify actual event arrays and delegate registered answer predicates; "
-        "its full condition syntax is in predicate provenance. Controls are concrete input records "
-        "for that executable predicate, not descriptions of a projector somebody must implement later. "
+        "its full condition syntax is in predicate provenance. Predicate controls are concrete "
+        "observations; program controls are complete fixtures whose observations the program computes. "
         "Include requirement-based reasoning, expected observations, justified satisfactory/violating controls "
         "and explicit limitations. A separate Question child reviews the immutable proposal. After "
         "its return, use submit_reviewed_design=true to submit the current design for control execution and admission; "
@@ -245,7 +253,7 @@ MODEL_INPUT_COMPONENTS = MappingProxyType({
     "parts": ("measurements", "prerequisites", "coordination", "environment"),
     "designer": ("measurements", "prerequisites", "materialization", "source", "design", "environment"),
     "implementer": ("measurements", "prerequisites", "materialization", "source", "design", "environment"),
-    "measure": ("measurements", "prerequisites", "measure_design", "grounding", "investigation"),
+    "measure": ("measurements", "prerequisites", "measure_design", "grounding", "investigation", "source", "materialization", "environment"),
     "question": ("measurements", "prerequisites", "measure_design", "investigation"),
     "support": ("measurements", "investigation"),
     "verify": ("measurements",),

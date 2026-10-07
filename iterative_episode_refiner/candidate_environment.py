@@ -62,6 +62,8 @@ async def prepare_environment(evaluations, session, call, payload):
     for plan in plans:
         if not plan["availability"]["executable"]:
             continue
+        if all(check.body["evidence_kind"] == "checking_program" for check in plan["checks"]):
+            continue
         projection = project_candidate_sources(
             session.store.evidence, session.contract, candidate, plan["binding"],
         )

@@ -246,7 +246,7 @@ def verification_fact(view, check, outcome, request=None):
     if outcome not in {"pass", "fail"}:
         raise ValueError("verification progress needs a decisive determination")
     context = None
-    if check.body["evidence_kind"] == "execution":
+    if check.body["evidence_kind"] in {"execution", "checking_program"}:
         if request is None:
             raise ValueError("runtime determination needs its admitted instrument")
         from .evaluation_inputs import instrument_context

@@ -89,14 +89,16 @@ _MEASURE_SHAPE = {
 
 _CHECK_DESIGN_SHAPE = {
     "purpose": "the parent's exact requested purpose",
+    "program": "null for existing Run observations, or {files: [relative Python filenames under checker/], entrypoint: module:function} for an authored checking program",
     "predicate": "exact registered selection: library, function_id, definition_id, interface, arguments (no name)",
     "cases": [{
         "requirement": "original specification requirement address",
         "rationale": "derive expected behavior from the original requirement, not candidate output",
         "expected": "typed input to the selected predicate",
         "observation_path": "exact JSON pointer into the actual execution observation",
-        "positive_controls": [{"observed": "typed known-satisfactory observation", "rationale": "why it satisfies the original requirement"}],
-        "negative_controls": [{"observed": "typed violating observation", "rationale": "which original requirement it violates"}],
+        "input": "fixed JSON input for this candidate check; null for Run-observation predicates",
+        "positive_controls": "For a program: [{fixture: {files, materialization, input}, rationale}]. Otherwise: [{observed, rationale}]. Explain why each satisfies the requirement.",
+        "negative_controls": "Same input shape as positive_controls. Explain each actual defect or trivial behavior and why it violates the requirement.",
     }],
     "input_domain": {"description": "where the check applies"},
     "observation_schema": {"description": "shape of the selected runtime observation"},

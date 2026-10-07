@@ -170,7 +170,7 @@ receives relevant prior attempts and the requirements it must preserve.
 | RefineParts | DesignPart for a selected problem; RefineParts for a coordinated sub-scope; FindDesignSupport, ResolveQuestion or EstablishMeasure for a specific prerequisite; VerifyBehavior for baseline/integration acceptance |
 | DesignPart | RefineImplementation for scoped realization; FindDesignSupport/ResolveQuestion/EstablishMeasure for identified needs; VerifyBehavior for part acceptance |
 | RefineImplementation | ResolveQuestion for a concrete implementation uncertainty |
-| EstablishMeasure | ResolveQuestion for missing grounding |
+| EstablishMeasure | ResolveQuestion for independent review of its proposed checking program, cases and grounding |
 | FindDesignSupport, ResolveQuestion, VerifyBehavior | No designer or coordinator children; permitted observations/execution stay inside their declared unit |
 
 RefineParts owns assignment/decomposition proposals. DesignPart owns design and
@@ -179,10 +179,15 @@ editing, including a check instrument when explicitly assigned to build one.
 The other roles cannot repair the target or change the criterion being evaluated.
 The host owns publication, admission, credit and authoritative status.
 
-When an instrument needs code, its owner routes a grounded instrument-building
-assignment through the existing design/coding path. This may be preparation inside
-the current scope; a new independent design goal requires the Parts owner. The
-instrument cannot certify itself, and its coding loop needs a valid local measure.
+EstablishMeasure authors the checking program needed for its assigned requirements
+using the shared native coding workspace. Its target inputs are read-only. It
+submits exact source and positive/negative fixtures to its separate Question
+reviewer, then the shared isolated backend executes the reviewed controls before
+ordinary admission can install the checks. Measure's own fixed adequacy rule
+judges this work; authored code and review agreement alone earn no credit.
+An instrument that is itself a separately approved Episode workflow still uses
+the existing instrument-building route. See the
+[coding and checking boundary](implementer_coding_workspace.md#measures-checking-workspace).
 
 Each unit declares its stages and possible outcomes. A partial result can advance
 an eligible prerequisite or close an incomplete attempt. Repetition belongs to

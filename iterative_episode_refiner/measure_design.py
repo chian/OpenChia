@@ -29,6 +29,7 @@ DESIGN_FIELDS = {
     "observation_schema",
     "execution_binding",
     "limitations",
+    "program",
 }
 CASE_FIELDS = {
     "requirement_key",
@@ -37,6 +38,7 @@ CASE_FIELDS = {
     "observation_path",
     "positive_controls",
     "negative_controls",
+    "input",
 }
 
 
@@ -54,6 +56,11 @@ def validate_design(value):
     if value["predicate"]["interface"] != "refinement.predicate":
         raise ValueError("check design must select a registered observation predicate")
     resolve_predicate(value["predicate"])
+    program = value["program"]
+    if program is not None:
+        from episode_runtime.testing_harness.checker_programs import validate_program
+
+        validate_program(program)
     for field in ("input_domain", "observation_schema"):
         if not isinstance(value[field], Mapping) or not value[field]:
             raise ValueError(f"check design needs an explicit {field} record")
@@ -81,7 +88,12 @@ def validate_design(value):
         )
         from episode_runtime.testing_harness.observations import validate_observation_path
 
-        validate_observation_path(case["observation_path"])
+        if program is None:
+            validate_observation_path(case["observation_path"])
+            if case["input"] is not None:
+                raise ValueError("Run-observation predicates have no checking-program input")
+        elif case["observation_path"] != "/result":
+            raise ValueError("program-backed checks observe their executed /result")
         if value["predicate"]["function_id"] == "record_conditions_v1":
             from function_library.record_conditions import validate_condition
 
@@ -91,9 +103,14 @@ def validate_design(value):
             if not isinstance(case[field], (list, tuple)) or not case[field]:
                 raise ValueError("check design needs both control polarities")
             for control in case[field]:
-                exact(control, {"observed", "rationale"}, "proposed check control")
+                input_key = "observed" if program is None else "fixture"
+                exact(control, {input_key, "rationale"}, "proposed check control")
+                if program is not None:
+                    from episode_runtime.testing_harness.checker_programs import validate_fixture
+
+                    validate_fixture(control["fixture"])
                 names((control["rationale"],), "control rationale", nonempty=True)
-                key = canonical_json(control["observed"])
+                key = canonical_json(control[input_key])
                 if key in seen:
                     raise ValueError(
                         "check controls cannot repeat or contradict each other"
@@ -325,6 +342,12 @@ def context(view, assignment, frozen):
                 function.as_record() for function in refinement_check_library.functions()
             ],
             "available_observations": observation_catalog(),
+            "checking_program": {
+                "entrypoint": "module:function accepting {source_root, materialization, input}; returns JSON observed at /result",
+                "execution": "The selected isolated Run backend executes the exact reviewed code against read-only inputs.",
+                "controls": "Complete positive/negative fixtures {files, materialization, input}; the harness executes the program to obtain observations.",
+                "candidate": "Current scoped source and plan are available even before full workflow admission.",
+            },
             "execution_bindings": [
                 item for item in frozen["evaluation_bindings"]
                 if item["purpose"] in {"local", "acceptance", "composition", "adequacy"}

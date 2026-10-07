@@ -87,6 +87,7 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
                 "bind_evaluation_run",
                 "observe",
                 "observe_materialization",
+                "observe_checker",
                 "close_unit",
                 "admit_plan",
                 "apply_change",

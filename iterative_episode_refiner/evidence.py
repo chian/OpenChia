@@ -170,6 +170,15 @@ class EvidenceReader:
         references = {"policy": policy}
         payload = attempt.body["payload"]
         action = attempt.body["action"]
+        if action == "observe_checker":
+            from .authored_checks import candidate_fixture, instrument
+
+            with self.duets.transaction() as connection:
+                view = CampaignView(connection, attempt.campaign_id)
+                request = view.read(Ref.from_record(payload["request_ref"]), "evaluation")
+                candidate = view.read(Ref.from_record(request.body["candidate_ref"]), "candidate")
+                harness, _ = instrument(view, request.body)
+                references["checker_fixture"] = candidate_fixture(view, self, candidate, harness)
         if action in {"bind_measure_control", "observe_measure_control"}:
             from .measure_controls import resolve_control_attempt
 
@@ -353,6 +362,7 @@ class EvidenceReader:
             expected_interface = {
                 "materialization": "materialization.validation",
                 "execution": "refinement.predicate",
+                "checking_program": "refinement.predicate",
             }[check.body["evidence_kind"]]
             if selection["interface"] != expected_interface:
                 raise ValueError(

@@ -104,6 +104,12 @@ def instrument_context(view, binding):
     identity = binding["harness_ref"]
     if identity is not None:
         harness = view.data(Ref.from_record(identity))
+        if harness.get("execution_kind") == "checking_program":
+            definition = view.read(Ref.from_record(harness["definition_ref"]), "measure_definition")
+            identity = {
+                "execution_kind": "checking_program", "program": definition.body["design"]["program"],
+                "readable_paths": harness["readable_paths"], "input": harness["input"],
+            }
         if "instrument_return" in harness:
             from .instrument_return import semantic_instrument
 

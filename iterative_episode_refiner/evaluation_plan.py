@@ -138,7 +138,16 @@ def _group_plan(
     else:
         instrument = view.data(Ref.from_record(binding["harness_ref"]))
         view.data(Ref.from_record(binding["capability_ref"]))
-        if instrument.get("execution_kind") not in {
+        if instrument.get("execution_kind") == "checking_program":
+            from .authored_checks import instrument as checking_program
+
+            try:
+                checking_program(view, binding)
+                if any(check.body["evidence_kind"] != "checking_program" for check in checks):
+                    raise ValueError("checking program cannot substitute for another evidence kind")
+            except (ValueError, KeyError, TypeError) as exc:
+                gap("launch_input_invalid", str(exc))
+        elif instrument.get("execution_kind") not in {
             "target_workflow",
             "instrument_build",
             "reference_workflow",

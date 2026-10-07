@@ -62,7 +62,9 @@ class RefinementEvaluations:
 
     async def prepare_environment(self, session, call, payload):
         from .candidate_environment import prepare_environment
+        from .authored_checks import prepare as prepare_checkers
 
+        await prepare_checkers(self, session, call, payload)
         if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:
             return
         await prepare_environment(self, session, call, payload)
@@ -283,6 +285,11 @@ class RefinementEvaluations:
         admitted = True
         experiment_targets = []
         for request, checks in available:
+            if all(check.body["evidence_kind"] == "checking_program" for check in checks):
+                from .authored_checks import observe_prepared
+
+                observe_prepared(session, call, request, candidate, checks)
+                continue
             key = self._source_key(session, request)
             if key not in receipts:
                 receipts[key] = admit_candidate(
@@ -309,7 +316,7 @@ class RefinementEvaluations:
         return session.reply(
             call,
             proceed=evaluated and len(available) == len(requests) and admitted,
-            source_admitted=all(receipt.materialized for receipt in receipts.values()),
+            source_admitted=bool(receipts) and all(receipt.materialized for receipt in receipts.values()),
             experiment_targets=experiment_targets,
         )
 

@@ -722,7 +722,7 @@ def _validate_body(kind: str, body: Mapping) -> None:
                 logical_path(path)
     if kind == "check":
         names((body["requirement_key"],), "requirement key", nonempty=True)
-        if body["evidence_kind"] not in {"execution", "materialization"}:
+        if body["evidence_kind"] not in {"execution", "materialization", "checking_program"}:
             raise ValueError("check must distinguish runtime from static evidence")
         if type(body["mandatory"]) is not bool or not body["grounding_refs"]:
             raise ValueError("check requires explicit mandatory status and grounding")
@@ -863,6 +863,7 @@ def _validate_body(kind: str, body: Mapping) -> None:
         if body["oracle_kind"] not in {
             "registered_predicate",
             "independent_execution",
+            "checking_program",
             "approved_review",
         }:
             raise ValueError("measure requires an explicit grounding route")

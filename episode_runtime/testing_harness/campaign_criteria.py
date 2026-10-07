@@ -92,7 +92,11 @@ def resolve_campaign_criterion(
         if body["evidence_kind"] != "execution":
             return {
                 "eligible": False,
-                "reason": "This check requires Builder materialization evidence; a Run result cannot replace it.",
+                "reason": (
+                    "This check requires an authored checking-program execution receipt; a Run result cannot replace it."
+                    if body["evidence_kind"] == "checking_program" else
+                    "This check requires Builder materialization evidence; a Run result cannot replace it."
+                ),
             }
         choices = check_bindings(view, check)
         if len(choices) != 1:

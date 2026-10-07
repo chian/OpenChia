@@ -122,6 +122,10 @@ def _materialization(session, view, call):
         "source_kinds": {},
     }
     add_context(view, call.assignment, context)
+    if call.assignment.body["role"] == "measure":
+        from .materialization_edits import stored_plan
+
+        context["checking_target_materialization"] = stored_plan(view, view.candidate)
     return context
 
 
@@ -132,6 +136,9 @@ def _source(session, view, call):
 
     candidate = view.candidate
     readable = set(call.assignment.body["writable_paths"])
+    if call.assignment.body["role"] == "measure":
+        parent = view.read(Ref.from_record(call.assignment.body["parent_assignment_ref"]), "assignment")
+        readable.update(parent.body["writable_paths"])
     for reference in authorized_check_refs(view, session.policy, call.assignment):
         check = view.read(reference, "check")
         if check.body["requirement_key"] in call.assignment.body["scope_requirement_keys"]:
@@ -187,6 +194,7 @@ def _measure_design(session, view, call):
     from .measure_design import context
     from .measure_needs import catalog as needs
     from .measure_controls import control_context
+    from .authored_checks import control_context as authored_control_context
 
     assignment = call.assignment
     proposals = [row.record for row in view.entries("measure_proposal")
@@ -208,6 +216,7 @@ def _measure_design(session, view, call):
         "measure_controls": [{
             key: row[key] for key in ("status", "gap", "outcome", "error")
         } for row in controls],
+        "checking_program_controls": authored_control_context(view, current),
     }
 
 
