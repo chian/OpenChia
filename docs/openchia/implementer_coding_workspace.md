@@ -297,7 +297,10 @@ with `program=null` and `input=null`.
 
 Question reviews the exact program, original requirements, expected results,
 fixtures and limitations in a separate invocation automatically scheduled by a
-`check_design` proposal. Returned reviews reach Measure at
+`check_design` proposal. Measure and Question receive execution-binding choices
+for that design's requested judgment purpose. Local, acceptance and composition
+checks retain their separate purposes through admission and evaluation.
+Returned reviews reach Measure at
 `episode_request.assignment_context.child_reports[].return.check_review`, with
 the report's `open_decisions`. The working-context `review_assigned` flag
 identifies a Question review assignment; Measure consumes its child's report.

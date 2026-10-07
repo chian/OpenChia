@@ -333,6 +333,10 @@ def context(view, assignment, frozen):
             **{key: value for key, value in case.items() if key != "requirement_key"},
             "requirement": requirement_address(catalog[case["requirement_key"]]),
         } for case in design["cases"]]
+    binding_purpose = design["purpose"] if design is not None else None
+    if binding_purpose is None and assignment.body["role"] == "measure":
+        goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
+        binding_purpose = goal["measure_request"]["purpose"]
     return {
         "check_design": {
             "current_design": design,
@@ -351,9 +355,11 @@ def context(view, assignment, frozen):
             },
             "execution_bindings": [
                 item for item in frozen["evaluation_bindings"]
-                if item["purpose"] in {"local", "acceptance", "composition", "adequacy"}
+                if item["purpose"] == binding_purpose
             ],
             "authority": (
+                "The listed execution choices match the requested judgment purpose; "
+                "admission and evaluation retain that purpose. "
                 "Propose a requirement-grounded instrument and its controls. A separately assigned "
                 "Question reviews it; executable controls establish its measured adequacy. "
                 "Use the contracted child return to revise the current design or submit it with "
