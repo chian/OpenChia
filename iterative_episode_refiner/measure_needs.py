@@ -318,9 +318,12 @@ def assignment_prerequisites(view, parent, selected):
             )
         if reference not in inherited:
             source = view.entry("invocation", record.invocation_id.value)
+            # Replacement retires the returned invocation after admitting its
+            # successor. Its exact unresolved need remains a valid input to
+            # that successor; revalidation must retain the original ownership.
             if (
                 record.body["owner_assignment_ref"] != parent.ref.as_record()
-                or source.status != "returned"
+                or source.status not in {"returned", "superseded"}
             ):
                 raise ValueError(
                     "only the assigning owner may route a returned prerequisite"
