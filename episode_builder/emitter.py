@@ -30,7 +30,7 @@ from ._contract_plan import (
 from .declaration import DECLARATION_EXPORT, build_module_declaration
 from .evidence import ModelCallObserver, observe_model_call
 from .reference import EpisodeReferenceContext
-from .admission import constructor_signatures, goal_state_protocol_members
+from .admission import callback_arities, constructor_signatures, goal_state_protocol_members
 from .planner import materializer_function_catalog
 
 
@@ -830,7 +830,12 @@ _MODULE_CONTRACT = {
             "object with next(view), returning a Leaf, ChildEpisodeUnit, "
             "SourceEnd, or None"
         ),
-        "Leaf": "Leaf(unit, extract, result, label, accept=None)",
+        "Leaf": (
+            "Leaf(unit, extract, result, label, accept=None); the runtime calls "
+            "extract(unit) -> extracted, accept(unit, extracted) -> accepted, and "
+            "result(unit, accepted) -> controller_input, so result always takes "
+            "two positional parameters (see callback_arities)"
+        ),
         "ChildEpisodeUnit": "ChildEpisodeUnit(child, receive_result, synthesize_report)",
         "ReportContract": "ReportContract(decision, measurements, information)",
         "EpisodeRequest": "EpisodeRequest(goal, message, report_contract=None); report_contract is required for every child",
@@ -918,6 +923,15 @@ _MODULE_CONTRACT = {
             "        reference_point=tuple(0.0 for _ in RESULT_CHANNEL_IDS),\n"
             "    )"
         ),
+    },
+    "callback_arities": {
+        "rule": (
+            "each callback passed to these method_loop classes is called with exactly "
+            "the listed number of positional arguments; define it to accept that many "
+            "(Leaf.result(unit, accepted), never result(observation)); host admission "
+            "rejects a lambda or local def that cannot accept them"
+        ),
+        "classes": callback_arities(),
     },
     "constructor_signatures": {
         "rule": (
