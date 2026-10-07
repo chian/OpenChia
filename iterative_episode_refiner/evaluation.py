@@ -253,8 +253,17 @@ class RefinementEvaluations:
             return entry["spec_ref"]["artifact_id"] if entry else "target"
 
     def evaluate_local(self, session, call, payload):
+        from .coordination import pending_decisions
+
         if self.executor.run_store is not session.store.evidence.runs:
             raise ValueError("validation must use the campaign's existing RunStore")
+        with session.view() as view:
+            awaiting_owner = bool(pending_decisions(view, call.invocation_id.value))
+        if awaiting_owner:
+            # The ordinary unit close records these conflicts and returns them
+            # to their Parts owner. Requesting a new evaluation here violates
+            # that same boundary and used to invalidate the entire Run.
+            return session.reply(call, proceed=False)
         if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:
             return self._evaluate_measure(session, call, payload)
         candidate, requests = self._requests(session, call, payload)

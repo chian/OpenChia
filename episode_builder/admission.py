@@ -416,35 +416,43 @@ def _goal_state_return_deficits(tree: ast.Module) -> tuple[str, ...]:
     return tuple(found)
 
 
-def _module_literal_names(tree: ast.Module) -> set[str]:
-    names: set[str] = set()
-    for statement in tree.body:
-        if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
-            try:
-                ast.literal_eval(statement.value)
-            except (ValueError, TypeError, SyntaxError):
-                continue
-            names.add(statement.targets[0].id)
-    return names
+def _json_shaped_expression(
+    node: ast.AST,
+    assigned: Mapping[str, list[ast.expr]],
+    resolving: frozenset[str] = frozenset(),
+) -> bool | None:
+    """Classify known values; computed arguments are checked by the runtime.
 
-
-def _json_shaped_expression(node: ast.AST, literal_names: set[str]) -> bool:
-    """True when the expression can only evaluate to JSON-shaped data."""
+    A helper's parameter or mapping lookup is unknown, not a non-JSON value.
+    Admission stays non-executing; EpisodeFunctionBinding checks the actual
+    arguments when the isolated worker constructs it.
+    """
     if isinstance(node, ast.Constant):
         return node.value is None or isinstance(node.value, (str, bool, int, float))
     if isinstance(node, (ast.List, ast.Tuple)):
-        return all(_json_shaped_expression(item, literal_names) for item in node.elts)
+        shapes = [_json_shaped_expression(item, assigned, resolving) for item in node.elts]
+        return False if False in shapes else None if None in shapes else True
+    if isinstance(node, (ast.Set, ast.SetComp)):
+        return False
     if isinstance(node, ast.Dict):
-        return all(
-            isinstance(key, ast.Constant) and isinstance(key.value, str)
-            and _json_shaped_expression(value, literal_names)
-            for key, value in zip(node.keys, node.values)
-        )
+        shapes = []
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and not isinstance(key.value, str):
+                return False
+            if not isinstance(key, ast.Constant):
+                shapes.append(None)
+            shapes.append(_json_shaped_expression(value, assigned, resolving))
+        return False if False in shapes else None if None in shapes else True
     if isinstance(node, ast.Name):
-        return node.id in literal_names
+        values = assigned.get(node.id, ())
+        if len(values) == 1 and node.id not in resolving:
+            return _json_shaped_expression(values[0], assigned, resolving | {node.id})
+        return None
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "as_record":
         return True
-    return False
+    if isinstance(node, ast.Call) and _call_terminal_name(node) == "HandoffPayloadContract":
+        return False
+    return None
 
 
 def _binding_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
@@ -455,7 +463,8 @@ def _binding_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
     passing the REQUEST_PAYLOAD_CONTRACT object instead of its
     ``.as_record()`` JSON record.
     """
-    literal_names = _module_literal_names(tree)
+    assigned = _assigned_values(tree)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     binding_names = {"EpisodeFunctionBinding"}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "method_loop":
@@ -466,11 +475,25 @@ def _binding_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id not in binding_names:
             continue
+        # Function-local names can shadow module constants. Their values are
+        # supplied during execution, including the common binding helper case.
+        visible = assigned
+        parent = parents.get(node)
+        while parent is not None:
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                local_names = {
+                    item.arg for item in ast.walk(parent) if isinstance(item, ast.arg)
+                } | {
+                    item.id for item in ast.walk(parent)
+                    if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)
+                }
+                visible = {name: values for name, values in visible.items() if name not in local_names}
+            parent = parents.get(parent)
         for keyword in node.keywords:
-            if keyword.arg == "arguments" and not _json_shaped_expression(keyword.value, literal_names):
+            if keyword.arg == "arguments" and _json_shaped_expression(keyword.value, visible) is False:
                 found.append(
                     f"EpisodeFunctionBinding at line {node.lineno}: arguments must be JSON-shaped "
-                    "literals (a payload_contract argument is the contract's .as_record() JSON "
+                    "values (a payload_contract argument is the contract's .as_record() JSON "
                     "record, never the HandoffPayloadContract object)"
                 )
     return tuple(found)
