@@ -132,6 +132,7 @@ async def container_preparation(executor, command, *, read_only_paths, writable_
         str(executor.runtime.cli), "run", "--rm", "--name", name,
         "--network", "bridge" if network_access else "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        # no-tmp: ok — tmpfs mount target inside the Linux container's own mount namespace, never host scratch
         "--user", f"{owner.st_uid}:{owner.st_gid}", "--tmpfs", "/tmp:rw,nosuid,nodev",
         "--workdir", writable, *container_resource_arguments(executor.resources),
     ]
