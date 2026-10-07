@@ -30,7 +30,7 @@ from ._contract_plan import (
 from .declaration import DECLARATION_EXPORT, build_module_declaration
 from .evidence import ModelCallObserver, observe_model_call
 from .reference import EpisodeReferenceContext
-from .admission import constructor_signatures, goal_state_protocol_members
+from .admission import callback_arities, constructor_signatures, goal_state_protocol_members
 from .planner import materializer_function_catalog
 
 
@@ -830,12 +830,36 @@ _MODULE_CONTRACT = {
             "object with next(view), returning a Leaf, ChildEpisodeUnit, "
             "SourceEnd, or None"
         ),
-        "Leaf": "Leaf(unit, extract, result, label, accept=None)",
+        "Leaf": (
+            "Leaf(unit, extract, result, label, accept=None). unit is the unit's "
+            "input VALUE (for example the probe record), never a function; the "
+            "runtime does not call it. The work happens in extract(unit), which may "
+            "be async and is awaited: it performs the call, records into the goal "
+            "state, and returns what result needs. Then accept(unit, extracted) -> "
+            "accepted (optional) and result(unit, accepted) -> controller_input; "
+            "result always takes two positional parameters (see callback_arities) "
+            "and must return a numeric_control_library.CreditObservation (see "
+            "credit_observation)"
+        ),
+        "credit_observation": (
+            "each Leaf result returns CreditObservation.observed({column_id: "
+            "identities, ...}) (or CreditObservation.failed(...) for a failed unit) "
+            "naming EVERY id in RESULT_CHANNEL_IDS, with an empty tuple for columns "
+            "the unit did not touch; every identity is a stable opaque ID "
+            "(^[a-z][a-z0-9_]{0,31}_[0-9a-f]{24,64}$), e.g. derived as "
+            "'probe_' + hashlib.sha256(label.encode()).hexdigest(), never a plain "
+            "label such as 'asm_health'"
+        ),
         "ChildEpisodeUnit": "ChildEpisodeUnit(child, receive_result, synthesize_report)",
         "ReportContract": "ReportContract(decision, measurements, information)",
         "EpisodeRequest": "EpisodeRequest(goal, message, report_contract=None); report_contract is required for every child",
         "ClosedRecord": (
-            "admitted boundary base class whose as_record() returns a JSON mapping"
+            "admitted boundary base class whose as_record() returns a JSON mapping. "
+            "build_result must return a ClosedRecord INSTANCE, never a dict: a root "
+            "Episode defines a small frozen dataclass subclassing "
+            "method_loop.ClosedRecord whose as_record() returns the validated "
+            "typed-status mapping; a child Episode returns the admitted "
+            "handoff_library ChildResult"
         ),
         "controller_factory": (
             "callable(path) returning the controller composed from the admitted "
@@ -918,6 +942,15 @@ _MODULE_CONTRACT = {
             "        reference_point=tuple(0.0 for _ in RESULT_CHANNEL_IDS),\n"
             "    )"
         ),
+    },
+    "callback_arities": {
+        "rule": (
+            "each callback passed to these method_loop classes is called with exactly "
+            "the listed number of positional arguments; define it to accept that many "
+            "(Leaf.result(unit, accepted), never result(observation)); host admission "
+            "rejects a lambda or local def that cannot accept them"
+        ),
+        "classes": callback_arities(),
     },
     "constructor_signatures": {
         "rule": (

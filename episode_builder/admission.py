@@ -639,6 +639,117 @@ def _text_expression(node: ast.expr) -> bool:
     return True
 
 
+def callback_arities() -> dict[str, dict[str, object]]:
+    """Positional-argument counts the runtime uses for each callback field.
+
+    Read from the method_loop dataclass annotations (``Callable[[A, B], R]``),
+    so the contract and the check follow the runtime.
+    """
+    import collections.abc
+    import dataclasses
+    import typing
+
+    import method_loop
+
+    result: dict[str, dict[str, object]] = {}
+    for name in ("Leaf", "Episode", "ChildEpisodeUnit"):
+        cls = getattr(method_loop, name)
+        hints = typing.get_type_hints(cls)
+        fields = [field.name for field in dataclasses.fields(cls) if field.init]
+        callbacks: dict[str, int] = {}
+        for field_name in fields:
+            hint = hints.get(field_name)
+            if typing.get_origin(hint) is typing.Union:
+                members = [item for item in typing.get_args(hint) if item is not type(None)]
+                hint = members[0] if len(members) == 1 else hint
+            if typing.get_origin(hint) is collections.abc.Callable:
+                parameters = typing.get_args(hint)[0]
+                if isinstance(parameters, list):
+                    callbacks[field_name] = len(parameters)
+        result[f"method_loop.{name}"] = {"fields": fields, "callbacks": callbacks}
+    return result
+
+
+def _accepts_positional(function: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda, count: int) -> bool | None:
+    arguments = function.args
+    positional = arguments.posonlyargs + arguments.args
+    if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)) and positional and positional[0].arg in {"self", "cls"}:
+        return None
+    required = len(positional) - len(arguments.defaults)
+    if arguments.vararg is not None:
+        return count >= required
+    return required <= count <= len(positional)
+
+
+def _callback_arity_deficits(tree: ast.Module) -> tuple[str, ...]:
+    """Callbacks handed to Leaf / Episode / ChildEpisodeUnit must take the
+    number of positional arguments the runtime passes (e.g. Leaf.result is
+    called as ``result(unit, accepted)``). Only callbacks that resolve to a
+    lambda or a ``def`` in the same scope are judged."""
+    arities = callback_arities()
+    local_names: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "method_loop" and not node.level:
+            for alias in node.names:
+                if f"method_loop.{alias.name}" in arities:
+                    local_names[alias.asname or alias.name] = f"method_loop.{alias.name}"
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    module_defs = {
+        item.name: item for item in tree.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    def resolve(value: ast.expr, call: ast.Call):
+        if isinstance(value, ast.Lambda):
+            return value
+        if not isinstance(value, ast.Name):
+            return None
+        scope = parents.get(call)
+        while scope is not None:
+            if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                local = [
+                    item for item in scope.body
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == value.id
+                ]
+                if local:
+                    return local[-1]
+                if any(argument.arg == value.id for argument in ast.walk(scope.args) if isinstance(argument, ast.arg)):
+                    return None
+            scope = parents.get(scope)
+        return module_defs.get(value.id)
+
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        qualified = local_names.get(node.func.id)
+        if qualified is None:
+            continue
+        spec = arities[qualified]
+        supplied = dict(zip(spec["fields"], node.args))
+        supplied.update({keyword.arg: keyword.value for keyword in node.keywords if keyword.arg})
+        unit = supplied.get("unit")
+        if qualified == "method_loop.Leaf" and unit is not None:
+            target = resolve(unit, node)
+            if target is not None and not isinstance(target, ast.Lambda):
+                found.append(
+                    f"method_loop.Leaf.unit at line {node.lineno}: unit is the unit's input value, "
+                    f"but {target.name} (line {target.lineno}) is a function the runtime never calls; "
+                    "do the work in extract(unit)"
+                )
+        for field_name, count in spec["callbacks"].items():
+            value = supplied.get(field_name)
+            function = resolve(value, node) if value is not None else None
+            if function is None:
+                continue
+            if _accepts_positional(function, count) is False:
+                label = function.name if not isinstance(function, ast.Lambda) else "lambda"
+                found.append(
+                    f"{qualified}.{field_name} at line {node.lineno}: the runtime calls it with "
+                    f"{count} positional argument(s); {label} at line {function.lineno} does not accept {count}"
+                )
+    return tuple(found)
+
+
 def _constructor_argument_deficits(tree: ast.Module) -> tuple[str, ...]:
     """Check keyword/positional arguments of library class constructions statically.
 
@@ -1263,6 +1374,9 @@ def _inspect_source(
 
     for detail in _constructor_argument_deficits(tree):
         add("constructor_arguments_invalid", "module_source", detail)
+
+    for detail in _callback_arity_deficits(tree):
+        add("callback_arity_invalid", "module_source", detail)
 
     for detail in _goal_state_return_deficits(tree):
         add("goal_state_not_protocol", "module_source.build_goal_state", detail)
