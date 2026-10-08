@@ -89,6 +89,21 @@ class _Attempt:
         }
 
 
+_DROPPED_TRANSPORT_TYPES = frozenset({
+    "RemoteProtocolError", "ReadError", "WriteError", "ConnectError", "ReadTimeout",
+    "APIConnectionError",
+})
+
+
+def _dropped_transport(failure):
+    """The connection failed with no provider response status or error verdict."""
+    if not failure.get("retryable") or failure.get("http_status") is not None:
+        return False
+    provider = failure.get("provider_error") or {}
+    return (provider.get("type") in _DROPPED_TRANSPORT_TYPES
+            or failure.get("error_type") in _DROPPED_TRANSPORT_TYPES)
+
+
 class _CallSupervisor:
     def __init__(self, route, request, cancel, progress, record, invoke, describe_failure):
         self.route = route
@@ -225,6 +240,36 @@ class _CallSupervisor:
         # information; space them out rather than hammering a queued server.
         self.next_probe_at = time.monotonic() + self.policy.probe_interval_seconds * min(2 ** min(self.probe_round - 1, 4), 16)
 
+    async def replace_failed_primary(self, failure):
+        """Resubmit after the transport dropped a physical attempt mid-response.
+
+        A stream the connection lost ("incomplete chunked read", connection
+        reset) produced no result and no provider verdict, so there is nothing
+        to preserve; under ``retry_on_healthy_probe`` it uses the same bounded
+        ``max_replacements`` budget as a silent-call replacement. Provider error
+        responses (any HTTP status, or an error event in the stream) still fail
+        the call without a retry, as do other modes and an exhausted budget.
+        """
+        if (
+            self.policy.mode != "retry_on_healthy_probe"
+            or not _dropped_transport(failure)
+            or self.physical_attempt > self.policy.max_replacements
+            or self.cancel.is_set()
+        ):
+            return False
+        self.emit(
+            "recovery_replacement_proposed", probe_id=None,
+            original_server_state="failed", basis="retryable_transport_failure",
+            failure_category=failure.get("failure_category"),
+            duplicate_server_work_possible=True,
+        )
+        await self.primary.close()
+        await asyncio.sleep(min(self.policy.recovery_grace_seconds, 5.0 * self.physical_attempt))
+        if self.cancel.is_set():
+            raise asyncio.CancelledError
+        self.start_primary()
+        return True
+
     async def replace_primary(self, snapshot):
         self.emit(
             "recovery_replacement_proposed", probe_id=self.probe_id,
@@ -261,10 +306,11 @@ class _CallSupervisor:
                     try:
                         result = self.primary.task.result()
                     except Exception as exc:
-                        self.emit("physical_attempt_failed", **self.describe_failure(
-                            exc, self.primary.request, self.primary.activity,
-                        ))
-                        raise
+                        failure = self.describe_failure(exc, self.primary.request, self.primary.activity)
+                        self.emit("physical_attempt_failed", **failure)
+                        if not await self.replace_failed_primary(failure):
+                            raise
+                        continue
                     self.emit("physical_attempt_succeeded")
                     return result
                 snapshot = self.activity_record()
