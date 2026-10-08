@@ -157,7 +157,16 @@ grant in prose. They cannot launch another Episode or edit the Target Workflow.
 
 Each leaf research proposal selects one declared operation:
 `web_search` or `library_search` with `arguments.query`, `read_url` with
-`arguments.url`, or `read_library` with a returned catalog `arguments.source_id`.
+`arguments.url`, `read_library` with a returned catalog `arguments.source_id`,
+or `read_candidate` with `arguments.local_id` and `arguments.section`.
+The latter reads one approved Target Workflow Episode's `architecture`,
+`materialization`, or `source` from the current candidate. The leaf receives a
+compact `research.candidate_catalog` listing approved Episode IDs and whether
+their plans and source exist. It can inspect sibling interfaces when relevant to
+the caller's question. This is a campaign-local read capability, separate from
+the empty write grants: neither arbitrary store IDs nor filesystem paths are
+accepted. Exact retrieved sections become candidate-qualified source evidence;
+an absent plan or source is reported as unavailable.
 These operations retrieve evidence; a later `finding` proposal supplies
 per-requirement `state`, `answer`, `applicability`, `limitations` and inspected
 `source_ids`. Question uses `answered`, `refuted` or `unresolved`; Support uses
@@ -221,7 +230,8 @@ Host enforcement separates artifacts and instruments:
 - Verify and Verification Parts execute the assigned checks and inspect
   evidence. They do not repair the target or alter the checks.
 - Question and Support use declared read-only web research and local
-  documentation/library lookup operations. Their host path has no source or
+  documentation/library lookup operations, plus on-demand reads of approved
+  Target Workflow nodes in the current campaign. Their host path has no source or
   Materialization Spec editing operation, shell execution or child launch.
   Findings never confer another role's write access.
 

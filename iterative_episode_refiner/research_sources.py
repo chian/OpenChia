@@ -223,6 +223,15 @@ _OPERATIONS = {
 
 def validate_request(operation: str, arguments: Mapping) -> None:
     """Admit the exact read-only request before the host records or executes it."""
+    if operation == "read_candidate":
+        if not isinstance(arguments, Mapping) or set(arguments) != {"local_id", "section"}:
+            raise ValueError("read_candidate requires exactly local_id and section")
+        local_id = arguments["local_id"]
+        if not isinstance(local_id, str) or not local_id.strip() or "\x00" in local_id:
+            raise ValueError("local_id must name an approved Target Workflow Episode")
+        if arguments["section"] not in ("architecture", "materialization", "source"):
+            raise ValueError("read_candidate section must be architecture, materialization or source")
+        return
     if not isinstance(operation, str) or operation not in _OPERATIONS:
         raise ValueError("unknown research operation")
     field = _ARGUMENTS[operation]

@@ -70,6 +70,32 @@ def _parse_json(text: str) -> object:
         raise first_error
 
 
+def parse_json_object(text: str) -> dict:
+    """Admit one complete object, optionally wrapped in a JSON code fence.
+
+    Operation proposals must not select incidental numbers or quoted words from
+    commentary, or silently choose one of several conflicting response objects.
+    The caller records a format rejection so the Episode can correct its output.
+    Generic scalar-valued model calls retain their separate parser above.
+    """
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if len(lines) < 3 or lines[0].lower() not in {"```", "```json"} or lines[-1] != "```":
+            raise ValueError("Return one complete JSON object, optionally in one JSON code fence.")
+        stripped = "\n".join(lines[1:-1])
+    try:
+        value = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "Return one complete JSON object with no surrounding commentary or additional objects. "
+            + str(exc)
+        ) from exc
+    if not isinstance(value, dict):
+        raise ValueError("The proposal must be a JSON object, not a scalar or array.")
+    return value
+
+
 def _reasoning_config(tier: ModelTier) -> dict[str, object] | None:
     if tier is ModelTier.FAST:
         return {"enabled": False, "effort": "none"}

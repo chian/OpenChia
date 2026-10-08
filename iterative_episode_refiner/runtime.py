@@ -28,7 +28,7 @@ from handoff_library import (
     admit_child_result,
     admit_parent_request,
 )
-from llm_call_library.calls import _parse_json
+from llm_call_library.calls import parse_json_object
 from method_loop import EpisodeGoal
 from method_loop.identities import EpisodeRef
 
@@ -435,7 +435,7 @@ class RefinementSession:
         raw_response = proposal_text(self, producer.as_record(), call=call, task=payload["task"])
         # Malformed or inadmissible output remains evidence and earns no credit.
         try:
-            proposal = _parse_json(raw_response)
+            proposal = parse_json_object(raw_response)
             return admit_proposal(self, call, payload["task"], proposal, ref)
         except (TypeError, ValueError, KeyError, DuetNotFoundError) as exc:
             call.feedback_ref = self.put_data(

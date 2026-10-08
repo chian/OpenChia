@@ -116,8 +116,13 @@ _FINDING_SHAPE = {"observations": [{
 }]}
 
 _RESEARCH_SHAPE = {
-    "operation": "web_search, read_url, library_search or read_library",
-    "arguments": "{query: text} for searches; {url: public HTTP URL} for read_url; {source_id: returned library source ID} for read_library",
+    "operation": "web_search, read_url, library_search, read_library or read_candidate",
+    "arguments": (
+        "{query: text} for searches; {url: public HTTP URL} for read_url; "
+        "{source_id: returned library source ID} for read_library; "
+        "{local_id: approved Episode from research.candidate_catalog, "
+        "section: architecture, materialization or source} for read_candidate"
+    ),
 }
 
 

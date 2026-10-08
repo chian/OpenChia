@@ -679,7 +679,8 @@ def _validate_body(kind: str, body: Mapping) -> None:
         for key in ("operation", "source_id", "kind", "title"):
             names((body[key],), f"research {key}")
         source_kinds = {"web_search": "web_search", "read_url": "web_page",
-                        "library_search": "library", "read_library": "library"}
+                        "library_search": "library", "read_library": "library",
+                        "read_candidate": "candidate"}
         if source_kinds.get(body["operation"]) != body["kind"]:
             raise ValueError("research source kind differs from its retrieval operation")
         if not isinstance(body["query"], Mapping) or not isinstance(body["content"], str):
