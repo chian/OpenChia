@@ -26,6 +26,7 @@ The action-item checklist is in §7.
    - 6.1 [The proposal in one paragraph](#61-the-proposal-in-one-paragraph)
    - 6.2 [Gains](#62-gains)
    - 6.3 [Costs](#63-costs)
+     - [Why a TLS-terminating broker?](#why-a-tls-terminating-broker)
    - 6.4 [What we lose](#64-what-we-lose)
    - 6.5 [How replay relates to CWL units](#65-how-replay-relates-to-cwl-units)
    - 6.6 [Assessment](#66-assessment)
@@ -185,11 +186,32 @@ Execution uses GoWe's CWL v1.2 engine (378/378 conformance). Isolation and egres
 |---|---|---|
 | `cwl_tool` unit kind in Python (#62) | Medium | Contract fields, a host-side interpreter for the wiring, a projection language, evidence recording |
 | **How units reach models** | Design decision, blocking | A tool with no network can't call a model. Draft ADR 0011's answer: model calls happen host-side *between* units. Some Episodes then need more units (draft ADR 0011 OQ1) |
-| **Broker as egress proxy with TLS termination** | Medium–large | A plain HTTPS proxy sees only `CONNECT host:443`, so path rules (ADR 0002) would be unenforceable without a TLS-terminating broker with a pinned internal CA (draft ADR 0011 OQ2) |
+| **Broker as egress proxy with TLS termination** | Medium–large | A plain HTTPS proxy sees only `CONNECT host:443`, so path rules (ADR 0002) would be unenforceable without a TLS-terminating broker with a pinned internal CA (draft ADR 0011 OQ2). See [Why a TLS-terminating broker?](#why-a-tls-terminating-broker) |
 | **Projection language** | Small–medium | CWL JS needs a sandboxed, time-bounded engine (goja is currently unbounded; GoWe#277). The alternatives are a restricted JSONPath subset or registered library functions |
 | **Container start per unit** | ~100–500 ms per unit | Irrelevant for genome annotation, significant in tight probabilistic loops. Needs warm containers or "cheap units stay host-side" (draft ADR 0011 OQ4) |
 | **GoWe hardening** | Medium | Secrets off argv, server-assigned network, bounded JS, proxy passthrough, digest provenance (GoWe#277). Shared with GoWe's own deployments |
 | **If the Go split proceeds (draft ADR 0011 stages 1, 3, 4)** | Large | Cross-language hash chain: a written wire spec, `schema_version` on 7 chain records (#58), a golden hash corpus as a conformance suite. Plus porting the provider handling (Argo streaming, timeouts) and a hash-continuity decision |
+
+#### Why a TLS-terminating broker?
+
+**TLS** (Transport Layer Security) is the encryption behind `https://`. When a program connects to `https://www.bv-brc.org/...`, TLS encrypts everything after the initial connection setup: the URL path, the headers (such as `Authorization`) and the body. Anyone in the middle sees only the **host and port** being contacted (`www.bv-brc.org:443`), not what is being asked for.
+
+**Today's broker (ADR 0002)** receives the request *before* encryption. The worker hands it a typed request ("GET, rule `asm_collections`, path `/ragstack/asm-next/api/v1/collections`"). The broker:
+1. checks the path against the approved egress allowlist;
+2. injects the operator-held credential (for example `patric`);
+3. opens the encrypted connection to the real server itself.
+
+Path rules and credential injection both work because the broker sees the plaintext request.
+
+**A CWL tool** (for example `curl`) would open its own HTTPS connection through the broker acting as a plain proxy. The proxy sees only `CONNECT www.bv-brc.org:443`; the path and headers are already encrypted inside the tunnel. It therefore **cannot enforce `path_prefix` rules** and **cannot inject the credential**, because it cannot read or modify the encrypted request.
+
+**TLS termination** fixes this:
+- The broker becomes the endpoint of the tool's encrypted connection: it decrypts the request, checks the path, adds the credential, then opens its own encrypted connection to the real server.
+- For the tool to accept this, the broker presents certificates signed by a **private certificate authority (CA) that only the Run container trusts** (the "pinned internal CA").
+- This is how corporate inspection proxies work, applied here only to sandboxed tools.
+- The broker also derives the request's rule attribution from the connection itself, never from a header the tool supplies (ADR 0002 D6).
+
+The trade-off: this costs a CA that must be generated, protected and rotated, certificate minting per host, and broker code that handles TLS correctly. In return it keeps today's guarantees (path-level allowlists, credentials the tool never sees, per-exchange evidence) when tools make their own HTTP calls. The alternative is to forbid direct HTTP from CWL tools and keep HTTP units on the typed broker (`http_call_library`), giving up the "a curl tool is just another unit" uniformity.
 
 ### 6.4 What we lose
 
