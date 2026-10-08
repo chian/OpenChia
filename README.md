@@ -129,7 +129,7 @@ evidence chain:
 - **systemd** (Linux): a transient user service with cgroup ceilings,
   `ProtectSystem=strict`, private PID/network namespaces, Landlock ABI 7 and
   seccomp applied by the worker.
-- **container** (macOS, or Linux without systemd): the same worker inside an
+- **container** (default on Linux and macOS, ADR 0005): the same worker inside an
   OCI container launched through a Docker-compatible CLI (Docker Desktop,
   Rancher Desktop, Podman) with `--network none --read-only --cap-drop ALL
   --security-opt no-new-privileges`, the VM's cgroup allocation as the
@@ -137,8 +137,13 @@ evidence chain:
   container needs a Linux kernel with Landlock ABI 7 (6.15+); Rancher
   Desktop and Docker Desktop ship one.
 
-The backend is chosen automatically. Override it with
-`OPENCHIA_RUN_EXECUTOR=systemd|container`; pick the image with
+The container backend is the default on every platform
+([ADR 0005](docs/adr/0005-target-workflow-execution-backends.md)); host
+`systemd-run` does not select the backend. Select systemd explicitly with
+`OPENCHIA_RUN_EXECUTOR=systemd` — for example on a Linux host whose kernel is
+older than 6.15 (no Landlock ABI 7 for containers) or that has no container
+runtime. A missing prerequisite fails at Run setup; there is no silent
+fallback. Pick the image with
 `OPENCHIA_CONTAINER_IMAGE` (default `python:3.14-slim`, which must match the
 host's Python minor version).
 
