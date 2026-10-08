@@ -36,8 +36,15 @@ ADAPTER_NOTES = (
     "prefer read_file and list_files over many small shell commands; write source "
     "with write_file or edit_file. Each response is one step of a bounded budget."
 )
-MAX_TOOL_OUTPUT_CHARS = 40_000
-MAX_HISTORY_CHARS = 600_000
+MAX_TOOL_OUTPUT_CHARS = 20_000
+#: Conversation budget (characters, ~4 per token). Long-context calls on Argo slowed
+#: to minutes per step and then dropped mid-stream at ~130k tokens (2026-10-08).
+MAX_HISTORY_CHARS = 240_000
+#: Same-provider retries for a transient transport failure (stream dropped, 5xx).
+TRANSIENT_RETRIES = 3
+RETRY_BACKOFF_SECONDS = (5, 20, 60)
+#: Steps without any write_file/edit_file after which the model is reminded to write.
+EXPLORATION_NUDGE_STEPS = 40
 DEFAULT_COMMAND_TIMEOUT = 120
 MAX_COMMAND_TIMEOUT = 600
 DEFAULT_MAX_TOKENS = 32_768
@@ -177,6 +184,7 @@ class ChatCompletionsCodingSession:
         tool_iterations = 0
         final_text = ""
         warned = False
+        steps_since_write = 0
         for _step in range(self._max_steps):
             remaining = self._max_steps - _step
             if not warned and remaining <= min(BUDGET_WARNING_STEPS, max(1, self._max_steps // 5)):
@@ -186,13 +194,19 @@ class ChatCompletionsCodingSession:
                     "source changes (or record your findings/child proposal in "
                     ".openchia-implementation.json) now, then finish with a short summary."
                 )})
+            if steps_since_write and steps_since_write % EXPLORATION_NUDGE_STEPS == 0:
+                self._messages.append({"role": "user", "content": (
+                    f"{steps_since_write} steps without a source edit. You have enough context to act: "
+                    "write or edit the assigned source now (write_file/edit_file), or record the "
+                    "specific blocker in .openchia-implementation.json. Avoid further broad exploration."
+                )})
             if self._interrupt.is_set() or (deadline is not None and time.monotonic() >= deadline):
                 self._save()
                 return CodingTurn(thread_id=self._thread_id, turn_id=turn_id,
                                   tool_iterations=tool_iterations, interrupted=True)
             try:
-                message = self._complete()
-            except Exception as exc:  # provider failure: visible, never retried here
+                message = self._complete_with_retries(turn_id)
+            except Exception as exc:  # non-transient, or still failing after retries
                 if self._interrupt.is_set():
                     self._save()
                     return CodingTurn(thread_id=self._thread_id, turn_id=turn_id,
@@ -218,6 +232,9 @@ class ChatCompletionsCodingSession:
                 return CodingTurn(final_text=final_text, thread_id=self._thread_id, turn_id=turn_id,
                                   tool_iterations=tool_iterations,
                                   native_result={"finish": "stop", "steps": _step + 1})
+            steps_since_write = 0 if any(
+                call.function.name in ("write_file", "edit_file") for call in calls
+            ) else steps_since_write + 1
             for call in calls:
                 tool_iterations += 1
                 name = call.function.name
@@ -264,6 +281,29 @@ class ChatCompletionsCodingSession:
         return OpenAI(api_key=key or "no-auth", base_url=route["base_url"], http_client=http,
                       max_retries=0, timeout=None, organization="", project="",
                       default_headers={"OpenAI-Organization": Omit(), "OpenAI-Project": Omit()})
+
+    def _complete_with_retries(self, turn_id: str):
+        """One model step; transient transport failures are retried on the same route.
+
+        A dropped stream ("incomplete chunked read", connection reset) or a 5xx is
+        retried with backoff. Retries are reported as ordinary activity, because an
+        ``api_error`` event makes the Implementer interrupt the turn.
+        """
+        from agent.auxiliary_client import _is_transient_transport_error
+
+        for attempt in range(TRANSIENT_RETRIES + 1):
+            try:
+                return self._complete()
+            except Exception as exc:
+                if (self._interrupt.is_set() or attempt == TRANSIENT_RETRIES
+                        or not _is_transient_transport_error(exc)):
+                    raise
+                delay = RETRY_BACKOFF_SECONDS[min(attempt, len(RETRY_BACKOFF_SECONDS) - 1)]
+                self._emit("activity", {"turn_id": turn_id, "retry": attempt + 1,
+                                        "delay_seconds": delay,
+                                        "transient_error": f"{type(exc).__name__}: {exc}"[:300]})
+                if self._interrupt.wait(delay):
+                    raise
 
     def _complete(self):
         from agent.auxiliary_client import (
@@ -415,9 +455,10 @@ class ChatCompletionsCodingSession:
         for item in self._messages[1:-4]:
             if total <= MAX_HISTORY_CHARS:
                 break
-            if item.get("role") == "tool" and len(item["content"]) > 200:
-                total -= len(item["content"]) - 60
-                item["content"] = "[earlier tool output elided to fit the context budget]"
+            if item.get("role") == "tool" and len(item["content"]) > 400:
+                kept = item["content"][:300]
+                total -= len(item["content"]) - len(kept) - 70
+                item["content"] = kept + "\n…[rest of this earlier tool output elided to fit the context budget]"
 
     def _emit(self, kind: str, native: dict, *, error: str | None = None) -> None:
         self._on_event({"kind": kind, "native": native, "error": error})
