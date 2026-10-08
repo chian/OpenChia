@@ -2,16 +2,17 @@
 
 from .coordination import ancestors, relevant_conflicts
 from .judgment import current_check_states
-from .measures import authorized_check_refs
+from .measures import selected_checks, selected_measure_ref
 from .records import Ref
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 
 def root_readiness(view, assignment, policy):
     if (
-        assignment.body["role"] != "parts"
+        assignment.body["role"] != "designer"
         or assignment.body["parent_assignment_ref"] is not None
     ):
-        raise ValueError("whole-build readiness belongs to root Parts")
+        raise ValueError("whole-build readiness belongs to root Designer")
     catalog = view.data(Ref.from_record(view.contract.body["requirement_catalog_ref"]))
     requirements = {
         row["requirement_key"] for row in catalog["requirements"] if row["mandatory"]
@@ -28,15 +29,13 @@ def root_readiness(view, assignment, policy):
     missing = requirements - set(assignment.body["contribution_requirement_keys"])
     if missing or not requirements:
         gap("root_scope_incomplete", requirements=missing)
-    authorized = {
-        ref.artifact_id.value: view.read(ref, "check")
-        for ref in authorized_check_refs(view, policy, assignment)
-    }
+    measure = selected_measure_ref(view, assignment, "acceptance_measure_ref")
+    authorized = {check.artifact_id.value: check
+                  for check in selected_checks(view, policy, assignment, measure, purpose="composition")}
     required = {
         key: check
         for key, check in authorized.items()
         if check.body["requirement_key"] in requirements
-        and check.body["measure_ref"] == assignment.body["acceptance_measure_ref"]
         and check.body["purpose"] == "composition"
         and check.body["mandatory"]
     }
@@ -77,10 +76,10 @@ def root_readiness(view, assignment, policy):
             observation.kind != "observation"
             or not observation.evidence_refs
             or observation.body["outcome"] != "pass"
-            or request.body["measure_ref"] != check.body["measure_ref"]
+            or request.body["measure_ref"] != measure
             or request.body["purpose"] != check.body["purpose"]
             or request.body["environment_ref"] != view.contract.body["environment_ref"]
-            or verifier.body["role"] != "verify"
+            or ROLE_SPECIALIZATION[verifier.body["role"]] != "verify"
             or assignment.ref not in {item.ref for item in ancestors(view, verifier)}
         ):
             gap("independent_acceptance_missing", records=(check, observation))

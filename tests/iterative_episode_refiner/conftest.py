@@ -7,7 +7,7 @@ These tests exercise durable state/control, not model reasoning or confinement.
 import pytest_asyncio
 
 from agent.duet_contracts import content_id
-from function_library.refinement_contract import CHILDREN
+from function_library.refinement_contract import CHILDREN, ROLE_SPECIALIZATION
 from iterative_episode_refiner.campaign_store import CampaignView
 from iterative_episode_refiner.records import RefinementRecord
 from iterative_episode_refiner.state_machine import judgment_lineage
@@ -67,7 +67,10 @@ class CampaignFixture:
             **parent.as_record()["body"],
             "return_projection_ref": return_ref.as_record(),
             "parent_assignment_ref": parent.ref.as_record(),
+            "coordinating_invocation_id": self.current_invocation.value,
             "role": role,
+            "materialization_targets": list(parent.body["materialization_targets"]) if ROLE_SPECIALIZATION[role] == "materialization_implementer" else [],
+            "writable_paths": list(parent.body["writable_paths"]) if ROLE_SPECIALIZATION[role] == "implementer" else [],
             "scope_requirement_keys": self.requirements,
             "contribution_requirement_keys": self.requirements,
             "preservation_requirement_keys": [],
@@ -118,7 +121,7 @@ class CampaignFixture:
         return assignment
 
     def designer(self):
-        return self.enter("designer")
+        return self.root_assignment
 
     def implementer(self, *, additional_paths=()):
         designer = self.designer()
@@ -127,10 +130,11 @@ class CampaignFixture:
             {
                 "assignment_ref": designer.ref.as_record(),
                 "approach_key": "preserve both independently assigned properties",
-                "requirement_mapping": {key: "Preserve the independently checked property" for key in self.requirements},
+                "requirement_mapping": {key: "Preserve the independently checked property" for key in designer.body["contribution_requirement_keys"]},
                 "assumption_refs": [],
                 "proposed_component_refs": [],
                 "intended_change_scope": [self.source_path, *additional_paths],
+                "intended_materialization_targets": [],
                 "dependency_effects": [],
                 "local_measure_ref": designer.body["local_measure_ref"],
                 "acceptance_measure_ref": designer.body["acceptance_measure_ref"],
@@ -158,6 +162,7 @@ class CampaignFixture:
                     "after_blob_hash": self.builds.put_blob(source).value,
                 }],
                 "implementation_detail_operations": [],
+                "findings": [],
                 "rationale_claim_refs": [],
             },
         )

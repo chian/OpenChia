@@ -6,8 +6,8 @@ Runtime behavior remains a separate evidence kind under the parent's measure.
 
 from function_library.materialization_progress import (
     REQUIREMENT_SATISFACTION,
-    requirement_satisfaction,
 )
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .records import Ref, RefinementRecord
 
@@ -89,67 +89,62 @@ def baseline(view):
 
 def baseline_fact_keys(view, assignment):
     from .judgment import verification_fact
-    from .measurement import check_fact
+    from .measures import selected_checks, selected_measure_ref
 
     progress = baseline(view)["progress"]
-    if assignment.body["role"] == "verify":
+    policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
+    reference = selected_measure_ref(view, assignment, "local_measure_ref")
+    checks = selected_checks(view, policy, assignment, reference)
+    family = ROLE_SPECIALIZATION[assignment.body["role"]]
+    if family == "verify":
         outcomes = progress["check_statuses"]
         return {
             verification_fact(view, check, outcomes[check.body["expected"]["check_id"]])
-            for entry in view.entries("check")
-            for check in (entry.record,)
+            for check in checks
             if check.body["evidence_kind"] == "materialization"
-            and check.body["measure_ref"] == assignment.body["local_measure_ref"]
             and outcomes.get(check.body["expected"]["check_id"]) in {"pass", "fail"}
         }
-    known = set(progress["credited_requirement_ids"])
-    return {
-        check_fact(view, entry.record)
-        for entry in view.entries("check")
-        if entry.record.body["evidence_kind"] == "materialization"
-        and entry.record.body["requirement_key"] in known
-        and entry.record.body["measure_ref"] == assignment.body["local_measure_ref"]
-    }
+    if family not in {"designer", "implementer", "materialization_implementer"}:
+        return set()
+    from .measurement import dependency_hashes
+    from .measures import measure_function, measurement_baseline, requirement_fact
 
-
-def satisfied_requirements(view, assignment, assessments=()):
-    """One requirement needs all its frozen checks, not one favorable result."""
-    from .judgment import current_check_states
-
-    handoff = baseline(view)
-    requirements = [
-        row
-        for row in handoff["requirements"]
-        if row["requirement_id"] in assignment.body["contribution_requirement_keys"]
-    ]
-    declared = {key for row in requirements for key in row["check_ids"]}
-    checks = {row.key: row.record for row in view.entries("check")}
-    observations = []
-    for key, (record, status) in current_check_states(view, assessments).items():
-        check = checks[key]
-        if (
-            check.body["evidence_kind"] != "materialization"
-            or check.body["measure_ref"] != assignment.body["local_measure_ref"]
-            or check.body["expected"]["check_id"] not in declared
-        ):
+    candidate = measurement_baseline(view, assignment, reference)
+    function = measure_function(view, policy, assignment, reference, purpose="local")
+    members = {check.artifact_id.value: check for check in checks if check.body["purpose"] == "local"}
+    initial = next(entry.record for entry in view.entries("assignment")
+                   if entry.record.body["parent_assignment_ref"] is None)
+    initial_candidate = view.read(Ref.from_record(initial.body["baseline_candidate_ref"]), "candidate")
+    policy_refs = {Ref.from_record(raw) for raw in policy["check_refs"]}
+    outcomes = {key: set() for key in members}
+    for key, check in members.items():
+        if (check.ref in policy_refs and check.body["evidence_kind"] == "materialization"
+                and dependency_hashes(check, initial_candidate) == dependency_hashes(check, candidate)):
+            status = progress["check_statuses"].get(check.body["expected"]["check_id"])
+            if status is not None:
+                outcomes[key].add(status)
+    # Evidence collected under the new function at the commissioned candidate
+    # is baseline achievement, including when that evaluation happens after
+    # publication. Rewording/replacing a checker cannot earn implementation credit.
+    for entry in view.entries("observation"):
+        observation = entry.record
+        key = observation.body["check_key"]
+        if (key not in members or not observation.evidence_refs
+                or dependency_hashes(members[key], candidate) != dict(observation.body["checked_dependency_hashes"])):
             continue
-        if status not in {
-            "pass",
-            "fail",
-            "blocked",
-            "error",
-        }:
-            continue
-        observations.append({
-            "check_id": check.body["expected"]["check_id"],
-            "candidate_ref": view.candidate.ref.as_record(),
-            "status": status,
-        })
-    return set(
-        requirement_satisfaction(
-            requirements=requirements,
-            observations=observations,
-            candidate_ref=view.candidate.ref.as_record(),
-            credited_requirement_ids=handoff["progress"]["credited_requirement_ids"],
-        )["current_satisfied_requirement_ids"]
+        status = observation.body["outcome"]
+        outcomes[key].add(status if status in {"pass", "fail", "blocked", "error"} else "not_checked")
+    statuses = {key: next(iter(values)) if len(values) == 1 else "not_checked"
+                for key, values in outcomes.items()}
+    measured = function(
+        observations=[{
+            "check_id": key, "candidate_ref": candidate.ref.as_record(),
+            "status": "blocked" if statuses[key] == "pass" and any(
+                statuses.get(guard) != "pass" for guard in check.body["guard_keys"]
+            ) else statuses[key],
+        } for key, check in members.items()],
+        candidate_ref=candidate.ref.as_record(),
+        requirement_ids=assignment.body["contribution_requirement_keys"],
     )
+    return {requirement_fact(view, reference, key)
+            for key in measured["current_satisfied_requirement_ids"]}

@@ -11,6 +11,7 @@ from agent.duet_contracts import canonical_json, content_id
 from agent.episode_contracts import OpaqueId
 from episode_runtime.contracts import RunRegistration
 from function_library.epistemic_contract import exact
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 from episode_runtime.testing_harness.judgments import judge_value
 
 from .checking import admitted_build, checker_definition, prepare_checker_inputs
@@ -114,7 +115,7 @@ def bind_control(view, attempt, resolved):
     ]
     proposal, _, _, _ = control_request(view, *references)
     if (
-        assignment.body["role"] != "measure"
+        ROLE_SPECIALIZATION[assignment.body["role"]] != "measure"
         or proposal.body["assignment_ref"] != assignment.ref.as_record()
         or binding.invocation_id != attempt.invocation_id
         or binding.logical_unit_id != attempt.logical_unit_id
@@ -178,7 +179,7 @@ def observe_control(view, attempt, resolved):
     proposal, grounding, _, _ = control_request(view, *references)
     entry = view.entry("measure_control", control_key(*references))
     if (
-        assignment.body["role"] != "measure"
+        ROLE_SPECIALIZATION[assignment.body["role"]] != "measure"
         or proposal.body["assignment_ref"] != assignment.ref.as_record()
         or entry.status != "pending"
         or entry.record.ref != binding.ref
@@ -235,9 +236,11 @@ def observe_control(view, attempt, resolved):
     return [observation], [index("measure_control", entry.key, observation, "observed")]
 
 
-def control_results(view, proposal, grounding_ref, grounding, selection):
+def control_results(view, proposal, grounding_ref, grounding, selection, *, snapshot=None):
     results, evidence = [], []
-    rows = {row.key: row for row in view.entries("measure_control")}
+    rows = ({row.key: row.record for row in view.entries("measure_control")}
+            if snapshot is None else {key: view.read(Ref.from_record(ref))
+                                      for key, ref in snapshot.items()})
     for field, expected in (
         ("positive_control_refs", "pass"),
         ("negative_control_refs", "fail"),
@@ -245,51 +248,42 @@ def control_results(view, proposal, grounding_ref, grounding, selection):
         for raw in grounding[field]:
             reference = Ref.from_record(raw)
             control_definition(view, reference, expected)
-            entry = rows.get(control_key(proposal.ref, grounding_ref, reference))
-            if entry is None:
-                raise ValueError("checker adequacy has an unexecuted required control")
-            if entry.status == "unavailable":
-                gap = entry.record.body["gap"]
-                raise ValueError(
-                    f"control {reference.artifact_id.value}: {gap['kind']}: {gap['detail']}"
-                )
-            if entry.status != "observed":
-                raise ValueError(
-                    "checker adequacy requires all actual control observations"
-                )
-            observation = entry.record
-            binding = view.read(
-                Ref.from_record(observation.body["control_run_ref"]),
-                "measure_control_run",
-            )
-            if any(
+            record = rows.get(control_key(proposal.ref, grounding_ref, reference))
+            observation = record if record is not None and record.kind == "measure_control_observation" else None
+            binding = (view.read(Ref.from_record(observation.body["control_run_ref"]), "measure_control_run")
+                       if observation is not None else record)
+            if binding is not None and (binding.kind != "measure_control_run" or any(
                 binding.body[field] != ref.as_record()
-                for field, ref in (
-                    ("proposal_ref", proposal.ref),
-                    ("grounding_ref", grounding_ref),
-                    ("control_ref", reference),
-                )
-            ):
-                raise ValueError(
-                    "control observation belongs to another proposal or case"
-                )
-            if observation.body["outcome"] == "error" or not observation.evidence_refs:
-                raise ValueError(
-                    f"checker control has no adequate observation: {observation.body['error']}"
-                )
-            actual = judge_value(
-                selection,
-                observed=observation.body["observed_value"],
-                expected=grounding["expected"],
-            )
-            if actual != expected or actual != observation.body["outcome"]:
-                raise ValueError(
-                    f"control {reference.artifact_id.value} requires {expected}; actual checker yielded {actual}"
-                )
+                for field, ref in (("proposal_ref", proposal.ref),
+                                   ("grounding_ref", grounding_ref),
+                                   ("control_ref", reference))
+            )):
+                raise ValueError("control observation belongs to another proposal or case")
+            if observation is None:
+                reason = "checker adequacy has an unexecuted required control"
+                if binding is not None and binding.body["gap"] is not None:
+                    gap = binding.body["gap"]
+                    reason = f"{gap['kind']}: {gap['detail']}"
+                results.append({"control_ref": raw, "expected": expected,
+                                "observed": None, "status": "blocked", "reason": reason})
+                continue
+            if observation.body["outcome"] == "error":
+                actual, status, reason = "error", "error", observation.body["error"]
+            else:
+                if not observation.evidence_refs:
+                    raise ValueError("checker control has no execution evidence")
+                actual = judge_value(selection, observed=observation.body["observed_value"],
+                                     expected=grounding["expected"])
+                if actual != observation.body["outcome"]:
+                    raise ValueError("checker control differs from its recorded observation")
+                status = "pass" if actual == expected else "fail"
+                reason = None if status == "pass" else f"control expected {expected}, observed {actual}"
             results.append({
                 "control_ref": raw,
                 "expected": expected,
                 "observed": actual,
+                "status": status,
+                "reason": reason,
                 "control_run_ref": binding.ref.as_record(),
                 "observation_ref": observation.ref.as_record(),
             })
@@ -297,63 +291,22 @@ def control_results(view, proposal, grounding_ref, grounding, selection):
     return results, evidence
 
 
-def control_run_refs(view, proposal):
+def control_run_refs(view, proposal, *, snapshot=None):
     records = []
-    for entry in view.entries("measure_control"):
+    selected = ([entry.record for entry in view.entries("measure_control")]
+                if snapshot is None else [view.read(Ref.from_record(ref)) for ref in snapshot.values()])
+    for record in selected:
         binding = (
-            entry.record
-            if entry.record.kind == "measure_control_run"
+            record
+            if record.kind == "measure_control_run"
             else view.read(
-                Ref.from_record(entry.record.body["control_run_ref"]),
+                Ref.from_record(record.body["control_run_ref"]),
                 "measure_control_run",
             )
         )
         if binding.body["proposal_ref"] == proposal.ref.as_record():
             records.append(binding.ref.as_record())
-    return records
-
-
-def validated_control_facts(view, *, assignment_ref=None, proposal_ref=None):
-    """Distinct grounded behavior, independent of proposal or unit identity."""
-    facts = {}
-    for entry in view.entries("measure_control"):
-        if entry.status != "observed":
-            continue
-        observation = entry.record
-        binding = view.read(Ref.from_record(observation.body["control_run_ref"]), "measure_control_run")
-        if "experiment_ref" not in binding.body or not observation.evidence_refs:
-            continue
-        proposal, grounding, control, _ = control_request(
-            view, *(Ref.from_record(binding.body[field]) for field in ("proposal_ref", "grounding_ref", "control_ref"))
-        )
-        if (assignment_ref is not None and proposal.body["assignment_ref"] != assignment_ref.as_record()) or (proposal_ref is not None and proposal.ref != proposal_ref):
-            continue
-        selection = view.data(Ref.from_record(proposal.body["decision_function_ref"]))
-        if observation.body["outcome"] != control["expected_outcome"] or judge_value(selection, observed=observation.body["observed_value"], expected=grounding["expected"]) != control["expected_outcome"]:
-            continue
-        experiment = view.data(Ref.from_record(binding.body["experiment_ref"]))
-        registration = binding.body["registration"]
-        boundary = registration["execution_scope"]["boundary"]
-        fact = content_id("refinement_fact", {
-            "kind": "validated_grounded_control_v1",
-            "source_files": experiment["plan"]["candidate"]["source_files"],
-            "workflow_hash": registration["workflow_hash"],
-            "entry_path": boundary["path_local_ids"],
-            "goal_context": boundary["goals"],
-            "mapped_input": boundary["input_payload"],
-            "requirement_key": grounding["requirement_key"],
-            "input_domain_ref": proposal.body["input_domain_ref"],
-            "predicate": selection,
-            "predicate_expected": grounding["expected"],
-            "required_outcome": control["expected_outcome"],
-            "observation_path": grounding["observation_path"],
-            "environment_ref": experiment["spec"]["environment_ref"],
-            # Fresh and saved-input live Runs exercise the same exact case.
-            # Changing input selection syntax cannot manufacture another fact.
-            "execution_mode": "live",
-        }).value
-        facts[fact] = observation
-    return facts
+    return sorted(records, key=canonical_json)
 
 
 def control_context(view, proposal_refs):
@@ -386,20 +339,36 @@ def control_context(view, proposal_refs):
     return results[-12:]
 
 
-def final_control_rows(view, check_refs):
+def final_control_rows(view, check_refs, measure_refs):
     """Retain the original adequacy evidence for each used admitted measure."""
     selected = set(map(Ref.from_record, check_refs))
+    groundings = {
+        Ref.from_record(raw)
+        for reference in selected
+        for raw in view.read(reference, "check").body["grounding_refs"]
+    }
+    # Keep the selected composite and the original authors of its retained
+    # checks. Older composites sharing one unchanged check are not all in use.
+    used_measures = set(map(Ref.from_record, measure_refs)) | {
+        Ref.from_record(view.read(ref, "check").body["measure_ref"]) for ref in selected
+    }
     admissions = {}
     for entry in view.entries("measure"):
         reference = Ref.from_record(entry.record.body["measure_ref"])
-        if entry.status == "admitted" and selected.intersection(
+        if entry.status in {"admitted", "partial"} and reference in used_measures and selected.intersection(
             map(Ref.from_record, entry.record.body["check_refs"])
         ):
-            admissions.setdefault(reference, entry.record)
-    rows = []
+            admissions[reference] = entry.record
+    rows, seen = [], set()
     for admission in admissions.values():
         for result in admission.body["control_results"]:
-            if "control_run_ref" not in result:
+            # A component source can also record unfinished requirements. Only
+            # controls establishing the checks actually used belong here.
+            if (Ref.from_record(result["grounding_ref"]) not in groundings
+                    or "control_run_ref" not in result):
+                continue
+            observation_ref = Ref.from_record(result["observation_ref"])
+            if observation_ref in seen:
                 continue
             binding = view.read(
                 Ref.from_record(result["control_run_ref"]), "measure_control_run"
@@ -424,6 +393,7 @@ def final_control_rows(view, check_refs):
             )
             attempt = view.read(observation.predecessor_refs[0], "attempt")
             rows.append((binding, observation, attempt, grounding, checker))
+            seen.add(observation_ref)
     return [record.ref.as_record() for record in admissions.values()], rows
 
 

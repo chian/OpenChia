@@ -753,6 +753,7 @@ async def prepared_refiner(
                     }).as_record()],
                 } if campaign_source is not None else {}),
                 "check_refs": checks,
+                "materialization_edit_targets": [],
                 "numeric_control": refiner.frozen_workflow.workflow.episodes[
                     0
                 ].contract.numeric_control.as_record(),
@@ -801,7 +802,8 @@ async def prepared_refiner(
         )
         prepared = prepare_refinement(
             store=campaigns,
-            workspace=workspace,
+            inputs=builds.inspection_inputs_for_receipt(receipt.receipt_id),
+            handoff=builds.read_materialization_handoff(receipt.receipt_id),
             baseline=baseline,
             campaign_id=oid("campaign"),
             refiner_registration=registration,

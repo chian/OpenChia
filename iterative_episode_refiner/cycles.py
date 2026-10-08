@@ -3,6 +3,7 @@
 from itertools import combinations
 
 from agent.duet_contracts import canonical_json, digest_record
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .evaluation_inputs import semantic_inputs
 from .records import Ref
@@ -42,10 +43,10 @@ def _content(view, candidate, materialization=None):
 
 
 def owner(view, assignments, requirements):
-    """Nearest common Parts owner, including calls not shaped like target nodes."""
+    """Nearest common coordinating Episode, following actual call ancestry."""
     paths = [ancestors(view, assignment) for assignment in assignments]
     for candidate in paths[0]:
-        if candidate.body["role"] != "parts" or not set(requirements).issubset(
+        if ROLE_SPECIALIZATION[candidate.body["role"]] in {"question", "support"} or not set(requirements).issubset(
             candidate.body["scope_requirement_keys"]
         ):
             continue

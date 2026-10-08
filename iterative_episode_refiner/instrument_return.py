@@ -7,11 +7,29 @@ the handoff. Derived descriptors pin that build; they are not adequacy verdicts.
 from agent.duet_contracts import canonical_json
 from function_library.epistemic_contract import exact
 from function_library.models import _thaw_json
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .instrument_builds import entries, selected_entry
 from .grounding import authorize_acquisitions
 from .measure_needs import build_specification
 from .records import Ref
+
+
+def _verification_owner(view, invocation):
+    """Original observations may be returned by nested Verification Parts."""
+    current = invocation
+    while ROLE_SPECIALIZATION[current.record.body["role"]] == "verify":
+        if current.status not in {"returned", "superseded"}:
+            return None
+        parent_ref = current.record.body["parent_assignment_ref"]
+        parent = view.read(Ref.from_record(parent_ref), "assignment")
+        if ROLE_SPECIALIZATION[parent.body["role"]] != "verify":
+            return parent_ref
+        matches = [entry for entry in view.entries("invocation") if entry.record.ref == parent.ref]
+        if len(matches) != 1:
+            return None
+        current = matches[0]
+    return None
 
 
 def _accepted_sources(view, report, spec, spec_ref):
@@ -60,9 +78,8 @@ def _accepted_sources(view, report, spec, spec_ref):
             or request.body["candidate_ref"] != report.body["selected_candidate_ref"]
             or check.body["environment_ref"] != view.contract.body["environment_ref"]
             or verifier.status not in {"returned", "superseded"}
-            or verifier.record.body["role"] != "verify"
-            or verifier.record.body["parent_assignment_ref"]
-            != assignment.ref.as_record()
+            or ROLE_SPECIALIZATION[verifier.record.body["role"]] != "verify"
+            or _verification_owner(view, verifier) != assignment.ref.as_record()
         ):
             raise ValueError(
                 "instrument acceptance lacks its own independent Verify return"
@@ -328,7 +345,7 @@ def return_evidence(view, proposal):
 
 def return_context(view, requester):
     """Offer exact returned sources; no summaries or model-awarded acceptance."""
-    if requester.body["role"] not in {"parts", "designer", "measure"}:
+    if ROLE_SPECIALIZATION[requester.body["role"]] not in {"designer", "measure"}:
         return []
     result = []
     requirements = set(requester.body["contribution_requirement_keys"])

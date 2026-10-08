@@ -14,11 +14,17 @@ desktop app, providers, and execution tools while replacing model-facing
 delegation with Duet-approved Episodes. The Duet is the human, its restricted
 conversational LLM, and the host protocol. Together they specify, revise, and
 approve the complete nested Episode workflow. The host freezes that exact
-workflow. EpisodeBuilder later materializes explicit task-specific modules;
-only an admitted build can enter the separate isolated Run boundary. Each task
-Episode executes only its predeclared topology and contract. The
-IterativeEpisodeRefiner owns repair and validation after the initial Builder
-attempt. OpenChia must own the full build → refine → validate cycle after one
+workflow. IterativeEpisodeRefiner constructs and refines its Materialization Spec
+and source directly from that approved architecture. Designer is its root and
+owns the general approach. MaterializationImplementer, Code Implementer, Measure
+and Verify are peer specialists; each owns its task-specific recursive Parts
+binding and host-enforced capabilities. Question and Support are declared child
+capabilities throughout. See `docs/openchia/iterative_episode_refiner_episodes.md`
+for the complete hierarchy and assignment boundaries. EpisodeBuilder supplies reusable construction
+validators and source admission, not a prerequisite Target Workflow build pass.
+Only an admitted build can enter the separate isolated Run boundary. Each task
+Episode executes only its predeclared topology and contract.
+OpenChia must own the full construct → refine → validate cycle after one
 start; routine repairs within the approved goal do not require another command
 or approval. Changes outside that grant return through the Duet for approval.
 Active Runs retain their exact frozen contracts. See ADR 0007 for the bounded

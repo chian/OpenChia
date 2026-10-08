@@ -921,17 +921,18 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         from agent.build_refinement import BuildRefinement
         from agent.openchia_build_job import run_build_job
         from agent.openchia_build_recovery import owner_record
+        from agent.workflow_editing import require_no_editor
 
         with self._build_lock:
+            require_no_editor(self)
             self._require_no_active_run("a new build")
             if self._build_thread is not None and self._build_thread.is_alive():
                 raise OpenChiaHostError("an Episode build is already active")
             request = self._approved_build_request()
-            launch_id, launch = self._prepare_model_launch("build", request.build_request_id.value)
+            _launch_id, launch = self._prepare_model_launch("build", request.build_request_id.value)
             builder = self._builder_for(request, launch)
             refiner = BuildRefinement(self)
             cancel_event = threading.Event()
-            launch_transport = self._model_launch_transport(launch_id, launch, cancel_event=cancel_event)
             self.build_store.put_build_request(request)
             self._build_request = request
             self._build_attempt_id = None
@@ -953,7 +954,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
             context = contextvars.copy_context()
             worker = threading.Thread(
                 target=context.run,
-                args=(run_build_job, self, request, builder, launch, launch_transport, cancel_event, refiner),
+                args=(run_build_job, self, request, builder, launch, cancel_event, refiner),
                 name=f"openchia-build-{request.build_request_id.value[-12:]}",
                 daemon=False,
             )

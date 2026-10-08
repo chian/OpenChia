@@ -10,7 +10,7 @@ from agent.duet_contracts import canonical_json
 from episode_builder._contract_base import BuildReceipt
 from function_library.epistemic_contract import exact
 
-from .materialization_edits import baseline_inputs, source_paths
+from .materialization_edits import baseline_inputs, initial_handoff, source_paths
 from .records import Ref
 from .checking import checker_descriptor
 
@@ -342,7 +342,7 @@ def source_scope(reader, contract, candidate, binding=None):
         raise ValueError(
             "candidate contains source outside its declared build namespaces"
         )
-    handoff = reader.materialization_handoff(inputs.receipt, duet_id)
+    handoff = initial_handoff(reader, contract)
     return SourceScope(
         inputs,
         paths,
@@ -359,10 +359,13 @@ def add_context(view, assignment, context):
     from .instrument_return import return_context
 
     writable = set(assignment.body["writable_paths"])
+    from .materialization_edits import target_source_paths
+
+    readable = writable | target_source_paths(view, assignment.body["materialization_targets"])
     policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
     selected = []
     for entry in entries(view):
-        if not writable.intersection(entry["paths"].values()):
+        if not readable.intersection(entry["paths"].values()):
             continue
         handoff = view.data(Ref.from_record(entry["handoff_ref"]))
         plan_context = edit_context(view, policy, assignment, instrument=entry)

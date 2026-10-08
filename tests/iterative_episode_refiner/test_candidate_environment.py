@@ -29,7 +29,7 @@ async def test_broken_recipe_is_durable_repairable_and_invalidates_source_only_e
                 "before_hash": old,
                 "after_blob_hash": campaign.builds.put_blob(text.encode()).value,
             }],
-            "implementation_detail_operations": [], "rationale_claim_refs": [],
+            "implementation_detail_operations": [], "rationale_claim_refs": [], "findings": [],
         })
         campaign.perform("apply_change", {"change": change.as_record()})
         return campaign.candidate
@@ -122,7 +122,7 @@ def test_experiment_preparation_diagnostics_reach_next_input_and_requested_repor
     campaign.implementer(additional_paths=[ENVIRONMENT_RECIPE_PATH])
     session = campaign.session
     root = session.calls[session.root_id]
-    path = (*root.path, (session.nodes["designer"].grain_name, "design"),
+    path = (*root.path,
             (session.nodes["implementer"].grain_name, campaign.current_invocation.value))
     call = Invocation(campaign.current_invocation, campaign.implementation, path,
                       root.goal, unit_id=campaign.unit)

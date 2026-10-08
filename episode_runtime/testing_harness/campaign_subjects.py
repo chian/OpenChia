@@ -29,8 +29,8 @@ def campaign_subject(request, *, inputs, artifacts, builds, runs=None):
         view = CampaignView(connection, contract.campaign_id)
         if view.contract.ref != contract.ref or view.head["duet_id"] != owner:
             raise ValueError("experiment campaign is not the admitted contract")
-        first = view.read(Ref.from_record(reference), "check")
-        choices = check_bindings(view, first)
+        first = admitted_check(view, request["requirements"][0])
+        choices = check_bindings(view, first, measure_ref=request["requirements"][0]["measure_ref"])
         if len(choices) != 1:
             return None  # The ordinary criterion preview reports this missing binding.
         binding = choices[0]
@@ -43,7 +43,7 @@ def campaign_subject(request, *, inputs, artifacts, builds, runs=None):
         for requirement in request["requirements"]:
             check = admitted_check(view, requirement)
             if check.body["evidence_kind"] != "execution" or canonical_json(
-                check_bindings(view, check)
+                check_bindings(view, check, measure_ref=requirement["measure_ref"])
             ) != canonical_json([binding]):
                 raise ValueError("one experiment must use one declared campaign source binding")
         candidate = view.read(Ref.from_record(request["candidate_ref"]), "candidate")

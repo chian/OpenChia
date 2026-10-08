@@ -14,7 +14,7 @@ def validate_commit(view, commit):
     from .judgment import operative_check_facts, parent_assessments
     from .prerequisites import parent_prerequisites
     from .succession import credited_facts
-    from .measure_controls import validated_control_facts
+    from .measures import measurement_lineage, selected_measure_ref
 
     if commit.kind != "commit" or commit.body["sequence"] != view.head["sequence"] + 1:
         raise ValueError("campaign commit skips its predecessor")
@@ -76,9 +76,11 @@ def validate_commit(view, commit):
                     raise ValueError(
                         "measurement prerequisite differs from authorized need"
                     )
-            if delta["collection"] == "measure" and delta["status"] == "admitted":
+            if delta["collection"] == "measure":
                 from .measure_admission import validate_admission
 
+                if delta["status"] != record.body["status"]:
+                    raise ValueError("measure index differs from its assessed admission status")
                 validate_admission(view, record)
             if delta["collection"] == "unit":
                 if (
@@ -103,7 +105,10 @@ def validate_commit(view, commit):
         assignment = view.read(
             Ref.from_record(receipt.body["assignment_ref"]), "assignment"
         )
-        lineage = assignment.body["judgment_lineage"]
+        lineage = measurement_lineage(view, assignment)
+        if (receipt.body["judgment_lineage"] != lineage
+                or receipt.body["local_measure_ref"] != selected_measure_ref(view, assignment, "local_measure_ref")):
+            raise ValueError("unit receipt differs from its selected measurement function")
         assessments = parent_assessments(view, attempt, assignment)
         if list(receipt.body.get("assessment_refs", ())) != [
             item.ref.as_record() for item in assessments
@@ -126,10 +131,6 @@ def validate_commit(view, commit):
         known = credited_facts(view, assignment)
         baseline_keys = baseline_fact_keys(view, assignment)
         check_facts = operative_check_facts(view, assignment, assessments)
-        for key, observation in validated_control_facts(
-            view, assignment_ref=assignment.ref
-        ).items():
-            check_facts[key] = (*check_facts.get(key, ()), observation)
         for assessment in prerequisites:
             for key in assessment.body["fact_keys"]:
                 check_facts[key] = (*check_facts.get(key, ()), assessment)
@@ -164,7 +165,7 @@ def validate_commit(view, commit):
                 "observation",
                 "parent_assessment",
                 "prerequisite_assessment",
-                "measure_control_observation",
+                "research_finding",
             }:
                 if not any(
                     record.ref == fact.ref
@@ -188,10 +189,11 @@ def validate_commit(view, commit):
 
                 operative = view.entry("measure", fact.artifact_id.value)
                 if (
-                    operative.status != "admitted"
+                    operative.record.ref != fact.ref
+                    or operative.status != fact.body["status"]
                     or delta["key"] not in fact.body["fact_keys"]
                 ):
-                    raise ValueError("unadmitted instruments cannot earn progress")
+                    raise ValueError("instrument progress requires its assessed requirement evidence")
                 validate_admission(view, fact)
             else:
                 raise ValueError("patches, failures and narration do not earn credit")
@@ -202,7 +204,6 @@ def _validate_continuation(view, attempt, assignment, receipt):
     from .coordination import pending_decisions
     from .evaluation_admission import source_decision
     from .evaluation_plan import unavailable_request
-    from .measures import admission_decision
     from .measure_needs import unit_prerequisite
     from .measure_design import unit_review
 
@@ -231,7 +232,6 @@ def _validate_continuation(view, attempt, assignment, receipt):
     conflicts = pending_decisions(view, attempt.invocation_id.value)
     request = (
         source_decision(view, attempt)
-        or admission_decision(view, attempt)
         or unit_prerequisite(view, attempt)
         or unit_review(view, attempt)
         or unavailable_request(view, attempt)

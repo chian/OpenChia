@@ -16,7 +16,10 @@ from episode_runtime import (
 def start_run(host, *, continuing=False) -> dict[str, Any]:
     """Launch or continue through one existing Run lifecycle and finalizer."""
 
+    from agent.workflow_editing import require_no_editor
+
     with host._build_lock:
+        require_no_editor(host)
         if host._build_thread is not None and host._build_thread.is_alive():
             raise OpenChiaHostError(
                 "an Episode build must finish before an Episode Run"

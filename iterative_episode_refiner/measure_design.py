@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from agent.duet_contracts import canonical_json
 from function_library.epistemic_contract import exact, names
 from function_library.refinement_checks import resolve_predicate
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .records import Ref
 
@@ -29,6 +30,7 @@ DESIGN_FIELDS = {
     "observation_schema",
     "execution_binding",
     "limitations",
+    "program",
 }
 CASE_FIELDS = {
     "requirement_key",
@@ -37,6 +39,7 @@ CASE_FIELDS = {
     "observation_path",
     "positive_controls",
     "negative_controls",
+    "input",
 }
 
 
@@ -54,6 +57,11 @@ def validate_design(value):
     if value["predicate"]["interface"] != "refinement.predicate":
         raise ValueError("check design must select a registered observation predicate")
     resolve_predicate(value["predicate"])
+    program = value["program"]
+    if program is not None:
+        from episode_runtime.testing_harness.checker_programs import validate_program
+
+        validate_program(program)
     for field in ("input_domain", "observation_schema"):
         if not isinstance(value[field], Mapping) or not value[field]:
             raise ValueError(f"check design needs an explicit {field} record")
@@ -81,7 +89,12 @@ def validate_design(value):
         )
         from episode_runtime.testing_harness.observations import validate_observation_path
 
-        validate_observation_path(case["observation_path"])
+        if program is None:
+            validate_observation_path(case["observation_path"])
+            if case["input"] is not None:
+                raise ValueError("Run-observation predicates have no checking-program input")
+        elif case["observation_path"] != "/result":
+            raise ValueError("program-backed checks observe their executed /result")
         if value["predicate"]["function_id"] == "record_conditions_v1":
             from function_library.record_conditions import validate_condition
 
@@ -91,9 +104,14 @@ def validate_design(value):
             if not isinstance(case[field], (list, tuple)) or not case[field]:
                 raise ValueError("check design needs both control polarities")
             for control in case[field]:
-                exact(control, {"observed", "rationale"}, "proposed check control")
+                input_key = "observed" if program is None else "fixture"
+                exact(control, {input_key, "rationale"}, "proposed check control")
+                if program is not None:
+                    from episode_runtime.testing_harness.checker_programs import validate_fixture
+
+                    validate_fixture(control["fixture"])
                 names((control["rationale"],), "control rationale", nonempty=True)
-                key = canonical_json(control["observed"])
+                key = canonical_json(control[input_key])
                 if key in seen:
                     raise ValueError(
                         "check controls cannot repeat or contradict each other"
@@ -167,7 +185,7 @@ def propose(view, attempt):
         exact(payload, {"check_design"}, "check design proposal")
         design = payload["check_design"]
         validate_design(design)
-        if assignment.body["role"] != "measure":
+        if ROLE_SPECIALIZATION[assignment.body["role"]] != "measure":
             raise ValueError(
                 "only the assigned Measure Episode may design its requested check"
             )
@@ -180,11 +198,9 @@ def propose(view, attempt):
         goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
         need = goal["measure_request"]
         keys = {case["requirement_key"] for case in design["cases"]}
-        if design["purpose"] != need["purpose"] or keys != set(
-            need["requirement_keys"]
-        ):
+        if design["purpose"] != need["purpose"] or not keys <= set(need["requirement_keys"]):
             raise ValueError(
-                "check design must preserve exactly the parent's requested judgment"
+                "check design must address requirements within the parent's requested judgment"
             )
         catalog = view.data(
             Ref.from_record(view.contract.body["requirement_catalog_ref"])
@@ -298,6 +314,7 @@ def context(view, assignment, frozen):
     from function_library.models import _thaw_json
     from episode_runtime.testing_harness.observations import observation_catalog
     from .report_contract import requirement_address, requirement_catalog
+    from .measure_components import completed_components
 
     grant = frozen.get("measure_admission")
     if not policy(grant):
@@ -316,20 +333,56 @@ def context(view, assignment, frozen):
             **{key: value for key, value in case.items() if key != "requirement_key"},
             "requirement": requirement_address(catalog[case["requirement_key"]]),
         } for case in design["cases"]]
+    binding_purpose = design["purpose"] if design is not None else None
+    if binding_purpose is None and ROLE_SPECIALIZATION[assignment.body["role"]] == "measure":
+        goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
+        binding_purpose = goal["measure_request"]["purpose"]
+    catalog = requirement_catalog(view)
+    completed = completed_components(view, assignment) if ROLE_SPECIALIZATION[assignment.body["role"]] == "measure" else {}
     return {
         "check_design": {
             "current_design": design,
+            "completed_requirements": [requirement_address(catalog[key]) for key in completed],
+            "component_work": (
+                "Design a focused requirement or coupled set. Completed components are retained "
+                "with their exact code and controls. Each new design has its own review; the "
+                "owning Measure publishes one composite when the commission is ready. "
+                "compose_components=true assembles adequate returned components; Measure Parts "
+                "returns scoped component evidence for its parent to assemble."
+            ),
             "review_assigned": selected is not None,
             "review_criteria": list(REVIEW_CRITERIA),
             "available_predicates": [
                 function.as_record() for function in refinement_check_library.functions()
             ],
             "available_observations": observation_catalog(),
+            "checking_program": {
+                "entrypoint": "module:function accepting {source_root, materialization, input}; returns JSON observed at /result",
+                "execution": "The selected isolated Run backend executes the exact reviewed code against read-only inputs.",
+                "controls": "Complete positive/negative fixtures {files, materialization, input}; the harness executes the program to obtain observations.",
+                "candidate": "Current scoped source and plan are available even before full workflow admission.",
+                "source": (
+                    "Measure receives source_files; its reviewer receives the same scoped "
+                    "candidate files in checking_target_sources. Compare those implementations "
+                    "with the control fixtures when assessing shared behavior and differences. "
+                    "Derive expected outcomes from the original requirements and independent evidence."
+                ),
+                "materialization": (
+                    "checking_target_materialization is the exact candidate-plan value "
+                    "passed to the program as materialization. Use its actual fields when "
+                    "designing or reviewing observations. Control fixtures are synthetic "
+                    "inputs, not a definition of the host schema; additional authority or "
+                    "lifecycle claims need their own supported observations."
+                ),
+                "environment": "Declare checker dependencies in program.files['.openchia-environment.json'] using the supplied environment recipe schema. The shared service prepares this instrument independently of the candidate or fixture recipe; absent a recipe, only standard and frozen runtime libraries are available.",
+            },
             "execution_bindings": [
                 item for item in frozen["evaluation_bindings"]
-                if item["purpose"] in {"local", "acceptance", "composition", "adequacy"}
+                if item["purpose"] == binding_purpose
             ],
             "authority": (
+                "The listed execution choices match the requested judgment purpose; "
+                "admission and evaluation retain that purpose. "
                 "Propose a requirement-grounded instrument and its controls. A separately assigned "
                 "Question reviews it; executable controls establish its measured adequacy. "
                 "Use the contracted child return to revise the current design or submit it with "

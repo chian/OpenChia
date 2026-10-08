@@ -35,6 +35,8 @@ _INDEX_COLLECTIONS = (
     "check_state",
     "evaluation",
     "observation",
+    "research_source",
+    "research_finding",
     "lesson",
     "conflict",
     "coordination",

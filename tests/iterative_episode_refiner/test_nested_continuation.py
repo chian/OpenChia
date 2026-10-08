@@ -144,6 +144,7 @@ class SuppliedDecisions:
                     for key in (
                         "owned_slice_keys",
                         "writable_paths",
+                        "materialization_targets",
                         "local_measure_ref",
                         "acceptance_measure_ref",
                     )
@@ -165,6 +166,8 @@ class SuppliedDecisions:
                     for key in assignment["contribution_requirement_keys"]
                 },
                 "intended_change_scope": assignment["writable_paths"],
+                "implementation_role": "implementer",
+                "intended_materialization_targets": [],
                 "assumption_refs": [],
                 "proposed_component_refs": [],
                 "dependency_effects": {},
@@ -187,7 +190,7 @@ class SuppliedDecisions:
                     + source,
                 }
             ],
-            "implementation_detail_operations": [],
+            "findings": [],
         }
 
 

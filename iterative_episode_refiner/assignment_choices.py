@@ -96,11 +96,15 @@ def conflict_choice(session, view, assignment, choice):
         return None
     exact(choice, {"kind", "requirements"}, "coordination conflict")
     requirements = requirement_keys(session, assignment, choice["requirements"])
+    owners = {
+        row.key for row in view.entries("invocation")
+        if row.record.ref == assignment.ref
+    }
     matches = [row.record for row in view.entries("conflict")
                if row.status == "decision_required"
                and row.record.body["kind"] == choice["kind"]
                and set(row.record.body["requirement_keys"]) == set(requirements)
-               and row.record.body["scope_owner_invocation_id"] == assignment.body["owning_parts_invocation_id"]]
+               and row.record.body["scope_owner_invocation_id"] in owners]
     if len(matches) != 1:
         raise ValueError("coordination choice must identify one owned conflict by kind and requirement scope")
     return matches[0].ref.as_record()

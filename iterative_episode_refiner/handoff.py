@@ -23,10 +23,14 @@ def _baseline(view, root_report):
     )
     if (
         assignment.body["parent_assignment_ref"] is not None
-        or assignment.body["role"] != "parts"
+        or assignment.body["role"] != "designer"
     ):
-        raise ValueError("Duet review requires the root Parts report")
+        raise ValueError("Duet review requires the root Designer report")
     goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
+    if goal["baseline"] is None:
+        # Fresh construction has no prior materialized workspace to annotate.
+        # Its review remains anchored by campaign, authority and candidate.
+        return None
     baseline = RefinementBaseline.from_record(goal["baseline"])
     if (
         baseline.duet_id.value != view.head["duet_id"]
@@ -35,17 +39,14 @@ def _baseline(view, root_report):
     ):
         raise ValueError("review baseline differs from the campaign's target authority")
     target_workflow = view.data(Ref.from_record(view.contract.body["target_workflow_ref"]))
-    receipt = view.data(
-        Ref.from_record(view.contract.body["initial_build_receipt_ref"])
-    )
+    inputs = view.data(Ref.from_record(view.contract.body["initial_build_inputs_ref"]))
     materialization = view.data(
         Ref.from_record(view.contract.body["initial_materialization_ref"])
     )
     if (
         target_workflow["artifact_id"] != baseline.frozen_workflow_artifact_id.value
         or target_workflow["workflow_hash"] != baseline.workflow_hash.value
-        or receipt["receipt_id"] != baseline.build_receipt_id.value
-        or receipt["content_hash"] != baseline.build_receipt_hash.value
+        or inputs["receipt_id"] != baseline.build_receipt_id.value
         or materialization["specification_id"]
         != baseline.materialized_specification_id.value
         or materialization["content_hash"]
@@ -87,7 +88,7 @@ def attach_review(session, result):
             view.campaign_id,
             {
                 "campaign_ref": view.contract.ref.as_record(),
-                "baseline_ref": Ref(
+                "baseline_ref": None if baseline is None else Ref(
                     baseline.baseline_id, baseline.content_hash
                 ).as_record(),
                 "target_approval_ref": view.contract.body["target_approval_ref"],

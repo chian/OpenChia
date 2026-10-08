@@ -1,7 +1,8 @@
-"""The seven roles of one nested IterativeEpisodeRefiner.
+"""The specialist roles of one nested IterativeEpisodeRefiner.
 
-All roles share one host operation path and one evaluation path. Parts owns
-decomposition; Designer owns implementation and independent part acceptance.
+All roles share one host operation path and one evaluation path. Designer owns
+the general approach. Four peer specialists own materialization, source,
+measurement and verification; each has a task-specific recursive Parts binding.
 The host connects these entries to normal build finalization through the shared
 experiment service; importing the library alone starts no work.
 
@@ -11,8 +12,9 @@ RESULT_CHANNEL_IDS as declared_channel_ids. BUILD_RESULT and RECEIVE_CHILD bind
 RESULT_PAYLOAD and the exact applicable node/edge result channel IDs. Only the
 launch module exports the root goal builders; its scope_goal_state returns a
 fresh MappingProxyType({"goal": goal.objective}), as the library child caller does.
-The launch and Parts entries share the same Parts source/controller. Their
-different request admission functions must never be interchanged.
+The launch entry runs Designer with Duet request admission. Every specialist,
+Parts and helper entry uses parent request admission. Question and Support are
+read-only leaves with no child slots; their own loops acquire and assess evidence.
 """
 
 from function_library.episode_calls import BUILD_REPEATABLE_CHILD
@@ -140,11 +142,10 @@ def _design(name, *, launch=False):
     )
 
 
-# The launch binding is not an eighth role or an extra unit. Both Parts entries
-# execute the same loop; only their incoming address/contract differs. Recursive
-# calls target the parent-request entry, never the empty Duet launch boundary.
-LAUNCH_DESIGN = _design("parts", launch=True)
-ROLE_DESIGNS = tuple(_design(name) for name in ROLES)
+# Designer owns the root. Task-specific Parts recurse through their parent-request
+# entries. Question and Support are leaves available to all non-helper roles.
+LAUNCH_DESIGN = _design("designer", launch=True)
+ROLE_DESIGNS = tuple(_design(name) for name in ROLES if name != "designer")
 DESIGNS = (LAUNCH_DESIGN, *ROLE_DESIGNS)
 
 

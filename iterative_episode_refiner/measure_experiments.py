@@ -7,6 +7,7 @@ from episode_runtime.testing_harness.contracts import ExperimentSpec
 from episode_runtime.testing_harness.control_subjects import control_subject
 from function_library.epistemic_contract import exact
 from function_library.models import _thaw_json
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .measure_controls import control_key, prepare_control
 from .records import Ref
@@ -109,7 +110,7 @@ def validate(evaluations, session, call, proposal):
             "measure_proposal", subject["binding"]["proposal_ref"]["artifact_id"]
         ).record
         if (
-            call.assignment.body["role"] != "measure"
+            ROLE_SPECIALIZATION[call.assignment.body["role"]] != "measure"
             or record.body["assignment_ref"] != call.assignment.ref.as_record()
         ):
             raise ValueError("only the assigned measure child may choose this control")
@@ -183,7 +184,9 @@ def receive(evaluations, session, call, spec, subject, result):
                     session, call, binding, registration, evidence
                 )
             observed = True
-            jobs = evaluations._measure_jobs(
+            # Each executed control updates requirement-level readiness. The
+            # assessment pins this evidence; later controls cannot rewrite it.
+            evaluations._admit_measure(
                 session,
                 call,
                 {
@@ -192,29 +195,6 @@ def receive(evaluations, session, call, spec, subject, result):
                     "proposal_ref": job[0].as_record(),
                 },
             )
-            with session.view() as view:
-                done = all(
-                    any(
-                        entry.key == control_key(*item)
-                        and entry.status in {"observed", "unavailable"}
-                        for entry in view.entries("measure_control")
-                    )
-                    for item in jobs
-                )
-                admitted = any(
-                    entry.record.body["proposal_ref"] == job[0].as_record()
-                    for entry in view.entries("measure")
-                )
-            if done and not admitted:
-                evaluations._admit_measure(
-                    session,
-                    call,
-                    {
-                        "unit_id": call.unit_id.value,
-                        "purpose": "adequacy",
-                        "proposal_ref": job[0].as_record(),
-                    },
-                )
     call.feedback_ref = session.put_data(
         "experiment_result",
         {

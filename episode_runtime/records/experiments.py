@@ -13,6 +13,8 @@ from agent.duet_contracts import canonical_json, content_id, digest_record
 
 # These keys preserve the existing identities; consolidation needs no migration.
 RECORDS = {
+    "construction_start": ("build_request_id",),
+    "build_execution_result": ("build_request_id", "owner_event_sequence"),
     "environment_resolution": ("owner_duet_id", "recipe_hash", "runtime_hash"),
     "build_job": ("build_request_id",),
     "build_job_result": ("build_receipt_id",),
@@ -41,6 +43,7 @@ RECORDS = {
 # Opaque ID kinds are limited to 32 characters. Keep established identities;
 # only the new per-attempt report names need shorter ID namespaces.
 _ID_KINDS = {
+    "build_execution_result": "build_execution_result",
     "environment_resolution": "workflow_env_resolution",
     "build_job_result_attempt": "experiment_build_result_attempt",
     "refinement_result_attempt": "experiment_refiner_attempt",

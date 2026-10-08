@@ -44,7 +44,7 @@ def experiment_target(evaluations, session, call, request, receipt, checks):
         "requirements": [
             {
                 "requirement_ref": check.ref.as_record(),
-                "measure_ref": _thaw_json(check.body["measure_ref"]),
+                "measure_ref": _thaw_json(request.body["measure_ref"]),
                 "requirement_key": check.body["requirement_key"],
                 "criterion_expected": _thaw_json(check.body["expected"]),
                 "observation_path": check.body["observation_path"],
@@ -365,6 +365,8 @@ def _receive(evaluations, session, call, spec, assigned, result):
 
 def feedback(session, reference):
     """Read the shared result by reference, without copying it into campaign state."""
+    from .coding_proposals import proposal_text
+
     row = read_reference(
         session.store.evidence.duets, reference.as_record(), session.duet_id
     )
@@ -381,7 +383,7 @@ def feedback(session, reference):
         return {
             **value,
             "rejected_proposal": {
-                "raw_response": payload["response_text"],
+                "raw_response": proposal_text(session, proposal["record"]["event"]),
                 "producer_call_id": payload["producer_call_id"],
                 "admitted": False,
             },

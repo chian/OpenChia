@@ -2,6 +2,7 @@
 
 from agent.duet_contracts import canonical_json
 from function_library.epistemic_contract import exact
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .checking import checker_definition
 from .evaluation_inputs import native_launch
@@ -159,7 +160,7 @@ def bind_run(view, attempt, resolved):
             check = view.read(Ref.from_record(requirement["requirement_ref"]), "check")
             if (
                 check.artifact_id.value not in request.body["check_keys"]
-                or check.body["measure_ref"] != requirement["measure_ref"]
+                or request.body["measure_ref"] != requirement["measure_ref"]
             ):
                 raise ValueError(
                     "experiment changes the requested checks or parent measures"
@@ -168,9 +169,10 @@ def bind_run(view, attempt, resolved):
 
 
 def source_decision(view, attempt):
-    """Return unavailable execution to its owner; static work can still resolve."""
+    """Return unavailable evidence to its owner while retaining static verdicts."""
     assignment = view.entry("invocation", attempt.invocation_id.value).record
-    if assignment.body["role"] not in {"verify", "measure", "support", "question"}:
+    family = ROLE_SPECIALIZATION[assignment.body["role"]]
+    if family not in {"verify", "measure", "support", "question"}:
         return None
     for row in reversed(view.entries("evaluation_source")):
         if (
@@ -187,4 +189,24 @@ def source_decision(view, attempt):
             for key in request.body["check_keys"]
         ):
             return row.record
+        if family == "verify":
+            # A missing module/plan requires repair by the owner, not repeated
+            # verification of identical bytes. Only this request's blocked,
+            # mandatory contribution checks require that handoff; unrelated
+            # unfinished nodes must not prevent a resolved static judgment.
+            for observation in view.entries("observation"):
+                record = observation.record
+                if (
+                    record.body["request_ref"] != request.ref.as_record()
+                    or record.body["outcome"] != "blocked"
+                ):
+                    continue
+                check = view.entry("check", record.body["check_key"]).record
+                if (
+                    check.body["evidence_kind"] == "materialization"
+                    and check.body["mandatory"]
+                    and check.body["requirement_key"]
+                    in assignment.body["contribution_requirement_keys"]
+                ):
+                    return row.record
     return None

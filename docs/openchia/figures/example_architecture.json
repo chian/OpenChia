@@ -1,0 +1,1940 @@
+{
+  "episodes": [
+    {
+      "local_id": "launch",
+      "workflow_parent_local_id": null,
+      "contract": {
+        "goal": "Choose and revise the general approach until the approved Target Workflow satisfies its requirements.",
+        "unit": "Choose a specialist contribution from current evidence and assess its result against the whole.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New independently measured whole-workflow evidence or admitted design knowledge.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_6082a023f751e49c04ecaeca8718a352ed2c24c701dc9fbbc86327a6c0171287"
+      }
+    },
+    {
+      "local_id": "materialization_implementer",
+      "workflow_parent_local_id": "launch",
+      "contract": {
+        "goal": "Realize the Designer's approach in the assigned Materialization Spec.",
+        "unit": "Propose a scoped materialization revision and measure the exact resulting candidate.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New measured implementation improvement with required regression guards.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_bedfd8718deffbe53163d62ca39c667cfa9ad51257f232ad6782da26ba110aae"
+      }
+    },
+    {
+      "local_id": "implementer",
+      "workflow_parent_local_id": "launch",
+      "contract": {
+        "goal": "Make scoped candidate changes that satisfy the parent's fixed implementation measure.",
+        "unit": "Propose one scoped change and measure the resulting exact candidate.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New measured implementation improvement with required regression guards.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_b8d2d66860901fb178ff1a5ea9ff9ca91e4bea20a3ff383bdc22b26c614ee870"
+      }
+    },
+    {
+      "local_id": "measure",
+      "workflow_parent_local_id": "launch",
+      "contract": {
+        "goal": "Deliver a reusable composite measuring function for the caller's requested requirements.",
+        "unit": "Propose an instrument and examine whether it rejects specified incorrect or trivial outcomes.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New requirements whose checking cases have all demonstrated adequacy.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_04457acb64ca1aa63091ca9fff9283ad4922e7e2b166fa13d2654e774b2371e4"
+      }
+    },
+    {
+      "local_id": "verify",
+      "workflow_parent_local_id": "launch",
+      "contract": {
+        "goal": "Independently determine whether the exact candidate satisfies the parent's requirements.",
+        "unit": "Execute the assigned acceptance checks and return evidence, counterexamples and limitations.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New operative verification evidence; a favorable verdict is not inherently rewarded.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_c3bb502f1ecb7f00c8d8cef53943a4969f3ebc8b43bad9e14a9ce4048afc473f"
+      }
+    },
+    {
+      "local_id": "materialization_parts",
+      "workflow_parent_local_id": "materialization_implementer",
+      "contract": {
+        "goal": "Realize the assigned interface, state, binding or coupled specification contribution.",
+        "unit": "Perform or delegate a smaller plan revision and evaluate its measured contribution.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New measured satisfaction of assigned materialization requirements with preservation retained.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_f1283e83902ceeaad1d00896d2edc52450c474b6235c0876fb508085bd426985"
+      }
+    },
+    {
+      "local_id": "code_parts",
+      "workflow_parent_local_id": "implementer",
+      "contract": {
+        "goal": "Implement the assigned behavioral contribution within the enclosing code approach.",
+        "unit": "Perform or delegate a smaller source change and measure the resulting exact candidate.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New improvement under the assigned local checks with preservation requirements retained.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_94143010722eeb385bfd91f659d7dd3a30b76de3f66e1ed2d8bd75104247ecd6"
+      }
+    },
+    {
+      "local_id": "measure_parts",
+      "workflow_parent_local_id": "measure",
+      "contract": {
+        "goal": "Author adequate checking components for the assigned requirements within Measure's commission.",
+        "unit": "Author or delegate a scoped checking component, review it and execute its adequacy controls.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New assigned requirement components demonstrating adequacy under Measure's fixed rule.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_48f8a8a8dd6c585d189e54f6f15d2b165139f97b77b7eb2755b60f7a487e9a88"
+      }
+    },
+    {
+      "local_id": "verification_parts",
+      "workflow_parent_local_id": "verify",
+      "contract": {
+        "goal": "Establish independent determinations for the assigned requirement scope.",
+        "unit": "Execute or delegate a narrower fixed check and assess the resulting exact-candidate evidence.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New valid scoped determinations, including failures; favorable results are not privileged.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_489539177b92f6337e6c02a9afce708b3c61fcc965691cad232a7a5a74c34b03"
+      }
+    },
+    {
+      "local_id": "question",
+      "workflow_parent_local_id": "launch",
+      "contract": {
+        "goal": "Resolve an uncertainty that changes the caller's next decision.",
+        "unit": "Search or read discriminating evidence and synthesize an answer to the assigned question.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "A supported decision-relevant distinction, including a supported negative answer.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_61a17139b68e0f1f5ee137f42e952eb4a02651ebdf3dd6f8581d77c692e15b84"
+      }
+    },
+    {
+      "local_id": "support",
+      "workflow_parent_local_id": "launch",
+      "contract": {
+        "goal": "Fill the caller's named guidance gap using applicable source-linked library material.",
+        "unit": "Search or read applicable guidance, assess its relevance and synthesize the requested findings.",
+        "result": "A correlated host-derived report of exact candidate evidence and unresolved requirements.",
+        "progress": "New admitted coverage of the guidance gap, not retrieved volume.",
+        "stopping": "The host's registered yield rule returns; external stops and parent decisions stay distinct.",
+        "numeric_control": {
+          "rarefaction": {
+            "library": "rarefaction",
+            "function_id": "paired_incidence",
+            "interface": "rarefaction.numeric_incidence",
+            "definition_id": "function_b06a3d079c6b637b27409f5b76d93edbad3d3121d7ead751629d616455ab5ab5",
+            "arguments": {
+              "uncertainty_alpha": 0.05
+            }
+          },
+          "continuation": {
+            "library": "continuation_rules",
+            "function_id": "predicted_credit_upper_bound",
+            "interface": "continuation.numeric_credit_band",
+            "definition_id": "function_539cc360b547fb455c40babec99a3413818450377088d8610a766c8e95228d23",
+            "arguments": {
+              "max_predicted_marginal_hypervolume": 0.01
+            }
+          }
+        },
+        "execution_capability_names": [],
+        "egress_allowlist": [],
+        "deliverable": {
+          "kind": "typed_status",
+          "description": "The containing Episode needs only the host-typed terminal update.",
+          "tool_names": []
+        }
+      },
+      "episode_reference": {
+        "episode_id": "episode_526addbce3c596e866ab4d925fcb3b42f5fc5ab1a83ed1e3a1397b227aa2804a"
+      }
+    }
+  ],
+  "repeatable_calls": {
+    "version": 1,
+    "bindings": [
+      {
+        "caller_local_id": "materialization_implementer",
+        "slot_name": "question",
+        "callee_template_local_id": "question",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "materialization_implementer",
+        "slot_name": "support",
+        "callee_template_local_id": "support",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "implementer",
+        "slot_name": "question",
+        "callee_template_local_id": "question",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "implementer",
+        "slot_name": "support",
+        "callee_template_local_id": "support",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "measure",
+        "slot_name": "question",
+        "callee_template_local_id": "question",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "measure",
+        "slot_name": "support",
+        "callee_template_local_id": "support",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "verify",
+        "slot_name": "question",
+        "callee_template_local_id": "question",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "verify",
+        "slot_name": "support",
+        "callee_template_local_id": "support",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "materialization_parts",
+        "slot_name": "materialization_parts",
+        "callee_template_local_id": "materialization_parts",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "materialization_parts",
+        "slot_name": "question",
+        "callee_template_local_id": "question",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "materialization_parts",
+        "slot_name": "support",
+        "callee_template_local_id": "support",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "code_parts",
+        "slot_name": "code_parts",
+        "callee_template_local_id": "code_parts",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "code_parts",
+        "slot_name": "question",
+        "callee_template_local_id": "question",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "code_parts",
+        "slot_name": "support",
+        "callee_template_local_id": "support",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "measure_parts",
+        "slot_name": "measure_parts",
+        "callee_template_local_id": "measure_parts",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "measure_parts",
+        "slot_name": "question",
+        "callee_template_local_id": "question",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "measure_parts",
+        "slot_name": "support",
+        "callee_template_local_id": "support",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "verification_parts",
+        "slot_name": "verification_parts",
+        "callee_template_local_id": "verification_parts",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "verification_parts",
+        "slot_name": "question",
+        "callee_template_local_id": "question",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      },
+      {
+        "caller_local_id": "verification_parts",
+        "slot_name": "support",
+        "callee_template_local_id": "support",
+        "prepare_request": {
+          "library": "refinement",
+          "function_id": "prepare_child_request",
+          "interface": "handoff.parent_request_projection",
+          "definition_id": "function_61ff7557995e0ebf77336be858f23fdc0925bdd5c354c2a27d99a12f823c6bf2",
+          "arguments": {}
+        },
+        "receive_result": {
+          "library": "refinement",
+          "function_id": "receive_child_result",
+          "interface": "handoff.child_result_projection",
+          "definition_id": "function_ca2b99132a6fc44f6ad520f28959bd87e0d95f28313eb4b169c4e849875122d6",
+          "arguments": {
+            "payload_contract": {
+              "artifact_roles": [
+                "report"
+              ],
+              "flag_names": [],
+              "measurement_names": [],
+              "required_artifact_roles": [
+                "report"
+              ],
+              "required_flag_names": [],
+              "required_measurement_names": [],
+              "required_state_names": [
+                "disposition"
+              ],
+              "state_values": {
+                "disposition": [
+                  "attained",
+                  "yield_exhausted_unresolved",
+                  "needs_parent_decision",
+                  "blocked",
+                  "interrupted",
+                  "cancelled",
+                  "invalid"
+                ]
+              }
+            }
+          }
+        },
+        "synthesize_report": {
+          "library": "refinement",
+          "function_id": "synthesize_child_report",
+          "interface": "episode.report_synthesis",
+          "definition_id": "function_11740cfeabeeed33b5a9966e5fcdbdd90cc8ab5935a6ec2d5c619a7503a32c5a",
+          "arguments": {}
+        },
+        "request_schema": {
+          "library": "refinement",
+          "function_id": "validate_child_request",
+          "interface": "refinement.call_schema",
+          "definition_id": "function_55035e3feb4f67197a1362dbb32a5772b9a774f6dbc21192244cf3594c9a3a10",
+          "arguments": {}
+        },
+        "invocation_admission": {
+          "library": "refinement",
+          "function_id": "admit_child_invocation",
+          "interface": "refinement.call_admission",
+          "definition_id": "function_e9ae2b7537b0894ea548d35d3cb10078b27917cdc9e9bce04d392296754117ae",
+          "arguments": {}
+        },
+        "authority_attenuation": {
+          "library": "refinement",
+          "function_id": "attenuate_child_authority",
+          "interface": "refinement.call_authority",
+          "definition_id": "function_02b9cd9de7d98c645544c96a241032ca6e7f21e1e8a9d61ba5980c91af6575b7",
+          "arguments": {}
+        }
+      }
+    ]
+  }
+}

@@ -5,37 +5,22 @@ Run, changes an active criterion, or creates another persistence/replay path.
 """
 
 from agent.duet_contracts import canonical_json
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .evaluation_inputs import instrument_context
 from .measures import (
     admitted_measures,
-    authorized_check_refs,
     bindings_for_check,
     evaluation_bindings,
+    measurement_lineage,
+    selected_checks,
+    selected_measure_ref,
 )
 from .records import Ref
 
 
-def predecessors(view, assignment):
-    pending = list(assignment.body["supersedes_assignment_refs"])
-    result = {}
-    while pending:
-        prior = view.read(Ref.from_record(pending.pop()), "assignment")
-        if prior.ref in result:
-            continue
-        result[prior.ref] = prior
-        pending.extend(prior.body["supersedes_assignment_refs"])
-    return tuple(result.values())
-
-
 def _checks(view, policy, assignment, measure):
-    return tuple(
-        check
-        for ref in authorized_check_refs(view, policy, assignment)
-        for check in (view.read(ref, "check"),)
-        if check.body["measure_ref"] == measure
-        and check.body["requirement_key"] in assignment.body["scope_requirement_keys"]
-    )
+    return selected_checks(view, policy, assignment, measure)
 
 
 def _criterion(check):
@@ -58,18 +43,18 @@ def _criterion(check):
     })
 
 
-def _instruments(view, policy, assignment, check):
+def _instruments(view, policy, assignment, check, measure):
     if check.body["evidence_kind"] == "materialization":
         return frozenset()
     return frozenset(
         canonical_json(instrument_context(view, binding))
         for binding in bindings_for_check(
-            evaluation_bindings(view, policy, assignment), check
+            evaluation_bindings(view, policy, assignment), check, measure_ref=measure
         )
     )
 
 
-def _preserved_instruments(view, policy, assignment, check):
+def _preserved_instruments(view, policy, assignment, check, measure):
     """A returned, admitted checker may replace its exact construction baseline.
 
     This is successor-assignment authority, not equivalence for progress credit.
@@ -77,9 +62,12 @@ def _preserved_instruments(view, policy, assignment, check):
     """
     from .instrument_return import admitted_return
 
-    preserved = set(_instruments(view, policy, assignment, check))
-    for admission in admitted_measures(view, assignment):
-        if admission.body["measure_ref"] != check.body["measure_ref"]:
+    preserved = set(_instruments(view, policy, assignment, check, measure))
+    for entry in view.entries("measure"):
+        admission = entry.record
+        if (entry.status not in {"partial", "admitted"}
+                or admission.body["measure_ref"] != check.body["measure_ref"]
+                or check.ref.as_record() not in admission.body["check_refs"]):
             continue
         proposal = view.read(
             Ref.from_record(admission.body["proposal_ref"]), "measure_proposal"
@@ -92,7 +80,7 @@ def _preserved_instruments(view, policy, assignment, check):
             for original, revised in constructed[1].items()
         }
         for binding in bindings_for_check(
-            evaluation_bindings(view, policy, assignment), check
+            evaluation_bindings(view, policy, assignment), check, measure_ref=measure
         ):
             original = original_by_revision.get(Ref.from_record(binding["harness_ref"]))
             if original is not None:
@@ -107,21 +95,39 @@ def _preserved_instruments(view, policy, assignment, check):
 
 
 def _preserve_measure(view, policy, prior, successor, field):
-    if prior.body[field] == successor.body[field]:
+    before_ref = selected_measure_ref(view, prior, field)
+    if before_ref == successor.body[field]:
         return
-    before = _checks(view, policy, prior, prior.body[field])
+    before = _checks(view, policy, prior, before_ref)
     after = _checks(view, policy, successor, successor.body[field])
+    # The parent's explicitly commissioned Measure may correct a faulty check.
+    # Its immutable basis identifies exactly which requirements it revised;
+    # unrelated obligations retain their checks and instruments.
+    revised = set()
+    for admission in admitted_measures(view, successor):
+        if (admission.body["measure_ref"] != successor.body[field]
+                or admission.body["owner_assignment_ref"] != successor.body["parent_assignment_ref"]):
+            continue
+        proposal = view.read(Ref.from_record(admission.body["proposal_ref"]), "measure_proposal")
+        basis = view.data(Ref.from_record(proposal.body["basis_ref"]))
+        if basis["measure_ref"] == before_ref:
+            revised.update(row["requirement_key"] for row in admission.body["requirement_results"])
     for check in before:
         if not check.body["mandatory"]:
             continue
+        if check.body["requirement_key"] in revised and any(
+            item.body["mandatory"] and item.body["requirement_key"] == check.body["requirement_key"]
+            and item.body["purpose"] == check.body["purpose"] for item in after
+        ):
+            continue
         matches = [item for item in after if _criterion(item) == _criterion(check)]
-        instruments = _instruments(view, policy, prior, check)
+        instruments = _instruments(view, policy, prior, check, before_ref)
         if not any(
-            instruments <= _preserved_instruments(view, policy, successor, item)
+            instruments <= _preserved_instruments(view, policy, successor, item, successor.body[field])
             for item in matches
         ):
             raise ValueError(
-                "successor measure removes or changes an established mandatory check, guard, or instrument"
+                "successor measure changes an obligation outside its parent's explicit Measure revision"
             )
 
 
@@ -148,7 +154,7 @@ def validate_replacements(view, attempt, parent, successor, policy):
         ):
             continue
         if prior.ref not in refs and any(
-            prior.body[field] != successor.body[field]
+            selected_measure_ref(view, prior, field) != successor.body[field]
             for field in ("local_measure_ref", "acceptance_measure_ref")
         ):
             raise ValueError(
@@ -162,8 +168,8 @@ def validate_replacements(view, attempt, parent, successor, policy):
             prior.record.ref != ref
             or prior.status == "superseded"
             or prior.record.body["parent_assignment_ref"] != parent.ref.as_record()
-            or prior.record.body["owning_parts_invocation_id"]
-            != successor.body["owning_parts_invocation_id"]
+            or prior.record.body["coordinating_invocation_id"]
+            != successor.body["coordinating_invocation_id"]
         ):
             raise ValueError(
                 "replacement must name this parent's current direct assignment"
@@ -209,56 +215,45 @@ def require_measures(view, policy, assignment):
 
     adequacy = policy.get("measure_admission", {}).get("adequacy_measure_ref")
     if (
-        assignment.body["role"] == "measure"
+        ROLE_SPECIALIZATION[assignment.body["role"]] == "measure"
         and adequacy is not None
         and assignment.body["local_measure_ref"] != adequacy
     ):
         raise ValueError(
-            "EstablishMeasure must use measure_admission_policy.adequacy_measure_ref "
+            "Measure and Measure Parts must use measure_admission_policy.adequacy_measure_ref "
             "as its local_measure_ref; the Target Workflow's implementation measure "
             "cannot judge check design. Correct the child assignment before calling it."
         )
     review = assigned_definition(view, assignment)
-    checks = tuple(
-        view.read(ref, "check")
-        for ref in authorized_check_refs(view, policy, assignment)
-    )
     for field in ("local_measure_ref", "acceptance_measure_ref"):
         measure = assignment.body[field]
         view.data(Ref.from_record(measure))
+        if assignment.body["role"] in {"question", "support"}:
+            parent = view.read(Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment")
+            if measure != selected_measure_ref(view, parent, field):
+                raise ValueError("research leaves retain their parent's measurement authority")
+            # Their own progress is scoped evidence-backed research coverage.
+            # A missing executable target check is often why they were called.
+            continue
         if (
-            (assignment.body["role"] == "measure" or review is not None)
+            (ROLE_SPECIALIZATION[assignment.body["role"]] == "measure" or review is not None)
             and field == "local_measure_ref"
             and measure == adequacy
         ):
             continue
-        if not any(check.body["measure_ref"] == measure for check in checks):
+        if not selected_checks(view, policy, assignment, measure):
             raise ValueError(
                 "assignment measure has no authorized checks in its inherited catalog"
             )
 
 
 def judgment_history(view, assignment):
-    """Map equivalent predecessor facts into this frozen judgment's key space."""
-    from .measurement import check_fact
+    """Reuse same-function history; an explicitly revised function is rebaselined.
 
-    policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
-    current = _checks(view, policy, assignment, assignment.body["local_measure_ref"])
-    signatures = {}
-    for check in current:
-        signature = (_criterion(check), _instruments(view, policy, assignment, check))
-        signatures[signature] = check_fact(view, check)
-    lineages = {assignment.body["judgment_lineage"]: {}}
-    for prior in predecessors(view, assignment):
-        if prior.body["role"] != assignment.body["role"]:
-            continue  # A different role's score is not this role's history.
-        lineage = prior.body["judgment_lineage"]
-        mapping = lineages.setdefault(lineage, {})
-        for check in _checks(view, policy, prior, prior.body["local_measure_ref"]):
-            signature = (_criterion(check), _instruments(view, policy, prior, check))
-            if signature in signatures:
-                mapping[check_fact(view, check)] = signatures[signature]
-    return lineages
+    Historical receipts remain available for inspection. Their old numerical
+    observations cannot be reinterpreted as samples from a different measure.
+    """
+    return {measurement_lineage(view, assignment): {}}
 
 
 def credited_facts(view, assignment):

@@ -9,7 +9,7 @@ from .records import Ref
 
 
 def propose_design(session, call, proposal, producer):
-    from .runtime_proposals import _inherited_draft, assign_child
+    from .runtime_proposals import assign_child
     from function_library.refinement_contract import check_review_return_contract
     from .assignment_choices import requirement_keys
 
@@ -33,21 +33,23 @@ def propose_design(session, call, proposal, producer):
             and row.record.logical_unit_id == call.unit_id
         ]
     definition = definitions[-1]
-    draft = _inherited_draft(
-        session,
-        call,
-        "question",
-        goal="Review this exact proposed check against the original requirement. Challenge expected results, observation relevance and each control's polarity; return criteria, counterexamples and limitations, not target success or credit.",
-        return_contract=check_review_return_contract(),
-    )
+    draft = {
+        "role": "question",
+        "goal": "Review this exact proposed check against the original requirement. Challenge expected results, observation relevance and each control's polarity; return criteria, counterexamples and limitations, not target success or credit.",
+        "requirements": list(dict.fromkeys(case["requirement"] for case in design["cases"])),
+        "writable_paths": [], "materialization_targets": [],
+        "return_contract": check_review_return_contract(),
+        "measure_request": None, "replace_previous": False, "prerequisites": [],
+    }
     return session.reply(call, child=assign_child(
         session, call, draft, producer, review_definition=definition.ref.as_record(),
     ))
 
 
-def project(view, assignment, reference, data):
+def project(view, assignment, reference, data, *, components):
     definition, reviews = reviewed(view, reference, assignment)
     design = definition.body["design"]
+    program = design["program"]
     origin = data(
         "reviewed_check_origin",
         {
@@ -96,12 +98,24 @@ def project(view, assignment, reference, data):
             values = [
                 data(
                     "grounding_control",
-                    {"observed": item["observed"], "expected_outcome": polarity},
+                    {("observed" if program is None else "fixture"):
+                     item["observed" if program is None else "fixture"], "expected_outcome": polarity},
                 )
                 for item in case[f"{field}_controls"]
             ]
             controls[f"{field}_control_refs"] = [ref.as_record() for ref in values]
             collected.update({ref: None for ref in values})
+        binding = design["execution_binding"]
+        if program is not None:
+            from .measure_components import readable_paths
+
+            binding = {**binding, "harness_ref": data("checking_program", {
+                "execution_kind": "checking_program",
+                "definition_ref": definition.ref.as_record(),
+                "target_workflow_ref": view.contract.body["target_workflow_ref"],
+                "readable_paths": readable_paths(view, assignment),
+                "input": case["input"],
+            }).as_record()}
         cases.append(
             data(
                 "grounded_case",
@@ -113,17 +127,19 @@ def project(view, assignment, reference, data):
                     "observation_path": case["observation_path"],
                     "dependency_paths": None,
                     "environment_ref": view.contract.body["environment_ref"],
-                    "execution_binding": design["execution_binding"],
+                    "execution_binding": binding,
                     "guard_keys": [],
                 },
             )
         )
     return {
         **common,
+        "components": components,
+        "basis_ref": view.data(Ref.from_record(assignment.body["goal_record_ref"]))["measure_basis_ref"],
         "requirement_keys": sorted({
             case["requirement_key"] for case in design["cases"]
         }),
-        "oracle_kind": "registered_predicate",
+        "oracle_kind": "registered_predicate" if program is None else "checking_program",
         "positive_control_refs": [ref.as_record() for ref in positives],
         "negative_control_refs": [ref.as_record() for ref in negatives],
         "grounding_refs": [ref.as_record() for ref in cases],
@@ -148,12 +164,18 @@ def propose_reviewed_instrument(session, call, proposal, producer):
         return CampaignStore.data_reference(session.duet_id, kind, value)
 
     with session.view() as view:
+        from .measure_components import completed_components
+
         definitions = [row.record for row in view.entries("measure_definition")
                        if row.record.body["assignment_ref"] == call.assignment.ref.as_record()]
         if not definitions:
             raise ValueError("this assignment has no check design to submit")
         body = project(
-            view, call.assignment, definitions[-1].ref.as_record(), collect
+            view, call.assignment, definitions[-1].ref.as_record(), collect,
+            components=completed_components(
+                view, call.assignment,
+                replacing={case["requirement_key"] for case in definitions[-1].body["design"]["cases"]},
+            ),
         )
     for kind, value in artifacts:
         session.put_data(kind, value)
@@ -162,7 +184,7 @@ def propose_reviewed_instrument(session, call, proposal, producer):
         "measure_proposal",
         {
             "assignment_ref": call.assignment.ref.as_record(),
-            "owner_assignment_ref": call.assignment.body["parent_assignment_ref"],
+            "owner_assignment_ref": _commission_owner(session, call),
             **body,
         },
         producer=producer,
@@ -170,6 +192,48 @@ def propose_reviewed_instrument(session, call, proposal, producer):
     session.commit(
         call, "propose_measure", {"proposal": record.as_record()}, producer=producer
     )
+    return session.reply(call, proposal_ref=record.ref.as_record())
+
+
+def _commission_owner(session, call):
+    from .measure_components import measure_owner
+
+    with session.view() as view:
+        return measure_owner(view, call.assignment).body["parent_assignment_ref"]
+
+
+def propose_component_composite(session, call, proposal, producer):
+    """Freeze adequate returned components without inventing another checker."""
+    from .measure_components import completed_components
+
+    exact(proposal, {"compose_components"}, "measure component composition")
+    if proposal["compose_components"] is not True:
+        raise ValueError("compose_components requires an explicit true")
+    with session.view() as view:
+        goal = view.data(Ref.from_record(call.assignment.body["goal_record_ref"]))
+        components = completed_components(view, call.assignment)
+    if not components:
+        raise ValueError("this assignment has no adequate returned components to compose")
+    metadata = session.put_data("measure_composition", {
+        "basis_ref": goal["measure_basis_ref"], "components": components,
+        "purpose": goal["measure_request"]["purpose"],
+        "requirement_keys": goal["measure_request"]["requirement_keys"],
+    }).as_record()
+    record = session.record(call, "measure_proposal", {
+        "assignment_ref": call.assignment.ref.as_record(),
+        "owner_assignment_ref": _commission_owner(session, call),
+        "basis_ref": goal["measure_basis_ref"], "components": components,
+        "requirement_keys": [], "purpose": goal["measure_request"]["purpose"],
+        "oracle_kind": "component_composite",
+        **{field: metadata for field in (
+            "oracle_ref", "input_domain_ref", "case_manifest_ref",
+            "observation_schema_ref", "decision_function_ref",
+            "independence_policy_ref", "uncertainty_policy_ref",
+        )},
+        "positive_control_refs": [], "negative_control_refs": [],
+        "grounding_refs": [], "limitation_refs": [],
+    }, producer=producer)
+    session.commit(call, "propose_measure", {"proposal": record.as_record()}, producer=producer)
     return session.reply(call, proposal_ref=record.ref.as_record())
 
 
@@ -187,7 +251,7 @@ def authorize(view, proposal):
             raise ValueError("reviewed case projection changed")
         return ref
 
-    expected = project(view, assignment, reference, verified_data)
+    expected = project(view, assignment, reference, verified_data, components=proposal.body["components"])
     actual = {
         key: value
         for key, value in proposal.body.items()

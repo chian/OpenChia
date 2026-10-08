@@ -71,6 +71,7 @@ class OpenChiaCLI(
         "welcome": "OpenChia Duet ready.",
     }
     _openchia_commands = {
+        "/code": "Pause Target Workflow for a saved coding conversation",
         "/refiner": "Inspect live or historical Refiner work",
         "/episode": "Browse Architecture and Materialized Specification",
         "/duet": "Show the current design and approval state",
@@ -252,10 +253,14 @@ class OpenChiaCLI(
     def show_banner(self) -> None:
         """Show the OpenChia work path without inherited agent-workflow framing."""
 
+        from openchia_cli.duet_banner import chia_duet_art
+
         self.console.clear()
         self._console_print(
             f"[bold #8fb9a8]OPENCHIA[/]  human + LLM = Duet   [dim]{code_identity_text()}[/]"
         )
+        self._console_print()
+        self._console_print(chia_duet_art(self.console.size.width))
         self._console_print()
         self._console_print("  [DUET] <----> [WORKFLOW ARCHITECTURE]")
         self._console_print("                       | approve + build")
@@ -665,7 +670,13 @@ class OpenChiaCLI(
     ) -> bool:
         """Dispatch OpenChia commands now; no slash input enters a Duet turn."""
 
-        if text.strip().lower().split(maxsplit=1)[:1] == ["/refiner"]:
+        command = text.strip().lower().split(maxsplit=1)[:1]
+        if command == ["/code"]:
+            from openchia_cli.workflow_coding_command import open_inline
+
+            open_inline(self, event, text)
+            return True
+        if command == ["/refiner"]:
             from openchia_cli.refiner_command import open_inline
 
             open_inline(self, event, text)

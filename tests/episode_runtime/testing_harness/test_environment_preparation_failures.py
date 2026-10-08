@@ -136,7 +136,7 @@ async def test_checker_preparation_failure_is_unmeasured_and_does_not_poison_ret
         with session.view() as view:
             check = next(row.record for row in view.entries("check") if row.record.body["evidence_kind"] == "execution")
             candidate = view.candidate
-            receipt = view.data(Ref.from_record(session.contract.body["initial_build_receipt_ref"]))
+            receipt = view.data(Ref.from_record(session.contract.body["initial_build_inputs_ref"]))
         inputs = builds.inspection_inputs_for_receipt(receipt["receipt_id"])
         raw = experiment(artifacts, inputs.build_request, inputs.receipt)
         raw.update(

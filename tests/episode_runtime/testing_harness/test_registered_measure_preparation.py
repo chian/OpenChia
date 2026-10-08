@@ -46,7 +46,7 @@ async def assert_shared_group_measurement(session, check, case, tmp_path):
     artifacts, builds = session.store.evidence.duets, session.store.evidence.builds
     with session.view() as view:
         receipt = view.data(
-            Ref.from_record(session.contract.body["initial_build_receipt_ref"])
+            Ref.from_record(session.contract.body["initial_build_inputs_ref"])
         )
         candidate = view.candidate
         cases = [

@@ -31,6 +31,7 @@ def applicable_lessons(view, assignment, candidate=None):
 def local_context(view, invocation_id):
     from .coordination import pending_decisions, relevant_conflicts
     from .reports import check_result
+    from .measures import selected_measure_ref
 
     invocation = view.entry("invocation", invocation_id.value)
     assignment = invocation.record
@@ -100,7 +101,7 @@ def local_context(view, invocation_id):
             "assignment_ref": assignment.ref.as_record(),
             "invocation_id": invocation_id.value,
             "current_candidate_ref": view.candidate.ref.as_record(),
-            "local_measure_ref": assignment.body["local_measure_ref"],
+            "local_measure_ref": selected_measure_ref(view, assignment, "local_measure_ref"),
             "check_states": check_states,
             "assessment_refs": [
                 reference

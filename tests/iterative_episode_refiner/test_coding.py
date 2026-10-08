@@ -27,7 +27,7 @@ def prepared(campaign, monkeypatch, factory):
     assignment = campaign.implementer()
     session = campaign.session
     root = session.calls[session.root_id]
-    path = (*root.path, (session.nodes["designer"].grain_name, "design"),
+    path = (*root.path,
             (session.nodes["implementer"].grain_name, campaign.current_invocation.value))
     wire_path = [{"grain": grain, "key": key} for grain, key in path]
     episode_id = episode_id_for_path(session.registration.logical_run_id, wire_path)

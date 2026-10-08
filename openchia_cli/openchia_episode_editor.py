@@ -93,6 +93,15 @@ class EpisodeWorkspaceResult:
     saved_note_ids: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _TreeBookmark:
+    selection: tuple[str, str, str]
+    page: int
+    episodes: frozenset[str]
+    details: frozenset[str]
+    scroll: int
+
+
 class _EpisodeWorkspace:
     _DETAIL_PAGES = ("summary", "declaration", "code", "evidence")
 
@@ -159,6 +168,9 @@ class _EpisodeWorkspace:
             for view in self.views
         }
         self.detail_page_indices = {view.surface: 0 for view in self.views}
+        self.call_history: dict[str, list[_TreeBookmark]] = {
+            view.surface: [] for view in self.views
+        }
         self.detail_positions: dict[
             tuple[str, str, str], tuple[int, int, int]
         ] = {}
@@ -282,7 +294,7 @@ class _EpisodeWorkspace:
         )
         body = VSplit(
             [
-                Frame(self.tree_window, title="Workflow parts"),
+                Frame(self.tree_window, title="Workflow structure"),
                 right_column,
             ],
             padding=1,
@@ -542,25 +554,79 @@ class _EpisodeWorkspace:
         if not self._commit_detail_edit():
             return
         entry = self._entry()
-        if entry.episode is None or entry.part is not None:
+        if entry.kind == "call":
+            self._follow_selected_call()
+            return
+        if entry.kind not in {"episode", "details"}:
             get_app().layout.focus(self.detail_tabs_window)
             return
         self._remember_current_target_state()
         local_id = entry.episode.local_id
-        self.active_view.toggle(entry.episode, expanded=expanded)
-        self._restore_selection(("episode", local_id, ""))
+        expanded_ids = (
+            self.active_view.expanded_details_ids if entry.kind == "details"
+            else self.active_view.expanded_episode_ids
+        )
+        desired = local_id not in expanded_ids if expanded is None else expanded
+        if desired:
+            expanded_ids.add(local_id)
+        else:
+            expanded_ids.discard(local_id)
+        self._restore_selection(entry.selection_key)
         self._load_detail()
         self._load_note_draft()
+
+    def _follow_selected_call(self) -> None:
+        entry = self._entry()
+        if entry.part.callee_local_id is None:
+            self._set_status("This call has no resolved Episode; inspect its Declaration.", error=True)
+            return
+        if not self._commit_detail_edit():
+            return
+        self._remember_current_target_state()
+        view = self.active_view
+        self.call_history[view.surface].append(_TreeBookmark(
+            entry.selection_key, self.active_detail_page_index,
+            frozenset(view.expanded_episode_ids), frozenset(view.expanded_details_ids),
+            self.tree_window.vertical_scroll,
+        ))
+        self.selected_index = view.reveal_episode(entry.part.callee_local_id)
+        self.active_detail_page_index = 0
+        self._load_detail()
+        self._load_note_draft()
+        self._set_status("Called Episode opened. Backspace returns to the call.")
+
+    def _back_to_call(self) -> None:
+        history = self.call_history[self.active_view.surface]
+        if not history:
+            self._collapse_or_parent()
+            return
+        if not self._commit_detail_edit():
+            return
+        self._remember_current_target_state()
+        bookmark = history.pop()
+        self.active_view.expanded_episode_ids = set(bookmark.episodes)
+        self.active_view.expanded_details_ids = set(bookmark.details)
+        self._restore_selection(bookmark.selection)
+        self.active_detail_page_index = bookmark.page
+        self._load_detail()
+        self._load_note_draft()
+        self.tree_window.vertical_scroll = bookmark.scroll
+        self._set_status("Returned to the call.")
 
     def _collapse_or_parent(self) -> None:
         entry = self._entry()
         if entry.episode is None:
             get_app().layout.focus(self.detail_tabs_window)
             return
-        if entry.part is not None:
-            self._select_tree_index(
-                self.active_view.index_for_episode(entry.episode.local_id)
-            )
+        local_id = entry.episode.local_id
+        if entry.kind == "details" and local_id in self.active_view.expanded_details_ids:
+            self._toggle_selected_episode(expanded=False)
+            return
+        if entry.part is not None or entry.kind == "details":
+            kind = "details" if entry.kind == "part" else "episode"
+            index = next(index for index, item in enumerate(self._entries())
+                         if item.selection_key == (kind, local_id, ""))
+            self._select_tree_index(index)
             return
         if entry.episode.local_id in self.active_view.expanded_episode_ids:
             self._toggle_selected_episode(expanded=False)
@@ -570,11 +636,7 @@ class _EpisodeWorkspace:
             self._select_tree_index(self.active_view.index_for_episode(parent_id))
 
     def _expand_or_detail(self) -> None:
-        entry = self._entry()
-        if entry.episode is not None and entry.part is None:
-            self._toggle_selected_episode(expanded=True)
-        else:
-            get_app().layout.focus(self.detail_tabs_window)
+        self._toggle_selected_episode(expanded=True)
 
     def _notes_for_target(
         self,
@@ -746,39 +808,40 @@ class _EpisodeWorkspace:
         fragments: StyleAndTextTuples = []
         entries = self._entries()
         self.selected_index = self.selected_index
+        ancestors: list[bool] = []
         for index, entry in enumerate(entries):
             selected = index == self.selected_index
-            if entry.kind == "global" and entry.part is not None:
-                flags = ""
-                if entry.part.changed:
-                    flags += " Δ"
-                if entry.part.incomplete:
-                    flags += " ?"
-                label = f"◆ {entry.part.label}{flags}"
-                style = "class:tree.global"
-            elif entry.part is None and entry.episode is not None:
-                expanded = entry.episode.local_id in self.active_view.expanded_episode_ids
-                marker = "▾" if expanded else "▸"
-                changed = " Δ" if entry.episode.changed else ""
-                label = f"{marker} {entry.episode.name}{changed}"
-                style = "class:tree.episode"
+            ancestors = ancestors[:entry.depth]
+            prefix = "".join("   " if last else "│  " for last in ancestors[1:])
+            if entry.depth:
+                prefix += "└─ " if entry.last_child else "├─ "
+            ancestors.append(entry.last_child)
+            if entry.kind in {"episode", "details"}:
+                expanded_ids = (
+                    self.active_view.expanded_details_ids if entry.kind == "details"
+                    else self.active_view.expanded_episode_ids
+                )
+                marker = "▾" if entry.episode.local_id in expanded_ids else "▸"
+                label = "Details" if entry.kind == "details" else entry.episode.name
+                if entry.episode.changed:
+                    label += " Δ"
+                style = "class:tree." + entry.kind
             elif entry.part is not None:
-                flags = ""
+                marker = {"global": "◆", "call": "↪", "part": "·"}[entry.kind]
+                label = entry.part.label
                 if entry.part.changed:
-                    flags += " Δ"
+                    label += " Δ"
                 if entry.part.incomplete:
-                    flags += " ?"
+                    label += " ?"
                 if (
                     entry.part.editable
                     and self.active_view is self.architecture
                     and self.allow_architecture_edit
                 ):
-                    flags += " ✎"
-                label = f"· {entry.part.label}{flags}"
-                style = "class:tree.part"
+                    label += " ✎"
+                style = "class:tree." + entry.kind
             else:
                 raise ValueError("workspace tree entry is malformed")
-            text = f"{'  ' * entry.depth}{label}"
 
             def click(
                 mouse_event: MouseEvent,
@@ -788,9 +851,21 @@ class _EpisodeWorkspace:
                     if self._select_tree_index(row_index):
                         get_app().layout.focus(self.tree_window)
 
+            def open_node(
+                mouse_event: MouseEvent,
+                row_index: int = index,
+            ) -> None:
+                if mouse_event.event_type == MouseEventType.MOUSE_UP:
+                    if self._select_tree_index(row_index):
+                        get_app().layout.focus(self.tree_window)
+                        self._toggle_selected_episode()
+
             if selected:
                 style += ".selected"
-            fragments.append((style, text, click))
+            fragments.append(("class:tree.guide", prefix))
+            opener = open_node if entry.kind in {"episode", "details", "call"} else click
+            fragments.append((style, marker + " ", opener))
+            fragments.append((style, label, click))
             if index < len(entries) - 1:
                 fragments.append(("", "\n"))
         return fragments
@@ -876,7 +951,7 @@ class _EpisodeWorkspace:
             (
                 "class:help",
                 "\nCtrl-Tab/Shift-Ctrl-Tab view · Tab/Shift-Tab pane · "
-                "arrows navigate · Enter open · "
+                "arrows navigate · Enter open · Backspace return · "
                 + " · ".join(actions),
             ),
         ]
@@ -917,7 +992,7 @@ class _EpisodeWorkspace:
             return
         self._remember_current_target_state()
         layout.focus(self.tree_window)
-        self._set_status("Workflow parts focused; press Esc again to close.")
+        self._set_status("Workflow structure focused; press Esc again to close.")
 
     def _build_bindings(self) -> KeyBindings:
         _install_modified_tab_sequences()
@@ -983,6 +1058,10 @@ class _EpisodeWorkspace:
         def _tree_enter(event: Any) -> None:
             self._toggle_selected_episode()
 
+        @bindings.add("backspace", filter=has_focus(self.tree_window))
+        def _tree_back(event: Any) -> None:
+            self._back_to_call()
+
         @bindings.add("left", filter=has_focus(self.detail_tabs_window))
         def _previous_detail_page(event: Any) -> None:
             self._activate_detail_page(
@@ -1043,6 +1122,11 @@ class _EpisodeWorkspace:
                 "frame.label": "bold #7aa2f7",
                 "view-tab": "#9aa5ce",
                 "view-tab.active": "bold #1a1b26 bg:#7aa2f7",
+                "tree.guide": "#565f89",
+                "tree.details": "#9aa5ce",
+                "tree.details.selected": "#1a1b26 bg:#9aa5ce",
+                "tree.call": "#7dcfff",
+                "tree.call.selected": "#1a1b26 bg:#7dcfff",
                 "tree.episode": "bold #c0caf5",
                 "tree.episode.selected": "bold #1a1b26 bg:#7dcfff",
                 "tree.global": "bold #e0af68",

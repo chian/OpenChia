@@ -1,8 +1,7 @@
-"""Parent-owned meanings for support/question observations.
+"""Scoped advisory research and parent-owned executable investigation meanings.
 
-The model selects an observation, not its conclusion or decision effect. These
-projections use the common check/evidence state; there is no second ledger,
-execution service, or free-text finding admission path.
+Retrieved documents stay in source artifacts. Only admitted, requirement-linked
+synthesis is projected upward; research coverage never proves target correctness.
 """
 
 from agent.duet_contracts import content_id
@@ -16,6 +15,63 @@ _STATES = {
     "support": {"applicable", "inapplicable", "unresolved"},
 }
 _RESOLVED = {"question": {"supported", "refuted"}, "support": {"applicable"}}
+RESEARCH_STATES = {
+    "question": frozenset({"answered", "refuted", "unresolved"}),
+    "support": frozenset({"applicable", "inapplicable", "unresolved"}),
+}
+RESEARCH_TEXT_LIMITS = {
+    "answer": 1800,
+    "applicability": 800,
+    "limitation": 400,
+    "limitations": 8,
+}
+
+
+def research_resolved(role, state):
+    """Coverage means a grounded answer or useful support, not source volume."""
+    return state in {
+        "question": {"answered", "refuted"},
+        "support": {"applicable"},
+    }.get(role, ())
+
+
+def research_findings(view, assignment):
+    """Latest admitted synthesis per assigned requirement, retaining audit history."""
+    current = {}
+    for entry in view.entries("research_finding"):
+        record = entry.record
+        body = record.body
+        if body["assignment_ref"] != assignment.ref.as_record():
+            continue
+        key = body["requirement_key"]
+        if key not in assignment.body["contribution_requirement_keys"]:
+            raise ValueError("admitted research finding expands its assignment")
+        resolved = research_resolved(body["role"], body["state"]) and bool(record.evidence_refs)
+        goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
+        current[key] = {
+            "kind": "research",
+            "role": body["role"],
+            "requirement_key": key,
+            "assignment_ref": assignment.ref.as_record(),
+            "owner_assignment_ref": body["owner_assignment_ref"],
+            "research_finding_ref": record.ref.as_record(),
+            "candidate_ref": body["candidate_ref"],
+            "state": body["state"],
+            "resolved": resolved,
+            "policy_strength": "advisory",
+            "fact_key": content_id("research_coverage", {
+                "role": body["role"], "requirement_key": key,
+                "goal": goal["goal"], "measure_ref": assignment.body["local_measure_ref"],
+            }).value if resolved else None,
+        }
+    return tuple(current[key] for key in sorted(current))
+
+
+def finding_record(view, finding):
+    """Resolve the typed original evidence, not an opaque report envelope."""
+    if finding.get("kind") == "research":
+        return view.read(Ref.from_record(finding["research_finding_ref"]), "research_finding")
+    return view.read(Ref.from_record(finding["observation_ref"]), "observation")
 
 
 def needs(view, policy, assignment):
@@ -85,19 +141,11 @@ def needs(view, policy, assignment):
 def require_assignment(view, policy, assignment):
     if assignment.body["role"] not in _STATES:
         return
-    from .measure_design import assigned_definition
-
-    if assigned_definition(view, assignment) is not None:
-        return
-    assigned = needs(view, policy, assignment)
-    if {item["need"]["requirement_key"] for item in assigned} != set(
-        assignment.body["contribution_requirement_keys"]
-    ):
-        raise ValueError(
-            "No authorized investigation observations and decision meanings cover every "
-            "assigned contribution. This child cannot search arbitrary repository files. "
-            "Rewording its goal or return contract cannot create the missing observations."
-        )
+    if assignment.body["allowed_child_bindings"] or assignment.body["writable_paths"] or assignment.body["materialization_targets"]:
+        raise ValueError("Question and Support are read-only research leaves")
+    # The scoped question itself is an admissible investigation. Frozen checks
+    # and independent measure review remain additional instruments, not gates
+    # that require an answer to exist before research can begin.
 
 
 def selected_checks(view, policy, assignment, keys):
@@ -133,7 +181,7 @@ def selected_checks(view, policy, assignment, keys):
 
 def findings(view, assignment):
     """Typed current decision state, with unchanged original observation refs."""
-    from .judgment import current_check_states, verification_fact
+    from .judgment import current_check_states, returned_observation, verification_fact
 
     policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
     states = current_check_states(view)
@@ -145,10 +193,9 @@ def findings(view, assignment):
         if current is None:
             continue
         observation, outcome = current
-        source = view.entry("invocation", observation.invocation_id.value).record
         check = view.entry("check", key).record
         if (
-            source.ref != assignment.ref
+            not returned_observation(view, observation, assignment)
             or outcome not in {"pass", "fail"}
             or not observation.evidence_refs
             or any(
@@ -194,7 +241,7 @@ def findings(view, assignment):
             "limitation_refs": need["limitation_refs"],
             "fact_key": fact_key if resolved else None,
         })
-    return tuple(results)
+    return (*results, *research_findings(view, assignment))
 
 
 def catalog(view, policy, assignment):
@@ -212,7 +259,7 @@ def catalog(view, policy, assignment):
 def reference_data(view, policy, assignment, visible):
     """Complete selected reference data, never rewritten prompt instructions."""
     selected = [item["need"] for item in needs(view, policy, assignment)]
-    selected.extend(visible)
+    selected.extend(item for item in visible if item.get("kind") != "research")
     refs = {
         Ref.from_record(ref)
         for item in selected
@@ -233,6 +280,10 @@ def visible_findings(view, assignment):
     """Share through the assigning owner's branch, not unrestricted memory."""
     from .coordination import ancestors
 
+    if assignment.body["role"] in _STATES:
+        # A leaf answers its own commission. A sibling's earlier research is not
+        # another implicit result channel for this parent-owned contract.
+        return findings(view, assignment)
     caller_path = {item.ref for item in ancestors(view, assignment)}
     scope = set(assignment.body["scope_requirement_keys"])
     result = []

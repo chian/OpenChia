@@ -3,6 +3,7 @@
 from agent.duet_contracts import canonical_json, content_id, digest_record
 from agent.duet_store import DuetConflictError
 from function_library.epistemic_contract import exact, names
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 from episode_runtime.testing_harness.judgments import judge_value
 from episode_runtime.testing_harness.observations import (
     is_verified_run_path,
@@ -77,6 +78,7 @@ def request_evaluation(view, attempt, resolved):
     from .context import require_deliberate_retry
     from .evaluation_plan import resolve_evaluations
     from .judgment import judgment_purpose
+    from .measures import selected_measure_ref
 
     assignment = actor(view, attempt)
     require_deliberate_retry(view, attempt, assignment, "request_evaluation")
@@ -93,18 +95,19 @@ def request_evaluation(view, attempt, resolved):
         raise ValueError("new evaluation must bind the current exact candidate")
     purposes = {
         "implementer": {"local"},
+        "materialization_implementer": {"local"},
         "verify": {"acceptance", "composition"},
         "measure": {"adequacy"},
         "support": {"support"},
         "question": {"question"},
     }
-    if body["purpose"] not in purposes.get(assignment.body["role"], set()):
+    if body["purpose"] not in purposes.get(ROLE_SPECIALIZATION[assignment.body["role"]], set()):
         raise ValueError("evaluation purpose violates independent judgment ownership")
     if body["purpose"] != judgment_purpose(view, assignment):
         raise ValueError("evaluation changes the judgment assigned by its parent")
     if body["measure_ref"] not in (
-        assignment.body["local_measure_ref"],
-        assignment.body["acceptance_measure_ref"],
+        selected_measure_ref(view, assignment, "local_measure_ref"),
+        selected_measure_ref(view, assignment, "acceptance_measure_ref"),
     ):
         raise ValueError("evaluation tries to change its frozen measure")
     if body["environment_ref"] != view.contract.body["environment_ref"]:
@@ -489,12 +492,11 @@ def close_unit(view, attempt, resolved):
     from .evaluation_plan import unavailable_request
     from .materialization import baseline_fact_keys
     from .judgment import operative_check_facts, parent_assessments
-    from .measures import admission_decision, unit_admissions
+    from .measures import measurement_lineage, selected_measure_ref, unit_admissions
     from .measure_needs import unit_prerequisite
     from .measure_design import unit_review
     from .prerequisites import parent_prerequisites
     from .succession import credited_facts
-    from .measure_controls import validated_control_facts
 
     assignment = actor(view, attempt)
     payload = exact(
@@ -511,7 +513,7 @@ def close_unit(view, attempt, resolved):
     view.read(Ref.from_record(payload["candidate_before_ref"]), "candidate")
     if payload["continuation_ref"] is not None:
         raise ValueError("only the host may compute or bind a continuation decision")
-    lineage = assignment.body["judgment_lineage"]
+    lineage = measurement_lineage(view, assignment)
     credited = credited_facts(view, assignment)
     baseline_keys = baseline_fact_keys(view, assignment)
     assessments = parent_assessments(view, attempt, assignment)
@@ -538,15 +540,11 @@ def close_unit(view, attempt, resolved):
         for key in entry.record.body["fact_keys"]:
             facts[key] = entry.record
     for admission in unit_admissions(view, attempt):
-        if admission.body["status"] == "admitted":
-            for key in admission.body["fact_keys"]:
-                facts[key] = admission
+        for key in admission.body["fact_keys"]:
+            facts[key] = admission
     for assessment in prerequisites:
         for key in assessment.body["fact_keys"]:
             facts[key] = assessment
-    for key, record in validated_control_facts(view, assignment_ref=assignment.ref).items():
-        if record.logical_unit_id == attempt.logical_unit_id and record.invocation_id == attempt.invocation_id:
-            facts[key] = record
     fresh = {
         key: record
         for key, record in facts.items()
@@ -575,7 +573,6 @@ def close_unit(view, attempt, resolved):
     disposition = "continuing"
     source_request = (
         source_decision(view, attempt)
-        or admission_decision(view, attempt)
         or unit_prerequisite(view, attempt)
         or unit_review(view, attempt)
         or unavailable_request(view, attempt)
@@ -592,6 +589,8 @@ def close_unit(view, attempt, resolved):
         "unit_receipt",
         {
             "assignment_ref": assignment.ref.as_record(),
+            "local_measure_ref": selected_measure_ref(view, assignment, "local_measure_ref"),
+            "judgment_lineage": lineage,
             "invocation_id": attempt.invocation_id.value,
             "logical_unit_id": unit,
             "ordinal": len(previous),

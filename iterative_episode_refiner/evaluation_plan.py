@@ -13,39 +13,30 @@ from .evaluation_inputs import (
     native_launch,
     native_template,
 )
-from .measures import authorized_check_refs, bindings_for_check, evaluation_bindings
+from .measures import bindings_for_check, evaluation_bindings, selected_checks, selected_measure_ref
 from .records import Ref
 
 
 def resolve_evaluations(view, policy, assignment, purpose, *, selected=None):
-    measure = assignment.body[
+    measure = selected_measure_ref(view, assignment,
         "acceptance_measure_ref"
-        if assignment.body["role"] in {"parts", "designer"}
+        if assignment.body["role"] == "designer"
         else "local_measure_ref"
-    ]
-    scope = set(assignment.body["scope_requirement_keys"])
+    )
     checks = tuple(
         check
-        for reference in authorized_check_refs(view, policy, assignment)
-        for check in (view.read(reference, "check"),)
-        if check.body["measure_ref"] == measure
-        and check.body["purpose"] == purpose
-        and check.body["requirement_key"] in scope
-        and (selected is None or check.artifact_id.value in selected)
+        for check in selected_checks(view, policy, assignment, measure, purpose=purpose)
+        if selected is None or check.artifact_id.value in selected
     )
     keys = {check.artifact_id.value for check in checks}
     if selected is not None and keys != set(selected):
         raise ValueError(
             "selected evaluation checks are outside their exact measure or scope"
         )
-    bindings = [
-        binding
-        for binding in evaluation_bindings(view, policy, assignment)
-        if binding["measure_ref"] == measure and binding["purpose"] == purpose
-    ]
+    bindings = evaluation_bindings(view, policy, assignment)
     groups = {}
     for check in checks:
-        choices = bindings_for_check(bindings, check)
+        choices = bindings_for_check(bindings, check, measure_ref=measure)
         binding = choices[0] if len(choices) == 1 else None
         key = (
             canonical_json(binding)
@@ -57,7 +48,8 @@ def resolve_evaluations(view, policy, assignment, purpose, *, selected=None):
     if not groups:
         groups["empty"] = {
             "checks": [],
-            "choices": tuple({canonical_json(row): row for row in bindings}.values()),
+            "choices": tuple({canonical_json(row): row for row in bindings
+                              if row["measure_ref"] == measure and row["purpose"] == purpose}.values()),
         }
     return tuple(
         _group_plan(
@@ -138,7 +130,16 @@ def _group_plan(
     else:
         instrument = view.data(Ref.from_record(binding["harness_ref"]))
         view.data(Ref.from_record(binding["capability_ref"]))
-        if instrument.get("execution_kind") not in {
+        if instrument.get("execution_kind") == "checking_program":
+            from .authored_checks import instrument as checking_program
+
+            try:
+                checking_program(view, binding)
+                if any(check.body["evidence_kind"] != "checking_program" for check in checks):
+                    raise ValueError("checking program cannot substitute for another evidence kind")
+            except (ValueError, KeyError, TypeError) as exc:
+                gap("launch_input_invalid", str(exc))
+        elif instrument.get("execution_kind") not in {
             "target_workflow",
             "instrument_build",
             "reference_workflow",

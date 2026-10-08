@@ -5,8 +5,10 @@ values cross into reasoning. These projections do not change credit, evidence,
 candidate admission, or continuation.
 """
 
+from collections import Counter
+
 from function_library.models import _thaw_json
-from function_library.refinement_contract import INPUT_MEASUREMENTS, MODEL_INPUT_COMPONENTS
+from function_library.refinement_contract import INPUT_MEASUREMENTS, MODEL_INPUT_COMPONENTS, ROLE_SPECIALIZATION
 
 from .assignment_choices import assigned_addresses
 from .model_history import iteration_history
@@ -20,6 +22,7 @@ from .reports import parent_report, report_overview
 def _measurements(session, view, call):
     from .judgment import judgment_purpose
     from .evaluation_plan import evaluation_availability, resolve_evaluations
+    from .measures import implementation_covered_requirements, selected_measure_ref
 
     assignment = call.assignment
     report = parent_report(view, call.invocation_id)
@@ -48,7 +51,7 @@ def _measurements(session, view, call):
     availability = evaluation_availability(resolve_evaluations(
         view, session.policy, assignment, judgment_purpose(view, assignment)
     ))
-    return {
+    result = {
         **measurements,
         "iteration_history": iteration_history(session, view, call),
         "evaluation_availability": {
@@ -59,6 +62,29 @@ def _measurements(session, view, call):
             } for gap in availability["gaps"]],
         },
     }
+    if ROLE_SPECIALIZATION[role] in {"designer", "implementer", "materialization_implementer"}:
+        selected = set(assignment.body["contribution_requirement_keys"])
+        covered = implementation_covered_requirements(
+            view, assignment, selected_measure_ref(view, assignment, "local_measure_ref"), session.policy
+        )
+        result["implementation_measure_coverage"] = {
+            "all_contribution_requirements_covered": selected <= covered,
+            "covered_requirements": sorted(
+                requirement_address(catalog[key]) for key in selected & covered
+            ),
+            "missing_requirements": sorted(
+                requirement_address(catalog[key]) for key in selected - covered
+            ),
+            "meaning": (
+                "Implementation measurement needs an authorized mandatory local "
+                "check for every selected contribution requirement, bound to this "
+                "local measure and environment. Check outcomes appear separately in "
+                "measurements.local; independent acceptance has its own measure. "
+                "The Designer chooses which peer to commission from the observed gaps. "
+                "Specialists retain their assigned scope and report cross-specialty needs upward."
+            ),
+        }
+    return result
 
 
 def _coordination(session, view, call):
@@ -101,20 +127,31 @@ def _materialization(session, view, call):
     return context
 
 
+def _candidate_source_files(session, view, assignment):
+    from .measures import authorized_check_refs
+    from .materialization_edits import target_source_paths
+
+    candidate = view.candidate
+    readable = set(assignment.body["writable_paths"])
+    readable.update(target_source_paths(view, assignment.body["materialization_targets"]))
+    if ROLE_SPECIALIZATION[assignment.body["role"]] == "measure":
+        from .measure_components import readable_paths
+
+        readable.update(readable_paths(view, assignment))
+    for reference in authorized_check_refs(view, session.policy, assignment):
+        check = view.read(reference, "check")
+        if check.body["requirement_key"] in assignment.body["scope_requirement_keys"]:
+            readable.update(check.body["dependency_paths"] or ())
+    paths = readable & set(candidate.body["files"])
+    return {path: session.store.evidence.builds.read_blob(candidate.body["files"][path]).decode("utf-8")
+            for path in sorted(paths)}
+
+
 def _source(session, view, call):
     from .candidate_source import source_kind
     from .materialization_edits import edit_context
-    from .measures import authorized_check_refs
 
-    candidate = view.candidate
-    readable = set(call.assignment.body["writable_paths"])
-    for reference in authorized_check_refs(view, session.policy, call.assignment):
-        check = view.read(reference, "check")
-        if check.body["requirement_key"] in call.assignment.body["scope_requirement_keys"]:
-            readable.update(check.body["dependency_paths"] or ())
-    paths = readable & set(candidate.body["files"])
-    files = {path: session.store.evidence.builds.read_blob(candidate.body["files"][path]).decode("utf-8")
-             for path in sorted(paths)}
+    files = _candidate_source_files(session, view, call.assignment)
     edits = edit_context(view, session.policy, call.assignment)
     return {
         "source_files": files,
@@ -144,17 +181,18 @@ def _environment(session, view, call):
 
 
 def _design(session, view, call):
-    assignment = call.assignment
-    owner = assignment.body["parent_assignment_ref"] if assignment.body["role"] == "implementer" else assignment.ref.as_record()
-    plans = [row.record for row in view.entries("plan") if row.record.body["assignment_ref"] == owner]
-    if not plans:
+    from .state_machine import design_plan_for
+
+    plan = design_plan_for(view, call.assignment)
+    if plan is None:
         return {"design": None}
-    body = plans[-1].as_record()["body"]
+    body = plan.as_record()["body"]
     catalog = requirement_catalog(view)
     return {"design": {
         "approach": body["approach_key"],
         "requirement_mapping": {requirement_address(catalog[key]): text for key, text in body["requirement_mapping"].items()},
         "intended_change_scope": body["intended_change_scope"],
+        "intended_materialization_targets": body["intended_materialization_targets"],
         "dependency_effects": body["dependency_effects"],
     }}
 
@@ -163,14 +201,18 @@ def _measure_design(session, view, call):
     from .measure_design import context
     from .measure_needs import catalog as needs
     from .measure_controls import control_context
+    from .authored_checks import control_context as authored_control_context
+    from .report_contract import admission_requirement_results
 
     assignment = call.assignment
     proposals = [row.record for row in view.entries("measure_proposal")
                  if row.record.body["assignment_ref"] == assignment.ref.as_record()]
     current = proposals[-1:]  # resume_instrument selects this current proposal.
+    admissions = [row.record for row in view.entries("measure")
+                  if current and row.record.body["proposal_ref"] == current[0].ref.as_record()]
     catalog = requirement_catalog(view)
     controls = control_context(view, (item.ref for item in current))
-    return {
+    result = {
         **context(view, assignment, session.policy),
         "measure_needs": [{
             "kind": need["kind"], "purpose": need["purpose"],
@@ -184,7 +226,29 @@ def _measure_design(session, view, call):
         "measure_controls": [{
             key: row[key] for key in ("status", "gap", "outcome", "error")
         } for row in controls],
+        "checking_program_controls": authored_control_context(view, current),
+        "instrument_admission": [{
+            "status": record.body["status"],
+            "requirement_results": admission_requirement_results(record, catalog),
+            "meaning": "Readiness of the checking instrument; Target Workflow outcomes are measured separately.",
+        } for record in admissions[-1:]],
     }
+    checking = result.get("check_design", {})
+    if ROLE_SPECIALIZATION[assignment.body["role"]] == "measure" or (
+        checking.get("review_assigned")
+        and checking["current_design"]["program"] is not None
+    ):
+        from .materialization_edits import stored_plan
+
+        # Author and reviewer need the same real input shape: synthetic fixtures
+        # can contain fields that the host's candidate plan never supplies.
+        result["checking_target_materialization"] = stored_plan(view, view.candidate)
+        if checking.get("review_assigned"):
+            author = view.read(Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment")
+            # The reviewer compares controls with the same scoped source that
+            # Measure received, rather than inferring it from fixture filenames.
+            result["checking_target_sources"] = _candidate_source_files(session, view, author)
+    return result
 
 
 def _grounding(session, view, call):
@@ -199,9 +263,11 @@ def _grounding(session, view, call):
 
 def _investigation(session, view, call):
     from .investigation import needs
+    from .research import research_context
 
     catalog = requirement_catalog(view)
     return {
+        **research_context(view, call.assignment),
         "investigation_needs": [{
             "requirement": requirement_address(catalog[need["requirement_key"]]),
             "observation_path": view.read(Ref.from_record(need["check_ref"]), "check").body["observation_path"],
@@ -223,6 +289,57 @@ _COMPONENTS = {
 }
 
 
+def reasoning_inputs(inputs):
+    """Render a review's repeated fixture files once, retaining every exact control.
+
+    The immutable working context and executable definition keep full file maps.
+    Only the reasoning view uses inline source references; native coding still
+    receives the complete files in its workspace.
+    """
+    checking = inputs.get("check_design")
+    if not checking or not checking["review_assigned"]:
+        return inputs
+    result = _thaw_json(inputs)
+    checking = result["check_design"]
+    design = checking["current_design"]
+    checking["execution_bindings"] = [
+        item for item in checking["execution_bindings"]
+        if item["purpose"] == design["purpose"]
+    ]
+    if design["program"] is None:
+        return result
+    files = [
+        control["fixture"]["files"]
+        for case in design["cases"]
+        for polarity in ("positive_controls", "negative_controls")
+        for control in case[polarity]
+    ]
+    counts = Counter(source for mapping in files for source in mapping.values())
+    shared, labels = {}, {}
+    for mapping in files:
+        for path, source in mapping.items():
+            if counts[source] < 2:
+                continue
+            if source not in labels:
+                label, suffix = path, 2
+                while label in shared:
+                    label = f"{path} ({suffix})"
+                    suffix += 1
+                labels[source] = label
+                shared[label] = source
+            mapping[path] = {"shared_source": labels[source]}
+    if shared:
+        checking["shared_fixture_sources"] = shared
+        checking["fixture_source_format"] = (
+            "Each fixture.files entry is exact source text or {shared_source: NAME}. "
+            "Resolve NAME in shared_fixture_sources to obtain that file's complete "
+            "source at its original path. Shared text appears once in this review "
+            "view; every control, input, materialization and rationale remains separate. "
+            "The stored definition and executed fixtures retain the full file contents."
+        )
+    return result
+
+
 def model_inputs(session, view, call):
     assignment = call.assignment
     goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
@@ -242,6 +359,7 @@ def model_inputs(session, view, call):
                 requirement_address(catalog[key]) for key in preservation
             ],
             "writable_paths": list(assignment.body["writable_paths"]),
+            "materialization_targets": list(assignment.body["materialization_targets"]),
             "protected_paths": list(assignment.body["protected_paths"]),
             "allowed_children": list(assignment.body["allowed_child_bindings"]),
             "measure_request": None if need is None else {
@@ -280,6 +398,8 @@ def model_inputs(session, view, call):
 def _feedback(session, view, call):
     """Deliver the last operation's actionable result, not its audit envelope."""
     value = view.data(call.feedback_ref)
+    if "research_result" in value:
+        return {"task": "research", **value["research_result"]}
     if "source_workflow_ref" in value and "result" in value:
         from .candidate_environment import project_finding
 

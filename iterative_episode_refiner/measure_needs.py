@@ -7,6 +7,7 @@ Only the parent can choose the next permitted design/coding assignment.
 from agent.duet_contracts import content_id
 from agent.episode_contracts import OpaqueId
 from function_library.epistemic_contract import exact, names
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .records import EvidenceRef, Ref
 
@@ -85,7 +86,7 @@ def build_specification(read_data, reference):
 
 def catalog(view, assignment, policy):
     """Expose exact selectable requests, not a model-authored reason to stop."""
-    if assignment.body["role"] != "measure":
+    if ROLE_SPECIALIZATION[assignment.body["role"]] != "measure":
         return ()
     goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
     requested = goal["measure_request"]
@@ -195,33 +196,53 @@ def request_prerequisite(view, attempt):
     ]
 
 
-def return_prerequisite(view, attempt):
-    """Move an exact returned child need up one ownership edge, without credit."""
-    from .state_machine import actor, derived, index
-
-    assignment = actor(view, attempt)
+def returned_prerequisite(view, assignment, reference):
+    """Resolve an owned child need or the exact need this assignment inherited."""
     if (
-        assignment.body["role"] not in {"designer", "parts"}
-        or assignment.body["parent_assignment_ref"] is None
+        assignment.body["parent_assignment_ref"] is None
     ):
-        raise ValueError("only a nested Parts or Designer may return a child prerequisite to its parent")
-    payload = exact(attempt.body["payload"], {"return_prerequisite_ref"}, "prerequisite return")
-    reference = Ref.from_record(payload["return_prerequisite_ref"])
+        raise ValueError("a prerequisite return needs an assigning parent")
     entry = view.entry("measure_need", reference.artifact_id.value)
     source = entry.record
     child = view.entry("invocation", source.invocation_id.value)
+    goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
+    inherited = reference in set(map(Ref.from_record, goal.get("prerequisite_refs", ())))
     if (
         entry.status != "requested"
         or source.ref != reference
-        or child.status != "returned"
         or child.record.ref.as_record() != source.body["assignment_ref"]
+    ):
+        raise ValueError("prerequisite return must retain an exact requested need and its originating assignment")
+    if inherited:
+        # The parent may stage a smaller contribution against its broader need.
+        # Returning that unchanged input conveys an unresolved obligation, not
+        # new authority, requirement coverage or credit for the smaller child.
+        validate_assignment_prerequisites(
+            view, view.read(Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment"),
+            assignment,
+        )
+        if child.status not in {"returned", "superseded"}:
+            raise ValueError("inherited prerequisite must originate in returned work")
+    elif (
+        child.status != "returned"
         or child.record.body["parent_assignment_ref"] != assignment.ref.as_record()
         or source.body["owner_assignment_ref"] != assignment.ref.as_record()
         or not set(source.body["need"]["requirement_keys"]).issubset(
             assignment.body["contribution_requirement_keys"]
         )
     ):
-        raise ValueError("prerequisite return must cite an exact returned direct-child need within this assignment")
+        raise ValueError("prerequisite return must cite an owned returned child need or an exact inherited prerequisite")
+    return source
+
+
+def return_prerequisite(view, attempt):
+    """Move an exact child or inherited need up one ownership edge, without credit."""
+    from .state_machine import actor, derived, index
+
+    assignment = actor(view, attempt)
+    payload = exact(attempt.body["payload"], {"return_prerequisite_ref"}, "prerequisite return")
+    reference = Ref.from_record(payload["return_prerequisite_ref"])
+    source = returned_prerequisite(view, assignment, reference)
     record = derived(
         view,
         attempt,
@@ -297,9 +318,12 @@ def assignment_prerequisites(view, parent, selected):
             )
         if reference not in inherited:
             source = view.entry("invocation", record.invocation_id.value)
+            # Replacement retires the returned invocation after admitting its
+            # successor. Its exact unresolved need remains a valid input to
+            # that successor; revalidation must retain the original ownership.
             if (
                 record.body["owner_assignment_ref"] != parent.ref.as_record()
-                or source.status != "returned"
+                or source.status not in {"returned", "superseded"}
             ):
                 raise ValueError(
                     "only the assigning owner may route a returned prerequisite"

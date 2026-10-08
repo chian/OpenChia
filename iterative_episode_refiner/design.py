@@ -23,20 +23,17 @@ from function_library.refinement import (
     REPORT_CHILD,
     REQUEST_SCHEMA,
 )
-from function_library.refinement_contract import RESULT_PAYLOAD, ROLES
+from function_library.refinement_contract import PARTS_ROLES, RESULT_PAYLOAD, ROLES
 
 
-# Every template has one concrete home. Other approved parents call that same
-# template; only Parts has a recursive Parts slot or a Designer slot.
+# Concrete placement expresses ownership. Repeatable calls reuse those bindings
+# for smaller same-specialty Parts and leaf helpers at every working level.
 _PARENTS = {
     "launch": None,
-    "parts": "launch",
-    "designer": "parts",
-    "implementer": "designer",
-    "support": "parts",
-    "question": "parts",
-    "measure": "parts",
-    "verify": "parts",
+    **{specialist: "launch" for specialist in PARTS_ROLES},
+    **{parts: specialist for specialist, parts in PARTS_ROLES.items()},
+    "question": "launch",
+    "support": "launch",
 }
 
 
@@ -57,7 +54,7 @@ def refinement_workflow_spec():
     episodes = []
     calls = []
     for name in _PARENTS:
-        role = ROLES["parts" if name == "launch" else name]
+        role = ROLES["designer" if name == "launch" else name]
         design = designs[name]
         binding = design.binding
         numeric = {}

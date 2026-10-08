@@ -1,0 +1,50 @@
+┌────────────────────────────────────────────────────────────| Episode Workspace |─────────────────────────────────────────────────────────────┐
+│ 1 Workflow Architecture                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────| Workflow structure |──────────────────┐ code_parts  [read-only]                                                            
+│▾ launch                                                 ^│ Episode contract and declared child calls.                                         
+│├─ ▾ materialization_implementer                          │  Summary   Declaration   Code   Evidence                                           
+││  ├─ ▾ materialization_parts                             │ ┌────────────────────────────────| Selected part |────────────────────────────────┐
+││  │  ├─ ↪ materialization_parts (recursive)              │ │Episode: code_parts                                                             ^│
+││  │  ├─ ↪ question                                       │ │Parent: implementer                                                              │
+││  │  ├─ ↪ support                                        │ │                                                                                 │
+││  │  └─ ▸ Details                                        │ │goal: Implement the assigned behavioral contribution within the                  │
+││  ├─ ↪ question                                          │ │enclosing code approach.                                                         │
+││  ├─ ↪ support                                           │ │                                                                                 │
+││  └─ ▸ Details                                           │ │Repeatable calls:                                                                │
+│├─ ▾ implementer                                          │ │  code_parts (recursive)                                                         │
+││  ├─ ▾ code_parts                                        │ │  question                                                                       │
+││  │  ├─ ↪ code_parts (recursive)                         │ │  support                                                                        │
+││  │  ├─ ↪ question                                       │ │                                                                                 │
+││  │  ├─ ↪ support                                        │ │Expand Details in the tree to inspect individual contract fields.                │
+││  │  └─ ▸ Details                                        │ │                                                                                 │
+││  ├─ ↪ question                                          │ │                                                                                 │
+││  ├─ ↪ support                                           │ │                                                                                 │
+││  └─ ▸ Details                                           │ │                                                                                 │
+│├─ ▾ measure                                              │ │                                                                                 │
+││  ├─ ▾ measure_parts                                     │ │                                                                                 │
+││  │  ├─ ↪ measure_parts (recursive)                      │ │                                                                                 │
+││  │  ├─ ↪ question                                       │ │                                                                                 │
+││  │  ├─ ↪ support                                        │ │                                                                                 │
+││  │  └─ ▸ Details                                        │ │                                                                                v│
+││  ├─ ↪ question                                          │ └─────────────────────────────────────────────────────────────────────────────────┘
+││  ├─ ↪ support                                           │ ┌────────────────────────────────| Target notes |─────────────────────────────────┐
+││  └─ ▸ Details                                           │ │Notes become available after this Architecture is materialized.                 ^│
+│├─ ▾ verify                                               │ │                                                                                 │
+││  ├─ ▾ verification_parts                                │ │                                                                                 │
+││  │  ├─ ↪ verification_parts (recursive)                 │ │                                                                                 │
+││  │  ├─ ↪ question                                       │ │                                                                                 │
+││  │  ├─ ↪ support                                        │ │                                                                                 │
+││  │  └─ ▸ Details                                        │ │                                                                                 │
+││  ├─ ↪ question                                          │ │                                                                                 │
+││  ├─ ↪ support                                           │ │                                                                                v│
+││  └─ ▸ Details                                           │ └─────────────────────────────────────────────────────────────────────────────────┘
+│├─ ▸ question                                             │ ┌───────────────────────────────| New target note |───────────────────────────────┐
+│├─ ▸ support                                              │ │Note>                                                                            │
+│└─ ▸ Details                                              │ │                                                                                 │
+│◆ Workflow overview                                       │ │                                                                                 │
+│◆ Workflow validation                                    v│ │                                                                                 │
+└──────────────────────────────────────────────────────────┘ └─────────────────────────────────────────────────────────────────────────────────┘
+<  Close   >                                                                                                                                    
+IterativeEpisodeRefiner | Designer root + specialist Parts | display-only draft                                                                 
+Ctrl-Tab/Shift-Ctrl-Tab view · Tab/Shift-Tab pane · arrows navigate · Enter open · Backspace return · Esc back/close                            

@@ -70,7 +70,18 @@ def _confirm_observations(session, evidence_rows):
             or attempt.body["payload"]["request_ref"] != observation.body["request_ref"]
         ):
             raise ValueError("final observation differs from its audited attempt")
-        if check.body["evidence_kind"] == "execution":
+        if check.body["evidence_kind"] == "checking_program":
+            from .authored_checks import verified_observation
+
+            if attempt.body["action"] != "observe_checker":
+                raise ValueError("final checking observation lacks its instrument execution")
+            resolved = reader.resolve_attempt(attempt)
+            with session.view() as view:
+                _, _, _, checked, outcome = verified_observation(view, attempt, resolved)
+            if (outcome != observation.body["outcome"]
+                    or canonical_json(checked["result"]) != canonical_json(observation.body["observed_value"])):
+                raise ValueError("final checking result differs from its saved execution")
+        elif check.body["evidence_kind"] == "execution":
             execution_ref = Ref.from_record(observation.body["execution_ref"])
             reference = observation.evidence_refs[0]
             execution = reader.runs.read_evidence(reference.owner_id)
@@ -202,7 +213,8 @@ def _observation_rows(view, observations):
                     Ref.from_record(binding.body["target_run_ref"]), "evaluation_run"
                 )
                 run_bindings[target_binding.artifact_id.value] = target_binding
-        observed_source = view.entry("evaluation_source", request_key).record
+        observed_source = (None if check.body["evidence_kind"] == "checking_program"
+                           else view.entry("evaluation_source", request_key).record)
         evidence_rows.append((
             check,
             observation,
@@ -270,12 +282,13 @@ def finalize_result(session, evidence):
         ]
         measure_refs = list(
             {
-                Ref.from_record(check.body["measure_ref"]): check.body["measure_ref"]
-                for check in checks
+                Ref.from_record(request.body["measure_ref"]): request.body["measure_ref"]
+                for observation in observations
+                for request in (view.read(Ref.from_record(observation.body["request_ref"]), "evaluation"),)
             }.values()
         )
         measure_admission_refs, control_rows = final_control_rows(
-            view, readiness["check_refs"]
+            view, readiness["check_refs"], measure_refs
         )
         admissions = [
             view.read(Ref.from_record(ref), "measure_admission")

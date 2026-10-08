@@ -40,7 +40,8 @@ from .episode_calls import build_repeatable_child
 from .models import FunctionImplementation, LibraryFunction, _freeze_json, _thaw_json
 from .reasoning import ReasoningGoalState, reasoning_credit_schema
 from .refinement_contract import (
-    DISPOSITIONS, REQUEST_PAYLOAD, RESULT_PAYLOAD, ROLES, child_report_contract,
+    DISPOSITIONS, REQUEST_PAYLOAD, RESULT_PAYLOAD, ROLES, ROLE_SPECIALIZATION,
+    child_report_contract,
 )
 from .refinement_transport import exchange
 from .registry import FunctionLibrary
@@ -240,7 +241,7 @@ def attenuate_child_authority(*, request, parent_request, invocation):
     # The complete scope check is host-owned. This check cannot grant authority;
     # the invocation guard below requires admission before constructing a child.
     parent_role = (
-        "parts"
+        "designer"
         if not parent_request.goal.parent_goal_id
         else (
             parent_request.goal.objective.get("role")
@@ -361,7 +362,7 @@ class RefinementUnit:
     async def child(self, ctx, selection):
         role = selection["role"]
         if role not in ROLES[self.source.role].children:
-            raise ValueError("specialists cannot create Designers or Parts owners")
+            raise ValueError("child is outside this Episode's declared role bindings")
         prepared = await self.host("prepare_child", {"selection": selection})
         if not self._proceed(prepared):
             return False
@@ -406,43 +407,21 @@ class RefinementUnit:
         self.child_proceed = self._proceed(received)
         return received
 
-    async def baseline(self, ctx):
-        if not self.context["baseline_required"]:
-            return False
-        await self.child(ctx, {"role": "verify", "purpose": "baseline"})
-        return True
-
-    async def parts(self, ctx):
-        if await self.baseline(ctx):
-            return
-        choice = await self.propose("choose_part")
-        if not self._proceed(choice):
-            return
-        selected = choice["child"]
-        if not await self.child(ctx, selected):
-            return
-        if selected["role"] in {"designer", "parts"}:
-            await self.child(ctx, {"role": "verify", "purpose": "composition"})
-
     async def designer(self, ctx):
-        if await self.baseline(ctx):
-            return
         design = await self.propose("design")
         if not self._proceed(design):
             return
-        if design["child"]["role"] != "implementer":
-            # A named prerequisite is its own measured unit. It cannot quietly
-            # become another design loop or count as implemented acceptance.
+        if "child" in design:
             await self.child(ctx, design["child"])
-            return
-        if await self.child(ctx, design["child"]):
-            await self.child(ctx, {"role": "verify", "purpose": "acceptance"})
 
     async def implementer(self, ctx):
-        if self.context["baseline_required"]:
+        if self.context["observe_before_work"]:
+            # Sample the unchanged candidate for local credit accounting. A
+            # blocked/unrunnable baseline is recorded evidence, not an edit gate.
             await self.evaluate({"purpose": "local"})
-            return
-        changed = await self.propose("change")
+        changed = await self.propose(
+            "materialize" if ROLE_SPECIALIZATION[self.source.role] == "materialization_implementer" else "change"
+        )
         if not self._proceed(changed):
             return
         if "child" in changed:
@@ -451,11 +430,23 @@ class RefinementUnit:
         await self.evaluate({"purpose": "local"})
 
     async def verify(self, ctx):
+        choice = await self.propose("verify")
+        if not self._proceed(choice):
+            return
+        if "child" in choice:
+            await self.child(ctx, choice["child"])
+            return
         await self.evaluate({"purpose": self.context["evaluation_purpose"]})
 
     async def investigate(self, ctx):
-        proposed = await self.propose(self.source.role)
+        specialization = ROLE_SPECIALIZATION[self.source.role]
+        proposed = await self.propose(specialization)
         if not self._proceed(proposed):
+            return
+        if "research_request_ref" in proposed:
+            await self.host("research", {"research_request_ref": proposed["research_request_ref"]})
+            return
+        if proposed.get("research_findings_recorded"):
             return
         if "child" in proposed:
             await self.child(ctx, proposed["child"])
@@ -463,21 +454,25 @@ class RefinementUnit:
         await self.evaluate(
             {
                 "purpose": "adequacy"
-                if self.source.role == "measure"
-                else self.source.role,
+                if specialization == "measure"
+                else specialization,
                 "proposal_ref": proposed["proposal_ref"],
             },
         )
 
 
-_UNIT_HANDLERS = {
-    "parts": RefinementUnit.parts,
+_SPECIALIST_HANDLERS = {
     "designer": RefinementUnit.designer,
     "implementer": RefinementUnit.implementer,
+    "materialization_implementer": RefinementUnit.implementer,
     "verify": RefinementUnit.verify,
     "support": RefinementUnit.investigate,
     "question": RefinementUnit.investigate,
     "measure": RefinementUnit.investigate,
+}
+_UNIT_HANDLERS = {
+    role: _SPECIALIST_HANDLERS[specialization]
+    for role, specialization in ROLE_SPECIALIZATION.items()
 }
 
 

@@ -11,6 +11,11 @@ from agent.duet_store import DuetConflictError
 from agent.episode_contracts import OpaqueId
 from function_library.epistemic_contract import exact
 from function_library.refinement_contract import CHILDREN as ROLES
+from function_library.refinement_contract import (
+    IMPLEMENTATION_ROLES,
+    PARTS_ROLES,
+    ROLE_SPECIALIZATION,
+)
 
 from .campaign_store import CampaignView
 from .evidence import ResolvedEvidence
@@ -67,12 +72,13 @@ def actor(view, attempt):
     if pending_decisions(view, invocation.key) and attempt.body["action"] not in {
         "observe",
         "observe_materialization",
+        "observe_checker",
         "observe_measure_control",
         "close_unit",
         "return_child",
     }:
         raise ValueError(
-            "ordinary repairs are suspended pending the Parts owner's decision"
+            "ordinary repairs are suspended pending the coordinating Episode's decision"
         )
     return invocation.record
 
@@ -83,6 +89,36 @@ def judgment_lineage(body):
     return content_id(
         "judgment", {"role": body["role"], "measure": body["local_measure_ref"]}
     ).value
+
+
+def implementation_scope(role, source_paths, materialization_targets):
+    """Capabilities belong to the specialist, independent of its model prompt."""
+    specialization = ROLE_SPECIALIZATION[role]
+    if specialization == "implementer" and materialization_targets:
+        raise ValueError("Code Implementer has source authority only")
+    if specialization == "materialization_implementer" and source_paths:
+        raise ValueError("MaterializationImplementer has plan authority only")
+    if specialization not in {"designer", "materialization_implementer"} and materialization_targets:
+        raise ValueError("this role cannot hold materialization edit authority")
+    if specialization not in {"designer", "implementer"} and source_paths:
+        raise ValueError("this role cannot hold Target Workflow source edit authority")
+
+
+def design_plan_for(view, assignment):
+    """Resolve the latest general approach through actual Designer ancestry."""
+    from .coordination import ancestors
+
+    designer = next(
+        (item for item in ancestors(view, assignment) if item.body["role"] == "designer"),
+        None,
+    )
+    if designer is None:
+        return None
+    plans = [
+        entry.record for entry in view.entries("plan")
+        if entry.record.body["assignment_ref"] == designer.ref.as_record()
+    ]
+    return plans[-1] if plans else None
 
 
 def _install_assignment(view, attempt, resolved):
@@ -102,6 +138,9 @@ def admit_assignment(view, attempt, resolved, assignment, invocation_id):
     from .report_contract import assigned_return_contract
 
     body = assignment.body
+    implementation_scope(body["role"], body["writable_paths"], body["materialization_targets"])
+    if not set(body["materialization_targets"]) <= set(resolved.references["policy"]["materialization_edit_targets"]):
+        raise ValueError("assignment names an unapproved materialization target")
     assigned_return_contract(view, assignment)
     require_assignment(view, resolved.references["policy"], assignment)
     invocation_id = OpaqueId(invocation_id).value
@@ -115,10 +154,10 @@ def admit_assignment(view, attempt, resolved, assignment, invocation_id):
     if root:
         if (
             view.entries("assignment")
-            or body["role"] != "parts"
-            or body["owning_parts_invocation_id"] != invocation_id
+            or body["role"] != "designer"
+            or body["coordinating_invocation_id"] != invocation_id
         ):
-            raise ValueError("campaign has exactly one root Parts assignment")
+            raise ValueError("campaign has exactly one root Designer assignment")
         if assignment.ref.as_record() != resolved.references["policy"].get(
             "root_assignment_ref"
         ):
@@ -137,25 +176,28 @@ def admit_assignment(view, attempt, resolved, assignment, invocation_id):
             )
         if body["role"] not in parent.body["allowed_child_bindings"]:
             raise ValueError("child binding was not approved")
-        for field in ("scope_requirement_keys", "owned_slice_keys", "writable_paths"):
+        for field in ("scope_requirement_keys", "owned_slice_keys", "writable_paths", "materialization_targets"):
             if not set(body[field]).issubset(parent.body[field]):
                 raise ValueError(f"child expands {field}")
         if not set(parent.body["protected_paths"]).issubset(body["protected_paths"]):
             raise ValueError("child removes a protected path")
         if body["authority_ref"] != parent.body["authority_ref"]:
             raise ValueError("new authority requires explicit parent admission")
-        owner = view.entry("invocation", body["owning_parts_invocation_id"])
-        expected_owner = (
-            attempt.body["invocation_id"]
-            if parent.body["role"] == "parts"
-            else parent.body["owning_parts_invocation_id"]
-        )
-        if owner.record.body["role"] != "parts" or owner.key != expected_owner:
-            raise ValueError("assignment must retain its actual Parts owner")
-        if body["role"] == "parts" and not set(body["owned_slice_keys"]) < set(
-            parent.body["owned_slice_keys"]
-        ):
-            raise ValueError("nested Parts requires a proper behavioral sub-scope")
+        owner = view.entry("invocation", body["coordinating_invocation_id"])
+        if owner.key != attempt.body["invocation_id"] or owner.record.ref != parent.ref:
+            raise ValueError("assignment must retain its actual coordinating parent")
+        if body["role"] in PARTS_ROLES.values():
+            if ROLE_SPECIALIZATION[body["role"]] != ROLE_SPECIALIZATION[parent.body["role"]]:
+                raise ValueError("Parts must retain their parent's specialization")
+            dimensions = ("contribution_requirement_keys", "writable_paths", "materialization_targets")
+            if any(not set(body[field]) <= set(parent.body[field]) for field in dimensions):
+                raise ValueError("Parts cannot expand their parent's assigned work")
+            if not any(set(body[field]) < set(parent.body[field]) for field in dimensions):
+                raise ValueError(
+                    "Parts requires a smaller requirement or concrete target scope. "
+                    "A single requirement may be divided by source paths or plan targets; "
+                    "perform same-scope work directly with this Episode's own capabilities."
+                )
         replacements = validate_replacements(
             view, attempt, parent, assignment, resolved.references["policy"]
         )
@@ -186,7 +228,7 @@ def _enter_child(view, attempt, resolved):
 
 
 def _return_child(view, attempt, resolved):
-    from .coordination import pending_decisions
+    from .coordination import pending_decisions, return_owned_conflicts
     from .reports import parent_report
 
     child = actor(view, attempt)
@@ -207,10 +249,17 @@ def _return_child(view, attempt, resolved):
     if len(parents) != 1 or parents[0].status != "waiting":
         raise ValueError("return has no suspended direct parent")
     parent = parents[0]
-    parent_status = (
-        "needs_parent_decision" if pending_decisions(view, parent.key) else "active"
+    conflicts, conflict_deltas = return_owned_conflicts(view, attempt, parent.record)
+    awaiting_ancestor = any(
+        item.body["scope_owner_invocation_id"] != parent.key for item in conflicts
     )
-    return [report], [
+    parent_status = (
+        "needs_parent_decision"
+        if pending_decisions(view, parent.key) or awaiting_ancestor
+        else "active"
+    )
+    return [report, *conflicts], [
+        *conflict_deltas,
         index("invocation", attempt.body["invocation_id"], child, "returned"),
         index("invocation", parent.key, parent.record, parent_status),
         index("report", report.artifact_id.value, report),
@@ -218,18 +267,21 @@ def _return_child(view, attempt, resolved):
 
 
 def _admit_plan(view, attempt, resolved):
+    from .measures import selected_measure_ref
     assignment = actor(view, attempt)
     if assignment.body["role"] != "designer":
-        raise ValueError("only a Designer proposes an implementation plan")
+        raise ValueError("only Designer proposes the general approach")
     exact(attempt.body["payload"], {"plan"}, "design plan submission")
     plan = proposed(view, attempt, "plan", "design_plan")
     body = plan.body
+    if not set(body["intended_materialization_targets"]) <= set(assignment.body["materialization_targets"]):
+        raise ValueError("plan expands the assignment's materialization targets")
     if (
         Ref.from_record(body["assignment_ref"]) != assignment.ref
         or body["open_need_refs"]
     ):
         raise ValueError(
-            "plan must belong to this Designer and resolve coding prerequisites"
+            "plan must belong to this Designer and state a resolved general approach"
         )
     if not set(body["intended_change_scope"]).issubset(
         assignment.body["writable_paths"]
@@ -250,17 +302,10 @@ def _admit_plan(view, attempt, resolved):
             "Keep preservation-only requirements separate; do not add them "
             "to requirement_mapping."
         )
-    if body["acceptance_measure_ref"] != assignment.body["acceptance_measure_ref"]:
+    if body["acceptance_measure_ref"] != selected_measure_ref(view, assignment, "acceptance_measure_ref"):
         raise ValueError("plan cannot redefine the parent's acceptance measure")
-    from .measures import require_implementation_measure
-
-    require_implementation_measure(
-        view,
-        assignment,
-        body["local_measure_ref"],
-        assignment.body["contribution_requirement_keys"],
-        resolved.references["policy"],
-    )
+    if body["local_measure_ref"] != selected_measure_ref(view, assignment, "local_measure_ref"):
+        raise ValueError("plan must use its owner's selected composite implementation measure")
     return [plan], [index("plan", plan.artifact_id.value, plan)]
 
 
@@ -268,49 +313,52 @@ def _apply_change(view, attempt, resolved):
     from .cycles import exact_revisit
 
     assignment = actor(view, attempt)
-    if assignment.body["role"] != "implementer":
-        raise ValueError("only RefineImplementation proposes code changes")
+    role = assignment.body["role"]
+    if role not in IMPLEMENTATION_ROLES:
+        raise ValueError("only implementation specialists submit candidate changes")
     exact(attempt.body["payload"], {"change"}, "change submission")
     change = proposed(view, attempt, "change", "change")
     body = change.body
+    specialization = ROLE_SPECIALIZATION[role]
+    if specialization == "implementer" and body["implementation_detail_operations"]:
+        raise ValueError("Code Implementer cannot submit materialization changes")
+    if specialization == "materialization_implementer" and body["file_operations"]:
+        raise ValueError("MaterializationImplementer cannot submit source changes")
+    if any(item["requirement_key"] not in assignment.body["contribution_requirement_keys"]
+           for item in body["findings"]):
+        raise ValueError("implementation findings must concern assigned requirements")
     if Ref.from_record(body["assignment_ref"]) != assignment.ref:
         raise ValueError("change belongs to another assignment")
     if Ref.from_record(body["expected_head_ref"]) != view.candidate.ref:
         raise DuetConflictError("edit is based on a stale candidate")
-    for conflict in view.entries("conflict"):
-        if (
-            conflict.status == "decision_required"
-            and assignment.ref.as_record()
-            in conflict.record.body["involved_assignment_refs"]
-        ):
-            raise ValueError(
-                "ordinary repairs are suspended pending the Parts owner's decision"
-            )
     plan_ref = Ref.from_record(body["design_plan_ref"])
-    plan = view.entry("plan", plan_ref.artifact_id.value).record
+    plan = design_plan_for(view, assignment)
     if (
-        plan.ref != plan_ref
-        or plan.body["assignment_ref"] != assignment.body["parent_assignment_ref"]
-        or plan.body["local_measure_ref"] != assignment.body["local_measure_ref"]
-        or plan.body["acceptance_measure_ref"]
-        != assignment.body["acceptance_measure_ref"]
+        plan is None
+        or plan.ref != plan_ref
+        or not set(assignment.body["contribution_requirement_keys"]) <= set(plan.body["requirement_mapping"])
     ):
-        raise ValueError("change requires its parent Designer's admitted plan")
+        raise ValueError("change requires its owning Designer's latest admitted general approach")
     materialization = None
     detail_paths = set()
     if body["implementation_detail_operations"]:
+        from .materialization_edits import target_source_paths
+
         edit = resolved.references["materialization_edit"]
         authorized_targets = set(
             resolved.references["policy"].get("materialization_edit_targets", ())
         )
-        if not set(edit["record"]["changed_targets"]).issubset(authorized_targets):
+        targets = set(edit["record"]["changed_targets"])
+        if not (targets <= authorized_targets
+                and targets <= set(assignment.body["materialization_targets"])
+                and targets <= set(plan.body["intended_materialization_targets"])):
             raise ValueError(
                 "materialization detail edit lacks exact frozen target authority"
             )
         detail_paths = set(edit["affected_source_paths"])
         if (
-            not detail_paths.issubset(assignment.body["writable_paths"])
-            or not detail_paths.issubset(plan.body["intended_change_scope"])
+            not detail_paths.issubset(target_source_paths(view, assignment.body["materialization_targets"]))
+            or not detail_paths.issubset(target_source_paths(view, plan.body["intended_materialization_targets"]))
             or detail_paths.intersection(assignment.body["protected_paths"])
         ):
             raise ValueError("plan edit escapes its assigned implementation scope")
@@ -348,7 +396,11 @@ def _apply_change(view, attempt, resolved):
         else:
             raise ValueError("invalid file operation")
     if not touched and materialization is None:
-        raise ValueError("change must change candidate content")
+        if not body["findings"]:
+            raise ValueError("empty implementation submission")
+        # Advisory findings are durable without fabricating a candidate revision,
+        # progress fact, or an early-return decision for the Episode.
+        return [change], []
     candidate = derived(
         view,
         attempt,
@@ -392,7 +444,7 @@ def _apply_change(view, attempt, resolved):
 
 def _install_check(view, attempt, resolved):
     assignment = actor(view, attempt)
-    if assignment.body["role"] not in {"parts", "designer", "measure"}:
+    if assignment.body["role"] not in {"designer", "measure"}:
         raise ValueError("implementers and verifiers cannot change their checks")
     exact(attempt.body["payload"], {"check"}, "check submission")
     check = proposed(view, attempt, "check", "check")
@@ -423,6 +475,8 @@ def admit_attempt(
     from .measure_admission import admit_measure
     from .evaluation_admission import bind_run, record_source
     from .measure_controls import bind_control, observe_control
+    from .authored_checks import observe as observe_checker
+    from .research import admit_sources, admit_findings
 
     if (
         attempt.invocation_id is None
@@ -455,11 +509,14 @@ def admit_attempt(
         "bind_evaluation_run": bind_run,
         "observe": observe,
         "observe_materialization": observe_materialization,
+        "observe_checker": observe_checker,
         "admit_lesson": admit_lesson,
         "close_unit": close_unit,
         "select_action": select_action,
         "coordinate_conflict": coordinate_conflict,
         "resolve_conflict": resolve_conflict,
+        "record_research_sources": admit_sources,
+        "admit_research_findings": admit_findings,
     }
     try:
         handler = handlers[attempt.body["action"]]

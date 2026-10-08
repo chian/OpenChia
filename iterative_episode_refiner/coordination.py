@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from function_library.epistemic_contract import exact
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .records import Ref
 from .state_machine import actor, admit_assignment, derived, index, proposed
@@ -29,6 +30,7 @@ def relevant_conflicts(view, assignment):
 
 
 def pending_decisions(view, invocation_id):
+    """Suspend descendants awaiting their owner, not its still-waiting ancestors."""
     assignment = view.entry("invocation", invocation_id).record
     path = {item.artifact_id.value for item in ancestors(view, assignment)}
     joints = {
@@ -42,8 +44,49 @@ def pending_decisions(view, invocation_id):
         for conflict in relevant_conflicts(view, assignment)
         if conflict.body["state"] == "decision_required"
         and conflict.body["scope_owner_invocation_id"] != invocation_id
+        and view.entry(
+            "invocation", conflict.body["scope_owner_invocation_id"]
+        ).record.artifact_id.value in path
         and joints.get(conflict.artifact_id.value) not in path
     )
+
+
+def return_owned_conflicts(view, attempt, parent):
+    """Carry unresolved coordination upward with the owning child's normal return."""
+    owned = [
+        entry for entry in view.entries("conflict")
+        if entry.status == "decision_required"
+        and entry.record.body["scope_owner_invocation_id"] == attempt.invocation_id.value
+    ]
+    if not owned:
+        return [], []
+    coordinator = next(
+        item for item in ancestors(view, parent)
+        if ROLE_SPECIALIZATION[item.body["role"]] not in {"question", "support"}
+    )
+    invocations = [
+        entry for entry in view.entries("invocation")
+        if entry.record.ref == coordinator.ref
+    ]
+    if len(invocations) != 1:
+        raise ValueError("returning conflict has no unique coordinating ancestor")
+    owner_id = invocations[0].key
+    records, deltas = [], []
+    for entry in owned:
+        conflict = entry.record
+        if not set(conflict.body["requirement_keys"]) <= set(coordinator.body["scope_requirement_keys"]):
+            raise ValueError("returning conflict exceeds its coordinating ancestor's scope")
+        revised = replace(
+            conflict,
+            body={**conflict.body, "scope_owner_invocation_id": owner_id},
+            predecessor_refs=(*conflict.predecessor_refs, conflict.ref, attempt.ref),
+        )
+        records.append(revised)
+        deltas.extend((
+            index("conflict", entry.key, conflict, "superseded"),
+            index("conflict", revised.artifact_id.value, revised, "decision_required"),
+        ))
+    return records, deltas
 
 
 def _owned_incident(view, attempt, reference):
@@ -53,10 +96,10 @@ def _owned_incident(view, attempt, reference):
     if (
         entry.record.ref != ref
         or entry.status != "decision_required"
-        or assignment.body["role"] != "parts"
+        or ROLE_SPECIALIZATION[assignment.body["role"]] in {"question", "support"}
         or entry.record.body["scope_owner_invocation_id"] != attempt.invocation_id.value
     ):
-        raise ValueError("only the active owning Parts may coordinate this incident")
+        raise ValueError("only the active owning Episode may coordinate this incident")
     return entry.record
 
 
@@ -82,12 +125,14 @@ def _affected_branches(view, conflict, owner):
     branches = {}
     for reference in conflict.body["involved_assignment_refs"]:
         path = ancestors(view, view.read(Ref.from_record(reference), "assignment"))
+        if path[0].ref == owner.ref:
+            continue
         for child, parent in zip(path, path[1:]):
             if parent.ref == owner.ref:
                 branches[child.artifact_id.value] = child
                 break
         else:
-            raise ValueError("incident has no affected branch under this Parts owner")
+            raise ValueError("incident has no affected branch under this coordinating Episode")
     return tuple(branches.values())
 
 
@@ -98,47 +143,30 @@ def coordinate_conflict(view, attempt, resolved):
         "joint assignment",
     )
     conflict = _owned_incident(view, attempt, payload["conflict_ref"])
-    if any(
-        entry.key == conflict.artifact_id.value
-        for entry in view.entries("coordination")
-    ):
-        raise ValueError("incident already has a joint assignment")
     owner = view.entry("invocation", attempt.invocation_id.value).record
+    for entry in view.entries("coordination"):
+        if entry.key != conflict.artifact_id.value:
+            continue
+        prior_ref = Ref.from_record(entry.record.body["joint_assignment_ref"])
+        if any(
+            row.record.ref == prior_ref and row.status != "returned"
+            for row in view.entries("invocation")
+        ):
+            raise ValueError("the current coordinated contribution must return first")
     assignment = proposed(view, attempt, "assignment", "assignment")
     checks = _checks_and_guards(view, conflict)
     requirements = {
         view.entry("check", key).record.body["requirement_key"] for key in checks
     }
     branches = _affected_branches(view, conflict, owner)
-    if assignment.body["role"] != "designer" or not requirements.issubset(
-        assignment.body["contribution_requirement_keys"]
-    ):
-        raise ValueError("joint Designer must accept both behaviors and their guards")
-    if set(
-        Ref.from_record(ref) for ref in assignment.body["supersedes_assignment_refs"]
-    ) != {item.ref for item in branches}:
-        raise ValueError(
-            "joint assignment must retain and supersede all affected branches"
-        )
-    # A renamed or newly minted measure is not permission to forget old credit.
-    # Semantic measure revisions need explicit predecessor admission; v1 joint
-    # coordination therefore retains the existing exact local/acceptance measures.
-    for branch in branches:
-        if any(
-            assignment.body[key] != branch.body[key]
-            for key in ("local_measure_ref", "acceptance_measure_ref")
-        ):
-            raise ValueError(
-                "joint repair must preserve the admitted measures and credit lineage"
-            )
+    if not requirements.intersection(assignment.body["contribution_requirement_keys"]):
+        raise ValueError("coordinated work must address an affected requirement or guard")
     records, deltas = admit_assignment(
         view, attempt, resolved, assignment, payload["invocation_id"]
     )
     branch_ids = {item.artifact_id.value for item in branches}
     for entry in view.entries("invocation"):
-        if entry.record.artifact_id.value in branch_ids:
-            continue  # already superseded by assignment admission
-        if any(
+        if entry.record.artifact_id.value in branch_ids or any(
             item.artifact_id.value in branch_ids
             for item in ancestors(view, entry.record)
         ):
@@ -146,7 +174,9 @@ def coordinate_conflict(view, attempt, resolved):
                 raise ValueError(
                     "affected child stages must return before coordination"
                 )
-            deltas.append(index("invocation", entry.key, entry.record, "superseded"))
+    # The owner may need contributions from several distinct specialties. Each
+    # receives its own grant; all original checks remain required for resolution.
+    # Ordinary explicit replacement still enforces its full succession contract.
     coordination = derived(
         view,
         attempt,

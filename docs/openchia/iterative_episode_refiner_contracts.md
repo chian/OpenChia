@@ -1,9 +1,11 @@
 # IterativeEpisodeRefiner: executable contracts
 
-Contract design version 1 — 2026-10-02. Goal 1 deliverable for review, subordinate
-to [design v3](iterative_episode_refiner_episodes.md). This specifies implementation
-behavior; it is not implemented behavior, executable workflow approval, a test
-receipt, or permission to begin Goals 2–7.
+The current ownership contract follows the
+[approved Designer-root design](iterative_episode_refiner_episodes.md).
+Designer coordinates four peer specialists, each with its own Parts binding.
+Question and Support are callable from every role. The sections below retain
+explicitly dated earlier evidence as history; those receipts do not prove the
+new topology or grant continuation under its changed role contract.
 
 The [repository mapping](iterative_episode_refiner_integration.md) identifies
 existing symbols, required extensions, storage, migration and file ownership.
@@ -12,14 +14,16 @@ an existing type where the mapping identifies one. Do not create a second regist
 
 ## 1. Fixed decisions
 
-1. RefineParts owns decomposition and selection. Only it creates DesignPart
-   assignments or a nested RefineParts scope. A nested scope is a proper subset
-   of its owner's requirements and authority, not a new independent campaign.
-2. DesignPart owns an approach through implementation and part acceptance.
-   RefineImplementation is its coding child. Neither may create design work
-   indirectly through another helper.
-3. Required preparation, implementation, acceptance and enclosing assessment are
-   ordered stages. A selector cannot skip a prerequisite by choosing a sibling.
+1. Designer owns the general approach and whole-workflow coordination.
+2. MaterializationImplementer, Code Implementer, Measure and Verify are peers
+   below Designer. Each performs its own work and can delegate a smaller
+   contribution to its task-specific Parts binding. Parts recurses only within
+   the same specialization.
+3. The next contribution is selected from current artifacts, evidence and the
+   goal. Recording an approach and executing its selected child share a measured
+   unit; the host does not prescribe materialization, implementation or
+   verification as an automatic sequence. Each operation still obeys its actual
+   data, authority and measurement prerequisites.
 4. All loops use host-admitted facts, registered numerical control and durable
    history. A stage does not contain a hidden substantive retry loop.
 5. Candidate source and implementation details are editable artifacts. The
@@ -105,7 +109,7 @@ Transport frame sequence numbers still start fresh for each actual Run.
 Required fields:
 
 ```text
-target_approval_ref, target_workflow_ref, initial_build_receipt_ref,
+target_approval_ref, target_workflow_ref, initial_build_inputs_ref,
 initial_materialization_ref, initial_candidate_ref,
 refiner_workflow_approval_ref, refiner_manifest_ref,
 requirement_catalog_ref, authority_ref, policy_bundle_ref,
@@ -142,19 +146,18 @@ Newly discovered implementation conditions may refine a root requirement, but
 new mandatory product goals require target approval. An uncovered or ambiguous
 requirement produces a decision request, not an invented definition of success.
 
-For recursive subdivision, use an admitted `ScopePartition` with parent scope,
-original requirement keys, named behavioral slices, their containment relation,
-coverage predicate and shared preservation conditions. A child owns a proper subset
-of that partition's slices, even if both children contribute to one original root
-requirement. This allows a complex single requirement to be decomposed without
-inventing new product goals or requiring two original requirement IDs. A proposed
-slice must have grounded containment/coverage; arbitrary renamed prose does not
-establish a smaller scope. Parent approval of a partition does not earn credit.
+Recursive subdivision currently narrows persisted requirement keys, source paths
+or Materialization Spec targets. It does not have a separate case-slice assignment
+field. A single requirement with no smaller editable grant is direct work at the
+current Episode; describing a narrower case in prose cannot establish a child
+scope. Components can still contain many cases and local functions. A future
+explicit slice contract would need actual containment, coverage and persistence
+before case-only child delegation becomes available. Decomposition earns no credit.
 
 ### 3.3 Assignment
 
 ```text
-assignment_id, parent_assignment_ref | null, owning_parts_invocation_id,
+assignment_id, parent_assignment_ref | null, coordinating_invocation_id,
 role, scope_requirement_keys[], contribution_requirement_keys[],
 scope_partition_ref, owned_slice_keys[],
 baseline_candidate_ref, goal_record_ref, authority_ref,
@@ -165,10 +168,14 @@ history_query_ref, return_projection_ref, control_bundle_ref,
 supersedes_assignment_refs[]
 ```
 
-`role` is exactly one of the seven roles in §5. RefineParts creates design and
-Parts assignments; a Designer creates implementation/support assignments only
-inside its own admitted scope. Host admission verifies both the caller and edge.
-The parent proposes the assignment; the host admits it under the frozen policy.
+`role` is one of the eleven concrete roles in §5. Designer is the root.
+It creates peer specialist assignments. Each specialist can create its own
+Parts assignment; each Parts can create a smaller assignment of that same
+specialization. Every role can create Question or Support assignments, including
+helpers themselves. Host admission verifies the caller, declared edge, scope
+attenuation and fixed measurement. The coordinating invocation is the direct
+parent, or the root's own invocation at the root; it is not implicitly a Parts
+owner. The parent proposes the assignment under the frozen policy.
 
 The assignment's baseline and criteria never change. Its current candidate
 observation may advance through admitted revisions. A materially different goal,
@@ -189,7 +196,7 @@ references internally. These use the existing `assign` operation. Host
 admission requires returned direct children with committed parent reports,
 unchanged authority, and retained scope, contributions, preservation requirements,
 owned slices and protected paths. Ordinary replacement retains the role; the
-existing Parts-owned joint-conflict operation remains the separate combining
+existing owner-scoped joint-conflict operation remains the separate combining
 route. Old assignment/invocation indexes become superseded in the same transaction
 that installs the ready successor. Creating the assignment earns no progress.
 
@@ -223,7 +230,7 @@ an exact return predicate. Guidance text cannot redefine any of these fields.
 
 ```text
 assignment_ref, approach_key, requirement_mapping[], assumption_refs[],
-proposed_component_refs[], intended_change_scope[], dependency_effects[],
+proposed_component_refs[], intended_change_scope[], intended_materialization_targets[], dependency_effects[],
 local_measure_ref, acceptance_measure_ref, preservation_measure_refs[],
 expected_observation_refs[], falsifying_observation_refs[], open_need_refs[]
 ```
@@ -253,7 +260,8 @@ FileOperation = {kind: add|replace|remove, logical_path, before_hash | null,
                  after_blob_ref | null}
 ```
 
-Only the implementer proposes a ChangeSet. Host admission resolves logical paths
+Code Implementer/Code Parts propose source changes; MaterializationImplementer/
+Materialization Parts propose structured plan changes. Host admission resolves logical paths
 inside its authorized candidate, verifies before hashes, forbids symlink/path
 escape, rejects protected-check/runtime/credential edits, and checks the current
 head by compare-and-swap. Removals preserve prior blobs and are audited.
@@ -386,9 +394,11 @@ policy; missing grounding remains an open requirement.
 EstablishMeasure may select or instantiate an admitted instrument and run adequacy
 observations. It cannot create an unchecked executable and certify it itself.
 When instrument code is needed, it returns `instrument_build_required` with a
-grounded input/output/control specification. Its owner uses DesignPart and
-RefineImplementation for that scoped build. A Designer may do this preparation
-within its admitted plan; new independent design work goes to RefineParts.
+grounded input/output/control specification. Its owner returns this cross-specialty
+need to Designer, which can commission scoped materialization or source work.
+Measure and Measure Parts also have their own checking-code workspace for direct
+authored programs, followed by independent review and executed controls; that
+route does not require inventing another Target Workflow build.
 
 The instrument-building coder needs an already grounded local measure, such as
 independent fixture expectations and protocol checks. If that foundation is also
@@ -458,11 +468,12 @@ not just omitted configuration:
   assignment without its local metric, but these preparation restrictions can
   leave no operation that can establish that metric.
 
-The missing step is parent-owned check design and admission before checker
-construction: the precise requirement being tested, expected and falsifying
-results, their justification, observation contract, controls, and limitations.
-It must use the existing Designer/Implementer, shared execution and evidence
-path; another runner would not solve this problem.
+The missing step identified then was parent-owned check design and admission
+before checker construction: the precise requirement being tested, expected and
+falsifying results, justification, observation contract, controls and limitations.
+Measure now owns direct authored checking components through its shared coding,
+review and isolated-control path; a separate approved checking workflow remains
+a distinct construction option.
 
 Decision confirmed by the user: parent-designed expectations may be admitted
 under the initial job grant after separate review against the original requirement
@@ -489,10 +500,11 @@ definition/review collections transactionally; no new store or replay path exist
 
 Review agreement is not evidence of Target Workflow correctness. Expected values
 retain their reasoning/review provenance, and passing finite controls does not
-prove general adequacy. Current construction covers registered observation
-predicates, not arbitrary new executable checker code. Existing checker-building
-and source-acquisition routes remain separate, explicitly authorized options.
-Old frozen campaigns are unchanged. Live one-start acceptance remains unverified.
+prove general adequacy. Measure and Measure Parts can author executable checking
+programs as well as select registered observation predicates. Existing separate
+checking-workflow and source-acquisition routes retain their own explicit
+authority. Older frozen campaign evidence does not establish the current
+Designer-root design's live acceptance.
 
 Source/plan construction mapping (implemented in source, not executed):
 
@@ -763,73 +775,62 @@ its own unit; its result does not allow the source to skip the required realizat
 path. Incomplete substantive work is continued by another measured Episode unit,
 not an internal unmeasured retry.
 
-### 5.1 RefineParts
+### 5.1 Designer
 
-Goal: satisfy its enclosing requirements on one consistent candidate.
+Goal: choose and revise the general approach until the approved Target Workflow
+meets its original requirements.
 
-Input additions: requirement/dependency frontier, active assignments, conflict
-reports, enclosing composition measure, guidance needs and relevant child receipts.
+The root receives current artifacts, exact candidate, whole-workflow composition
+measurement, previous approaches, relevant dependencies and returned findings.
+Its proposal contains an optional `plan`, a chosen `child` assignment and an
+optional `conflict`. A plan records general approach, requirement reasoning,
+source/materialization scope and dependency effects. The chosen child is one of
+the four peer specialists or a declared helper.
 
-Choices at unit start:
+Designer can record or revise an approach and then perform its selected
+contribution in the same measured unit. A null plan retains the current approach
+or allows investigation/measurement before an approach has been established.
+This avoids treating design prose alone as a substantive numerical sample.
+The selected peer is not fixed by the host. Current missing plans, source,
+checks or observations inform Designer's reasoning; they are not a prescribed
+materialize-then-code program.
 
-- **Assess:** admit an unchanged/current-candidate VerifyBehavior request -> receive
-  its admitted determination -> assess coverage of the enclosing requirements.
-- **Design a part:** choose/derive an eligible problem and grounded assignment ->
-  call DesignPart -> consume its report -> perform required enclosing assessment
-  of the affected requirements and dependencies.
-- **Delegate a proper sub-scope:** freeze contribution and preservation contract ->
-  call RefineParts -> consume its report -> perform enclosing composition assessment.
-- **Resolve a prerequisite:** call FindDesignSupport, ResolveQuestion or
-  EstablishMeasure for a named need -> admit the resulting decision change.
-- **Coordinate a conflict:** use §9's evidence to close/replace affected assignments
-  or record a justified reopening -> admit the coordination decision. New assignment
-  creation alone is zero yield; subsequent realization follows the same paths.
+Whole-workflow readiness uses independent composition evidence. Local source or
+materialization improvement does not establish readiness. Designer selects
+Verify when useful; automatic baseline verification and automatic post-edit
+verification are not strategy substitutes.
 
-The current parent-decision projection accepts only direct prerequisite children
-actually entered and returned in that parent's current unit. Question/support
-findings are re-read from current original observations and the parent's fixed
-need meanings; stale results, unresolved answers and inapplicable support cannot
-count as resolved prerequisites. Their decisions retain advisory scope and limits.
-These assessments are distinct from parent acceptance over verifier evidence.
+Designer coordinates returned cross-specialty needs within the approved
+architecture. It retains original requirements and history when changing the
+approach or combining work. Its result is the whole-scope determination and
+unresolved frontier, never a sum of child credit scores.
 
-The first unit assesses available baseline evidence and fills missing baseline
-observations. Already adequate evidence is reused, never relabeled as a repair.
-No Designer is required when the unchanged build already passes.
+### 5.2 Specialized Parts
 
-Only this role has design/Parts assignment authority. Its result is a scope report
-with enclosing acceptance, selected candidate and the unresolved frontier. A child
-claim or sum of child credit is not evidence of enclosing acceptance.
+Concrete roles are `materialization_parts`, `code_parts`,
+`measure_parts` and `verification_parts`. Their respective parents are
+MaterializationImplementer, Code Implementer, Measure and Verify. Each has
+its own goal, prompt, operations, measurement meaning and authority; only the
+Episode mechanics are shared.
 
-### 5.2 DesignPart
+Every Parts Episode performs scoped work directly or delegates a genuinely
+smaller contribution to the same Parts specialization. Requirements, source
+paths and materialization targets are the currently supported scope dimensions.
+A lone requirement with no smaller editable grant is direct work. A prose-only
+case subdivision is not a persisted assignment.
 
-Goal: realize an approach satisfying the assigned part, not produce a paper design.
+Materialization Parts uses the structured plan API. Code Parts uses source tools.
+Measure Parts authors/reviews checking components and runs adequacy controls;
+only the enclosing Measure publishes the commissioned composite. Verification
+Parts executes established checks and returns independent determinations.
+All retain their assigned fixed measurement, preservation obligations and
+history, and all can call Question or Support.
 
-Input additions: part semantics, enclosing contribution/preservation contract,
-specialty guidance, admitted alternatives and any existing approach/measure.
+Parts returns findings to its owner. Cross-specialty needs eventually reach
+Designer, which owns coordination across its peer specialists. Parts cannot
+change its specialization or invoke a different specialist to enlarge authority.
 
-Choices are an approach attempt or a named prerequisite. An approach attempt has
-this mandatory stage order:
-
-```text
-propose/choose approach
-  -> admit DesignPlan and adequate local/acceptance measures
-  -> admit implementation assignment
-  -> RefineImplementation
-  -> VerifyBehavior on the selected exact candidate
-  -> admit part determination and effects on enclosing requirements
-```
-
-If preparation needs a support child, return its measured prerequisite result and
-retain the pending approach; resume realization only after its admission. If the
-existing candidate already satisfies the part, verification replaces coding, with
-an explicit unchanged-candidate path.
-
-Local coding success never bypasses VerifyBehavior. A failed acceptance can start
-another approach attempt under the same part criterion. A deficient criterion,
-new design scope or coupled conflict returns to the Parts owner; the Designer
-does not create a new Designer to avoid that decision.
-
-### 5.3 RefineImplementation
+### 5.3 Code Implementer
 
 Goal: satisfy its frozen implementation measure and preservation conditions.
 
@@ -841,13 +842,15 @@ Choices:
 - **Attempt an edit:** propose ChangeSet -> host commits candidate/invalidation ->
   request local evaluation -> host admits observations, computes local progress,
   updates the shared conflict record and returns a unit receipt.
-- **Resolve a concrete uncertainty:** call ResolveQuestion -> admit the supported
-  distinction or a documented unresolved result; no invented edit is required.
+- **Delegate smaller source work:** assign Code Parts with narrowed scope,
+  fixed measure and a parent-owned return contract.
+- **Resolve an uncertainty or guidance gap:** call Question or Support through
+  the available preauthorized observations or explicit review instrument.
 - **Assess unchanged candidate:** local evaluation when existing evidence is
   insufficient; this can satisfy the assignment without a patch.
 
-This is the only target-coding role. It cannot modify its local measure or the
-parent's acceptance artifacts. Its result names candidate changes, exact local
+Code Implementer and Code Parts are the target-source coding roles. Neither can
+modify its local measure or the parent's acceptance artifacts. Its result names candidate changes, exact local
 results, preservation failures/unknowns, supported lessons and a requested parent
 decision if needed. It never claims enclosing acceptance.
 
@@ -858,10 +861,11 @@ Goal: fill a named guidance gap relevant to an admitted decision.
 Input additions: `need_key`, required topics/interfaces, applicable task conditions,
 allowed library catalog/revision, existing guidance and rejection history.
 
-Unit: choose a permitted library query -> obtain exact source records -> compare
-their declared interfaces, assumptions and relevant check/example evidence against
-the need -> propose a bounded support bundle -> host admit or reject applicability.
-No children. Reuse existing search/library machinery; this is not broad curation.
+Unit: choose among the preauthorized investigation needs and observations ->
+execute the selected existing instrument -> assess the fixed applicability
+predicate. Question and Support are available child calls with scoped assignments.
+This route does not provide arbitrary library search or retrieval simply because
+the helper is reachable.
 
 Output: selected source refs with supported applicability, unmet prerequisites,
 conflicting sources, rejected matches/reasons and uncovered needs. Free-text
@@ -878,7 +882,9 @@ discriminating observations, admissible evidence classes and resolution predicat
 
 Unit: select an admissible observation -> obtain it through host capabilities ->
 compare it with the fixed resolution predicate -> admit a supported answer or
-remaining uncertainty. No children and no target edits.
+remaining uncertainty. Question and Support are available child calls; target
+artifacts remain read-only. Explicit checking-program review uses the separate
+review assignment rather than an arbitrary accepted-answer operation.
 
 Output: supported answer, eliminated/remaining alternatives, counterevidence,
 applicability and exact effect on the caller's options. Discovering that evidence
@@ -930,7 +936,8 @@ ground that claim before the child is assigned.
 
 ### 5.6 EstablishMeasure
 
-Goal: establish an adequate instrument for specified behavior.
+Goal: own and publish one reusable composite checking function for the
+parent's explicit commission.
 
 Input additions: required claim/domain, available grounded oracles, adequacy
 criteria/controls, existing instrument candidates and required independence.
@@ -939,9 +946,17 @@ Unit: select/instantiate or revise an instrument proposal -> obtain missing
 grounding with ResolveQuestion if needed -> run declared adequacy observations ->
 host evaluate §4.2 -> admit usable instrument or exact remaining gap.
 
-Output: instrument ref and demonstrated discrimination/limits, rejected instrument
-refs and counterexamples, or instrument-build/grounding request. It does not edit
-the target and cannot silently relax the parent's original requirement.
+Measure can perform this work directly or commission Measure Parts for a smaller
+requirement subset. Components retain their own adequate cases and control
+evidence while the remainder is unfinished. `compose_components=true` composes
+admitted returned work without requiring a dummy new check. Measure Parts can
+compose scoped contributions; only Measure publishes the complete reusable
+function for its commission. Other Episodes reuse their assigned fixed function.
+The parent explicitly requests any revision.
+
+Output: the composite's discrimination/limits and outstanding requirement
+components, or an applicable instrument-build/grounding request. Measure and
+Measure Parts do not edit the target or silently relax original requirements.
 
 ### 5.7 VerifyBehavior
 
@@ -951,14 +966,25 @@ acceptance/composition contract. Refutation is useful evidence too.
 Input additions: exact candidate, parent-owned acceptance measure, required scope,
 known evidence, independence constraints and unperformed checks.
 
-Unit: choose an uncovered/stale required check or an admitted discriminating bundle
--> execute through the host -> admit determination and counterexamples. No repair,
-criterion changes or design children. A fresh model opinion is not an independent
-behavioral observation.
+Unit: select `evaluate: true` for the assigned checks or commission a smaller
+Verification Parts scope, Question or Support -> assess the resulting evidence.
+The root Designer's Verify uses composition; Verification Parts retains that
+exact inherited purpose. There is no target repair or criterion change, and a
+fresh model opinion is not an independent behavioral observation.
 
 Output: requirement determinations, evidence domain/limits, failures, unknowns,
 unperformed checks and applicability of reused evidence. `all_pass` requires all
 mandatory checks under one compatible candidate/measure/environment tuple.
+
+### 5.8 MaterializationImplementer
+
+Goal: realize Designer's approach in the commissioned Materialization Spec.
+The structured API admits exact before/after operations within assigned targets;
+source is read-only. Materialization Parts handles smaller granted requirements
+or targets through the same API. MaterializationImplementer retains consistency
+across the assembled plan. Question and Support are available through their
+declared observation/review capabilities. Missing source or inadequate checks
+return as findings for Designer's coordination rather than new write authority.
 
 ## 6. Concrete progress rules for all roles
 
@@ -973,9 +999,9 @@ not model-rated quality, line counts or numbers of subtasks.
 
 | Role | Credit-bearing fact, after admission | Zero-credit examples |
 | --- | --- | --- |
-| RefineParts | Newly demonstrated enclosing requirement or composition condition on a compatible candidate; supported decision-changing knowledge about that scope | Splitting/assigning parts; child scores; unverified local passes |
-| DesignPart | Newly demonstrated part milestone under the part measure with guards; part acceptance; grounded elimination/narrowing of an approach for a named decision | Design document; plausible approach; coder claiming success |
-| RefineImplementation | First attainment of a declared local milestone with required guards on that candidate; complete local acceptance; a separately admitted operative lesson | Patch size; compilation when behavior was required; restoring an old milestone |
+| Designer | Newly demonstrated whole-scope requirement or composition condition; supported decision-changing knowledge | Approach prose; assigning children; child scores; unverified local passes |
+| Specialized Parts | New scoped evidence under its unchanged specialist-family measure; valid verification failures count as determinations | Decomposition alone; renamed scopes; inherited old passes |
+| Code Implementer / Code Parts | First attainment of a declared local milestone with required guards on that candidate; complete local acceptance; a separately admitted operative lesson | Patch size; compilation when behavior was required; restoring an old milestone |
 | FindDesignSupport | First evidence-backed closure of a named guidance need, or a supported conflict/exclusion that changes its usable choices | More hits; another similar example; a prose relevance claim |
 | ResolveQuestion | First supported resolution of a named distinction, including decisive counterevidence, that changes the declared decision state | Confidence; repeated answers; restating a parent hypothesis |
 | EstablishMeasure | First independently demonstrated adequacy milestone or usable instrument; a supported counterexample removing an invalid instrument | More assertions; passing its own self-generated expectations |
@@ -1149,8 +1175,8 @@ for a decisive observation. Publication verifies the exact decision reference.
 The parent's requested `open_decisions` section supplies gap kind, meaning and
 affected requirement locations. The original request remains in the audit record.
 Host-derived
-availability also prevents automatic baseline verification from repeatedly
-selecting a route already known to be unavailable. Resolving that prerequisite
+availability gives Designer and the relevant specialist the observed gaps
+when selecting their next action. Resolving that prerequisite
 does not permit mutation of the active assignment's criteria. General instrument
 execution remains unfinished; this handling does not create another runner.
 
@@ -1407,13 +1433,13 @@ admission/control results, review reasoning, and actionable blockers respectivel
 The parent report supplies only its declared measurements and sections. It does
 not append child histories, full admissions, source packages or provenance hashes.
 
-Every child path declares a return. Parts explicitly requests a child return and
-the subsequent `verification_return_contract`; Designer separately requests
-`implementation_return_contract` and `verification_return_contract`. Their
-automatic baseline-verification calls use the requesting Episode's declaration in
-`function_library/refinement_contract.py`. EstablishMeasure's automatic Question
-call requests check-review criteria, counterexamples, limitations and open
-decisions. Duet's root return requests whole-workflow acceptance, changes and
+Every child path declares its own `return_contract`. Designer chooses the
+information needed from each selected specialist. Each specialist and Parts
+owner does the same for its scoped children; helper-to-helper calls also declare
+a return. There is no second implicit verification return attached to a source
+assignment. Measure's Question review for a proposed checking program requests
+check-review criteria, counterexamples, limitations and open decisions.
+Duet's root return requests whole-workflow composition acceptance, changes and
 outstanding decisions. These declarations exist before each call.
 
 `MODEL_INPUT_COMPONENTS` in that same Episode contract module declares working
@@ -1511,14 +1537,17 @@ RepeatableCallBinding = {
 ```
 
 Existing nodes form the finite declared implementation/template tree. A binding
-can invoke an exact node/template through its declared slot; the only recursive
-binding in this refiner is RefineParts -> the same RefineParts template. Child
-roles below that template retain their exact implementations and permitted edges.
-Actual invocations have distinct paths and controllers, not new workflow designs.
+can invoke an exact node/template through its declared slot. Each specialized
+Parts binding can recurse to its same concrete template. Every role, including
+Question and Support, declares both helper calls, so helper recursion also uses
+ordinary approved repeatable bindings. Actual invocations have distinct paths
+and controllers, not new workflow designs.
 
-Admission requires: correct caller role; a proper subset of the owning scope's
-admitted behavioral slices; inherited preservation and history; no equivalent active assignment; no
-dependency cycle concealed inside the delegated scope; and no added authority.
+Admission requires the correct caller and declared edge, inherited preservation,
+history and unchanged measurement, and no added authority. A Parts child narrows
+the supported requirement/path/materialization-target scope; prose-only case
+slices are not supported. Equivalent active work and concealed dependency cycles
+do not become progress merely through a new invocation identity.
 The selected subset is task input under the approved admission predicate, not
 permission to change a template, stage graph or numerical component.
 
@@ -1571,9 +1600,10 @@ vector alone is only `suspected`, not an enforceable exclusion.
 2. An observed cross-assignment opposing regression or conflict outside the active
    assignment's scope becomes `decision_required`. Block further ordinary repairs
    for those involved assignments at the next safe unit boundary.
-3. Compute the nearest ancestor RefineParts whose admitted slices contain all
-   affected behavior and whose authority can cover the repair. If none exists,
-   the root returns a specification/authority gap.
+3. Identify the coordinating ancestor whose requirement scope and granted
+   operations cover the repair. Within a specialty this can be its owner;
+   cross-specialty coordination belongs to Designer. If no approved scope
+   covers the change, the root reports the specification/authority gap.
 4. A host-authenticated decision-return receipt unwinds the active child stages to
    that owner. Each intermediate parent persists its pending stage and forwards the
    typed incident, without inventing an alternative Designer or continuing coding.
@@ -1597,7 +1627,7 @@ possible through the owner; merely changing identifiers does not reopen work.
 | --- | --- | --- | --- |
 | c0 | pass | fail | Baseline evidence; B is open |
 | c1 after B repair | fail | pass | A regression recorded; local guard blocks a successful repair claim |
-| c2 after A repair | pass | fail | Comparable opposing regressions; return to common Parts owner |
+| c2 after A repair | pass | fail | Comparable opposing regressions; return to coordinating owner |
 | c3 after joint repair | pass | pass | Joint acceptance is new; restoration of A alone is not |
 
 If c2 has not rechecked B, its state is `stale/unknown`, not `fail`, and no observed
@@ -1763,11 +1793,11 @@ still update those ancestors. Candidate evaluation Runs hold no such handle.
 | get_context | Any admitted role | Scoped §7.2 projection, eligibility and pending receipts |
 | read_reference | Any admitted role | Authorized typed artifact/projection with hash and lineage; no arbitrary host path |
 | select_action | Any admitted role | Permitted action/stage or host denial with reason/evidence |
-| propose_assignment | Parts; Designer for implementation/support; other permitted support parents | Host-admitted exact child request or deficits; §5/§8 edge restrictions |
+| propose_assignment | Designer for peer specialists; each specialist for its own Parts; every role for Question/Support | Host-admitted exact child request or deficits; §5/§8 edge restrictions |
 | enter_child | Registered staged adapter for an admitted caller/slot | Validate child assignment and pending stage; persist invocation/path and scoped handle; suspend caller selection |
 | return_child | Registered staged adapter at that invocation boundary | Verify committed child return/disposition, derive projection and resume the recorded parent stage or propagate its decision return |
 | submit_record | Any admitted role, only its allowed proposal schemas | Validated design/guidance/answer/measure/lesson proposal; admission is separate from model authorship |
-| apply_change | RefineImplementation only | Candidate CAS commit plus invalidations, or explicit rejection |
+| apply_change | Code Implementer/Code Parts for source; MaterializationImplementer/Materialization Parts for plans | Candidate CAS commit plus invalidations, or explicit rejection |
 | request_evaluation | Roles with that stage/capability | Durable evaluation handle; no arbitrary shell/network/process capability |
 | read_evaluation | Requester/authorized owner | Pending status or committed result bound to candidate/measure |
 | close_unit | Any admitted role | Host re-derives delta, facts, yield, continuation, conflict return and receipt |
@@ -1859,7 +1889,7 @@ to ordinary Runs lacking the capability.
 
 ## 13. Goal 1 review and handoff
 
-This document makes concrete the seven roles' inputs, stages, permitted children,
+This document describes the concrete roles' inputs, stages, permitted children,
 measures, admission, progress, return/recovery and information boundaries. It also
 identifies three shared gaps that must actually be implemented: staged child
 continuations, approved repeatable Parts calls, and authenticated incomplete

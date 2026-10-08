@@ -150,7 +150,7 @@ def seed_broken_recipe(campaign, python_version):
         "file_operations": [{"kind": "add", "logical_path": ENVIRONMENT_RECIPE_PATH,
                              "before_hash": None,
                              "after_blob_hash": campaign.builds.put_blob(json.dumps(recipe).encode()).value}],
-        "implementation_detail_operations": [], "rationale_claim_refs": [],
+        "implementation_detail_operations": [], "rationale_claim_refs": [], "findings": [],
     })
     campaign.perform("apply_change", {"change": change.as_record()})
 
@@ -158,7 +158,7 @@ def seed_broken_recipe(campaign, python_version):
 async def coding_exchange(campaign, assignment, selected_binding):
     session = campaign.session
     root = session.calls[session.root_id]
-    path = (*root.path, (session.nodes["designer"].grain_name, "design"),
+    path = (*root.path,
             (session.nodes["implementer"].grain_name, campaign.current_invocation.value))
     wire_path = [{"grain": grain, "key": key} for grain, key in path]
     episode_id = protocol.episode_id_for_path(session.registration.logical_run_id, wire_path)
