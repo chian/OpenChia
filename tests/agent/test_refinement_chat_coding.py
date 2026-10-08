@@ -150,11 +150,27 @@ def test_resume_restores_the_saved_conversation(tmp_path) -> None:
     assert [m["content"] for m in sent if m["role"] == "user"] == ["one", "two"]
 
 
-def test_step_budget_ends_a_runaway_turn(tmp_path) -> None:
-    looping = [[_chunk(tool=(0, f"t{i}", "list_files", "{}")), _chunk(finish="tool_calls")] for i in range(3)]
-    session, _ = _session(tmp_path, ScriptedGateway(looping), max_steps=3)
+def test_step_budget_ends_the_turn_without_failing_the_run(tmp_path) -> None:
+    # A CodingTurn error stops the owning Run (iterative_episode_refiner/coding.py);
+    # exhausting the budget must instead hand the edits so far to host admission.
+    looping = [[_chunk(tool=(0, f"t{i}", "list_files", "{}")), _chunk(finish="tool_calls")] for i in range(5)]
+    gateway = ScriptedGateway(looping)
+    session, _ = _session(tmp_path, gateway, max_steps=5)
     turn = session.run_turn("go")
-    assert turn.error and "exceeded 3 model steps" in turn.error
+    assert turn.error is None and not turn.interrupted
+    assert "5-step budget" in turn.final_text and turn.native_result["finish"] == "step_budget"
+    # The model was told to write before the budget ran out.
+    warned = [m for m in gateway.requests[-1]["messages"] if m["role"] == "user" and "model steps remain" in m["content"]]
+    assert warned
+
+
+def test_step_budget_is_configurable(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENCHIA_CODING_MAX_STEPS", "7")
+    session, _ = _session(tmp_path, ScriptedGateway([]))
+    assert session._max_steps == 7
+    monkeypatch.setenv("OPENCHIA_CODING_MAX_STEPS", "nonsense")
+    session, _ = _session(tmp_path, ScriptedGateway([]))
+    assert session._max_steps == 300
 
 
 def test_wrong_route_is_rejected(tmp_path) -> None:
