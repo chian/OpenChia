@@ -1,0 +1,165 @@
+"""Implementer coding over a plain chat-completions route (e.g. ANL Argo).
+
+Regression for #61: after #66 every /build reaches the Code Implementer, and a
+Duet pinned to an OpenAI-compatible ``chat_completions`` route failed with
+"No Implementer coding adapter supports the owning Duet's pinned route".
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from agent.refinement_coding import coding_backend
+from agent.transports.refinement_chat import ChatCompletionsCodingSession
+
+
+def _binding(api_mode: str = "chat_completions"):
+    return SimpleNamespace(api_key="test-key", record={"route": {
+        "api_mode": api_mode, "model": "Claude Opus 5", "provider": "custom",
+        "base_url": "https://gateway.test/v1",
+    }})
+
+
+def _chunk(*, content=None, tool=None, finish=None):
+    calls = None
+    if tool is not None:
+        index, call_id, name, arguments = tool
+        calls = [SimpleNamespace(index=index, id=call_id, type="function",
+                                 function=SimpleNamespace(name=name, arguments=arguments))]
+    delta = SimpleNamespace(role="assistant", content=content, tool_calls=calls)
+    return SimpleNamespace(id="c", model="Claude Opus 5", usage=None,
+                           choices=[SimpleNamespace(index=0, delta=delta, finish_reason=finish)])
+
+
+class ScriptedGateway:
+    """Streams one scripted assistant turn per create() call, like Argo does."""
+
+    def __init__(self, turns):
+        self.turns = list(turns)
+        self.requests = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.requests.append(kwargs)
+        assert kwargs.get("stream") is True, "the adapter must stream (Argo refuses long non-streamed calls)"
+        assert {tool["function"]["name"] for tool in kwargs["tools"]} >= {"read_file", "write_file", "run_command"}
+        return iter(self.turns.pop(0))
+
+
+def _session(tmp_path, gateway, events=None, **kwargs):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(exist_ok=True)
+    return ChatCompletionsCodingSession(
+        binding=_binding(), workspace=workspace, state_dir=tmp_path / "state",
+        instructions="You are the coding capability.", resume_thread_id=kwargs.pop("resume", None),
+        on_event=(events.append if events is not None else (lambda _event: None)),
+        client_factory=lambda route, key: gateway, **kwargs,
+    ), workspace
+
+
+def test_backend_selects_the_chat_adapter_for_chat_completions_routes() -> None:
+    assert coding_backend(_binding()) is ChatCompletionsCodingSession
+    with pytest.raises(ValueError):
+        coding_backend(_binding("bedrock_converse"))
+
+
+def test_turn_writes_files_through_tool_calls_and_returns_final_text(tmp_path) -> None:
+    gateway = ScriptedGateway([
+        [_chunk(tool=(0, "t1", "write_file", json.dumps({"path": "pkg/mod.py", "content": "X = 1\n"}))),
+         _chunk(finish="tool_calls")],
+        [_chunk(tool=(0, "t2", "run_command", json.dumps({"command": "cat pkg/mod.py"}))),
+         _chunk(finish="tool_calls")],
+        [_chunk(content="Wrote pkg/mod.py and checked it."), _chunk(finish="stop")],
+    ])
+    events = []
+    session, workspace = _session(tmp_path, gateway, events)
+    thread = session.ensure_started()
+    turn = session.run_turn("Work on the assignment.")
+    assert turn.error is None and not turn.interrupted
+    assert turn.final_text == "Wrote pkg/mod.py and checked it."
+    assert turn.tool_iterations == 2 and turn.thread_id == thread
+    assert (workspace / "pkg/mod.py").read_text(encoding="utf-8-sig") == "X = 1\n"
+    command_result = gateway.requests[2]["messages"][-1]
+    assert command_result["role"] == "tool" and "exit 0" in command_result["content"] and "X = 1" in command_result["content"]
+    kinds = [event["kind"] for event in events]
+    assert kinds[0] == "turn_started" and kinds[-1] == "turn_completed" and "item_completed" in kinds
+    assert (tmp_path / "state" / f"chat-{thread}.json").is_file()
+
+
+def test_paths_outside_the_workspace_are_refused(tmp_path) -> None:
+    outside = tmp_path / "secret.txt"
+    outside.write_text("do not read", encoding="utf-8")
+    gateway = ScriptedGateway([
+        [_chunk(tool=(0, "t1", "read_file", json.dumps({"path": "../secret.txt"}))), _chunk(finish="tool_calls")],
+        [_chunk(tool=(0, "t2", "write_file", json.dumps({"path": "/tmp/escape.txt", "content": "x"}))),  # no-tmp: ok — escape attempt under test, refused by the adapter
+         _chunk(finish="tool_calls")],
+        [_chunk(content="done"), _chunk(finish="stop")],
+    ])
+    session, _ = _session(tmp_path, gateway)
+    session.run_turn("go")
+    outputs = [m["content"] for m in gateway.requests[2]["messages"] if m["role"] == "tool"]
+    assert all("outside the coding workspace" in output for output in outputs)
+    assert "do not read" not in json.dumps(gateway.requests[2]["messages"])
+
+
+def test_edit_requires_a_unique_match(tmp_path) -> None:
+    gateway = ScriptedGateway([
+        [_chunk(tool=(0, "t1", "edit_file", json.dumps({"path": "a.py", "old_string": "x", "new_string": "y"}))),
+         _chunk(finish="tool_calls")],
+        [_chunk(content="ok"), _chunk(finish="stop")],
+    ])
+    session, workspace = _session(tmp_path, gateway)
+    (workspace / "a.py").write_text("x = x\n", encoding="utf-8")
+    session.run_turn("go")
+    assert "occurs 2 times" in gateway.requests[1]["messages"][-1]["content"]
+    assert (workspace / "a.py").read_text(encoding="utf-8-sig") == "x = x\n"
+
+
+def test_provider_failure_is_a_visible_error_not_a_crash(tmp_path) -> None:
+    class Broken:
+        chat = SimpleNamespace(completions=SimpleNamespace(create=lambda **_: (_ for _ in ()).throw(RuntimeError("500 upstream"))))
+
+    events = []
+    session, _ = _session(tmp_path, Broken(), events)
+    turn = session.run_turn("go")
+    assert turn.error and "500 upstream" in turn.error
+    assert any(event["kind"] == "api_error" for event in events)
+
+
+def test_interrupt_before_turn_returns_interrupted(tmp_path) -> None:
+    session, _ = _session(tmp_path, ScriptedGateway([]))
+    session.ensure_started()
+    session.request_interrupt()
+    assert session.run_turn("go").interrupted
+
+
+def test_resume_restores_the_saved_conversation(tmp_path) -> None:
+    first = ScriptedGateway([[_chunk(content="first"), _chunk(finish="stop")]])
+    session, _ = _session(tmp_path, first)
+    thread = session.ensure_started()
+    session.run_turn("one")
+    session.close()
+    second = ScriptedGateway([[_chunk(content="second"), _chunk(finish="stop")]])
+    resumed, _ = _session(tmp_path, second, resume=thread)
+    resumed.run_turn("two")
+    sent = second.requests[0]["messages"]
+    assert [m["content"] for m in sent if m["role"] == "user"] == ["one", "two"]
+
+
+def test_step_budget_ends_a_runaway_turn(tmp_path) -> None:
+    looping = [[_chunk(tool=(0, f"t{i}", "list_files", "{}")), _chunk(finish="tool_calls")] for i in range(3)]
+    session, _ = _session(tmp_path, ScriptedGateway(looping), max_steps=3)
+    turn = session.run_turn("go")
+    assert turn.error and "exceeded 3 model steps" in turn.error
+
+
+def test_wrong_route_is_rejected(tmp_path) -> None:
+    with pytest.raises(ValueError):
+        ChatCompletionsCodingSession(
+            binding=_binding("codex_responses"), workspace=tmp_path, state_dir=tmp_path / "s",
+            instructions="", resume_thread_id=None, on_event=lambda _e: None,
+        )

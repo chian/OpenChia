@@ -99,6 +99,10 @@ def coding_backend(binding) -> type[CodingSession]:
         from agent.transports.refinement_claude import ClaudeCodingSession
 
         return ClaudeCodingSession
+    if binding.record["route"]["api_mode"] == "chat_completions":
+        from agent.transports.refinement_chat import ChatCompletionsCodingSession
+
+        return ChatCompletionsCodingSession
     raise ValueError(
         "No Implementer coding adapter supports the owning Duet's pinned route; "
         "no alternate account or provider was selected."
