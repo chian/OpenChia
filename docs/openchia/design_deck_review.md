@@ -13,7 +13,7 @@ It was written against `main` after #66 (refiner-driven construction) and #67 (c
 - *Diverges*: they take different positions, or one is out of date.
 - *Deck only* / *Docs only*: no counterpart on the other side.
 
-The action-item checklist is in §7.
+The action-item checklist is in §8.
 
 ## Contents
 
@@ -30,8 +30,9 @@ The action-item checklist is in §7.
    - 6.4 [What we lose](#64-what-we-lose)
    - 6.5 [How replay relates to CWL units](#65-how-replay-relates-to-cwl-units)
    - 6.6 [Assessment](#66-assessment)
-7. [Action items](#7-action-items)
-8. [Appendix: evidence from the 2026-10-07 bring-up](#8-appendix-evidence-from-the-2026-10-07-bring-up)
+7. [Execution backends: containers vs systemd](#7-execution-backends-containers-vs-systemd)
+8. [Action items](#8-action-items)
+9. [Appendix: evidence from the 2026-10-07 bring-up](#9-appendix-evidence-from-the-2026-10-07-bring-up)
 
 ---
 
@@ -133,7 +134,7 @@ The deck's key concepts, quoted:
 | D4 | **Specialists** | Three: MaterializationImplementer, Measure, CodeImplementer | **Four**, adding **Verify** with Verification Parts (`iterative_episode_refiner_episodes.md:3-36`, `function_library/refinement_contract.py:47-52`) | Update the slide. Verify is also the natural home for slide 35's "EvidenceGather" |
 | D5 | **Build stages** | Builder = pre-iterative build work (initial Materialization Spec, initial build), then the refiner | After #66 there is no pre-iterative pass: the refiner constructs from the approved Architecture (`iterative_episode_refiner/construction.py:1-6`). ADR 0007:31-33, `OPENCHIA_ARCHITECTURE.md:14-39`, `duet_owned_episode_design.md` and `codebase_design_draft.md` still describe the old flow | Update the slide **and** those docs |
 | D6 | **Command flow** | `/approve` launches `/build`; `/build` auto-runs; `/build continue` is a tester; `/refiner` starts refinement | `/approve` records approval only (`openchia_cli/openchia_commands.py:379-393`). `/build` is explicit and refinement runs *inside* it (ADR 0007). `/build continue` resumes an interrupted job (`build_continuation.md:3-13`). `/refiner` is a read-only viewer (`refiner_terminal_viewer.md:3-5`). The deck omits `/run`, `/code`, `/launch`, `/decline`, `/stop` and `openchia test` | Update the slide |
-| D7 | **Containers** | "Runs are run in a container" (slide 17) vs "Does it have one? No" (slide 37) | Both are half-right. A container executor exists (`episode_runtime/container_executor.py`), and the 2026-10-07 successful Run used it. On Linux the selector prefers systemd when available (`episode_runtime/executor_selection.py:31-34`). ADR 0005 makes containers the decided default, but that switch is pending. ADR 0010 adds per-candidate environments | Update slides 17 and 37 |
+| D7 | **Containers** | "Runs are run in a container" (slide 17) vs "Does it have one? No" (slide 37) | Both are half-right. A container executor exists (`episode_runtime/container_executor.py`), and the 2026-10-07 successful Run used it. On Linux the selector prefers systemd when available (`episode_runtime/executor_selection.py:31-34`). ADR 0005 makes containers the decided default; [#70](https://github.com/chian/OpenChia/pull/70) implements the switch (§7). ADR 0010 adds per-candidate environments | Update slides 17 and 37 |
 | D8 | **Replay** | Run old outputs through new code; test credit, rarefaction and thresholds counterfactually; partial branch replay, with or without new LLM calls (slide 20) | Recorded playback without LLM calls, numerical replay and branch scoping exist (`unified_episode_test_harness_design.md:880-905`). But replay **requires the recording's exact admitted build**, and counterfactual controller settings on a changed build are unsupported (`…:905-917`) | **Decide.** Adopt the deck's use case as a requirement (see §6.5) or narrow the slide |
 | D9 | **Nesting semantics** | Nest for ordered processes (slide 33) | Nest by outcome ownership and scope narrowing. "A serial stage need not be a new Episode"; ordered steps are prerequisites (`iterative_episode_refiner_principles.md:122-132`) | Update the slide. Also fix principle 14 ("Parts … sit above the Designer"), which `iterative_episode_refiner_episodes.md:10-11` supersedes |
 | D10 | **Code Implementer scope** | Should be 100% code writing (slide 35) | It also samples local checks, can request `evaluate=true` and edits the environment recipe (`iterative_episode_refiner_episodes.md:195-199, 225-227`) | Discuss. This is a design choice, not drift |
@@ -144,7 +145,7 @@ The deck's key concepts, quoted:
 
 **Deck only (no written counterpart):**
 - 100–1000× child→parent compression (slide 15). The docs give only real 6–8 KB report sizes.
-- "80% of errors are in the CodeImplementer" (slide 35). The 2026-10-07 evidence (§8) instead puts the dominant defect class in **generated wiring**, which the builder emitted, not the Code Implementer.
+- "80% of errors are in the CodeImplementer" (slide 35). The 2026-10-07 evidence (§9) instead puts the dominant defect class in **generated wiring**, which the builder emitted, not the Code Implementer.
 - A standalone `RunController` (slide 17). Runs go through `/run` and `RunExecutor`, and ADR 0005:51-52 forbids a refiner-specific runner.
 - Parallel Parts (slide 30), a wish. `method_loop` has no concurrency.
 - Hermes "learning" (slide 39). Global learning promotion is rejected pending approval (`epistemic_yield.md:40-41`).
@@ -260,17 +261,64 @@ Net: the deck's replay vision is hard to deliver on emitted modules, and it larg
 - **Do in parallel:** GoWe hardening (GoWe#277), which pays off for GoWe's own deployments regardless.
 - **Decide later, on data:** moving the executor, builder or planner to Go. The cross-language hash chain is the largest single cost and should be taken on only if coverage is high.
 
-## 7. Action items
+## 7. Execution backends: containers vs systemd
+
+### Why containers are supported at all
+
+Containers came in with [#7](https://github.com/chian/OpenChia/pull/7) (2026-10-02), *"container Run executor so Episodes run on macOS"*. Until then a Run could only be launched through `systemd-run` on Linux. macOS has no systemd, and a Mac's Python can't be the Linux worker's interpreter, so OpenChia couldn't execute Episodes on a Mac at all.
+
+#7 runs the **identical worker** inside an OCI container (Docker Desktop, Rancher Desktop, Podman), with the same protocol, attestation and evidence chain. It kept systemd as the Linux default. The 2026-10-07 successful Run used this executor.
+
+### What was decided afterwards
+
+[ADR 0005](../adr/0005-target-workflow-execution-backends.md) (2026-10-03, Accepted):
+- The requirement is an **execution boundary**, not containers: "containers are one implementation, not the definition of that boundary"; a systemd sandbox provides it on Linux.
+- **Both backends are supported. Containers are the default** on Linux and macOS; systemd is an explicitly selectable option. "The presence or version of host `systemd-run` must not select the normal Run backend."
+- **No silent fallback.** The selected backend and its effective environment are recorded in Run evidence.
+
+[ADR 0006](../adr/0006-support-systemd-255.md) supports systemd 255 (Ubuntu 24.04) without `PrivatePIDs`. The systemd attestation records "no private PID namespace", while containers must still prove one.
+
+**Gap until now:** the selector still picked systemd on any Linux host with `/usr/bin/systemd-run` (`episode_runtime/executor_selection.py`). [#70](https://github.com/chian/OpenChia/pull/70) implements the ADR 0005 default.
+
+### Comparison
+
+| | systemd (`systemd-run`) | container (Docker/Podman) |
+|---|---|---|
+| Platforms | Linux only, systemd ≥ 255 | Linux and macOS (VM on macOS) |
+| Isolation | `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateNetwork`, `NoNewPrivileges`, `RestrictAddressFamilies=AF_UNIX`, syscall filter, `MemoryMax`/`CPUQuota` (`episode_runtime/executor.py:263-284`) | `--network none`, `--read-only`, `--cap-drop ALL`, `no-new-privileges`, `--user 65534`, tmpfs `/tmp`, memory/pids/CPU limits, seccomp, **private PID namespace** (`episode_runtime/container_executor.py:186-198`) |
+| Interpreter and dependencies | the **host's** Python; dependencies must be selected explicitly on the host | the **image's** Python; a self-contained, pinnable environment |
+| Operations | no daemon or images; depends on host systemd, kernel features and, on Ubuntu 24.04, an AppArmor profile (ADR 0006) | needs a container runtime, image management and dependency rebuilds; the daemon socket must never be exposed |
+| Kernel requirement | as ADR 0006 | **Landlock ABI 7, Linux ≥ 6.15** (README), because containers share the host kernel |
+| Startup | fast (transient unit) | slower (container start), more so on macOS |
+| Cross-host reproducibility | weaker: tied to the host OS and Python | stronger: same image anywhere |
+
+ADR 0005 is explicit that "containers are not automatically stronger, and systemd does not mean unrestricted execution". Linux containers share the host kernel, so worker restrictions and host checks stay necessary in both.
+
+### Why the container default fits the direction in §6
+
+- **Per-candidate environments** (ADR 0010) are naturally carried by images.
+- **CWL-tool units** (#62, draft ADR 0011, GoWe) are container-based by definition: descriptor + image digest. systemd can't run a BV-BRC tool image.
+- **Cross-platform users** (macOS today; the deck's Windows note on slide 40) are only served by containers.
+
+### Where systemd remains the right choice
+
+- Linux servers without a container runtime or where a daemon isn't permitted.
+- **Linux kernels older than 6.15**, e.g. Ubuntu 24.04's stock 6.8, where the container worker's Landlock requirement isn't met.
+- Fast, tight-loop units where container start-up dominates (draft ADR 0011 OQ4).
+
+With #70 these hosts select it explicitly with `OPENCHIA_RUN_EXECUTOR=systemd`. Missing prerequisites fail at Run setup, as ADR 0005 requires.
+
+## 8. Action items
 
 **Deck updates (owner: deck author)**
 - [ ] D2/D3: rename M1/M2/M3 to `EpisodeRequest` / `iteration_history` / `ParentReport` (+ `ReportContract`); E1 is the unit source and the goal is fixed per invocation.
 - [ ] D4: add **Verify** as the fourth specialist, and map slide 35's EvidenceGather onto it.
 - [ ] D5: remove the "pre-iterative build work" stage (post-#66).
 - [ ] D6: fix the command flow (`/approve`, `/build`, `/build continue`, `/refiner`); add `/run`, `/code`, `/launch`, `/stop`.
-- [ ] D7: reconcile slides 17 and 37 on containers (systemd and container executors, ADR 0005 default pending, ADR 0010 environments).
+- [ ] D7: reconcile slides 17 and 37 on containers (systemd and container executors, ADR 0005 container default via #70, ADR 0010 environments); see §7.
 - [ ] D9/D11: restate nesting as ownership plus scope narrowing; correct Support vs Question tools.
 - [ ] Add slides for ADR 0002 (brokered HTTP), ADR 0003/0004 and the CWL/Go direction (#62, draft ADR 0011).
-- [ ] Revisit slide 35's "80% of errors in CodeImplementer" against the 2026-10-07 evidence (§8).
+- [ ] Revisit slide 35's "80% of errors in CodeImplementer" against the 2026-10-07 evidence (§9).
 
 **Design decisions (owner: maintainers)**
 - [ ] D1: the LLM-output policy for M1/M2/M3/G, then align `episode_communication.md`, principle 17 and the code.
@@ -290,10 +338,11 @@ Net: the deck's replay vision is hard to deliver on emitted modules, and it larg
 - [ ] #63: give the planner the library type surface; make verification-only findings non-blocking.
 - [ ] #57 / #61: refiner lease and Run-observation behaviour. With #67 the Code Implementer now runs on Argo; verify a full refiner build on Argo.
 - [ ] #65: `/run` display bugs.
+- [ ] [#70](https://github.com/chian/OpenChia/pull/70): make containers the default Run executor (ADR 0005). Linux hosts with kernel < 6.15 must set `OPENCHIA_RUN_EXECUTOR=systemd`.
 - [ ] wilke/GoWe#277: isolation hardening (secrets, network policy, bounded JS, proxy egress, digest provenance).
 - [ ] #58: `schema_version` on chain records, blocking for any cross-language step.
 
-## 8. Appendix: evidence from the 2026-10-07 bring-up
+## 9. Appendix: evidence from the 2026-10-07 bring-up
 
 The probe Episode `asm_next_broker_probe` made two authenticated GETs to the BV-BRC RAGstack asm-next tenant through the host broker. It reached a successful Run (`run_68aaa714…`) after these fixes, every one of them in **generated wiring**:
 
