@@ -280,8 +280,8 @@ Net: the deck's replay vision is hard to deliver on emitted modules, and it larg
 - [ ] Commit draft ADR 0011 (currently untracked) once reviewed.
 
 **Docs fixes (owner: maintainers)**
-- [ ] ADR 0007:31-33, `OPENCHIA_ARCHITECTURE.md:14-39, 184-199`, `duet_owned_episode_design.md`, `codebase_design_draft.md`: describe the post-#66 refiner-driven construction.
-- [ ] `iterative_episode_refiner_principles.md` #14: Parts placement (superseded by `iterative_episode_refiner_episodes.md:10-11`).
+- [ ] ADR 0007:31-33, `OPENCHIA_ARCHITECTURE.md:14-39, 184-199`, `duet_owned_episode_design.md`, `codebase_design_draft.md`: describe the post-#66 refiner-driven construction Proposed in [#69](https://github.com/chian/OpenChia/pull/69).
+- [ ] `iterative_episode_refiner_principles.md` #14: Parts placement (superseded by `iterative_episode_refiner_episodes.md:10-11`) Proposed in [#69](https://github.com/chian/OpenChia/pull/69).
 - [ ] D12: finish the `.hermes` → OpenChia home rename, or document why not.
 
 **Engineering (tracked issues)**
