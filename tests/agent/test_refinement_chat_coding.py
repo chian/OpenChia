@@ -179,3 +179,67 @@ def test_wrong_route_is_rejected(tmp_path) -> None:
             binding=_binding("codex_responses"), workspace=tmp_path, state_dir=tmp_path / "s",
             instructions="", resume_thread_id=None, on_event=lambda _e: None,
         )
+
+
+def test_transient_stream_drop_is_retried_without_failing_the_turn(tmp_path, monkeypatch) -> None:
+    import httpx
+    import agent.transports.refinement_chat as chat
+
+    monkeypatch.setattr(chat, "RETRY_BACKOFF_SECONDS", (0, 0, 0))
+    good = ScriptedGateway([[_chunk(content="done"), _chunk(finish="stop")]])
+    failures = {"left": 2}
+
+    def create(**kwargs):
+        if failures["left"]:
+            failures["left"] -= 1
+            raise httpx.RemoteProtocolError("peer closed connection without sending complete message body (incomplete chunked read)")
+        return good._create(**kwargs)
+
+    gateway = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    events = []
+    session, _ = _session(tmp_path, gateway, events)
+    turn = session.run_turn("go")
+    assert turn.error is None and turn.final_text == "done"
+    retries = [e for e in events if e["kind"] == "activity" and e["native"].get("retry")]
+    assert [e["native"]["retry"] for e in retries] == [1, 2]
+    assert not any(e["kind"] == "api_error" for e in events)
+
+
+def test_persistent_transient_failure_still_surfaces(tmp_path, monkeypatch) -> None:
+    import httpx
+    import agent.transports.refinement_chat as chat
+
+    monkeypatch.setattr(chat, "RETRY_BACKOFF_SECONDS", (0, 0, 0))
+
+    def create(**_kwargs):
+        raise httpx.RemoteProtocolError("incomplete chunked read")
+
+    gateway = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    session, _ = _session(tmp_path, gateway)
+    turn = session.run_turn("go")
+    assert turn.error and "incomplete chunked read" in turn.error
+
+
+def test_exploration_nudge_after_steps_without_a_write(tmp_path, monkeypatch) -> None:
+    import agent.transports.refinement_chat as chat
+
+    monkeypatch.setattr(chat, "EXPLORATION_NUDGE_STEPS", 3)
+    turns = [[_chunk(tool=(0, f"t{i}", "list_files", "{}")), _chunk(finish="tool_calls")] for i in range(3)]
+    turns.append([_chunk(content="ok"), _chunk(finish="stop")])
+    gateway = ScriptedGateway(turns)
+    session, _ = _session(tmp_path, gateway)
+    session.run_turn("go")
+    nudges = [m for m in gateway.requests[-1]["messages"] if m["role"] == "user" and "without a source edit" in m["content"]]
+    assert len(nudges) == 1
+
+
+def test_compaction_keeps_the_head_of_old_tool_outputs(tmp_path, monkeypatch) -> None:
+    import agent.transports.refinement_chat as chat
+
+    monkeypatch.setattr(chat, "MAX_HISTORY_CHARS", 2_000)
+    session, _ = _session(tmp_path, ScriptedGateway([]))
+    session.ensure_started()
+    session._messages += [{"role": "tool", "tool_call_id": f"c{i}", "content": f"HEAD{i}" + "x" * 3_000} for i in range(6)]
+    session._compact()
+    elided = [m for m in session._messages if m.get("role") == "tool" and "elided" in m["content"]]
+    assert elided and all(m["content"].startswith("HEAD") for m in elided)
