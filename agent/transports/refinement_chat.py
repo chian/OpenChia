@@ -26,7 +26,16 @@ from typing import Any, Callable
 
 from agent.refinement_coding import CodingTurn
 
-MAX_TOOL_STEPS = 80
+MAX_TOOL_STEPS = 300
+#: Override the per-turn model-step budget (positive integer).
+MAX_STEPS_ENV = "OPENCHIA_CODING_MAX_STEPS"
+#: Steps before the budget at which the model is told to write its changes now.
+BUDGET_WARNING_STEPS = 15
+ADAPTER_NOTES = (
+    "Adapter notes: you may issue several independent tool calls in one response; "
+    "prefer read_file and list_files over many small shell commands; write source "
+    "with write_file or edit_file. Each response is one step of a bounded budget."
+)
 MAX_TOOL_OUTPUT_CHARS = 40_000
 MAX_HISTORY_CHARS = 600_000
 DEFAULT_COMMAND_TIMEOUT = 120
@@ -94,7 +103,7 @@ class ChatCompletionsCodingSession:
 
     def __init__(self, *, binding, workspace, state_dir, instructions, resume_thread_id, on_event,
                  client_factory: Callable[[dict, str | None], Any] | None = None,
-                 max_steps: int = MAX_TOOL_STEPS):
+                 max_steps: int | None = None):
         route = binding.record["route"]
         if route["api_mode"] != "chat_completions":
             raise ValueError("The chat-completions coding adapter requires the owning Duet's chat_completions route")
@@ -107,6 +116,9 @@ class ChatCompletionsCodingSession:
         self._thread_id = resume_thread_id or uuid.uuid4().hex
         self._resuming = resume_thread_id is not None
         self._client_factory = client_factory or self._default_client
+        if max_steps is None:
+            configured = os.environ.get(MAX_STEPS_ENV, "").strip()
+            max_steps = int(configured) if configured.isdigit() and int(configured) > 0 else MAX_TOOL_STEPS
         self._max_steps = max_steps
         self._interrupt = threading.Event()
         self._lock = threading.Lock()
@@ -127,7 +139,7 @@ class ChatCompletionsCodingSession:
             if self._resuming and saved.is_file():
                 self._messages = json.loads(saved.read_text(encoding="utf-8-sig"))
             else:
-                self._messages = [{"role": "system", "content": self._instructions}]
+                self._messages = [{"role": "system", "content": self._instructions + "\n\n" + ADAPTER_NOTES}]
             self._started = True
         return self._thread_id
 
@@ -164,7 +176,16 @@ class ChatCompletionsCodingSession:
         deadline = None if turn_timeout is None else time.monotonic() + turn_timeout
         tool_iterations = 0
         final_text = ""
+        warned = False
         for _step in range(self._max_steps):
+            remaining = self._max_steps - _step
+            if not warned and remaining <= min(BUDGET_WARNING_STEPS, max(1, self._max_steps // 5)):
+                warned = True
+                self._messages.append({"role": "user", "content": (
+                    f"Only {remaining} model steps remain in this turn. Stop exploring: write your "
+                    "source changes (or record your findings/child proposal in "
+                    ".openchia-implementation.json) now, then finish with a short summary."
+                )})
             if self._interrupt.is_set() or (deadline is not None and time.monotonic() >= deadline):
                 self._save()
                 return CodingTurn(thread_id=self._thread_id, turn_id=turn_id,
@@ -206,10 +227,17 @@ class ChatCompletionsCodingSession:
                 self._messages.append({"role": "tool", "tool_call_id": call.id, "content": output})
             self._compact()
             self._save()
-        error = f"coding turn exceeded {self._max_steps} model steps without a final message"
-        self._emit("api_error", {"turn_id": turn_id}, error=error)
-        return CodingTurn(thread_id=self._thread_id, turn_id=turn_id,
-                          tool_iterations=tool_iterations, error=error)
+        # The budget ends the turn, not the Run: edits already made are admitted and
+        # measured by the host, and the Episode's own controller decides what follows.
+        # (A CodingTurn error stops the owning Run, which would discard that evidence.)
+        note = (f"Turn ended at the {self._max_steps}-step budget before a final message; "
+                "workspace edits made so far stand for host admission and measurement.")
+        self._save()
+        self._emit("turn_completed", {"turn_id": turn_id, "tool_iterations": tool_iterations,
+                                      "budget_exhausted": True})
+        return CodingTurn(final_text=note, thread_id=self._thread_id, turn_id=turn_id,
+                          tool_iterations=tool_iterations,
+                          native_result={"finish": "step_budget", "steps": self._max_steps})
 
     def close(self) -> None:
         if self._closed:
