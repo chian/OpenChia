@@ -295,7 +295,17 @@ class RefinementCodingTransport:
         try:
             if cancel.is_set():
                 raise asyncio.CancelledError
+            extra = {}
+            if backend.runtime_id == "chat_completions_tools":
+                # Same boundary as the Target Workflow's container Runs (#72):
+                # diagnostics execute in a per-turn container, never on the host.
+                from agent.transports.coding_container import container_shell_for
+
+                shell = container_shell_for(self.session.evaluations.executor, workspace.root)
+                if shell is not None:
+                    extra["command_shell"] = shell
             coder = backend(
+                **extra,
                 binding=self.binding, workspace=workspace.root, state_dir=native_home,
                 instructions=instructions, resume_thread_id=resume, on_event=observe,
             )

@@ -110,7 +110,7 @@ class ChatCompletionsCodingSession:
 
     def __init__(self, *, binding, workspace, state_dir, instructions, resume_thread_id, on_event,
                  client_factory: Callable[[dict, str | None], Any] | None = None,
-                 max_steps: int | None = None):
+                 max_steps: int | None = None, command_shell=None):
         route = binding.record["route"]
         if route["api_mode"] != "chat_completions":
             raise ValueError("The chat-completions coding adapter requires the owning Duet's chat_completions route")
@@ -127,6 +127,9 @@ class ChatCompletionsCodingSession:
             configured = os.environ.get(MAX_STEPS_ENV, "").strip()
             max_steps = int(configured) if configured.isdigit() and int(configured) > 0 else MAX_TOOL_STEPS
         self._max_steps = max_steps
+        # Optional isolated executor for run_command (agent.transports.coding_container).
+        # When set, commands never run on the host.
+        self._shell = command_shell
         self._interrupt = threading.Event()
         self._lock = threading.Lock()
         self._http = None
@@ -146,7 +149,12 @@ class ChatCompletionsCodingSession:
             if self._resuming and saved.is_file():
                 self._messages = json.loads(saved.read_text(encoding="utf-8-sig"))
             else:
-                self._messages = [{"role": "system", "content": self._instructions + "\n\n" + ADAPTER_NOTES}]
+                notes = ADAPTER_NOTES
+                if self._shell is not None:
+                    notes += (" run_command executes in an isolated container: no network, only this "
+                              "workspace is writable, and OpenChia's sources are read-only at "
+                              "/ctx/openchia (on PYTHONPATH). Nothing else on the host is reachable.")
+                self._messages = [{"role": "system", "content": self._instructions + "\n\n" + notes}]
             self._started = True
         return self._thread_id
 
@@ -172,6 +180,8 @@ class ChatCompletionsCodingSession:
             from agent.deadline import kill_process_tree
 
             kill_process_tree(command.pid)
+        if self._shell is not None:
+            self._shell.interrupt()
 
     def run_turn(self, prompt: str, *, turn_timeout: float | None = None) -> CodingTurn:
         self.ensure_started()
@@ -261,6 +271,8 @@ class ChatCompletionsCodingSession:
             return
         self._closed = True
         self.request_interrupt()
+        if self._shell is not None:
+            self._shell.close()
         if self._started:
             self._save()
 
@@ -418,6 +430,8 @@ class ChatCompletionsCodingSession:
         if self._interrupt.is_set():
             return "error: interrupted"
         timeout = max(1, min(int(timeout_seconds), MAX_COMMAND_TIMEOUT))
+        if self._shell is not None:
+            return self._shell.run(command, timeout)
         env = delegated_child_subprocess_env(hermes_subprocess_env(inherit_credentials=False))
         process = subprocess.Popen(
             ["/bin/sh", "-c", command], cwd=self._workspace, env=env,
