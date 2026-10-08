@@ -31,6 +31,7 @@ The action-item checklist is in §8.
    - 6.5 [How replay relates to CWL units](#65-how-replay-relates-to-cwl-units)
    - 6.6 [Assessment](#66-assessment)
 7. [Execution backends: containers vs systemd](#7-execution-backends-containers-vs-systemd)
+   - [Coding agents need the same boundary](#coding-agents-need-the-same-boundary)
 8. [Action items](#8-action-items)
 9. [Appendix: evidence from the 2026-10-07 bring-up](#9-appendix-evidence-from-the-2026-10-07-bring-up)
 
@@ -308,6 +309,18 @@ ADR 0005 is explicit that "containers are not automatically stronger, and system
 
 With #70 these hosts select it explicitly with `OPENCHIA_RUN_EXECUTOR=systemd`. Missing prerequisites fail at Run setup, as ADR 0005 requires.
 
+### Coding agents need the same boundary
+
+The Target Workflow's *execution* is confined (above), but the refiner's **coding agent**, which writes that workflow, was not.
+
+**The evidence.** In the first live refiner build on Argo (2026-10-08), the Code Implementer ran 75 shell commands, and 64 read outside its workspace. Codex limits writes but reads anywhere. Claude Code and the chat adapter's shell were unconfined ([#72](https://github.com/chian/OpenChia/issues/72)).
+
+**The plan ([#73](https://github.com/chian/OpenChia/issues/73))** keeps the model loop on the host and runs the coder's tool execution in a container, the way a CWL runner executes a tool. The container mounts only the workspace (rw) and OpenChia's sources (read-only), with `--network none`, a read-only root, all capabilities dropped, the workspace owner's uid, and the executor's resource limits and digest-pinned image. The stages:
+1. **The chat adapter's shell, in [#74](https://github.com/chian/OpenChia/pull/74).** It is verified on Docker 29: no network, host home unreachable, about 60 ms per command.
+2. Diagnostics parity: mount the prepared `site-packages` read-only.
+3. Context mounts or a coder image.
+4. Claude Code and Codex inside a container or microVM behind a host model proxy (draft ADR 0011 OQ1). Docker Sandboxes (`sbx`) is the candidate. `docker/docker-agent` itself is not recommended: it would be a second agent loop, it churns fast, and its fit with Argo is unverified.
+
 ## 8. Action items
 
 **Deck updates (owner: deck author)**
@@ -339,6 +352,7 @@ With #70 these hosts select it explicitly with `OPENCHIA_RUN_EXECUTOR=systemd`. 
 - [ ] #57 / #61: refiner lease and Run-observation behaviour. With #67 the Code Implementer now runs on Argo; verify a full refiner build on Argo.
 - [ ] #65: `/run` display bugs.
 - [ ] [#70](https://github.com/chian/OpenChia/pull/70): make containers the default Run executor (ADR 0005). Linux hosts with kernel < 6.15 must set `OPENCHIA_RUN_EXECUTOR=systemd`.
+- [ ] [#72](https://github.com/chian/OpenChia/issues/72) / [#73](https://github.com/chian/OpenChia/issues/73): confine coding agents. Stage 1 (the chat adapter's shell in a per-turn container) is [#74](https://github.com/chian/OpenChia/pull/74); stages 2–4 are diagnostics parity, context mounts, and Claude Code/Codex behind a host model proxy (spike `sbx`).
 - [ ] wilke/GoWe#277: isolation hardening (secrets, network policy, bounded JS, proxy egress, digest provenance).
 - [ ] #58: `schema_version` on chain records, blocking for any cross-language step.
 
