@@ -121,8 +121,12 @@ def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
     # Explicit transport ownership also prevents ambient proxies from changing
     # the destination. Each call owns its client, so cancellation cannot close
     # another project's connection.
-    http = httpx.Client(trust_env=False, timeout=None, follow_redirects=False,
-                        event_hooks={"request": [strip_auth], "response": [received_headers]})
+    from agent.provider_http import provider_http_client
+
+    # Keepalive turns a silently dead connection (dropped VPN, #77) into a read
+    # error the supervisor can replace; reads themselves stay unbounded.
+    http = provider_http_client(trust_env=False, follow_redirects=False,
+                                event_hooks={"request": [strip_auth], "response": [received_headers]})
     real = None
     try:
         mode = route["api_mode"]
