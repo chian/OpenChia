@@ -7,6 +7,7 @@ Only the parent can choose the next permitted design/coding assignment.
 from agent.duet_contracts import content_id
 from agent.episode_contracts import OpaqueId
 from function_library.epistemic_contract import exact, names
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .records import EvidenceRef, Ref
 
@@ -85,7 +86,7 @@ def build_specification(read_data, reference):
 
 def catalog(view, assignment, policy):
     """Expose exact selectable requests, not a model-authored reason to stop."""
-    if assignment.body["role"] != "measure":
+    if ROLE_SPECIALIZATION[assignment.body["role"]] != "measure":
         return ()
     goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
     requested = goal["measure_request"]
@@ -198,10 +199,9 @@ def request_prerequisite(view, attempt):
 def returned_prerequisite(view, assignment, reference):
     """Resolve an owned child need or the exact need this assignment inherited."""
     if (
-        assignment.body["role"] not in {"designer", "parts"}
-        or assignment.body["parent_assignment_ref"] is None
+        assignment.body["parent_assignment_ref"] is None
     ):
-        raise ValueError("only a nested Parts or Designer may return a prerequisite to its parent")
+        raise ValueError("a prerequisite return needs an assigning parent")
     entry = view.entry("measure_need", reference.artifact_id.value)
     source = entry.record
     child = view.entry("invocation", source.invocation_id.value)

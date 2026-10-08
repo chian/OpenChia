@@ -85,7 +85,7 @@ def _contract_requirements(specification, target_workflow):
     return requirements
 
 
-def requirement_catalog(specification, workflow, handoff, handoff_ref):
+def requirement_catalog(specification, workflow, handoff, handoff_ref, *, proposal=None):
     """Project the Builder's requirements without inventing a second static goal.
 
     Contract fields remain coverage anchors for parent-designed behavioral
@@ -107,11 +107,32 @@ def requirement_catalog(specification, workflow, handoff, handoff_ref):
         for row in handoff["requirements"]
     ]
     requirements.extend(_contract_requirements(specification, workflow))
+    coverage = "Builder static requirements plus original contract coverage; behavioral measures remain parent-owned"
+    # Human-approved implementation intent is part of the next goal, not just
+    # Builder coaching. Keeping it in the ordinary requirement catalog exposes
+    # it to Parts/Measure and descendants with the same scope and evidence rules.
+    if proposal is not None:
+        if proposal.implementation_directives:
+            coverage = "Builder static requirements, approved contract coverage and human-approved implementation intent; behavioral measures remain parent-owned"
+        for index, directive in enumerate(proposal.implementation_directives):
+            requirements.append({
+                "requirement_key": content_id("requirement", {
+                    "proposal": proposal.proposal_id.value,
+                    "directive": directive.directive_id.value,
+                }).value,
+                "evidence_scope": "approved_implementation",
+                "local_id": directive.target.episode_local_id,
+                "source_target": f"/workflow_global/parts/implementation_directives/{index}",
+                "description": directive.instruction,
+                "approved_target": directive.target.as_record(),
+                "mandatory": True,
+                "acceptance_predicate_ref": None,
+            })
     return {
         "materialized_specification_id": specification.specification_id.value,
         "workflow_hash": specification.workflow_hash.value,
         "materialization_handoff_ref": handoff_ref.as_record(),
-        "coverage": "Builder static requirements plus original contract coverage; behavioral measures remain parent-owned",
+        "coverage": coverage,
         "requirements": requirements,
     }
 
@@ -119,8 +140,8 @@ def requirement_catalog(specification, workflow, handoff, handoff_ref):
 def prepare_refinement(
     *,
     store,
-    workspace,
-    baseline,
+    inputs,
+    handoff,
     campaign_id,
     refiner_registration,
     policy_ref,
@@ -129,34 +150,31 @@ def prepare_refinement(
     local_measure_ref,
     acceptance_measure_ref,
     guidance_catalog_ref=None,
+    baseline=None,
 ):
-    """Assemble a host proposal from an exact materialized baseline.
+    """Assemble a campaign from approved construction inputs, with work optional.
 
     Nothing enters the operative campaign here. The explicit host entry point
     must admit the prepared contract before calling ``start_refinement``.
     Policy/measures are inputs from that authority, not model-provided defaults.
     """
-    specification, receipt, _manifest = workspace.materialized_context(baseline)
-    builds = store.evidence.builds
-    inputs = builds.inspection_inputs_for_receipt(receipt.receipt_id)
+    from episode_builder.inspection import project_materialized_specification
+    from .construction import input_record
+
+    specification = project_materialized_specification(inputs)
     request = inputs.build_request
-    duet_id = baseline.duet_id.value
-    handoff = store.evidence.materialization_handoff(receipt, duet_id)
+    duet_id = request.frozen_workflow.duet_id.value
     if handoff["materialized_specification"] != specification.as_record():
         raise ValueError("materialization handoff differs from the selected baseline")
-    if (
-        request.frozen_workflow.duet_id != baseline.duet_id
-        or request.frozen_workflow.workflow_hash != baseline.workflow_hash
-        or request.workflow_approval.approval_id != baseline.workflow_approval_id
-    ):
-        raise ValueError("target build differs from the selected approved baseline")
+    if baseline is not None and (inputs.receipt is None or baseline.build_receipt_id != inputs.receipt.receipt_id):
+        raise ValueError("selected workspace baseline differs from the construction inputs")
     approval_row = store.duet_store.get_approval(
-        baseline.authority_head_approval_id.value
+        request.authority_approval.approval_id.value
     )
     if approval_row is None or approval_row.pop("revoked"):
         raise ValueError("target refinement authority is absent or revoked")
     target_approval = Ref(
-        baseline.authority_head_approval_id, digest_record(approval_row)
+        request.authority_approval.approval_id, digest_record(approval_row)
     )
     store.evidence.approval(target_approval, duet_id)
     refiner_approval = Ref(
@@ -184,10 +202,11 @@ def prepare_refinement(
         store.evidence.reference(guidance_catalog_ref, duet_id)
     materialization_ref = data("materialization", specification.as_record())
     workflow_ref = data("target_workflow", request.frozen_workflow.as_record())
-    receipt_ref = data("target_build_receipt", receipt.as_record())
+    inputs_ref = data("target_build_inputs", input_record(inputs))
     handoff_ref = data("materialization_handoff", handoff)
     catalog = requirement_catalog(
-        specification, request.frozen_workflow.workflow, handoff, handoff_ref
+        specification, request.frozen_workflow.workflow, handoff, handoff_ref,
+        proposal=request.refinement_proposal,
     )
     catalog_ref = data("requirement_catalog", catalog)
     from .measure_preparation import prepare_grounding
@@ -280,8 +299,8 @@ def prepare_refinement(
     goal_ref = data(
         "assigned_goal",
         {
-            "goal": "Finalize this materialized build against all of its original approved requirements.",
-            "baseline": baseline.as_record(),
+            "goal": "Construct and validate this Target Workflow against its approved Architecture, preserving useful candidate work and every required outcome.",
+            "baseline": None if baseline is None else baseline.as_record(),
             "requirement_catalog_ref": catalog_ref.as_record(),
             "materialization_handoff_ref": handoff_ref.as_record(),
             "initial_findings": handoff["diagnostics"],
@@ -307,8 +326,8 @@ def prepare_refinement(
     control_ref = data("campaign_policy", policy)
     body = {
         "parent_assignment_ref": None,
-        "owning_parts_invocation_id": root_invocation.value,
-        "role": "parts",
+        "coordinating_invocation_id": root_invocation.value,
+        "role": "designer",
         "scope_requirement_keys": requirement_keys,
         "contribution_requirement_keys": requirement_keys,
         "scope_partition_ref": partition_ref.as_record(),
@@ -327,13 +346,14 @@ def prepare_refinement(
         "acceptance_measure_ref": acceptance_measure_ref.as_record(),
         "progress_manifest_ref": catalog_ref.as_record(),
         "allowed_action_classes": policy["allowed_action_classes"],
-        "allowed_child_bindings": list(CHILDREN["parts"]),
+        "allowed_child_bindings": list(CHILDREN["designer"]),
         "instruction_refs": [],
         "history_query_ref": catalog_ref.as_record(),
         "return_projection_ref": projection_ref.as_record(),
         "control_bundle_ref": control_ref.as_record(),
         "supersedes_assignment_refs": [],
         "writable_paths": sorted([*planned_paths.values(), *instrument_paths, ENVIRONMENT_RECIPE_PATH]),
+        "materialization_targets": list(policy["materialization_edit_targets"]),
         "protected_paths": sorted(
             set(specification.expected_source_package_files)
             - set(planned_paths.values())
@@ -352,7 +372,7 @@ def prepare_refinement(
             "duet_id": duet_id,
             "target_approval_ref": target_approval.as_record(),
             "target_workflow_ref": workflow_ref.as_record(),
-            "initial_build_receipt_ref": receipt_ref.as_record(),
+            "initial_build_inputs_ref": inputs_ref.as_record(),
             "initial_materialization_ref": materialization_ref.as_record(),
             "refiner_workflow_approval_ref": refiner_approval.as_record(),
             "refiner_manifest_ref": Ref(

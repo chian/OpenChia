@@ -8,7 +8,7 @@ candidate admission, or continuation.
 from collections import Counter
 
 from function_library.models import _thaw_json
-from function_library.refinement_contract import INPUT_MEASUREMENTS, MODEL_INPUT_COMPONENTS
+from function_library.refinement_contract import INPUT_MEASUREMENTS, MODEL_INPUT_COMPONENTS, ROLE_SPECIALIZATION
 
 from .assignment_choices import assigned_addresses
 from .model_history import iteration_history
@@ -22,7 +22,7 @@ from .reports import parent_report, report_overview
 def _measurements(session, view, call):
     from .judgment import judgment_purpose
     from .evaluation_plan import evaluation_availability, resolve_evaluations
-    from .measures import implementation_covered_requirements
+    from .measures import implementation_covered_requirements, selected_measure_ref
 
     assignment = call.assignment
     report = parent_report(view, call.invocation_id)
@@ -62,10 +62,10 @@ def _measurements(session, view, call):
             } for gap in availability["gaps"]],
         },
     }
-    if role in {"parts", "designer"}:
+    if ROLE_SPECIALIZATION[role] in {"designer", "implementer", "materialization_implementer"}:
         selected = set(assignment.body["contribution_requirement_keys"])
         covered = implementation_covered_requirements(
-            view, assignment, assignment.body["local_measure_ref"], session.policy
+            view, assignment, selected_measure_ref(view, assignment, "local_measure_ref"), session.policy
         )
         result["implementation_measure_coverage"] = {
             "all_contribution_requirements_covered": selected <= covered,
@@ -76,12 +76,12 @@ def _measurements(session, view, call):
                 requirement_address(catalog[key]) for key in selected - covered
             ),
             "meaning": (
-                "Implementation-plan admission requires an authorized mandatory local "
+                "Implementation measurement needs an authorized mandatory local "
                 "check for every selected contribution requirement, bound to this "
                 "local measure and environment. Check outcomes appear separately in "
                 "measurements.local; independent acceptance has its own measure. "
-                "Parts can stage a contribution covered by existing local checks "
-                "while establishing checks for the broader requirements."
+                "The Designer chooses which peer to commission from the observed gaps. "
+                "Specialists retain their assigned scope and report cross-specialty needs upward."
             ),
         }
     return result
@@ -129,12 +129,15 @@ def _materialization(session, view, call):
 
 def _candidate_source_files(session, view, assignment):
     from .measures import authorized_check_refs
+    from .materialization_edits import target_source_paths
 
     candidate = view.candidate
     readable = set(assignment.body["writable_paths"])
-    if assignment.body["role"] == "measure":
-        parent = view.read(Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment")
-        readable.update(parent.body["writable_paths"])
+    readable.update(target_source_paths(view, assignment.body["materialization_targets"]))
+    if ROLE_SPECIALIZATION[assignment.body["role"]] == "measure":
+        from .measure_components import readable_paths
+
+        readable.update(readable_paths(view, assignment))
     for reference in authorized_check_refs(view, session.policy, assignment):
         check = view.read(reference, "check")
         if check.body["requirement_key"] in assignment.body["scope_requirement_keys"]:
@@ -178,17 +181,18 @@ def _environment(session, view, call):
 
 
 def _design(session, view, call):
-    assignment = call.assignment
-    owner = assignment.body["parent_assignment_ref"] if assignment.body["role"] == "implementer" else assignment.ref.as_record()
-    plans = [row.record for row in view.entries("plan") if row.record.body["assignment_ref"] == owner]
-    if not plans:
+    from .state_machine import design_plan_for
+
+    plan = design_plan_for(view, call.assignment)
+    if plan is None:
         return {"design": None}
-    body = plans[-1].as_record()["body"]
+    body = plan.as_record()["body"]
     catalog = requirement_catalog(view)
     return {"design": {
         "approach": body["approach_key"],
         "requirement_mapping": {requirement_address(catalog[key]): text for key, text in body["requirement_mapping"].items()},
         "intended_change_scope": body["intended_change_scope"],
+        "intended_materialization_targets": body["intended_materialization_targets"],
         "dependency_effects": body["dependency_effects"],
     }}
 
@@ -198,11 +202,14 @@ def _measure_design(session, view, call):
     from .measure_needs import catalog as needs
     from .measure_controls import control_context
     from .authored_checks import control_context as authored_control_context
+    from .report_contract import admission_requirement_results
 
     assignment = call.assignment
     proposals = [row.record for row in view.entries("measure_proposal")
                  if row.record.body["assignment_ref"] == assignment.ref.as_record()]
     current = proposals[-1:]  # resume_instrument selects this current proposal.
+    admissions = [row.record for row in view.entries("measure")
+                  if current and row.record.body["proposal_ref"] == current[0].ref.as_record()]
     catalog = requirement_catalog(view)
     controls = control_context(view, (item.ref for item in current))
     result = {
@@ -220,9 +227,14 @@ def _measure_design(session, view, call):
             key: row[key] for key in ("status", "gap", "outcome", "error")
         } for row in controls],
         "checking_program_controls": authored_control_context(view, current),
+        "instrument_admission": [{
+            "status": record.body["status"],
+            "requirement_results": admission_requirement_results(record, catalog),
+            "meaning": "Readiness of the checking instrument; Target Workflow outcomes are measured separately.",
+        } for record in admissions[-1:]],
     }
     checking = result.get("check_design", {})
-    if assignment.body["role"] == "measure" or (
+    if ROLE_SPECIALIZATION[assignment.body["role"]] == "measure" or (
         checking.get("review_assigned")
         and checking["current_design"]["program"] is not None
     ):
@@ -251,9 +263,11 @@ def _grounding(session, view, call):
 
 def _investigation(session, view, call):
     from .investigation import needs
+    from .research import research_context
 
     catalog = requirement_catalog(view)
     return {
+        **research_context(view, call.assignment),
         "investigation_needs": [{
             "requirement": requirement_address(catalog[need["requirement_key"]]),
             "observation_path": view.read(Ref.from_record(need["check_ref"]), "check").body["observation_path"],
@@ -345,6 +359,7 @@ def model_inputs(session, view, call):
                 requirement_address(catalog[key]) for key in preservation
             ],
             "writable_paths": list(assignment.body["writable_paths"]),
+            "materialization_targets": list(assignment.body["materialization_targets"]),
             "protected_paths": list(assignment.body["protected_paths"]),
             "allowed_children": list(assignment.body["allowed_child_bindings"]),
             "measure_request": None if need is None else {
@@ -383,6 +398,8 @@ def model_inputs(session, view, call):
 def _feedback(session, view, call):
     """Deliver the last operation's actionable result, not its audit envelope."""
     value = view.data(call.feedback_ref)
+    if "research_result" in value:
+        return {"task": "research", **value["research_result"]}
     if "source_workflow_ref" in value and "result" in value:
         from .candidate_environment import project_finding
 

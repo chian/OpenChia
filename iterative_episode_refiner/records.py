@@ -26,7 +26,7 @@ RECORD_FIELDS = {
         "duet_id",
         "target_approval_ref",
         "target_workflow_ref",
-        "initial_build_receipt_ref",
+        "initial_build_inputs_ref",
         "initial_materialization_ref",
         "refiner_workflow_approval_ref",
         "refiner_manifest_ref",
@@ -50,7 +50,7 @@ RECORD_FIELDS = {
     "materialization": {"baseline_ref", "plan", "changed_targets", "instrument_plans"},
     "assignment": {
         "parent_assignment_ref",
-        "owning_parts_invocation_id",
+        "coordinating_invocation_id",
         "role",
         "scope_requirement_keys",
         "contribution_requirement_keys",
@@ -73,6 +73,7 @@ RECORD_FIELDS = {
         "control_bundle_ref",
         "supersedes_assignment_refs",
         "writable_paths",
+        "materialization_targets",
         "protected_paths",
         "judgment_lineage",
     },
@@ -82,6 +83,7 @@ RECORD_FIELDS = {
         "expected_head_ref",
         "file_operations",
         "implementation_detail_operations",
+        "findings",
         "rationale_claim_refs",
     },
     "design_plan": {
@@ -91,6 +93,7 @@ RECORD_FIELDS = {
         "assumption_refs",
         "proposed_component_refs",
         "intended_change_scope",
+        "intended_materialization_targets",
         "dependency_effects",
         "local_measure_ref",
         "acceptance_measure_ref",
@@ -116,8 +119,10 @@ RECORD_FIELDS = {
         "execution_binding",
     },
     "measure_proposal": {
+        "components",
         "assignment_ref",
         "owner_assignment_ref",
+        "basis_ref",
         "requirement_keys",
         "purpose",
         "oracle_kind",
@@ -144,9 +149,13 @@ RECORD_FIELDS = {
         "owner_assignment_ref",
         "measure_ref",
         "check_refs",
+        "measurement_function",
         "evaluation_binding",
         "evaluation_bindings",
         "control_results",
+        "control_snapshot",
+        "requirement_results",
+        "limitation_refs",
         "grounding_refs",
         "status",
         "reason",
@@ -204,6 +213,15 @@ RECORD_FIELDS = {
         "outcome",
         "counterexample_refs",
         "limitation_refs",
+    },
+    "research_source": {
+        "assignment_ref", "operation", "query", "source_id", "kind", "title",
+        "url", "path", "content", "content_hash", "truncated", "redacted",
+    },
+    "research_finding": {
+        "assignment_ref", "owner_assignment_ref", "candidate_ref", "role",
+        "requirement_key", "state", "answer", "applicability", "limitations",
+        "source_refs",
     },
     "parent_assessment": {
         "assignment_ref",
@@ -300,6 +318,8 @@ RECORD_FIELDS = {
     "commit": {"previous_commit_ref", "sequence", "attempt_ref", "deltas"},
     "unit_receipt": {
         "assignment_ref",
+        "local_measure_ref",
+        "judgment_lineage",
         "invocation_id",
         "logical_unit_id",
         "ordinal",
@@ -341,6 +361,7 @@ RECORD_FIELDS = {
         "lesson_refs",
         "unresolved_requirement_keys",
         "decision_request_refs",
+        "implementation_findings_ref",
         "child_report_refs",
         "conflict_refs",
         "termination",
@@ -595,6 +616,48 @@ def _validate_measure_need(need):
         Ref.from_record(need["instrument_build_ref"])
 
 
+def _validate_requirement_results(rows):
+    if not isinstance(rows, (list, tuple)) or not rows:
+        raise ValueError("measure admission needs explicit per-requirement results")
+    keys = []
+    for row in rows:
+        exact(row, {"requirement_key", "status", "reason", "cases"}, "requirement adequacy result")
+        names((row["requirement_key"],), "requirement adequacy key", nonempty=True)
+        keys.append(row["requirement_key"])
+        if row["status"] not in {"pass", "fail", "error", "blocked"}:
+            raise ValueError("requirement adequacy must distinguish failure from missing evidence")
+        if row["reason"] is not None and not isinstance(row["reason"], str):
+            raise ValueError("requirement adequacy reason must be text or null")
+        if not isinstance(row["cases"], (list, tuple)):
+            raise ValueError("requirement adequacy cases must be an array")
+        states = set()
+        references = []
+        for case in row["cases"]:
+            exact(case, {"grounding_ref", "requirement_key", "status", "reason",
+                         "controls_total", "controls_matched"}, "case adequacy result")
+            references.append(Ref.from_record(case["grounding_ref"]))
+            if case["requirement_key"] != row["requirement_key"]:
+                raise ValueError("case adequacy belongs to another requirement")
+            if case["status"] not in {"pass", "fail", "error", "blocked"}:
+                raise ValueError("case adequacy has an unknown status")
+            if case["reason"] is not None and not isinstance(case["reason"], str):
+                raise ValueError("case adequacy reason must be text or null")
+            total, matched = case["controls_total"], case["controls_matched"]
+            if type(total) is not int or type(matched) is not int or not 0 <= matched <= total or total < 2:
+                raise ValueError("case adequacy has invalid control counts")
+            if (case["status"] == "pass") != (matched == total):
+                raise ValueError("case adequacy pass requires every control to match")
+            states.add(case["status"])
+        if len(set(references)) != len(references):
+            raise ValueError("requirement adequacy repeats a case")
+        expected = next((status for status in ("error", "fail", "blocked") if status in states),
+                        "pass" if states else "blocked")
+        if row["status"] != expected:
+            raise ValueError("requirement adequacy differs from its case results")
+    if len(set(keys)) != len(keys):
+        raise ValueError("measure admission repeats a requirement result")
+
+
 def _validate_body(kind: str, body: Mapping) -> None:
     if kind not in RECORD_FIELDS:
         raise ValueError("unregistered refinement record kind")
@@ -610,6 +673,44 @@ def _validate_body(kind: str, body: Mapping) -> None:
             Ref.from_record(value)
     if kind in {"measure_control_run", "measure_control_observation"}:
         _validate_control_record(kind, body)
+    if kind == "research_source":
+        from hashlib import sha256
+
+        for key in ("operation", "source_id", "kind", "title"):
+            names((body[key],), f"research {key}")
+        source_kinds = {"web_search": "web_search", "read_url": "web_page",
+                        "library_search": "library", "read_library": "library"}
+        if source_kinds.get(body["operation"]) != body["kind"]:
+            raise ValueError("research source kind differs from its retrieval operation")
+        if not isinstance(body["query"], Mapping) or not isinstance(body["content"], str):
+            raise ValueError("research source needs its retrieval arguments and text")
+        for key in ("url", "path"):
+            if body[key] is not None:
+                names((body[key],), f"research {key}")
+        if any(type(body[key]) is not bool for key in ("truncated", "redacted")):
+            raise ValueError("research source must declare truncation and redaction")
+        if sha256(body["content"].encode("utf-8")).hexdigest() != body["content_hash"]:
+            raise ValueError("research content differs from its persisted digest")
+    if kind == "research_finding":
+        from .investigation import RESEARCH_STATES, RESEARCH_TEXT_LIMITS, research_resolved
+
+        if body["role"] not in RESEARCH_STATES or body["state"] not in RESEARCH_STATES[body["role"]]:
+            raise ValueError("research finding has an unknown role or advisory state")
+        for key in ("requirement_key", "answer", "applicability"):
+            names((body[key],), f"research {key}")
+        for key in ("answer", "applicability"):
+            if len(body[key]) > RESEARCH_TEXT_LIMITS[key]:
+                raise ValueError(f"research {key} exceeds its {RESEARCH_TEXT_LIMITS[key]}-character synthesis format")
+        names(body["limitations"], "research limitations")
+        if len(body["limitations"]) > RESEARCH_TEXT_LIMITS["limitations"]:
+            raise ValueError(f"research synthesis allows at most {RESEARCH_TEXT_LIMITS['limitations']} limitations")
+        if any(len(item) > RESEARCH_TEXT_LIMITS["limitation"] for item in body["limitations"]):
+            raise ValueError(f"each research limitation must fit {RESEARCH_TEXT_LIMITS['limitation']} characters")
+        refs = [Ref.from_record(ref) for ref in body["source_refs"]]
+        if len(refs) != len(set(refs)):
+            raise ValueError("research finding repeats a source")
+        if body["state"] != "unresolved" and not refs:
+            raise ValueError("a determinate research finding needs inspected sources")
     if kind == "measure_prerequisite":
         _validate_measure_need(body["need"])
         if "explanation" in body:
@@ -697,7 +798,7 @@ def _validate_body(kind: str, body: Mapping) -> None:
     if kind == "assignment":
         if body["role"] not in ROLES:
             raise ValueError("unregistered refinement role")
-        OpaqueId(body["owning_parts_invocation_id"])
+        OpaqueId(body["coordinating_invocation_id"])
         OpaqueId(body["judgment_lineage"])
         for key in (
             "scope_requirement_keys",
@@ -720,6 +821,22 @@ def _validate_body(kind: str, body: Mapping) -> None:
         for key in ("writable_paths", "protected_paths"):
             for path in names(body[key], key):
                 logical_path(path)
+        for pointer in names(body["materialization_targets"], "materialization targets"):
+            pointer_parts(pointer)
+    if kind == "change":
+        if not isinstance(body["findings"], (list, tuple)):
+            raise ValueError("implementation findings must be a list")
+        for finding in body["findings"]:
+            exact(finding, {"requirement_key", "blocker", "needed_change"}, "implementation finding")
+            for field in finding:
+                names((finding[field],), field)
+    if kind == "design_plan":
+        for path in names(body["intended_change_scope"], "intended source paths"):
+            logical_path(path)
+        for pointer in names(body["intended_materialization_targets"], "intended materialization targets"):
+            pointer_parts(pointer)
+    if kind == "unit_receipt":
+        OpaqueId(body["judgment_lineage"])
     if kind == "check":
         names((body["requirement_key"],), "requirement key", nonempty=True)
         if body["evidence_kind"] not in {"execution", "materialization", "checking_program"}:
@@ -732,6 +849,39 @@ def _validate_body(kind: str, body: Mapping) -> None:
         if body["dependency_paths"] is not None:
             for path in names(body["dependency_paths"], "dependency paths"):
                 logical_path(path)
+    if kind == "measure_admission":
+        _validate_requirement_results(body["requirement_results"])
+        from function_library.materialization_progress import RequirementMeasure
+
+        if not isinstance(body["control_snapshot"], Mapping):
+            raise ValueError("measure admission needs its pinned control evidence")
+        for key, reference in body["control_snapshot"].items():
+            OpaqueId(key)
+            Ref.from_record(reference)
+        facts = names(body["fact_keys"], "instrument adequacy facts")
+        if len(facts) != sum(row["status"] == "pass" for row in body["requirement_results"]):
+            raise ValueError("instrument progress needs exactly one fact per adequate requirement")
+        if body["status"] not in {"admitted", "partial", "rejected"}:
+            raise ValueError("measure admission must state admitted, partial or rejected")
+        if body["status"] == "admitted":
+            measure = RequirementMeasure.from_record(body["measurement_function"])
+            requirements = {row["requirement_id"] for row in measure.requirements}
+            assessed = {row["requirement_key"] for row in body["requirement_results"]}
+            if not assessed <= requirements:
+                raise ValueError("composite measure omits its assessed requirements")
+            check_ids = {ref["artifact_id"] for ref in body["check_refs"]}
+            if any((row["requirement_id"] in assessed and not row["check_ids"])
+                   or not set(row["check_ids"]) <= check_ids
+                   for row in measure.requirements):
+                raise ValueError("admitted composite needs its exact checks for every requirement")
+            if any(row["status"] != "pass" for row in body["requirement_results"]):
+                raise ValueError("an admitted composite requires adequate checks for every requirement")
+        elif body["measurement_function"] is not None:
+            raise ValueError("an incomplete measure retains components without publishing a callable")
+        if body["status"] == "partial" and not body["check_refs"]:
+            raise ValueError("partial measure construction needs adequate component checks")
+        if body["status"] == "rejected" and (body["check_refs"] or facts):
+            raise ValueError("a rejected instrument has no adequate components")
     if kind == "measure_admission" and "evaluation_bindings" in body:
         bindings = body["evaluation_bindings"]
         if (
@@ -847,6 +997,13 @@ def _validate_body(kind: str, body: Mapping) -> None:
                 raise ValueError(
                     "prerequisite finding must retain its limited advisory meaning"
                 )
+        elif decision_kind == "research_available":
+            exact(decision, {"kind", "finding_ref", "role", "state", "requirement_keys",
+                             "policy_strength", "limitation_refs"}, "research decision")
+            from .investigation import research_resolved
+
+            if not research_resolved(decision["role"], decision["state"]) or decision["policy_strength"] != "advisory":
+                raise ValueError("research prerequisite retains its advisory meaning")
         else:
             raise ValueError("unknown prerequisite decision kind")
         names(decision["requirement_keys"], "prerequisite requirements", nonempty=True)
@@ -857,7 +1014,15 @@ def _validate_body(kind: str, body: Mapping) -> None:
         for ref in decision["limitation_refs"]:
             Ref.from_record(ref)
     if kind == "measure_proposal":
-        names(body["requirement_keys"], "measured requirements", nonempty=True)
+        if not isinstance(body["components"], Mapping):
+            raise ValueError("measure components must map requirements to admitted component evidence")
+        for key, reference in body["components"].items():
+            names((key,), "component requirement")
+            Ref.from_record(reference)
+        composite = body["oracle_kind"] == "component_composite"
+        names(body["requirement_keys"], "measured requirements", nonempty=not composite)
+        if composite and (body["requirement_keys"] or not body["components"]):
+            raise ValueError("a component composite names admitted components rather than new checks")
         if body["purpose"] not in {"local", "acceptance", "composition", "adequacy"}:
             raise ValueError("unknown measure purpose")
         if body["oracle_kind"] not in {
@@ -865,6 +1030,7 @@ def _validate_body(kind: str, body: Mapping) -> None:
             "independent_execution",
             "checking_program",
             "approved_review",
+            "component_composite",
         }:
             raise ValueError("measure requires an explicit grounding route")
         for name in (
@@ -872,7 +1038,7 @@ def _validate_body(kind: str, body: Mapping) -> None:
             "positive_control_refs",
             "negative_control_refs",
         ):
-            if not body[name]:
+            if not composite and not body[name]:
                 raise ValueError(
                     "measure proposal must identify grounding and discriminating controls"
                 )

@@ -14,16 +14,19 @@ from episode_builder.emitter import _MODULE_CONTRACT
 from episode_builder.plan_choices import CHOICE_FIELDS
 from episode_builder.planner import (
     _BASE_BINDING_ROLES,
+    _PLANNER_SYSTEM_PROMPT,
     _architecture_numeric_bindings,
     _module_name,
     _plan_shape_for_children,
     materializer_function_catalog,
     structural_binding_contract,
+    required_model_types,
 )
 from function_library.epistemic_contract import exact
 from function_library.models import _thaw_json
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
-from .plan_repair import affected_paths, choices, revise_plan
+from .plan_repair import affected_paths, choices, revise_plan, resolve_plan_reference
 from .records import Ref, RefinementRecord, pointer_parts
 
 
@@ -45,15 +48,20 @@ def source_paths(workflow, plan):
 
 def baseline_inputs(evidence, contract):
     record = evidence.reference(
-        Ref.from_record(contract.body["initial_build_receipt_ref"]),
+        Ref.from_record(contract.body["initial_build_inputs_ref"]),
         contract.body["duet_id"],
     )
-    inputs = evidence.builds.inspection_inputs_for_receipt(
-        OpaqueId(record["receipt_id"])
-    )
-    if inputs.receipt.as_record() != record:
-        raise ValueError("candidate baseline differs from its stored build receipt")
+    inputs = evidence.builds.inspection_inputs(**record)
+    if inputs.build_request.frozen_workflow.duet_id.value != contract.body["duet_id"]:
+        raise ValueError("candidate construction inputs belong to another Duet")
     return inputs
+
+
+def initial_handoff(evidence, contract):
+    catalog = evidence.reference(
+        Ref.from_record(contract.body["requirement_catalog_ref"]), contract.body["duet_id"]
+    )
+    return evidence.reference(Ref.from_record(catalog["materialization_handoff_ref"]), contract.body["duet_id"])
 
 
 def candidate_materialization(evidence, contract, candidate):
@@ -135,6 +143,7 @@ def stored_plan(view, candidate, materialization=None, *, instrument=None):
 
 
 def edit_context(view, policy, assignment, *, instrument=None):
+    family = ROLE_SPECIALIZATION[assignment.body["role"]]
     typed_plan = WorkflowMaterializationPlan.from_record(
         _thaw_json(stored_plan(view, view.candidate, instrument=instrument))
     )
@@ -177,8 +186,10 @@ def edit_context(view, policy, assignment, *, instrument=None):
         if local_id not in designs:
             raise ValueError("materialization edit policy names an unapproved node")
         path = paths[local_id]
+        if pointer in assignment.body["materialization_targets"]:
+            local_ids.add(local_id)
         if (
-            path in assignment.body["writable_paths"]
+            pointer in assignment.body["materialization_targets"]
             and path not in assignment.body["protected_paths"]
         ):
             payload = choices(typed_plan, local_id, workflow.repeatable_calls)
@@ -203,14 +214,31 @@ def edit_context(view, policy, assignment, *, instrument=None):
     calls = plan.get("repeatable_calls", {}).get("edges", ())
     planning_ids = (
         {target_parts(split_target(target["json_pointer"])[1])[0] for target in targets}
-        if assignment.body["role"] in {"designer", "implementer"}
+        if family in {"designer", "materialization_implementer"}
         else set()
     )
+    if family == "implementer":
+        # Authoring signatures remain useful read-only context for source work.
+        planning_ids = local_ids & set(designs)
     planning_inputs = []
+    submitted = {}
+    if planning_ids and instrument is None:
+        catalog = view.data(Ref.from_record(view.contract.body["requirement_catalog_ref"]))
+        handoff = view.data(Ref.from_record(catalog["materialization_handoff_ref"]))
+        submitted = handoff.get("submitted_materialization", {})
     for local_id in sorted(planning_ids):
         bindings, failure = _architecture_numeric_bindings(designs[local_id])
+        try:
+            reference = resolve_plan_reference(designs[local_id], nodes.get(local_id))
+            reference_error = None
+        except (TypeError, ValueError) as exc:
+            reference, reference_error = None, str(exc)
         planning_inputs.append({
             "local_id": local_id,
+            "reference": None if reference is None else reference.as_record(),
+            "reference_error": reference_error,
+            **({"initial_unadmitted_choices": submitted[local_id]}
+               if local_id not in nodes and submitted.get(local_id) is not None else {}),
             "design": designs[local_id].as_record(),
             "target_module_name": nodes[local_id].module_name if local_id in nodes else _module_name(
                 local_id, designs[local_id].contract.spec_hash.value,
@@ -268,14 +296,50 @@ def edit_context(view, policy, assignment, *, instrument=None):
         ],
         "permitted_detail_edits": targets,
         "planning_inputs": planning_inputs,
+        "planning_instructions": _PLANNER_SYSTEM_PROMPT
+        if family == "materialization_implementer" else None,
+        "approved_model_slots": policy.get("model_slot_catalog", {}) if planning_ids else {},
+        "model_selection_rule": "Each LLM call declares an explicit model_type from approved_model_slots, including calls inside library bindings. The human launch file owns the concrete models and credentials.",
         "required_module_contract": _MODULE_CONTRACT
-        if assignment.body["role"] in {"designer", "implementer"}
+        if family in {"designer", "implementer", "materialization_implementer"}
         else None,
         "required_base_roles": sorted(_BASE_BINDING_ROLES) if planning_ids else [],
         "function_catalog": list(materializer_function_catalog())
         if planning_ids
         else [],
     }
+
+
+def target_source_paths(view, targets):
+    """Map plan scope to affected modules; this grants no source-write access.
+
+    Used also for implicit caller/interface changes introduced by normalization.
+    Every affected module must have a target in the assigned plan scope.
+    """
+    from .instrument_builds import entries
+
+    instruments = {entry["spec_ref"]["artifact_id"]: entry for entry in entries(view)}
+    paths_by_build = {}
+    result = set()
+    for pointer in targets:
+        instrument_id, local_pointer = split_target(pointer)
+        if instrument_id is not None and instrument_id not in instruments:
+            raise ValueError("materialization target names an unauthorized instrument")
+        instrument = instruments.get(instrument_id)
+        if instrument_id not in paths_by_build:
+            workflow_ref = (view.data(Ref.from_record(instrument["checker_ref"]))["workflow_ref"]
+                            if instrument else view.contract.body["target_workflow_ref"])
+            workflow = FrozenDuetWorkflow.from_record(view.data(Ref.from_record(workflow_ref))).workflow
+            plan = WorkflowMaterializationPlan.from_record(
+                _thaw_json(stored_plan(view, view.candidate, instrument=instrument)))
+            paths = source_paths(workflow, plan)
+            paths_by_build[instrument_id] = ({key: instrument["paths"][path] for key, path in paths.items()}
+                                              if instrument else paths)
+        local_id, _ = target_parts(local_pointer)
+        if local_id not in paths_by_build[instrument_id]:
+            raise ValueError("materialization target names an unapproved Episode")
+        result.add(paths_by_build[instrument_id][local_id])
+    return result
 
 
 def target_parts(pointer):
@@ -452,4 +516,11 @@ def prepare_edits(evidence, contract, candidate, operations):
     }
     if instrument_plans:
         body["instrument_plans"] = instrument_plans
+    policy = evidence.reference(Ref.from_record(contract.body["policy_bundle_ref"]), contract.body["duet_id"])
+    if None in grouped:
+        # Match initial planner slot admission for the replacement construction path.
+        for node in primary.nodes:
+            unknown = required_model_types(node.prompt_specs, node.selected_function_bindings) - policy["model_slot_catalog"].keys()
+            if unknown:
+                raise ValueError(f"materialization references unapproved model slots: {sorted(unknown)}")
     return {"record": body, "affected_source_paths": sorted(affected)}

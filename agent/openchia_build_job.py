@@ -1,14 +1,13 @@
 """One user-started build owns materialization, refinement and validation.
 
 The nested refiner owns all repair choices and iteration. This lifecycle only
-connects the initial Builder receipt, the shared experiment and the final build;
+connects approved architecture, the shared experiment and the final build;
 it is not a second Episode runner or retry loop.
 """
 
 import asyncio
 
-from agent.duet_contracts import DuetProvenance, canonical_json
-from agent.duet_store import DuetConflictError
+from agent.duet_contracts import DuetProvenance
 from episode_builder import BuildReceipt
 from llm_call_library.transport import ModelCallFailed
 from episode_runtime.records.experiments import (
@@ -36,18 +35,8 @@ def finalization_for(host, receipt):
     result = row["record"]
     if row[
         "duet_id"
-    ] != host.identity.duet_id.value or receipt.receipt_id.value not in {
-        result["initial_build_receipt_id"],
-        result["build_receipt_id"],
-    }:
+    ] != host.identity.duet_id.value or receipt.receipt_id.value != result["build_receipt_id"]:
         raise ValueError("build finalization belongs to another build")
-    if (
-        result["state"] == "verified"
-        and result["build_receipt_id"] != receipt.receipt_id.value
-    ):
-        # Verification may commit before the selected baseline is published.
-        # Preserve its reference, but do not label the older baseline complete.
-        return {**result, "state": "interrupted"}
     return result
 
 
@@ -111,58 +100,30 @@ def accepted_receipt(host, result, request):
     return receipt
 
 
-def _publish_result(host, request, initial, receipt, result, state, error, *, continued_job=None):
+def _publish_result(host, request, receipt, result, state, error, *, continued_job=None):
     record = {
         "build_request_id": request.build_request_id.value,
         "authority_head_approval_id": request.authority_approval.approval_id.value,
-        "initial_build_receipt_id": None
-        if initial is None
-        else initial.receipt_id.value,
         "build_receipt_id": None if receipt is None else receipt.receipt_id.value,
         "state": state,
         "refinement": result,
         "error": error,
     }
-    # Both receipts lead to the same result, including across a crash before the
-    # accepted baseline is published. Initial evidence is never overwritten.
-    receipts = {
-        item.receipt_id.value for item in (initial, receipt) if item is not None
-    }
-    if not receipts:
-        # A provider failure or cancellation can precede the first receipt.
-        # The job event still closes ownership and preserves the real failure;
-        # there is no materialization artifact to publish in this case.
-        with host.store.transaction() as connection:
-            previous = connection.execute(
-                "SELECT record_json FROM duet_events "
-                "WHERE duet_id = ? AND event_type = 'build_finished' "
-                "AND json_extract(record_json, '$.build_request_id') = ? "
-                "ORDER BY sequence DESC LIMIT 1",
-                (host.identity.duet_id.value, request.build_request_id.value),
-            ).fetchone()
-            if previous is not None:
-                if previous["record_json"] != canonical_json(record):
-                    raise DuetConflictError("build result differs from its recorded terminal result")
-                return
-            duet = host.store.get_duet(host.identity.duet_id.value)
-            if (
-                duet["state"] != "sealed"
-                or duet["authority_head_approval_id"]
-                != request.authority_approval.approval_id.value
-            ):
-                raise DuetConflictError("Duet state or authority head changed concurrently")
-            host.store.append_event(
-                duet_id=host.identity.duet_id.value,
-                event_type="build_finished",
-                provenance=DuetProvenance.HOST_VALIDATION.value,
-                record=record,
-            )
-        return
+    # Every host execution has a result, including construction before admission.
+    # Bind publication to its request/continuation event, not a fabricated receipt.
+    owner_sequence = max(event["sequence"] for event in host.store.events(host.identity.duet_id.value)
+                         if event["event_type"] in {"build_requested", "build_continue_requested"}
+                         and event["record"]["build_request_id"] == request.build_request_id.value)
+    receipts = set() if receipt is None else {receipt.receipt_id.value}
     run_id = None if continued_job is None else latest_job_run(host, continued_job)
-    # Setup can be cancelled before the first dispatch. Publish the initial
-    # receipt-to-job result then, never an attempt indexed by a nonexistent Run.
+    # Setup can stop before dispatch or admission. Its request-owned result is
+    # still persisted; receipt/Run links appear only when those artifacts exist.
     per_attempt = continued_job is not None and run_id is not None
-    artifacts = []
+    artifacts = [artifact_fields(
+        "build_execution_result", duet_id=host.identity.duet_id.value,
+        build_request_id=request.build_request_id.value, owner_event_sequence=owner_sequence,
+        record=record,
+    )]
     for receipt_id in sorted(receipts):
         artifacts.append(artifact_fields(
             "build_job_result_attempt" if per_attempt else "build_job_result",
@@ -198,66 +159,46 @@ def _publish_result(host, request, initial, receipt, result, state, error, *, co
 
 
 async def _execute(
-    host, request, builder, launch, launch_transport, cancel_event, refiner,
-    *, builder_responses=None, existing_receipt=None,
+    host, request, builder, launch, cancel_event, refiner,
 ):
-    from llm_call_library import model_transport_scope
+    from iterative_episode_refiner.construction import prepare_construction
 
-    async def build_transport(model_request):
-        return await host._builder_model_transport(
-            model_request, cancel_event, launch_transport
-        )
-
-    if existing_receipt is None:
-        with model_transport_scope(build_transport):
-            raw = await builder.build(
-                request,
-                progress_callback=lambda value: host._record_build_progress(request, value),
-                cancel_event=cancel_event,
-            )
-        if builder_responses is not None and not cancel_event.is_set():
-            builder_responses.validate_complete()
-    else:
-        raw = existing_receipt
-    receipt = host._correlated_receipt(request, raw)
-    baseline = await asyncio.to_thread(
-        host._persist_materialized_specification, request, receipt
-    )
+    inputs, handoff = await asyncio.to_thread(prepare_construction, host, request, builder)
     with host._build_lock:
-        host._build_receipt = receipt
-        host._build_attempt_id = receipt.build_attempt_id
-        host._build_baseline = baseline
-        host._build_progress = host._receipt_progress(request, receipt)
+        host._build_receipt = None
+        host._build_attempt_id = inputs.build_attempt.build_attempt_id
+        host._build_baseline = None
+        host._build_progress = host._empty_progress("refining")
+        host._build_progress["counts"].update(
+            episodes_total=len(request.frozen_workflow.workflow.episodes),
+            episodes_planned=len(inputs.plan.nodes),
+            blocking_deficits=sum(item.blocking for item in inputs.plan.deficits),
+        )
         if cancel_event.is_set():
-            return receipt, None
+            return None
         host._build_state = "refining"
         host._build_progress["stage"] = "refining"
-        # Initial Builder cancellation is cooperative so its partial receipt is
-        # retained. During refinement, cancel the shared service task instead;
-        # its existing executor stops and audits in-flight nested Runs.
         host._build_refinement_task = asyncio.create_task(
-            refiner.run(request, baseline, builder, launch)
+            refiner.run(request, inputs, handoff, builder, launch)
         )
         host._build_loop = asyncio.get_running_loop()
-    return receipt, await host._build_refinement_task
+    return await host._build_refinement_task
 
 
 def run_build_job(
-    host, request, builder, launch, launch_transport, cancel_event, refiner,
-    *, continuation=None, continued_job=None, builder_responses=None, existing_receipt=None,
+    host, request, builder, launch, cancel_event, refiner,
+    *, continuation=None, continued_job=None,
 ):
     from agent.openchia_host import _describe_exception
 
-    initial, receipt, result, error = None, None, None, None
+    receipt, result, error = None, None, None
     state = "host_error"
     try:
-        initial, result = asyncio.run(
+        result = asyncio.run(
             continuation() if continuation is not None else _execute(
-                host, request, builder, launch, launch_transport, cancel_event, refiner,
-                builder_responses=builder_responses, existing_receipt=existing_receipt,
+                host, request, builder, launch, cancel_event, refiner,
             )
         )
-        receipt = initial
         if result is None:
             state = "cancelled"
         else:
@@ -268,11 +209,7 @@ def run_build_job(
                 state = result["disposition"]
                 if state == "attained":
                     state = "unresolved"
-        if existing_receipt is not None:
-            saved_job = read_record(host.store, "build_job", build_request_id=request.build_request_id.value)
-            if saved_job is not None:
-                continued_job = saved_job["record"]
-        _publish_result(host, request, initial, receipt, result, state, error, continued_job=continued_job)
+        _publish_result(host, request, receipt, result, state, error, continued_job=continued_job)
         if state == "verified":
             revised_request = host.build_store.read_build_request(
                 receipt.build_request_id
@@ -287,20 +224,18 @@ def run_build_job(
                 host._build_progress = host._receipt_progress(revised_request, receipt)
     except ModelCallFailed as exc:
         state, error = "interrupted", _describe_exception(exc)
-        initial = receipt = host._build_receipt
+        receipt = host._build_receipt
         saved_job = read_record(
             host.store, "build_job", build_request_id=request.build_request_id.value,
         )
         continued_job = None if saved_job is None else saved_job["record"]
-        _publish_result(host, request, initial, receipt, None, state, error, continued_job=continued_job)
+        _publish_result(host, request, receipt, None, state, error, continued_job=continued_job)
     except asyncio.CancelledError:
         state = "cancelled"
-        initial = receipt = host._build_receipt
-        if existing_receipt is not None:
-            saved_job = read_record(host.store, "build_job", build_request_id=request.build_request_id.value)
-            if saved_job is not None:
-                continued_job = saved_job["record"]
-        _publish_result(host, request, initial, receipt, None, state, None, continued_job=continued_job)
+        receipt = host._build_receipt
+        saved_job = read_record(host.store, "build_job", build_request_id=request.build_request_id.value)
+        continued_job = None if saved_job is None else saved_job["record"]
+        _publish_result(host, request, receipt, None, state, None, continued_job=continued_job)
     except Exception as exc:
         state, error = "host_error", _describe_exception(exc)
         host.store.append_event(

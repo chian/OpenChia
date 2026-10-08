@@ -26,7 +26,7 @@ from episode_builder.emitter import (
 from episode_builder.inspection import MaterializationInspectionInput
 from episode_builder.service import _materializer_identity
 
-from .materialization_edits import candidate_plan, source_paths
+from .materialization_edits import candidate_plan, initial_handoff, source_paths
 from .instrument_builds import SourceScope, source_scope
 
 
@@ -126,7 +126,7 @@ def project_candidate_sources(evidence, contract, candidate, binding=None):
                     "", build_module_declaration(designs[node.local_id], node, edges)
                 )
                 source = source[: -len(suffix)]
-            elif kind not in {"raw_model_source", "candidate_raw_source"}:
+            elif kind not in {"raw_model_source", "candidate_raw_source", "submitted_source"}:
                 raise ValueError("unknown source kind in materialization handoff")
             # This is candidate-derived input, not a claim that a model emitted
             # these bytes. The immutable candidate retains its full provenance.
@@ -196,6 +196,7 @@ def _inputs(store, contract, candidate, builder, binding=None):
         not projection.deficits
         and projection.plan == inputs.plan
         and projection.completed_files == baseline_files
+        and inputs.receipt is not None
         and inputs.receipt.materialized
         and projection.environment_recipe == inputs.manifest.as_record()["environment_recipe"]
         and projection.environment_lock == inputs.manifest.as_record()["environment_lock"]
@@ -267,9 +268,7 @@ def materialization_results(evidence, contract, candidate, receipt):
 
     projection = project_candidate_sources(evidence, contract, candidate)
     handoff = evidence.materialization_handoff(receipt, contract.body["duet_id"])
-    baseline = evidence.materialization_handoff(
-        projection.baseline.receipt, contract.body["duet_id"]
-    )
+    baseline = initial_handoff(evidence, contract)
     if (
         handoff["requirements"] != baseline["requirements"]
         or handoff["checks"] != baseline["checks"]

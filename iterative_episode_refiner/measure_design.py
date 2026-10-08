@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from agent.duet_contracts import canonical_json
 from function_library.epistemic_contract import exact, names
 from function_library.refinement_checks import resolve_predicate
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .records import Ref
 
@@ -184,7 +185,7 @@ def propose(view, attempt):
         exact(payload, {"check_design"}, "check design proposal")
         design = payload["check_design"]
         validate_design(design)
-        if assignment.body["role"] != "measure":
+        if ROLE_SPECIALIZATION[assignment.body["role"]] != "measure":
             raise ValueError(
                 "only the assigned Measure Episode may design its requested check"
             )
@@ -197,11 +198,9 @@ def propose(view, attempt):
         goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
         need = goal["measure_request"]
         keys = {case["requirement_key"] for case in design["cases"]}
-        if design["purpose"] != need["purpose"] or keys != set(
-            need["requirement_keys"]
-        ):
+        if design["purpose"] != need["purpose"] or not keys <= set(need["requirement_keys"]):
             raise ValueError(
-                "check design must preserve exactly the parent's requested judgment"
+                "check design must address requirements within the parent's requested judgment"
             )
         catalog = view.data(
             Ref.from_record(view.contract.body["requirement_catalog_ref"])
@@ -315,6 +314,7 @@ def context(view, assignment, frozen):
     from function_library.models import _thaw_json
     from episode_runtime.testing_harness.observations import observation_catalog
     from .report_contract import requirement_address, requirement_catalog
+    from .measure_components import completed_components
 
     grant = frozen.get("measure_admission")
     if not policy(grant):
@@ -334,12 +334,22 @@ def context(view, assignment, frozen):
             "requirement": requirement_address(catalog[case["requirement_key"]]),
         } for case in design["cases"]]
     binding_purpose = design["purpose"] if design is not None else None
-    if binding_purpose is None and assignment.body["role"] == "measure":
+    if binding_purpose is None and ROLE_SPECIALIZATION[assignment.body["role"]] == "measure":
         goal = view.data(Ref.from_record(assignment.body["goal_record_ref"]))
         binding_purpose = goal["measure_request"]["purpose"]
+    catalog = requirement_catalog(view)
+    completed = completed_components(view, assignment) if ROLE_SPECIALIZATION[assignment.body["role"]] == "measure" else {}
     return {
         "check_design": {
             "current_design": design,
+            "completed_requirements": [requirement_address(catalog[key]) for key in completed],
+            "component_work": (
+                "Design a focused requirement or coupled set. Completed components are retained "
+                "with their exact code and controls. Each new design has its own review; the "
+                "owning Measure publishes one composite when the commission is ready. "
+                "compose_components=true assembles adequate returned components; Measure Parts "
+                "returns scoped component evidence for its parent to assemble."
+            ),
             "review_assigned": selected is not None,
             "review_criteria": list(REVIEW_CRITERIA),
             "available_predicates": [

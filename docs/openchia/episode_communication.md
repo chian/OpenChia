@@ -211,11 +211,15 @@ The refiner's Designer and Implementer receive Builder's existing
 working input. There is one authoring contract for initial construction and
 repair, not a second undocumented module format. It includes public imports,
 constructor signatures, required exports, and exact request-admission rules.
-When a node plan is missing, an Implementer can submit a plan-only candidate
-change; the following iteration receives the host-derived plan identities before
-writing source. The ordinary host admission and local checks evaluate each
-change. A Question child is not a general repository reader and cannot supply
-missing authoring APIs by rephrasing an unavailable investigation request.
+MaterializationImplementer creates missing node plans through its scoped
+structured API. Code Implementer receives the resulting Materialization Spec
+and host-derived identities as read-only context for source authoring.
+The ordinary host admission and local checks evaluate each
+change. Question can investigate a missing authoring API through read-only
+documentation, registered library references and external sources. Support can
+find applicable examples, functions and reference Episodes. Their research
+findings inform the implementation while host admission retains its ordinary
+authority over source and Materialization Spec changes.
 
 Each concrete child slot selects `component.report_S`, with interface
 `episode.report_synthesis`. Its request projection constructs the reporting
@@ -227,6 +231,35 @@ Builder instructions specify both the purpose and delivery of the synthesis.
 Constructor admission checks the actual required `ChildEpisodeUnit` arguments.
 The refiner uses the same method boundary; its report fields and measurement
 interpretation are binding-specific.
+
+### Read-only research leaves
+
+Question and Support are leaves callable from Designer, specialists and Parts.
+They keep their own Episode loops and numerical stopping rules while acquiring
+information through four declared read-only operations: `web_search`,
+`read_url`, `library_search` and `read_library`. A research proposal names the
+operation and its single `query`, `url` or catalog `source_id` argument. They do
+not launch children, execute a shell or edit the Target Workflow.
+
+Research findings identify each assigned requirement, a supported answer or
+guidance item, applicability, limitations and exact acquired source IDs.
+Question distinguishes `answered`, `refuted` and `unresolved`; Support
+distinguishes `applicable`, `inapplicable` and `unresolved`. Acquisition failure
+is a recorded limitation, not a refutation. Question's explicitly assigned
+checking-program review retains its existing independent `check_review` path.
+
+The parent selects the return's useful findings through its report contract.
+Raw retrieved pages, tool responses and source audit records remain evidence
+artifacts rather than being automatically copied into the parent input.
+Source references support stored provenance; the parent receives contracted
+synthesis, not an audit-record expansion. Findings inform a decision without
+changing the caller's goal, permissions or acceptance requirements.
+
+This is a structural and capability boundary. Exact-field validation constrains
+the report's shape, and leaf permissions limit the available actions. Neither
+proves that arbitrary natural-language findings are prompt-injection-free.
+Retrieved content and source-derived findings remain untrusted evidence; their
+presence in a valid report does not make embedded instructions authoritative.
 
 ## Verification boundary
 

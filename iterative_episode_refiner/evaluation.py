@@ -12,6 +12,7 @@ from agent.episode_contracts import OpaqueId
 from episode_runtime.contracts import RuntimePolicy
 from episode_runtime.testing_harness.observations import is_verified_run_path
 from function_library.epistemic_contract import exact
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .candidate_source import admit_candidate
 from .records import EvidenceRef, Ref
@@ -65,7 +66,7 @@ class RefinementEvaluations:
         from .authored_checks import prepare as prepare_checkers
 
         await prepare_checkers(self, session, call, payload)
-        if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:
+        if ROLE_SPECIALIZATION[call.assignment.body["role"]] == "measure" and "proposal_ref" in payload:
             return
         await prepare_environment(self, session, call, payload)
 
@@ -266,7 +267,7 @@ class RefinementEvaluations:
             # to their Parts owner. Requesting a new evaluation here violates
             # that same boundary and used to invalidate the entire Run.
             return session.reply(call, proceed=False)
-        if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:
+        if ROLE_SPECIALIZATION[call.assignment.body["role"]] == "measure" and "proposal_ref" in payload:
             return self._evaluate_measure(session, call, payload)
         candidate, requests = self._requests(session, call, payload)
         available = [

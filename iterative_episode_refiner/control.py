@@ -2,6 +2,7 @@
 
 from agent.duet_contracts import content_id
 from function_library.refinement_control import BOUNDED_RAREFACTION, resolve_selection
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 from numeric_control_library import MARGINAL_DOMINATED_HYPERVOLUME
 from numeric_control_library.continuation import continuation_function_library
 from numeric_control_library.controller import ComposedIncidenceController
@@ -33,32 +34,43 @@ def _numeric_selection(library, selection):
 def attained(view, assignment, policy):
     """No omitted, stale or unformalized requirement can silently become green."""
     from .coordination import pending_decisions, relevant_conflicts
-    from .judgment import current_check_states, judgment_purpose
-    from .measures import authorized_check_refs
+    from .judgment import current_check_states, judgment_purpose, measure_result
+    from .measures import selected_checks, selected_measure_ref
 
     installed = {
         entry.record.artifact_id.value: entry.record for entry in view.entries("check")
     }
     states = {key: status for key, (_, status) in current_check_states(view).items()}
     role = assignment.body["role"]
+    family = ROLE_SPECIALIZATION[role]
     investigation = role in {"support", "question"}
     if investigation:
-        from .investigation import findings, needs
+        from .investigation import findings
+        from .measure_design import assigned_definition
 
-        assigned = {
-            item["need"]["need_key"] for item in needs(view, policy, assignment)
-        }
-        resolved = {
-            item["need_key"] for item in findings(view, assignment) if item["resolved"]
-        }
-        if not assigned or assigned != resolved:
+        if assigned_definition(view, assignment) is not None:
+            # Research may inform an independent review; only the admitted review
+            # satisfies that commission (unit_review owns its ordinary return).
             return False
+        resolved = {
+            item["requirement_key"] for item in findings(view, assignment) if item["resolved"]
+        }
+        invocations = [entry.key for entry in view.entries("invocation")
+                       if entry.record.ref == assignment.ref]
+        if len(invocations) != 1:
+            raise ValueError("research attainment has no unique admitted invocation")
+        return (
+            set(assignment.body["contribution_requirement_keys"]) <= resolved
+            and not pending_decisions(view, invocations[0])
+        )
     admitted_measure = False
-    if role == "measure":
+    if family == "measure":
         admitted = [
             entry.record
             for entry in view.entries("measure")
-            if entry.status == "admitted"
+            if (entry.status == "admitted" if role == "measure" else
+                entry.status == "partial" and all(row["status"] == "pass"
+                    for row in entry.record.body["requirement_results"]))
             and view.read(
                 Ref.from_record(entry.record.body["proposal_ref"]), "measure_proposal"
             ).body["assignment_ref"]
@@ -67,24 +79,22 @@ def attained(view, assignment, policy):
         admitted_measure = bool(admitted) and assignment.body[
             "local_measure_ref"
         ] == policy.get("measure_admission", {}).get("adequacy_measure_ref")
-    measure = (
-        assignment.body["acceptance_measure_ref"]
-        if role in {"parts", "designer"}
-        else assignment.body["local_measure_ref"]
+    measure = selected_measure_ref(view, assignment,
+        "acceptance_measure_ref"
+        if role == "designer"
+        else "local_measure_ref"
     )
     purpose = judgment_purpose(view, assignment)
     required = []
     requirements = set(assignment.body["contribution_requirement_keys"])
     covered = set()
-    for ref in authorized_check_refs(view, policy, assignment):
+    for check in selected_checks(view, policy, assignment, measure, purpose=purpose):
         # Interpret the frozen check even before installation to decide whether
         # it is part of THIS role's measure. An unrelated missing check must not
         # keep an otherwise attained child alive indefinitely.
-        check = view.read(ref, "check")
+        ref = check.ref
         if (
-            check.body["measure_ref"] != measure
-            or check.body["purpose"] != purpose
-            or check.body["requirement_key"] not in requirements
+            check.body["requirement_key"] not in requirements
             or not check.body["mandatory"]
         ):
             continue
@@ -99,7 +109,7 @@ def attained(view, assignment, policy):
         required.append(check)
     if not admitted_measure and (covered != requirements or not required):
         return False
-    acceptable = {"pass", "fail"} if role == "verify" or investigation else {"pass"}
+    acceptable = {"pass", "fail"} if family == "verify" or investigation else {"pass"}
     if any(states.get(check.artifact_id.value) not in acceptable for check in required):
         return False
     if any(
@@ -107,6 +117,10 @@ def attained(view, assignment, policy):
         for check in required
         for guard in check.body["guard_keys"]
     ):
+        return False
+    if family in {"designer", "implementer", "materialization_implementer"} and not measure_result(
+        view, assignment, reference=measure, purpose=purpose
+    )["attained"]:
         return False
     invocations = [
         entry
@@ -122,7 +136,7 @@ def attained(view, assignment, policy):
         for item in relevant_conflicts(view, assignment)
     ):
         return False
-    if role == "parts" and assignment.body["parent_assignment_ref"] is None:
+    if role == "designer" and assignment.body["parent_assignment_ref"] is None:
         from .readiness import root_readiness
 
         return not root_readiness(view, assignment, policy)["gaps"]
@@ -134,7 +148,6 @@ def observation_inputs(view, attempt, assignment, assessments=None, prerequisite
     from .judgment import operative_check_facts, parent_assessments
     from .measures import unit_admissions
     from .prerequisites import parent_prerequisites
-    from .measure_controls import validated_control_facts
 
     if assessments is None:
         assessments = parent_assessments(view, attempt, assignment)
@@ -146,6 +159,13 @@ def observation_inputs(view, attempt, assignment, assessments=None, prerequisite
         if entry.record.logical_unit_id == attempt.logical_unit_id
         and entry.record.invocation_id == attempt.invocation_id
     ]
+    research = [
+        entry.record
+        for entry in view.entries("research_finding")
+        if entry.record.logical_unit_id == attempt.logical_unit_id
+        and entry.record.invocation_id == attempt.invocation_id
+        and entry.record.evidence_refs
+    ]
     lessons = [
         entry
         for entry in view.entries("lesson")
@@ -153,14 +173,13 @@ def observation_inputs(view, attempt, assignment, assessments=None, prerequisite
         and entry.record.invocation_id == attempt.invocation_id
         and entry.record.logical_unit_id == attempt.logical_unit_id
     ]
-    measures = [
-        item
-        for item in unit_admissions(view, attempt)
-        if item.body["status"] == "admitted"
-    ]
-    controls = validated_control_facts(view, assignment_ref=assignment.ref)
-    current_controls = any(record.logical_unit_id == attempt.logical_unit_id and record.invocation_id == attempt.invocation_id for record in controls.values())
-    usable = bool(lessons or measures or prerequisites or current_controls) or any(
+    measures = unit_admissions(view, attempt)
+    measured_instrument = any(
+        item.body["status"] == "admitted"
+        or any(row["status"] in {"pass", "fail", "error"} for row in item.body["control_results"])
+        for item in measures
+    )
+    usable = bool(lessons or prerequisites or measured_instrument or research) or any(
         item.body["outcome"] in {"pass", "fail"}
         for item in (*observations, *assessments)
     )
@@ -169,7 +188,6 @@ def observation_inputs(view, attempt, assignment, assessments=None, prerequisite
         | {key for entry in lessons for key in entry.record.body["fact_keys"]}
         | {key for measure in measures for key in measure.body["fact_keys"]}
         | {key for item in prerequisites for key in item.body["fact_keys"]}
-        | set(controls)
     )
     keys -= baseline_fact_keys(view, assignment)
     return keys if usable else set(), usable
@@ -210,15 +228,12 @@ def numerical_decision(view, assignment, policy, observation_keys, *, usable):
 
     remaining = None
     controller = _controller(policy, lambda: remaining)
-    # Succession retains actual observations. Equivalent criterion keys are
-    # projected into the successor, never counted as a fresh successful unit.
+    # Same-function succession retains its observations. A commissioned revision
+    # has a new baseline and never reinterprets an old function's yield history.
     lineages = judgment_history(view, assignment)
     history = []
     for entry in view.entries("unit"):
-        prior_assignment = view.read(
-            Ref.from_record(entry.record.body["assignment_ref"]), "assignment"
-        )
-        mapping = lineages.get(prior_assignment.body["judgment_lineage"])
+        mapping = lineages.get(entry.record.body["judgment_lineage"])
         if mapping is not None:
             history.append((entry.record, mapping))
     for receipt, mapping in history:

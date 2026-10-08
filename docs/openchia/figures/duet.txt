@@ -1,0 +1,35 @@
+OPENCHIA  human + LLM = Duet   0.21.5+4467 · feat/workflow-coding-handoff@92b3379fe1+dirty
+
+   .-------------------------.      .-------------------------. 
+   |   What shall we grow?   |      | A great idea. Together. | 
+   '------------.------------'      '------------.------------' 
+                \                                /              
+             \  |  /                          \  |  /           
+           \\ \ | / //                      \\ \ | / //         
+            .vvvvvvv.                        .vvvvvvv.          
+           /vvvvvvvvv\                      /vvvvvvvvv\         
+          /  o     o  \                    /  o     o  \        
+         (      ^      >                  <      ^      )       
+          \   \___/   /                    \   \___/   /        
+           '._     _.'                      '._     _.'         
+           /_/     \_\                      /_/     \_\         
+              HUMAN                             LLM             
+
+  [DUET] <----> [WORKFLOW ARCHITECTURE]
+                       | approve + build
+                       v
+              [MATERIALIZED SPECIFICATION]
+                       | explicit run
+                       v
+                   [RUN EVIDENCE]
+
+OpenChia Duet ready (0.21.5+4467 · feat/workflow-coding-handoff@92b3379fe1+dirty). Describe the outcome, then use /duet to 
+inspect or /help for controls.
+Use /episode to move between the Duet-owned Architecture and its exact materialization.
+
+Duet · describe the outcome you want                                                                                            
+/episode · /help                                                                                                                
+ ◈ example-model │ ctx -- │ [░░░░░░░░░░] -- │ 2s │ ⏲ 0s                                                                         
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Which external hosts does this workflow need to reach?                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

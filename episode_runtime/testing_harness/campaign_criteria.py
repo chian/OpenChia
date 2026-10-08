@@ -8,12 +8,12 @@ to another assignment, publish a campaign observation, or award parent credit.
 from agent.duet_contracts import canonical_json
 from agent.duet_store import DuetNotFoundError
 from function_library.models import _thaw_json
+from function_library.materialization_progress import RequirementMeasure
 from function_library.refinement_checks import resolve_predicate
 from iterative_episode_refiner.campaign_store import CampaignView
 from iterative_episode_refiner.checking import checker_definition
 from iterative_episode_refiner.evaluation_inputs import native_template
 from iterative_episode_refiner.measures import bindings_for_check
-from iterative_episode_refiner.measure_groups import declarations, member_bindings
 from iterative_episode_refiner.records import Ref, RefinementRecord
 
 from ..records.experiments import read_reference
@@ -29,8 +29,19 @@ def admitted_check(view, requirement):
         raise ValueError("measurement check has not been admitted in this campaign") from exc
     if installed.record.ref != check.ref:
         raise ValueError("measurement check differs from its admitted identity")
-    if check.body["measure_ref"] != requirement["measure_ref"]:
-        raise ValueError("experiment changes the check's parent-assigned measure")
+    policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
+    initial = (check.ref.as_record() in policy["check_refs"]
+               and check.body["measure_ref"] == requirement["measure_ref"])
+    if not initial and not any(
+        row.status == "admitted"
+        and row.record.body["measure_ref"] == requirement["measure_ref"]
+        and check.ref.as_record() in row.record.body["check_refs"]
+        and any(check.artifact_id.value in item["check_ids"]
+                for item in RequirementMeasure.from_record(row.record.body["measurement_function"]).requirements
+                if item["requirement_id"] == check.body["requirement_key"])
+        for row in view.entries("measure")
+    ):
+        raise ValueError("experiment check is outside its exact admitted composite")
     catalog = view.data(Ref.from_record(view.contract.body["requirement_catalog_ref"]))
     if check.body["requirement_key"] not in {
         row["requirement_key"] for row in catalog["requirements"]
@@ -39,10 +50,9 @@ def admitted_check(view, requirement):
     return check
 
 
-def check_bindings(view, check):
+def check_bindings(view, check, *, measure_ref):
     policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
     bindings = list(policy["evaluation_bindings"])
-    grouped = Ref.from_record(check.body["measure_ref"]) in declarations(view, policy)
     for entry in view.entries("measure"):
         admitted = entry.record.body
         if entry.status != "admitted" or check.ref.as_record() not in admitted["check_refs"]:
@@ -50,9 +60,7 @@ def check_bindings(view, check):
         if admitted["evaluation_binding"] is not None:
             bindings.append(admitted["evaluation_binding"])
         bindings.extend(admitted.get("evaluation_bindings", ()))
-        if grouped:
-            bindings.extend(member_bindings(((check, entry.record),)))
-    return bindings_for_check(bindings, check)
+    return bindings_for_check(bindings, check, measure_ref=measure_ref)
 
 
 def resolve_campaign_criterion(
@@ -98,7 +106,7 @@ def resolve_campaign_criterion(
                     "This check requires Builder materialization evidence; a Run result cannot replace it."
                 ),
             }
-        choices = check_bindings(view, check)
+        choices = check_bindings(view, check, measure_ref=requirement["measure_ref"])
         if len(choices) != 1:
             return {
                 "eligible": False,

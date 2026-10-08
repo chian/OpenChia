@@ -1,16 +1,77 @@
 # Implementer's coding workspace
 
-This environment belongs to Implementer. It contains the candidate source and
+This environment belongs to Code Implementer or a scoped Code Parts invocation.
+It contains the candidate source and
 the admitted assignment so a coding agent can inspect, create, edit and run
 diagnostic commands. It is **not the Target Workflow's execution environment**.
 The latter depends on the particular workflow. Implementer now authors its
 saved recipe through the separate [Target Workflow environment path](target_workflow_environment.md);
 the coding sandbox still does not become that environment.
 
-OpenChia captures actual file differences and permitted plan edits as proposals.
+OpenChia captures actual file differences as Code Implementer proposals.
 The existing host admission, shared validation harness, parent reports, credit
 and rarefaction decide whether those proposals constitute progress. A coding
 agent's final prose or successful command is not acceptance.
+
+## Source and materialization specialists
+
+Designer owns the general approach and chooses among four peer specialists:
+Code Implementer, MaterializationImplementer, Measure and Verify. Its unit may
+record or revise the approach and commission the selected child; there is no
+automatic implementation/verification sequence or `implementation_role` field.
+`implementer` creates or repairs assigned source files; `materialization_implementer`
+authors assigned Materialization Spec targets through a structured model response.
+The latter is a registered `MaterializationImplementer` Episode using the same
+local-measurement loop, credit and rarefaction as source implementation. It has no
+native coding session, shell, or file-edit tools.
+
+Each specialist owns its task-specific Parts binding. Code Parts has source
+tools; Materialization Parts has the plan API; Measure Parts authors checking
+components; Verification Parts evaluates established checks. Each Parts binding
+can recurse to smaller work of the same specialization. The supported child
+scope narrows requirements, source paths or materialization targets. A lone
+requirement with no smaller editable grant is direct work, not a case-only child
+assignment that the current schema cannot represent.
+
+Assignments carry two distinct grants: `writable_paths` and
+`materialization_targets`. Designer and each specialization delegate subsets of
+their own grants. Code Implementer and Code Parts receive only source paths;
+MaterializationImplementer and Materialization Parts receive only plan targets.
+Designer's `intended_change_scope` and
+`intended_materialization_targets` additionally bound the selected specialist's
+revision. Host admission rejects mixed authority and wrong-kind submissions.
+The structured API accepts exact `{json_pointer, before, after}` operations;
+existing Builder validators preserve the approved architecture and derive plan
+identities. Coupled interface/caller changes must also remain within the granted
+materialization scope. A missing node plan can be filled for an already-approved
+Episode. Candidate source is unchanged by that transaction; subsequent source
+admission attaches the current host-owned declarations.
+
+Code Implementer or Code Parts writes `.openchia-implementation.json` with
+`findings`, a list of `{requirement, blocker, needed_change}` records, a declared
+`child` assignment (with an optional supported `conflict`), or a
+`return_prerequisite` proposal. Child/return proposals cannot accompany source
+edits in the same captured response. MaterializationImplementer returns the same
+findings alongside its plan operations. Findings alone may be recorded without
+inventing a candidate change or positive credit. The latest submitted snapshot
+is available in the parent's requested `open_decisions` report section when the
+child returns normally. It does not request a mid-loop parent intervention or
+change numerical stopping. Diagnostic claims remain distinct from measurements.
+Question and Support are callable by every role, including every Parts and
+helper role. Their actual instruments remain preauthorized investigation
+observations and explicitly assigned check review, not arbitrary accepted
+answers or unrestricted searches. Children inherit a narrowed grant, fixed
+measurement, relevant history and the parent's requested return.
+
+Filesystem confinement still belongs to the native coding backend. These host
+checks control what becomes an authoritative revision; a writable scratch file
+does not confer permission to edit the Materialization Spec. The Refiner starts
+directly from approved Target Workflow Architecture, with existing work when
+available. MaterializationImplementer fills missing node plans through the same
+validators used for revisions; Code Implementer creates missing source files.
+There is no prerequisite Target Workflow Builder pass or receipt. Source admission
+records a receipt when candidate code is checked. Existing campaign assignments
+and materialized refiner role graphs require a fresh build for the new contract.
 
 Implementer receives its assigned, executable local checking programs under
 `.openchia-local-checks/`. The `local_check_programs` section of its working
@@ -288,6 +349,22 @@ feedback and within-invocation history resolve the same bytes, while child
 reports keep their separate parent-selected format. Transport size limits and
 measure adequacy requirements are unchanged.
 
+When independent static verification encounters a rejected candidate with a
+blocked mandatory check in its assigned contribution (for example, an absent
+emitted module), it returns that exact source-admission receipt to its parent as
+`needs_parent_decision`. The parent can commission the missing implementation.
+Pass/fail determinations remain recorded; blocked checks for unrelated unfinished
+parts do not obstruct an otherwise resolved static judgment. This is a missing-
+prerequisite handoff, separate from numerical yield exhaustion or success.
+
+On 2026-10-07, continued Run
+`run_cbd0507d71889ef8b3aeba469d014b2e43bbf39d1b87f1336ad258d76f16300c`
+matched 628 saved worker frames without divergence. Its first live Verify unit
+returned `needs_parent_decision` for two blocked assigned static checks, retained
+the source-admission receipt, and earned zero fresh credit. The parent Parts
+invocation resumed at campaign sequence 1231. This verifies the blocked-source
+handoff, not completion of the repaired workflow or its scientific outputs.
+
 Reasoning calls retain their exact rendered messages in immutable
 `refinement.reasoning_prompt.v1` artifacts, linked from the response route to
 the original working-context reference, assignment, unit and candidate. During
@@ -302,7 +379,7 @@ an unanswered review call resumed through normal Run continuation.
 
 ## Measure's checking workspace
 
-EstablishMeasure uses this same native coding transport and owning Duet model
+Measure and Measure Parts use this same native coding transport and owning Duet model
 binding to implement task-specific checks. `MeasureWorkspace` stages its parent's
 scoped source under `target/` and the original requirements, materialization and
 review feedback in `.openchia-assignment.json`. Measure writes its program under
@@ -311,12 +388,26 @@ edits and freezes the actual checker files; it does not create a target revision
 
 A program has `files` (relative path to source text in the persisted definition)
 and `entrypoint` (`module:function`). The native workspace response names the
-checker files; the host captures their bytes. Its function receives
+checker files; the host captures their bytes. The same proposal file can instead
+select a declared child. Its checking function receives
 `{source_root, materialization, input}` and returns JSON. Each case binds the
 result at `/result` to a library predicate and supplies complete satisfactory
 and violating fixtures `{files, materialization, input}`, with requirement-based
 rationales. Existing predicates over verified Run observations remain available
 with `program=null` and `input=null`.
+
+Measure can author a focused subset of its commissioned requirements at a time
+or delegate a smaller requirement scope to Measure Parts. Measure Parts retains
+the exact commission and adequacy basis and can author checks directly or recurse
+to a smaller requirement subset. A single requirement's checking cases are direct
+work because the current assignment does not contain a separate case-slice grant.
+`check_design.completed_requirements` identifies already adequate components.
+Each subsequent proposal pins the exact component admissions it retains in
+`components`; later work cannot silently change those references.
+`compose_components=true` assembles admitted returned components without a dummy
+check. Measure Parts retains scoped adequate work; only its owning Measure
+publishes the complete reusable composite. Question's
+review assignment covers the requirements of the current component.
 
 Question reviews the exact program, original requirements, expected results,
 fixtures and limitations in a separate invocation automatically scheduled by a
@@ -354,6 +445,68 @@ or process failure is an error, not a successful negative control.
 
 Admission rechecks the reviewed definition and original execution receipts. Both
 control polarities must discriminate correctly before checks become operative.
+The admission record includes `requirement_results`: one row for every commissioned
+requirement, with case-level outcomes, reasons and matched/required control
+counts. `pass` means the instrument matched its controls; `fail` means an
+executed control returned the wrong polarity; `error` means the checker or its
+evidence could not be evaluated; `blocked` means required execution evidence is
+unavailable. These are instrument-adequacy results, distinct from the Target
+Workflow's measured outcomes. Admission examines the other cases even when one
+case fails, retaining completed components in a `partial` admission. Its check
+records remain private construction work until the whole commissioned composite
+is `admitted`. A proposal with no adequate components is `rejected`. Measure receives
+this breakdown in `instrument_admission`; parents requesting
+`measurement_findings` or `open_decisions` receive the same requirement-level
+diagnostics through their declared return contract. Each requirement whose full
+set of cases passes earns one instrument-adequacy achievement, even when other
+requirements still need repair. Repeating that achievement during the same
+commissioned revision earns no new credit. Publication of the composite waits
+for the requested instrument to be ready; target-improvement credit is measured
+separately by applying the published function to the Target Workflow.
+Each assessment pins its available control evidence in `control_snapshot`.
+Revalidation uses those same receipts even after later units execute more
+controls. Independent-execution controls publish updated readiness after each
+returned experiment, so completed requirements can contribute before all other
+controls have run.
+
+An unsuccessful admission supplies Measure with repair feedback for its next
+unit. Measure continues under its numerical controller while it revises its
+own checks. An explicit prerequisite request returns missing observation or
+execution authority to the parent through the existing ownership boundary.
+
+An admitted record also contains `measurement_function`, a serialized
+`RequirementMeasure` from `function_library/materialization_progress.py`. It
+binds the registered requirement-satisfaction function to the parent's captured
+requirement/check mapping, replacing only the explicitly requested requirements.
+Unchanged checks retain their original identities and executable bindings.
+Reopening that binding preserves its
+membership and numerical rule. Calls provide admitted observations for an exact
+candidate, an optional declared requirement scope, and the caller's credited and
+previously satisfied requirement identities. The result lists individual check
+and requirement outcomes, current satisfaction, fresh progress and regressions.
+Repeated passing evidence earns no additional progress when the credited
+identities are carried forward. Missing observations remain `not_checked`.
+Admission re-derives this binding from the reviewed proposal, retained component
+admissions and pinned control evidence. A partial or rejected admission carries
+diagnostics and no operative measurement function. Retained components preserve
+their original executable bindings, review evidence and limitations.
+The admission diagnostics use this same requirement aggregation with the
+proposed instrument, rather than the Target Workflow, as the evaluated candidate.
+
+A parent selects the composite returned by its explicitly commissioned Measure
+child. Its subsequent child assignments freeze that function. Evaluation,
+requirement-level credit, and compact outcome reports resolve this same
+membership; publication of an unrelated checker does not enlarge it. Measure
+and Implementer remain separate children of their coordinating parent.
+
+One fully satisfied requirement is one achievement, regardless of how many
+assertions its component checks contain. Unit receipts record the selected
+function and numerical lineage. Same-function continuations retain their credit
+history; a requested revision starts a separate measurement history and evaluates
+the commissioned baseline candidate under the revised function. Baseline passes
+are excluded from new implementation credit. Original observations and older
+receipts remain available for inspection.
+
 Candidate checks use the same program on the current scoped source and plan;
 the entire Target Workflow need not be runnable. Observations enter the existing
 measurement ledger, dependency invalidation, parent judgment and numerical credit

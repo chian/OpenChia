@@ -70,12 +70,23 @@ class EvidenceReader:
             "final_projection_ref",
         ):
             self.reference(Ref.from_record(body[name]), duet_id)
-        from episode_builder._contract_base import BuildReceipt
+        from episode_builder.inspection import project_materialized_specification
+        from .materialization_edits import baseline_inputs
 
-        receipt = BuildReceipt.from_record(
-            self.reference(Ref.from_record(body["initial_build_receipt_ref"]), duet_id)
-        )
-        handoff = self.materialization_handoff(receipt, duet_id)
+        inputs = baseline_inputs(self, contract)
+        if inputs.build_request.authority_approval.approval_id.value != target["approval_id"]:
+            raise ValueError("construction inputs differ from the campaign authority")
+        if inputs.receipt is None:
+            from episode_runtime.records.experiments import read_record
+
+            saved = read_record(self.duets, "construction_start", build_request_id=inputs.build_request.build_request_id.value)
+            if saved is None or saved["duet_id"] != duet_id:
+                raise ValueError("campaign has no persisted construction start")
+            if saved["record"]["inputs"] != self.reference(Ref.from_record(body["initial_build_inputs_ref"]), duet_id):
+                raise ValueError("construction input identity changed")
+            handoff = saved["record"]["handoff"]
+        else:
+            handoff = self.materialization_handoff(inputs.receipt, duet_id)
         catalog = self.reference(
             Ref.from_record(body["requirement_catalog_ref"]), duet_id
         )
@@ -86,6 +97,8 @@ class EvidenceReader:
             Ref.from_record(body["initial_materialization_ref"]), duet_id
         )
         if canonical_json(imported) != canonical_json(handoff) or canonical_json(
+            materialization
+        ) != canonical_json(project_materialized_specification(inputs).as_record()) or canonical_json(
             materialization
         ) != canonical_json(handoff["materialized_specification"]):
             raise ValueError(
@@ -420,11 +433,12 @@ class EvidenceReader:
                 )
                 for ref in selected:
                     self.reference(Ref.from_record(ref), duet_id)
-            resolve_predicate(
-                self.reference(
-                    Ref.from_record(proposal.body["decision_function_ref"]), duet_id
+            if proposal.body["oracle_kind"] != "component_composite":
+                resolve_predicate(
+                    self.reference(
+                        Ref.from_record(proposal.body["decision_function_ref"]), duet_id
+                    )
                 )
-            )
         if action == "observe":
             with self.duets.transaction() as connection:
                 check = (

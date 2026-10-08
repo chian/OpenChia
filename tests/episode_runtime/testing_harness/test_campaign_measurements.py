@@ -48,7 +48,7 @@ async def test_shared_measurement_uses_admitted_campaign_check_without_awarding_
             candidate = view.candidate
             head = dict(view.head)
             receipt = view.data(
-                Ref.from_record(session.contract.body["initial_build_receipt_ref"])
+                Ref.from_record(session.contract.body["initial_build_inputs_ref"])
             )
         inputs = builds.inspection_inputs_for_receipt(receipt["receipt_id"])
         executor = ResultOnlyExecutor(

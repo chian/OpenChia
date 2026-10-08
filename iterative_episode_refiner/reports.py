@@ -44,7 +44,7 @@ def check_result(view, check, state):
     result = RequirementOutcome(
         requirement_ref=dict(view.contract.body["requirement_catalog_ref"]),
         requirement_key=criterion["requirement_key"],
-        measure_ref=criterion["measure_ref"],
+        measure_ref=dict(request.body["measure_ref"]),
         predicted=None if prediction is None else prediction["expected"],
         falsifying=None if prediction is None else prediction["falsifying"],
         status=body["outcome"],
@@ -92,24 +92,32 @@ def report_overview(record):
 
 def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
     from .coordination import pending_decisions, relevant_conflicts
-    from .judgment import judgment_purpose
-    from .investigation import visible_findings
+    from .judgment import judgment_purpose, measure_result
+    from .investigation import findings, visible_findings
     from .evaluation_plan import unavailable_requests
+    from .measures import selected_checks, selected_measure_ref
 
     invocation = view.entry("invocation", invocation_id.value)
     assignment = invocation.record
     purpose = judgment_purpose(view, assignment)
-    measure = assignment.body[
+    measure = selected_measure_ref(view, assignment,
         "acceptance_measure_ref"
-        if assignment.body["role"] in {"parts", "designer"}
+        if assignment.body["role"] == "designer"
         else "local_measure_ref"
-    ]
+    )
+    policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
+    reference_by_check = {
+        check.ref: reference
+        for field in ("local_measure_ref", "acceptance_measure_ref")
+        for reference in (selected_measure_ref(view, assignment, field),)
+        for check in selected_checks(view, policy, assignment, reference)
+    }
     scope = set(assignment.body["scope_requirement_keys"])
     states = {entry.key: entry for entry in view.entries("check_state")}
     checks = [
         entry
         for entry in view.entries("check")
-        if entry.record.body["requirement_key"] in scope
+        if entry.record.ref in reference_by_check
     ]
     determinations, preservation = [], []
     unresolved = set(scope)
@@ -122,7 +130,7 @@ def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
             "evidence_kind": check.record.body["evidence_kind"],
             "check_key": check.key,
             "candidate_ref": view.candidate.ref.as_record(),
-            "measure_ref": check.record.body["measure_ref"],
+            "measure_ref": reference_by_check[check.record.ref],
             "environment_ref": check.record.body["environment_ref"],
             "purpose": check.record.body["purpose"],
             "outcome": outcome,
@@ -137,21 +145,27 @@ def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
             in assignment.body["preservation_requirement_keys"]
         ):
             preservation.append(determination)
-    # A local pass is not independent part acceptance. Missing predicates remain
-    # explicit gaps, and all mandatory checks for a requirement must agree.
-    for requirement in scope:
-        acceptance = [
-            row
-            for row in checks
-            if row.record.body["requirement_key"] == requirement
-            and row.record.body["purpose"] == purpose
-            and row.record.body["measure_ref"] == measure
-            and row.record.body["mandatory"]
-        ]
-        if acceptance and all(
-            row.key in states and states[row.key].status == "pass" for row in acceptance
-        ):
-            unresolved.discard(requirement)
+    # Reuse the selected composition, including guards and missing checks.
+    # A parent's acceptance measure remains separate from its coding measure.
+    if assignment.body["role"] in {"question", "support"}:
+        from .measure_design import assigned_definition
+
+        # A helper's unresolved obligations concern its assigned investigation,
+        # not every implementation requirement inherited as read-only context.
+        # These advisory findings do not alter determinations or target checks.
+        unresolved = set(assignment.body["contribution_requirement_keys"])
+        definition = assigned_definition(view, assignment)
+        if definition is None:
+            unresolved.difference_update(item["requirement_key"]
+                                         for item in findings(view, assignment) if item["resolved"])
+        elif any(entry.record.body["assignment_ref"] == assignment.ref.as_record()
+                 and entry.record.body["definition_ref"] == definition.ref.as_record()
+                 for entry in view.entries("measure_review")):
+            unresolved.clear()
+    else:
+        measured = measure_result(view, assignment, reference=measure, purpose=purpose,
+                                  requirement_keys=sorted(scope))
+        unresolved.difference_update(measured["current_satisfied_requirement_ids"])
     conflicts = relevant_conflicts(view, assignment)
     evidence.extend(ref for conflict in conflicts for ref in conflict.evidence_refs)
     pending = pending_decisions(view, invocation_id.value)
@@ -208,6 +222,20 @@ def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
         if view.head["latest_commit_id"]
         else view.contract.ref
     )
+    # Pin the latest submitted diagnostic snapshot, rather than replay coding
+    # prose or manufacture a decision_request that would stop the child early.
+    implementation_findings = None
+    for row in view.connection.execute(
+        "SELECT attempt_id FROM refinement_operations WHERE campaign_id = ? "
+        "AND invocation_id = ? AND action = 'apply_change' "
+        "AND commit_id IS NOT NULL ORDER BY rowid DESC LIMIT 1",
+        (view.campaign_id.value, invocation_id.value),
+    ):
+        operation = view.read(row[0], "attempt")
+        if operation.body["action"] == "apply_change":
+            change = RefinementRecord.from_record(operation.body["payload"]["change"])
+            implementation_findings = change.ref.as_record()
+            break
     # The index cursor allows focused retrieval of the complete history. The
     # original observation references survive every parent boundary unchanged.
     body = {
@@ -220,8 +248,8 @@ def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
                 view.read(key).ref.as_record() for key in sorted(candidate_ids)
             ],
             "measure_refs": [
-                assignment.body["local_measure_ref"],
-                assignment.body["acceptance_measure_ref"],
+                selected_measure_ref(view, assignment, "local_measure_ref"),
+                selected_measure_ref(view, assignment, "acceptance_measure_ref"),
             ],
             "measure_proposal_refs": [
                 entry.record.ref.as_record()
@@ -251,6 +279,7 @@ def parent_report(view, invocation_id: OpaqueId) -> RefinementRecord:
             "lesson_refs": [item.ref.as_record() for item in lessons],
             "unresolved_requirement_keys": sorted(unresolved),
             "decision_request_refs": list(decisions.values()),
+            "implementation_findings_ref": implementation_findings,
             "child_report_refs": [
                 row.record.ref.as_record()
                 for row in view.entries("report")

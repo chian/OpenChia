@@ -8,10 +8,15 @@ from .coding_workspace import CodingWorkspace
 
 
 PROPOSAL = ".openchia-measure.json"
-INSTRUCTIONS = """You are the coding call inside EstablishMeasure. Read
+INSTRUCTIONS = """You are the coding call inside Measure or specialized Measure Parts. Read
 .openchia-assignment.json for the parent's original requirements, the current
-proposal, independent review and measured feedback. Author the checking
-instrument needed to judge those requirements. Target source under target/ is
+proposal, independent review and measured feedback. Author a focused component
+of the checking instrument. check_design.completed_requirements identifies the
+adequate pieces already retained. Select a requirement or coupled set that needs
+work. Measure Parts returns adequate scoped components; the enclosing Measure
+owns their assembly and publishes the one composite callable for its commission.
+Your assignment identifies the enclosing approach and the contribution requested.
+Target source under target/ is
 read-only reference material; derive expected behavior from the specification.
 
 Read returned Question feedback at
@@ -52,6 +57,14 @@ Submitting check_design automatically schedules its separate Question review.
 Independent review, followed by actual control execution, determines admission.
 After review, submit_reviewed_design=true selects that exact reviewed design.
 If review or controls fail, revise the program/design and obtain a new review.
+instrument_admission reports readiness separately for each requirement. Keep
+adequate cases stable while repairing the remaining cases. Completing all cases
+for one requirement is one instrument-adequacy achievement. compose_components=true
+assembles adequate returned components without authoring a redundant check.
+Measure Parts returns that scoped evidence; Measure publishes the requested composite.
+Subsequent Target Workflow
+evaluations call that fixed composite, and its parent explicitly commissions
+any revision.
 Your shell diagnostics help development; the shared harness records validation.
 Keep limitations explicit and match the parent's requested judgment purpose.
 Changes to the Target Workflow remain the Implementer's responsibility.

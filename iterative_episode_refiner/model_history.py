@@ -78,6 +78,7 @@ def iteration_history(session, view, call):
             "realized_yield": body["realized_yield"],
             "disposition": body["disposition"],
             "open_decisions": _open_decisions(view, call.assignment, {
+                "implementation_findings_ref": None,
                 "decision_request_refs": [body["decision_request_ref"]]
                 if body["decision_request_ref"] is not None else [],
             }, catalog),

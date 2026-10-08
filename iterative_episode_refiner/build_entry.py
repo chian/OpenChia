@@ -1,6 +1,6 @@
 """Prepare a normal build for the existing nested refiner and shared harness.
 
-Static checks come from the real Builder handoff. Missing behavioral instruments
+Static checks come from the registered materialization checks. Missing behavioral instruments
 remain explicit requirements for the parent; this entry never invents passing
 answers or treats static admission as complete behavioral acceptance.
 """
@@ -11,10 +11,10 @@ from episode_runtime.testing_harness.criteria import register_criterion
 from episode_runtime.records.experiments import put_data
 from function_library.refinement_checks import EXACT_VALUE
 from function_library.refinement_control import BOUNDED_RAREFACTION, SEMANTIC_YIELD
+from function_library.materialization_progress import REQUIREMENT_SATISFACTION
 
 from .preparation import prepare_refinement, start_refinement
 from .measure_preparation import build_measure_policy
-from .measure_groups import group_definition
 
 
 def selection(function):
@@ -25,7 +25,7 @@ def selection(function):
     }
 
 
-def prepare_build(host, campaigns, baseline, registration, runtime):
+def prepare_build(host, campaigns, inputs, handoff, registration, runtime, model_slot_catalog):
     owner = host.identity.duet_id.value
 
     def data(kind, value):
@@ -34,18 +34,26 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
     authority = data(
         "build_refinement_authority",
         {
-            "target_approval_id": baseline.authority_head_approval_id.value,
+            "target_approval_id": inputs.build_request.authority_approval.approval_id.value,
             "refiner_approval_id": registration.workflow_approval_id.value,
-            "scope": "Repair the current Target Workflow implementation and validate its original requirements.",
+            "scope": "Construct and refine the Target Workflow's Materialization Spec and source, and validate its approved requirements.",
             "acceptance_may_be_weakened": False,
             "capabilities_may_be_expanded": False,
         },
     )
     environment = data("environment", runtime.as_record())
-    local = data("local_measure", group_definition("local"))
-    acceptance = data("acceptance_measure", group_definition("acceptance", "composition"))
-    target = host.build_store.read_build_request(baseline.build_request_id)
-    specification, _receipt, _manifest = host.workspace.materialized_context(baseline)
+    local = data("local_measure", {
+        "purpose": "local", "function": selection(REQUIREMENT_SATISFACTION),
+        "membership": "The exact initial check_refs in this campaign's frozen policy.",
+    })
+    acceptance = data("acceptance_measure", {
+        "purposes": ["acceptance", "composition"], "function": selection(REQUIREMENT_SATISFACTION),
+        "membership": "The exact initial check_refs in this campaign's frozen policy.",
+    })
+    from episode_builder.inspection import project_materialized_specification
+
+    target = inputs.build_request
+    specification = project_materialized_specification(inputs)
     workflow = data("target_workflow", target.frozen_workflow.as_record())
     harness = data(
         "target_test",
@@ -61,6 +69,8 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
         "campaign_policy",
         {
             "check_refs": [],
+            "model_slot_catalog": model_slot_catalog,
+            "research_profile_home": str(host.root.parent),
             # Planning can fail before a node enters the typed plan. Its approved
             # materialization target still exists and must remain repairable.
             "materialization_edit_targets": sorted(
@@ -70,7 +80,6 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
                 if part.name == "node_plan"
             ),
             "measure_admission": build_measure_policy(data),
-            "measure_group_refs": [local.as_record(), acceptance.as_record()],
             "numeric_control": refiner.build_request.frozen_workflow.workflow.episodes[
                 0
             ].contract.numeric_control.as_record(),
@@ -98,6 +107,8 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
                 "admit_lesson",
                 "coordinate_conflict",
                 "resolve_conflict",
+                "record_research_sources",
+                "admit_research_findings",
             ],
             "evaluation_bindings": [
                 {
@@ -117,10 +128,10 @@ def prepare_build(host, campaigns, baseline, registration, runtime):
     )
     prepared = prepare_refinement(
         store=campaigns,
-        workspace=host.workspace,
-        baseline=baseline,
+        inputs=inputs,
+        handoff=handoff,
         campaign_id=content_id(
-            "refinement_campaign", {"build_request": baseline.build_request_id.value}
+            "refinement_campaign", {"build_request": target.build_request_id.value}
         ),
         refiner_registration=registration,
         policy_ref=policy,
@@ -182,7 +193,7 @@ def build_experiment(host, prepared, inputs, binding, runtime):
     return ExperimentSpec.from_record({
         "schema_version": 1,
         "question": "Does the refiner produce an independently accepted build of this Target Workflow?",
-        "rationale": "Feed the real Builder handoff to the complete nested repair and validation loop.",
+        "rationale": "Construct and validate the approved Target Workflow through the nested Refiner Episodes.",
         "candidate_ref": receipt,
         "build_receipt_ref": receipt,
         "environment_ref": environment,

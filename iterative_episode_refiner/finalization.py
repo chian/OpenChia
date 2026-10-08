@@ -282,12 +282,13 @@ def finalize_result(session, evidence):
         ]
         measure_refs = list(
             {
-                Ref.from_record(check.body["measure_ref"]): check.body["measure_ref"]
-                for check in checks
+                Ref.from_record(request.body["measure_ref"]): request.body["measure_ref"]
+                for observation in observations
+                for request in (view.read(Ref.from_record(observation.body["request_ref"]), "evaluation"),)
             }.values()
         )
         measure_admission_refs, control_rows = final_control_rows(
-            view, readiness["check_refs"]
+            view, readiness["check_refs"], measure_refs
         )
         admissions = [
             view.read(Ref.from_record(ref), "measure_admission")

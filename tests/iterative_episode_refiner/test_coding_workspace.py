@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from iterative_episode_refiner.coding_workspace import CodingWorkspace, PLAN_EDITS
+from iterative_episode_refiner.coding_workspace import CodingWorkspace, IMPLEMENTATION_NOTES
 
 
 def test_first_implementation_and_revision_capture_disk_not_claims(tmp_path):
@@ -16,7 +16,7 @@ def test_first_implementation_and_revision_capture_disk_not_claims(tmp_path):
     path.write_text("def answer():\n    return 42\n", encoding="utf-8")
     first = workspace.capture()
     assert first == {"files": [{"logical_path": "src/main.py", "content": path.read_text(encoding="utf-8")}],
-                     "implementation_detail_operations": []}
+                     "findings": []}
     # Scratch/claimed success cannot masquerade as a source edit or credit.
     (workspace.root / "claim.txt").write_text("All acceptance checks passed", encoding="utf-8")
     revised = CodingWorkspace(workspace.root, source_files={"src/main.py": first["files"][0]["content"]},
@@ -51,7 +51,7 @@ def test_capture_rejects_scope_and_link_escape(tmp_path, violation):
         path.unlink()
         path.hardlink_to(outside)
     else:
-        (workspace.root / PLAN_EDITS).write_text(json.dumps({"credit": 10}), encoding="utf-8")
+        (workspace.root / IMPLEMENTATION_NOTES).write_text(json.dumps({"credit": 10}), encoding="utf-8")
     with pytest.raises(ValueError):
         workspace.capture()
     assert outside.read_text(encoding="utf-8") == "outside"

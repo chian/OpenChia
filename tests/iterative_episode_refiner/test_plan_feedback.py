@@ -26,6 +26,7 @@ async def test_plan_feedback_identifies_exact_mapping_difference(campaign, misma
                 "assumption_refs": [],
                 "proposed_component_refs": [],
                 "intended_change_scope": [campaign.source_path],
+                "intended_materialization_targets": [],
                 "dependency_effects": {},
                 "local_measure_ref": designer.body["local_measure_ref"],
                 "acceptance_measure_ref": designer.body["acceptance_measure_ref"],

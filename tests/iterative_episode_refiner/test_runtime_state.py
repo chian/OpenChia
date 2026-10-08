@@ -24,7 +24,8 @@ from handoff_library import ParentRequest
 from iterative_episode_refiner.runtime import RefinementSession
 from iterative_episode_refiner.contracts import RefinementTarget, RefinementTargetLayer
 from iterative_episode_refiner.records import Ref
-from iterative_episode_refiner.runtime_proposals import _inherited_draft, assign_child
+from iterative_episode_refiner.assignment_choices import assigned_addresses
+from iterative_episode_refiner.runtime_proposals import assign_child
 from method_loop import EpisodeRequest
 from llm_call_library import ModelTransportResponse
 from tests.episode_runtime.conftest import claim_store
@@ -98,10 +99,22 @@ async def test_host_restoration_preserves_waiting_calls_without_repeating_credit
 
         root = session.calls[session.root_id]
         started(session.root_id, root)
-        await exchange(session.root_id, root, "begin_unit", {"role": "parts"})
+        await exchange(session.root_id, root, "begin_unit", {"role": "designer"})
+        with session.view() as view:
+            return_contract = view.data(Ref.from_record(root.assignment.body["return_projection_ref"]))
         selection = assign_child(
             session, root,
-            _inherited_draft(root, "designer", goal="Inspect the assigned refinement requirements."),
+            {
+                "role": "verify",
+                "goal": "Inspect the assigned refinement requirements.",
+                "requirements": assigned_addresses(session, root.assignment),
+                "writable_paths": [],
+                "materialization_targets": [],
+                "return_contract": return_contract,
+                "measure_request": None,
+                "replace_previous": False,
+                "prerequisites": [],
+            },
             session.contract.producer_ref,
         )
         await exchange(session.root_id, root, "prepare_child", {"unit_id": root.unit_id.value, "selection": selection})
@@ -110,7 +123,7 @@ async def test_host_restoration_preserves_waiting_calls_without_repeating_credit
             request = ParentRequest(
                 request_id=content_id("request", {"child": child_id}).value,
                 parent_episode_id=session.root_id, child_episode_id=child_id,
-                goal_id=child.goal.goal_id, child_interface="refinement.designer",
+                goal_id=child.goal.goal_id, child_interface="refinement.verify",
                 artifact_ids_by_role={
                     "campaign": (session.campaign_id.value,),
                     "assignment": (child.assignment.artifact_id.value,),
@@ -122,7 +135,7 @@ async def test_host_restoration_preserves_waiting_calls_without_repeating_credit
                 "invocation": {"child_episode_id": child_id},
             })
             started(child_id, child)
-            await exchange(child_id, child, "begin_unit", {"role": "designer"})
+            await exchange(child_id, child, "begin_unit", {"role": "verify"})
             if boundary == "closed_child_unit":
                 await exchange(child_id, child, "close_unit", {"unit_id": child.unit_id.value})
             assert root.unit_id is not None
@@ -137,7 +150,7 @@ async def test_host_restoration_preserves_waiting_calls_without_repeating_credit
                 "model_request_id": content_id("model_request", "saved proposal").value,
                 "request": REQUEST,
             })
-            models = ScopedModelBroker(model, {tuple(grain for grain, _ in child.path): "designer"})
+            models = ScopedModelBroker(model, {tuple(grain for grain, _ in child.path): "verify"})
             await broker_model_request(run_store=runs, registration=registration, channel=channel, frame=emitted, model_broker=models)
         runs.finalize_run(
             run_id=registration.run_id, origin=RunEventOrigin.HOST,
@@ -175,7 +188,7 @@ async def test_host_restoration_preserves_waiting_calls_without_repeating_credit
                 episode_id=OpaqueId(child_id),
                 episode_path=[{"grain": grain, "key": key} for grain, key in child.path],
                 operation="propose", payload={
-                    "unit_id": child.unit_id.value, "task": "design",
+                    "unit_id": child.unit_id.value, "task": "verify",
                     "raw_response": producer.payload["response_text"],
                     "producer_call_id": producer.payload["producer_call_id"],
                 },

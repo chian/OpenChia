@@ -44,7 +44,7 @@ def experiment_target(evaluations, session, call, request, receipt, checks):
         "requirements": [
             {
                 "requirement_ref": check.ref.as_record(),
-                "measure_ref": _thaw_json(check.body["measure_ref"]),
+                "measure_ref": _thaw_json(request.body["measure_ref"]),
                 "requirement_key": check.body["requirement_key"],
                 "criterion_expected": _thaw_json(check.body["expected"]),
                 "observation_path": check.body["observation_path"],

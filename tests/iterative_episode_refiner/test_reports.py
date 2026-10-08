@@ -72,7 +72,7 @@ def report_campaign(tmp_path):
                 "duet_id": duet_id,
                 "target_approval_ref": source.as_record(),
                 "target_workflow_ref": source.as_record(),
-                "initial_build_receipt_ref": source.as_record(),
+                "initial_build_inputs_ref": source.as_record(),
                 "initial_materialization_ref": source.as_record(),
                 "refiner_workflow_approval_ref": source.as_record(),
                 "refiner_manifest_ref": source.as_record(),
@@ -94,7 +94,7 @@ def report_campaign(tmp_path):
                     "parent_assignment_ref": None
                     if parent is None
                     else parent.ref.as_record(),
-                    "owning_parts_invocation_id": parent_id.value,
+                    "coordinating_invocation_id": parent_id.value,
                     "role": role,
                     "scope_requirement_keys": scope,
                     "contribution_requirement_keys": scope,
@@ -124,7 +124,7 @@ def report_campaign(tmp_path):
                 invocation_id=invocation_id,
             )
 
-        parent = assignment("parts", parent_id, ["ordered", "unique"])
+        parent = assignment("designer", parent_id, ["ordered", "unique"])
         child = assignment("implementer", child_id, ["ordered"], parent)
         checks, observations, requests = [], [], []
         for key, expected, observed in (

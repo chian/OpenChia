@@ -10,8 +10,9 @@ own work. The baseline's achievement is not fresh refinement progress.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
-from .models import FunctionImplementation, LibraryFunction
+from .models import FunctionImplementation, LibraryFunction, _freeze_json, _thaw_json
 from .registry import FunctionLibrary
 
 
@@ -209,8 +210,78 @@ REQUIREMENT_SATISFACTION = materialization_progress_library.register(
 )
 
 
+@dataclass(frozen=True)
+class RequirementMeasure:
+    """A persisted, callable composition with fixed requirement/check membership.
+
+    Measure authoring supplies the complete mapping once. Callers supply fresh
+    admitted observations and their own progress history on subsequent calls.
+    A scoped call uses the same definitions while reporting only the caller's
+    assigned requirements. Missing checks remain explicit ``not_checked`` rows.
+    Execution and evidence admission remain owned by the existing harness.
+    """
+
+    requirements: Sequence[Mapping[str, object]]
+
+    def __post_init__(self) -> None:
+        indexed = _requirements_by_id(self.requirements)
+        if not indexed or len(indexed) != len(self.requirements):
+            raise ValueError("a composite measure needs distinct, nonempty requirements")
+        for row in indexed.values():
+            if set(row) != {"requirement_id", "mandatory", "check_ids"}:
+                raise ValueError("a composite requirement needs its ID, mandatory flag and check IDs")
+        object.__setattr__(self, "requirements", _freeze_json(
+            [indexed[key] for key in sorted(indexed)], "composite requirements"
+        ))
+
+    def as_record(self) -> dict[str, object]:
+        return REQUIREMENT_SATISFACTION.bind(
+            "requirement_measure",
+            arguments={"requirements": _thaw_json(self.requirements)},
+        ).as_record()
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, object]) -> RequirementMeasure:
+        if not isinstance(record, Mapping) or not isinstance(record.get("arguments"), Mapping):
+            raise ValueError("a composite measure needs its frozen function binding")
+        arguments = record["arguments"]
+        if set(arguments) != {"requirements"}:
+            raise ValueError("a composite measure binds exactly its requirement mapping")
+        result = cls(arguments["requirements"])
+        if _freeze_json(record, "measure binding") != _freeze_json(result.as_record(), "measure binding"):
+            raise ValueError("composite measure differs from its registered function or fixed mapping")
+        return result
+
+    def __call__(
+        self, *, observations: Sequence[Mapping[str, object]],
+        candidate_ref: Mapping[str, str], requirement_ids: Sequence[str] | None = None,
+        credited_requirement_ids: Sequence[str] = (),
+        previous_satisfied_requirement_ids: Sequence[str] = (),
+    ) -> dict[str, object]:
+        declared = {row["requirement_id"] for row in self.requirements}
+        scope = declared if requirement_ids is None else _ids(requirement_ids, "requirement_ids")
+        if not scope or not scope <= declared:
+            raise ValueError("measurement scope must select declared requirements")
+        all_checks = {key for row in self.requirements for key in row["check_ids"]}
+        statuses = _check_outcomes(observations, all_checks, _candidate_identity(candidate_ref))
+        requirements = [row for row in self.requirements if row["requirement_id"] in scope]
+        selected_checks = {key for row in requirements for key in row["check_ids"]}
+        credited = _ids(credited_requirement_ids, "credited_requirement_ids")
+        previous = _ids(previous_satisfied_requirement_ids, "previous_satisfied_requirement_ids")
+        return REQUIREMENT_SATISFACTION.load()(
+            requirements=requirements,
+            observations=[{
+                "check_id": key, "status": statuses[key], "candidate_ref": candidate_ref,
+            } for key in sorted(selected_checks)],
+            candidate_ref=candidate_ref,
+            credited_requirement_ids=sorted(credited & scope),
+            previous_satisfied_requirement_ids=sorted(previous & scope),
+        )
+
+
 __all__ = [
     "REQUIREMENT_SATISFACTION",
+    "RequirementMeasure",
     "materialization_progress_library",
     "requirement_satisfaction",
 ]

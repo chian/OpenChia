@@ -28,18 +28,34 @@ independent solver in `function_library/scheduling_benchmark.py`. A changed goal
 environment or unsupported routing yields no match. Other requirements stay
 unresolved. This does not replace independent checker construction for unfamiliar
 tasks, make static checks behavioral, or prove the full normal-build cycle.
-Normal builds now declare local and acceptance measure groups before the campaign
-starts. `iterative_episode_refiner/measure_groups.py` projects admitted checks into
-those groups without changing predicates, guards, scope, instruments or original
-check records. Publication independently re-derives these projections through
-the existing admission validator. Scoped parents and verifiers see the same group
-members through ordinary check discovery and the shared harness. Each request
-still binds an exact check set, and omission is rejected. Grouping itself earns
-no duplicate adequacy credit and supplies no passing observations.
+Normal builds begin with the exact Builder checks in their frozen policy.
+`iterative_episode_refiner/measures.py` resolves a parent's explicitly requested
+Measure result to one immutable composite function. A revision captures the
+parent's previous membership, replaces the requested requirements, and retains
+the other original check records. Child assignments bind the selected function;
+scoped evaluation, requirement scoring, and reports reuse its membership.
+Each evaluation request binds the exact checks for its admitted instrument.
+Changing the measure establishes a new baseline and numerical history, while
+same-function continuations retain their earlier credit. Live verification of
+this revised lifecycle remains pending.
+
+Instrument construction now measures adequate requirements individually. A
+partial assessment retains successful requirements alongside failed or missing
+controls, with one achievement per requirement rather than per assertion.
+Measure may design and review focused subsets of the commission; subsequent
+proposals pin the original admissions of completed components. Each assessment
+reports the whole commission's readiness. Partial checks remain private to
+construction until the completed composite is published to its parent.
+Its `control_snapshot` pins the original evidence, so subsequent controls leave
+earlier assessment meanings unchanged. Measure repairs unsuccessful proposals
+within its numerical loop; explicit prerequisite needs still return to the
+owner. Model-facing feedback shows the latest assessment for the current
+proposal, while the audit retains earlier assessments. Full composite
+publication and Target Workflow achievement remain separate decisions.
 
 Finalization follows the exact used checks back to their original measure
 admissions and controls, retaining source measures and limitations as well as the
-group identity. This connects newly admitted criteria to parent evaluation; it
+selected composite identity. This connects admitted criteria to parent evaluation; it
 does not establish remaining requirement coverage or successful final acceptance.
 
 First-time check design is now implemented for new normal-build campaigns under

@@ -13,7 +13,7 @@ from .state_machine import derived
 
 
 def _measure_results(view, assignment, report):
-    from .measure_admission import _fact_keys
+    from .measure_admission import adequacy_fact_keys
     from .measures import admitted_measures
 
     child = view.read(Ref.from_record(report.body["assignment_ref"]), "assignment")
@@ -31,25 +31,22 @@ def _measure_results(view, assignment, report):
             proposal.body["assignment_ref"] != child.ref.as_record()
             or proposal.body["owner_assignment_ref"] != assignment.ref.as_record()
             or proposal.body["purpose"] != need["purpose"]
-            or set(proposal.body["requirement_keys"]) != set(need["requirement_keys"])
+            or {row["requirement_key"] for row in admission.body["requirement_results"]}
+            != set(need["requirement_keys"])
             or not set(need["requirement_keys"])
             <= set(assignment.body["scope_requirement_keys"])
         ):
             continue
-        checks = tuple(
-            view.read(Ref.from_record(ref), "check")
-            for ref in admission.body["check_refs"]
-        )
-        # Criterion/instrument combinations, not the child's scalar or grouping
-        # choices, identify the useful new decision available to this parent.
-        facts = _fact_keys(view, checks, admission.body["evaluation_binding"], proposal)
+        # Recompute requirement coverage from the admitted instrument; the
+        # parent owns availability credit, not the child's partial-work score.
+        facts = adequacy_fact_keys(view, proposal, admission.body["requirement_results"])
         yield {
             "decision": {
                 "kind": "measure_available",
                 "measure_ref": admission.body["measure_ref"],
                 "purpose": need["purpose"],
                 "requirement_keys": sorted(need["requirement_keys"]),
-                "limitation_refs": proposal.body["limitation_refs"],
+                "limitation_refs": admission.body["limitation_refs"],
             },
             "source": admission,
             "facts": facts,
@@ -57,7 +54,7 @@ def _measure_results(view, assignment, report):
 
 
 def _investigation_results(view, assignment, report):
-    from .investigation import findings
+    from .investigation import finding_record, findings
 
     child = view.read(Ref.from_record(report.body["assignment_ref"]), "assignment")
     reported = {
@@ -72,9 +69,19 @@ def _investigation_results(view, assignment, report):
             not in assignment.body["scope_requirement_keys"]
         ):
             continue
-        observation = view.read(
-            Ref.from_record(finding["observation_ref"]), "observation"
-        )
+        observation = finding_record(view, finding)
+        if finding.get("kind") == "research":
+            yield {
+                "decision": {
+                    "kind": "research_available",
+                    "finding_ref": observation.ref.as_record(),
+                    "role": finding["role"], "state": finding["state"],
+                    "requirement_keys": [finding["requirement_key"]],
+                    "policy_strength": "advisory", "limitation_refs": [],
+                },
+                "source": observation, "facts": [finding["fact_key"]],
+            }
+            continue
         yield {
             "decision": {
                 "kind": "question_resolved"

@@ -1,497 +1,295 @@
-# IterativeEpisodeRefiner: finalized design
+# IterativeEpisodeRefiner: approved Episode design
 
-Version 3 — 2026-10-02. This is the design baseline for implementation planning,
-not a claim that the system is implemented or an authorization to start coding,
-run tests, commit, or publish.
+Designer owns the general approach. MaterializationImplementer, Code Implementer,
+Measure and Verify are four peer specialists below Designer. Each specialist has
+its own task-specific Parts Episode for smaller decisions. Question and Support
+are read-only leaf Episodes callable from Designer, all four specialists and
+every Parts Episode.
 
-This version replaces v2's direct Designer-to-Designer recursion. Only the Parts
-owner creates design assignments. Specialists use the same Designer machinery
-with task-specific instructions. Cross-part regressions are reported during
-iteration, not only when a child finishes.
+This document states the approved design and its code contracts. It does not
+claim live validation of an unexecuted revision. The previous Parts-root design
+is replaced; there is no compatibility path retaining that ownership.
 
-Related records: [principles](iterative_episode_refiner_principles.md),
-[design goal](iterative_episode_refiner_goal.json),
-[review](iterative_episode_refiner_review.md), and
-[implementation goals](iterative_episode_refiner_implementation_goals.md).
-
-Goal 1 now has a detailed [contract proposal](iterative_episode_refiner_contracts.md),
-[repository integration map](iterative_episode_refiner_integration.md), and
-[contract self-review](iterative_episode_refiner_contract_review.md). They elaborate
-this baseline for review; they do not claim implementation or executable approval.
-
-## 1. What this must do
-
-The IterativeEpisodeRefiner takes an initial materialized Episode build and
-finishes its repair and validation. It must accept any materialization-spec'd
-build, including broken source, unfamiliar tasks and nested Episodes. Missing
-knowledge, evidence or authority produces an explicit unresolved result; it is
-not a reason to silently omit a class of builds or claim success.
-
-The same design must be available in the Episode library and used in OpenChia's
-normal build-finalization path. A library example alone is not completion.
+## Complete ownership and capability diagram
 
 ~~~text
-approved Target Workflow Architecture
-  -> initial one-shot Builder output, materialization and boundary findings
-  -> IterativeEpisodeRefiner
-       <-> candidate revisions, build admission and isolated validation Runs
-  -> exact verified build, or explicit unresolved result with preserved work
+Duet-approved Target Workflow Architecture
+└── Designer — chooses and revises the general approach
+    ├── MaterializationImplementer — owns Materialization Spec changes
+    │   └── Materialization Parts
+    │       └── smaller Materialization Parts …
+    ├── Code Implementer — owns source implementation
+    │   └── Code Parts
+    │       └── smaller Code Parts …
+    ├── Measure — owns the reusable composite checking function
+    │   └── Measure Parts
+    │       └── smaller Measure Parts …
+    └── Verify — owns independent acceptance evaluation
+        └── Verification Parts
+            └── smaller Verification Parts …
+
+Shared leaf capabilities for Designer, specialists and Parts:
+├── Question — search/read evidence to resolve a scoped uncertainty;
+│              includes independent checking-program review
+└── Support  — find reusable documentation, functions, reference Episodes
+               and examples; assess applicability and limitations
 ~~~
 
-The existing IterativeEpisodeRefiner service binds notes and evidence to an
-approved baseline and classifies proposed changes. It is not this active Episode.
-Preserve and rehome that work as Builder/approval boundary services. Do not remove
-its approval, provenance or semantic-change safeguards.
+The diagram declares ownership and allowed calls, not an execution schedule.
+Designer reasons from the approved goal, current artifacts, measurements, prior
+attempts and returned findings. Missing materialization is evidence available to
+that reasoning. A prompt does not prescribe "materialize, then code," and the
+host does not automatically select the next specialist.
 
-The refiner's admitted implementation is independent of the candidate being
-repaired. A candidate does not need to import, compile or run before it can be
-examined and edited as data. Execution still requires source admission.
+Designer can assign a specialist the whole workflow or a particular part.
+Decomposition takes place inside that specialist's responsibility. Parts does
+not sit above Designer or above its specialist, and it cannot invoke another
+specialty to acquire that specialty's authority.
 
-The refiner and its reasoning children use the Duet's model/provider
-configuration. Target Workflow test Runs use the Target Workflow's selected launch
-configuration through the shared harness; they do not change the refiner's
-model. No separate refiner launch file is required. This configuration boundary
-is distinct from the approved Episode nesting and capability boundaries; see
-the [routing contract](episode_launch_configuration.md#duet-refiner-and-target-model-boundary).
+Question and Support have their own goals, loops, measurements and numerical
+stopping rules. They are leaves: their declared read-only research operations
+perform search and retrieval within their own loop, and they have no children.
+Question resolves a specific uncertainty; Support finds practical material the
+caller can reuse. Existing preauthorized observations and independent check
+reviews remain available alongside research. A preconfigured check is not a
+prerequisite for investigating an ordinary question or guidance gap.
 
-## 2. Episode ownership and nesting
+Research results are evidence, not instructions to the caller. Help does not
+bypass authority or establish acceptance merely because a helper agrees.
 
-### RefineParts: choose work and make the whole scope work
+## What each Episode owns
 
-The root IterativeEpisodeRefiner is a RefineParts Episode. A nested RefineParts
-has the same responsibilities for a smaller scope.
-
-It owns the requirements for that scope, decomposition, dependencies, selection
-of the next problem, and assessment of each result's contribution to the whole.
-A part is a behavioral problem, not necessarily a file or Target Workflow Episode node.
-
-Only this role may create a DesignPart assignment or authorize a nested
-RefineParts. It can choose a separate problem, a prerequisite, or a joint problem
-when attempted repairs show that earlier boundaries were wrong.
-
-### DesignPart: design and realize a working solution for the assigned part
-
-The Designer owns its approach through implementation and part acceptance. It
-does not return successfully just because it wrote a design document.
-
-It uses task-specific instructions and examples but the same underlying Designer
-loop. Numerical-controller design is one assignment covering credit, rarefaction
-and continuation together, not three independently completed specialties.
-
-The Designer may call implementation, investigation, measurement and verification
-children. It may not create another Designer or a Parts Episode, including through
-a helper acting on its behalf. New design subproblems go back to its Parts owner.
-
-### RefineImplementation: make and measure actual code changes
-
-This is the coding Episode. It proposes scoped source/specification-detail edits,
-has the host commit candidate revisions, and measures them under its own fixed
-local contract. Its local measurement is not the parent's VerifyBehavior Episode.
-
-It cannot change its goal, measuring rule or protected checks to make a failure
-pass. A deficient assignment, inadequate measure or cross-part conflict returns
-to the Designer, and to the Parts owner when broader coordination is needed.
-
-### The allowed structure
-
-~~~text
-RefineParts: choose an eligible problem
-  DesignPart: choose and evaluate approaches for that problem
-    required design/measure preparation
-    RefineImplementation: edit -> local measurement -> iterate
-    required part acceptance
-  required assessment of contribution to the enclosing whole
-
-RefineParts may instead delegate a proper sub-scope to RefineParts
-  that owner selects and coordinates its own DesignPart assignments
-  all levels use the same campaign revision and regression history
-~~~
-
-Implementation follows admission of its design and local measure. Acceptance
-follows a candidate result. These are required steps, not interchangeable sibling
-choices. Each parent keeps responsibility for finishing its declared unit.
-
-If a Designer needs a new design assignment, it returns a structured unresolved
-result. The Parts owner decides whether to split, merge or replace assignments.
-Its own loop continues; that child return does not end the refinement campaign.
-An unchanged assignment is not restarted with its history erased.
-
-Recursion belongs to the Parts owners. A nested scope must have a specific
-contribution, inherited constraints and an identified parent responsible for
-cross-scope effects. Do not add wrappers around equivalent active work. Dependency
-cycles return to the nearest owner that can address the coupled problem.
-
-## 3. Specialties and finding design guidance
-
-Start with a reusable Designer, not a separate implementation for each task type.
-Its assignment can carry instructions for reasoning, calculation, simulation,
-goal/contract design, numerical-controller design, or an unfamiliar combination.
-The general route remains available when no established specialty fits.
-
-The Parts owner can reuse a suitable instruction set or call FindDesignSupport
-to search approved library material. Use existing search/library components where
-their contracts fit; do not create a second Episode or function registry.
-
-FindDesignSupport returns selected instructions/examples, exact source identities,
-why they apply, their assumptions and limitations, conflicts, and missing coverage.
-A relevant example is guidance, not proof that its implementation or checks fit
-the current task. Broad example curation remains later work.
-
-Prepare the specialty instructions before the child starts. Later retrieved
-material enters as typed reference data; it does not rewrite the active system
-prompt, goal or judgment contract. Raw web pages and model-written summaries do
-not become privileged instructions. The parent admits the assignment and concrete
-checks; finding a plausible example cannot silently change either.
-
-A new specialist implementation is justified only if it needs a different
-declared repeated unit or child workflow that the reusable design cannot express.
-It requires the normal approval/materialization process, not invention during
-an active Run.
-
-## 4. Goals, repeated units, measures and calls
-
-Every assignment identifies its goal, parent, scope, exact baseline, protected
-requirements, required evidence, concrete local measure, authority, instruction
-references, return contract and fixed numerical-control components. Each child
-receives relevant prior attempts and the requirements it must preserve.
-
-| Episode | Goal and repeated unit | Basis of its own progress |
+| Episode | Work and available operations | Responsibility retained by its owner |
 | --- | --- | --- |
-| RefineParts | Satisfy the enclosing scope; select a problem, obtain its result and assess its contribution | Newly established contribution to the whole or useful admitted learning, not part counts or summed child scores |
-| DesignPart | Realize a solution to the assigned problem; choose an approach, prepare it, implement it and assess the part | Measured improvement under the part contract or useful admitted design knowledge, not design prose |
-| RefineImplementation | Meet the implementation contract; attempt a candidate change and perform local measurement | New demonstrated improvement with required regression guards, not edit volume |
-| FindDesignSupport | Fill a named gap in design guidance; search, compare and admit applicable material | Evidence-backed coverage of that gap, not retrieved-document counts |
-| ResolveQuestion | Resolve a decision-relevant uncertainty; choose a discriminating observation and assess it | A supported distinction that changes the decision state, not confidence or speculation |
-| EstablishMeasure | Supply an adequate instrument for a named requirement; propose/revise it and check adequacy | A demonstrated improvement in what the instrument can reliably establish, not assertion counts |
-| VerifyBehavior | Determine whether the exact candidate meets the parent's requirements; perform an independent check or justified bundle | New operative evidence, including counterexamples; a favorable verdict is not itself credit |
-
-| Parent | Permitted children and purpose |
-| --- | --- |
-| RefineParts | DesignPart for a selected problem; RefineParts for a coordinated sub-scope; FindDesignSupport, ResolveQuestion or EstablishMeasure for a specific prerequisite; VerifyBehavior for baseline/integration acceptance |
-| DesignPart | RefineImplementation for scoped realization; FindDesignSupport/ResolveQuestion/EstablishMeasure for identified needs; VerifyBehavior for part acceptance |
-| RefineImplementation | ResolveQuestion for a concrete implementation uncertainty |
-| EstablishMeasure | ResolveQuestion for independent review of its proposed checking program, cases and grounding |
-| FindDesignSupport, ResolveQuestion, VerifyBehavior | No designer or coordinator children; permitted observations/execution stay inside their declared unit |
-
-RefineParts owns assignment/decomposition proposals. DesignPart owns design and
-implementation proposals inside its assignment. RefineImplementation owns source
-editing, including a check instrument when explicitly assigned to build one.
-The other roles cannot repair the target or change the criterion being evaluated.
-The host owns publication, admission, credit and authoritative status.
-
-EstablishMeasure authors the checking program needed for its assigned requirements
-using the shared native coding workspace. Its target inputs are read-only. It
-submits exact source and positive/negative fixtures to its separate Question
-reviewer, then the shared isolated backend executes the reviewed controls before
-ordinary admission can install the checks. Measure's own fixed adequacy rule
-judges this work; authored code and review agreement alone earn no credit.
-An instrument that is itself a separately approved Episode workflow still uses
-the existing instrument-building route. See the
-[coding and checking boundary](implementer_coding_workspace.md#measures-checking-workspace).
-
-Each unit declares its stages and possible outcomes. A partial result can advance
-an eligible prerequisite or close an incomplete attempt. Repetition belongs to
-an Episode's measured loop, not an uncounted retry loop hidden in a stage.
-
-The current child-result wrapper supports parent-owned projection, but it does
-not alone supply the designer's multi-stage execution. Required child execution
-and continuation must be explicitly represented and audited, not hidden inside
-a supposedly pure projector.
-
-## 5. How assignments and measures stay faithful to the task
-
-The Parts owner and Designer derive assignments from the approved purpose, the
-target's repeated unit and result meaning, its interfaces and enclosing role,
-and committed evidence of its current behavior. The relationship must be explicit:
-
-~~~text
-required behavior -> observed gap -> proposed repair/design
-  -> local measure -> candidate implementation -> parent acceptance
-~~~
-
-The three judgments remain separate:
-
-- Implementer: did the candidate improve the assigned implementation and preserve
-  the required conditions under its local measure?
-- Designer: does the implemented approach satisfy the part's actual requirements?
-- Parts owner: does that result improve the whole, including its interaction with
-  other parts?
-
-The child must receive its measure before coding starts. Challenge a proposed
-measure with incorrect or trivial outcomes that it should reject; do not derive
-expected behavior from the defective implementation. A schema-valid proposal or
-agreement between models is not proof of adequacy.
-
-Role-level admission, credit and continuation policies are pre-established.
-Target-specific instruments are versioned artifacts admitted under those policies.
-A Designer repairing a target's credit function cannot change the function judging
-its own work. Changing an active child criterion requires a successor assignment;
-changing the approved purpose requires the relevant Duet approval.
-
-Some domains lack a mechanical oracle. Preserve the limits of the evidence and
-the declared human/review requirement. Do not invent objective certainty or create
-an endless chain of agents judging other agents to conceal missing grounding.
-
-## 6. Shared state and information passed between Episodes
-
-There is one campaign workspace containing the working materialization, code,
-requirement status and compact review record. “Shared” means shared within this
-refinement effort, not unrestricted global memory or identical model contexts.
-
-Keep three information products distinct:
-
-1. **Audit:** exact calls, source/check/environment revisions, observations and
-   admission/measurement decisions. Raw content is evidence, not instructions.
-2. **Local iteration state:** assignment, current candidate, alternatives tried,
-   measured outcomes, assumptions, unresolved questions and applicable lessons.
-   Collect these records during the units; do not reconstruct them later from
-   an LLM summary. Retrieve the relevant history before selecting another action.
-3. **Parent report:** a deterministic, registered projection of admitted records
-   answering the decisions that parent still owns. Unsupported explanations
-   remain claims, even when they are well-formed JSON.
-
-| Return boundary | Information the parent needs |
-| --- | --- |
-| Implementer -> Designer | Exact candidate changes, local results, regressions/stale checks, unmet conditions and evidence that a design or measure needs reconsideration |
-| Designer -> Parts owner | Part acceptance, dependencies, assumptions, relevant failed approaches and specific new/conflicting design work requiring coordination |
-| Nested Parts -> enclosing Parts | Integrated sub-scope result, composition evidence and unresolved cross-scope dependencies; not every internal conversation |
-| Support search -> caller | Applicable instructions/examples, source identity, applicability limits, conflicts and missing guidance |
-| Inquiry/measurement/verification -> caller | The supported answer, instrument or determination requested, including counterevidence, unperformed checks and limitations |
-
-Every report binds the request, goal, examined/produced revision, evidence and
-environment. It distinguishes actual change from partial, blocked or interrupted
-work and identifies any parent decision needed. Evidence handles permit focused
-drill-down. A large unresolved set may use an indexed artifact and bounded view;
-readiness and eligibility use the full state, not just the displayed page.
-
-Siblings receive relevant dependency changes through their common owner, not
-each other's transcripts. Original evidence identities survive every projection:
-an echoed parent hypothesis is not independent confirmation. Reassignment, a new
-child ID or a paraphrase cannot erase attempt history or create fresh evidence.
-
-Each boundary must support the parent's next decisions without requiring the
-whole child transcript. If it cannot, change the report or the problem boundary.
-
-## 7. Preventing repair cycles
-
-Prohibiting Designer-to-Designer calls reduces hidden coordination, but it is
-not sufficient: siblings can still alternate between incompatible repairs.
-
-~~~text
-A passes, B fails -> A fails, B passes -> A passes, B fails
-~~~
-
-### Record effects during the loop
-
-After each admitted candidate change, persist its baseline/result identity,
-assignment and responsible Episode, check results, affected requirements and
-dependencies, and which previous passes became stale. A missing recheck is
-unknown, not green. Conservatively invalidate evidence when change impact cannot
-be established. Do not require every check to run after every edit, but do not
-claim preservation without applicable evidence.
-
-The campaign record is shared across all Parts owners and child invocations.
-Children get the relevant preservation checks and conflict history. Parent-facing
-state is updated at unit boundaries, not only at final child return.
-
-This need not wake a parent model on every edit. The host records effects and
-checks the declared conflict/eligibility rules. A conflict requiring a broader
-decision causes a correlated return at a safe unit boundary so the owning parent
-can act. It must not wait for a successful child result to become visible.
-
-### Recognize and route a possible cycle
-
-Detect exact revisits using stable candidate/contract/environment identities.
-Also flag repeated opposing regressions even when source edits are not identical.
-Similar pass/fail patterns are a warning, not proof that different attempts have
-no value. Keep actual measurements, conditions and evidence available for diagnosis.
-
-A conflict report identifies the requirements involved, candidate transitions,
-supporting observations, already-tried approaches and the decision needed. A raw
-model assertion cannot establish a block or an enforceable exclusion by itself.
-
-The nearest Parts owner covering both sides then chooses to:
-
-- Issue a joint assignment requiring A and B to hold on the same candidate.
-- Correct a missing dependency, a bad measure or a wrongly assumed boundary.
-- Authorize a justified reopening after a material change.
-- Return an explicit specification conflict or authority/evidence gap when the
-  requirements cannot currently be reconciled.
-
-Close or replace affected assignments explicitly; do not silently edit their
-criteria. The replacement inherits relevant history. If the current Parts owner
-does not cover both sides, escalate to the next enclosing owner.
-
-Restoring an old pass or switching back to an old candidate cannot repeatedly
-earn credit. Current correctness changes immediately; historical credit remains
-an audit fact. New, useful knowledge from the conflict may earn credit only through
-its separate admission. There is no fixed retry-count rule that declares success.
-
-## 8. Candidate consistency, yield and stopping
-
-Edits are scoped, revision-checked transactions. Retain the approved baseline and
-evaluated candidates; the latest working edit is not automatically the selected
-result. Overlapping work is serialized or reconciled by its owner. Start with
-serialized edits in a campaign; parallel source editing is not required for the
-first implementation.
-
-Every evaluation binds exact code, specification, checks, fixtures, dependencies
-and environment. Reusing a pass requires a validated dependency match. Changes
-reopen affected requirements; no owner combines passes from incompatible versions.
-
-The host computes yield from admitted durable changes. Failure, delegation,
-patch size, new labels and repeated lessons have no inherent positive yield.
-Useful lessons require evidence, scope, novelty, applicability and reopening
-conditions. Parent credit measures its own contribution, not child credit totals.
-
-Valid repaired output representations receive ordinary admission and credit
-judgment. Representation repair is not a new substantive reasoning unit; actual
-failed implementations remain recorded as failed candidate attempts.
-
-Each Episode has its own fixed credit, rarefaction and continuation contract.
-Initial assessment of the unchanged candidate is a declared path: already-correct
-work returns without invented edits. The numerical policy must account for a
-satisfied goal with no remaining required opportunities.
-
-Numerical return with unmet requirements is incomplete, not ready. Blocking,
-invalid contracts, cancellation, interruption and resource limits remain distinct.
-An unresolved scope conflict can require a parent decision under the frozen
-eligibility policy; that is not a successful completion or a budget-based stop.
-Optional improvements do not silently become new mandatory work.
-
-The MINI review shows requirement/target, finding, status and latest evidence.
-The final result names one exact admitted build and evidence for all mandatory
-requirements, including whole-workflow behavior, or an explicit unresolved frontier.
-
-## 9. Host execution, authority and recovery
-
-Use the existing registries, handoffs, stores, model broker and executor. Designer
-workers propose edits and results; the host validates authority, admits source,
-publishes state, executes scoped checks and computes credit. No parallel database,
-general memory service, model-call stack or replacement executor is part of this
-design. Extend existing persistence with the necessary records/indexes.
-
-Validation Runs have their own identities and evidence linked to the campaign,
-requesting Episode and unit. A target sub-Episode requires an admitted harness
-and typed inputs; it is not assumed independently runnable. Do not call the
-single-active-session start_run action recursively or replace its session state.
-
-Persist evidence before credit-bearing changes. Use stable operation identities
-and atomic writes or recoverable stages so retries return existing receipts,
-never double credit. Recover pending child/measurement/parent-decision stages
-explicitly; current one-shot worker execution is not arbitrary process resumption.
-Cancellation must leave a consistent candidate and honest terminal state.
-
-The Target Workflow Architecture and the refiner's approved role graph are different
-artifacts. The refiner adds scoped edit/evaluation authority and Parts-owned
-recursive invocation; it does not grant arbitrary spawning to ordinary Episodes.
-Concrete assignments, source identities and active control components stay fixed.
-Semantic target changes go through the Duet. Successful validation does not itself
-authorize production execution, a commit, a merge or publication.
-
-## 10. Code ownership and unavoidable integration
-
-Most new behavior belongs in the existing iterative_episode_refiner/ package,
-split into focused modules for campaign state, assignments, reports, conflict
-handling, guidance selection, Episode functions and host operations. These names
-describe responsibilities, not a mandate to add an entire new framework.
-
-Use episode_library/ for the refiner's reference definitions and registrations,
-and narrowly scoped additions in existing function/handoff/numerical libraries.
-Place package tests in tests/iterative_episode_refiner/ and integration tests in
-the corresponding runtime/builder/agent test areas. That package test directory
-does not yet exist in the inspected checkout.
-
-Generated-source admission currently permits the established Episode/function
-library roots, not direct imports of the host refiner package. Keep worker-facing
-functions in the admitted library paths and host state behind scoped operations.
-Do not broadly whitelist the host package or relax source admission to simplify
-integration.
-
-| Existing area | What remains there / expected integration |
-| --- | --- |
-| iterative_episode_refiner.service, .workspace, .contracts | Preserve/reclassify existing baseline, approval and workspace boundary work; put new active-loop responsibilities in focused modules, not appended to these large files |
-| episode_library and function/handoff/numeric registries | Add exact refiner bindings and required components; do not redefine existing Episode behavior or introduce a second registry |
-| episode_builder | Keep initial materialization and source admission; consume/reuse boundary services and expose exact initial candidate artifacts |
-| method_loop.EpisodeTree, ChildEpisodeUnit, ControllerRuntime | Reuse controllers and parent-owned projection; add only the missing declared continuation/Parts-recursion support needed by this real consumer |
-| episode_runtime.linker, worker/protocol/brokers and stores | Carry approved refiner roles/capabilities, scoped operations, durable receipts and correlated parent-decision returns across the real worker boundary |
-| RunExecutor and its backends | Reuse execution, identity, confinement, audit and cancellation; do not build another launcher |
-| agent.openchia_host | One narrow build-finalization integration plus validation-Run routing; use a focused sibling/service for new logic instead of growing the host facade |
-
-Inspection baseline: checkout 52c9c2675995232416012bf19dd644170b7913ab
-and fetched merged-main object a335059aee74c230429a4093f32330a94789cb22.
-The latter supplies the shared RunExecutor protocol and systemd/container paths.
-The current library refiner foundation is generic reasoning, currently a leaf.
-The method loop supports declared recursive edges, but the inspected linker builds
-a concrete plan tree; Parts recursion is not already an end-to-end capability.
-
-The current host materializes through EpisodeBuilder.build, persists the
-materialized baseline, and emits build_finished. That is the integration area
-for the active finalizer, not a reason to change the general conversational turn
-loop. The old workspace projects persisted facts; it is not already a candidate
-editing engine. Existing narrow authority-reader protocols are useful boundaries
-to extend rather than replacing host ownership.
-
-This supports a relatively independent implementation, not a promise of zero
-shared changes or zero regression risk. Keep the new package behind explicit
-inputs and host capabilities. Do not add refiner-specific conditionals throughout
-the general runtime, change global defaults early, or alter prompt/provider,
-gateway, CLI, desktop or TUI behavior as part of the algorithm work.
-
-## 11. Merge and rollout plan
-
-Use a dedicated implementation branch/worktree based on the then-current main;
-the inspected feature branch is not assumed to be a safe implementation base.
-Do not reset or discard the current design work. Carry the finalized documents
-forward explicitly. This design task itself creates no branch, commit or PR.
-
-Keep changes in reviewable groups:
-
-1. Exact contracts, host interface and refiner-local state/report/cycle logic.
-2. Focused reusable library/runtime support needed for the actual refiner consumer.
-3. The executing refiner Episodes, instruction selection and explicit real-path
-   acceptance harness.
-4. Builder-boundary reclassification and the narrow normal-build activation change.
-
-Mechanical moves must be separated from behavior changes and update internal
-callers/docs; do not keep compatibility shims or duplicate old boundary logic.
-Keep existing serialized artifacts readable; migrations must be additive or have
-an explicit versioned reader. Ordinary Episode execution should not pay for or
-invoke refiner-specific work.
-
-Develop and validate through an explicit approved refiner entry point before
-changing normal build behavior. This is staged integration, not permission to
-merge unreachable code with no concrete consumer. Production activation is a
-separate reviewed change after real-path evidence. If temporary configuration is
-needed, use existing configuration mechanisms, not a new behavioral environment
-variable. The final delivery must activate the refiner for normal materialized
-builds; leaving it permanently opt-in does not meet the objective.
-
-Compatibility and end-to-end validation are required before activation, including
-actual isolated host/worker execution. Mock-only or in-process receipts cannot
-establish that boundary. Work can be kept mergeable by limiting shared changes and
-rebasing reviewed work, but mergeability cannot be guaranteed without inspection
-and verification against the eventual main revision.
-
-## 12. Acceptance and next work
-
-The [implementation goals](iterative_episode_refiner_implementation_goals.md)
-provide bounded, copyable requests with concrete completion conditions. Exact
-schemas and initial numerical settings are specified in the Goal 1 contract
-proposal. Later empirical calibration still requires evidence and a successor
-approved contract; an active model cannot improvise those rules.
-
-Final acceptance must demonstrate actual code refinement and inspectable correct
-results for more than one kind of target, including a nested workflow. Include
-an already-correct build, a broken build, an A/B repair cycle resolved through a
-joint assignment, missing evidence, and interrupted/replayed work. A cycle finding
-or honest unresolved result is not the same as solving the target.
-
-Inspect the exact produced build, protected checks, credit history and final
-behavior. Show that old states and repeated failures cannot farm credit, and that
-unrelated ordinary Episodes retain their behavior. Small invariant tests are
-necessary evidence for their mechanisms, not proof of the full system.
-
-No product tests or live runs are authorized or performed by finalizing these
-documents. A later goal explicitly authorizing validation is required before
-resuming them.
+| Designer | Record the general approach; commission the four specialists; investigate uncertainties; use applicable support | Whole-workflow requirements and coordination across specialties |
+| MaterializationImplementer | Author or revise plans through the structured materialization API; use Materialization Parts | Consistency across the commissioned Materialization Spec |
+| Code Implementer | Create or repair source through the scoped coding workspace; use Code Parts | The assembled implementation under the chosen approach |
+| Measure | Author checks, obtain independent review, execute adequacy controls, combine components | One reusable composite checking function for its commission |
+| Verify | Execute established checks, investigate their evidence, use Verification Parts | Independent acceptance coverage, failures and limitations |
+| Question | Search/read external sources, documentation and library references; use authorized observations or perform independent check review | The supported answer requested by its caller |
+| Support | Search/read documentation, reusable functions, reference Episodes and examples | Applicability, limitations and missing coverage for its caller |
+
+A specialist can perform its own scoped work. Calling Parts is useful when smaller
+decisions or contributions help achieve the assignment; delegation is not an
+obligatory extra wrapper.
+
+Designer chooses its approach and contribution in one measured unit. Its
+`plan` is null or contains `approach_key`, `requirement_mapping`,
+`intended_change_scope`, `intended_materialization_targets` and
+`dependency_effects`; `child` names the selected contribution and `conflict`
+is null or an applicable coordination record. The optional plan records an
+approach without dictating which peer runs next. Null retains the current
+approach or permits investigation/measurement before one is established.
+Approach prose alone does not create an extra numerical observation. The chosen
+child supplies the substantive contribution in that unit.
+
+Verify likewise selects direct evaluation or a scoped child. The existence of
+a Verify binding does not create a mandatory automatic verification call after
+every source edit. Final readiness still requires actual evidence for all
+mandatory requirements on the exact final candidate.
+
+## Task-specific Parts, not one generic delegator
+
+The four Parts bindings share the method loop, persistence and numerical
+machinery. They have different task instructions, permitted instruments,
+measurement meaning and returned contributions.
+
+| Parts binding | A part can be | Direct work | Progress evidence |
+| --- | --- | --- | --- |
+| `materialization_parts` | An interface, state design, binding or coupled specification decision | Scoped structured Materialization Spec edits | Measured satisfaction of assigned plan requirements while preserving dependencies |
+| `code_parts` | A behavioral contribution across functions or modules | Scoped source implementation and its authorized environment recipe | Improvement under assigned checks with preservation requirements retained |
+| `measure_parts` | A requirement's cases or a checking component | Checking-code authoring, independent review and executed adequacy controls | Newly adequate requirement components under the unchanged adequacy rule |
+| `verification_parts` | A smaller requirement scope | Execute established checks and examine exact-candidate evidence | Newly established valid determinations, including failures |
+
+Each Parts Episode may perform the scoped contribution directly or invoke a
+smaller instance of the same Parts specialization. It cannot substitute a
+different specialty. The current persisted scope is requirements, source paths
+and materialization targets. A child must narrow one of those real dimensions.
+There is no separate case-slice assignment field. With a single requirement and
+no smaller editable target, the Episode performs its direct work instead of
+proposing a prose-only subdivision. Cases can still be authored or evaluated
+inside that work; they are not independently addressable child scopes yet.
+Merely repeating the enclosing assignment creates no new progress.
+
+Concrete operations remain possible at the bottom of the tree. Code Parts uses
+the coding function; it does not need another Code Implementer Episode beneath
+it. Materialization Parts uses the structured editing API. Measure Parts uses
+its checking workspace and adequacy functions. Verification Parts invokes the
+established checking/execution functions.
+
+An unresolved cross-specialty need returns through normal parent reporting.
+The specialist assesses it and returns the relevant finding to Designer, which
+can commission the appropriate peer. The child does not ask its parent to
+change an active grant mid-unit or obtain that grant through a helper.
+
+## The parent-to-child assignment
+
+Every assignment carries enough task information to make the child's
+specialization concrete:
+
+- Purpose, rationale and the contribution needed within the enclosing approach.
+- Requirements and relevant artifacts, including the exact current candidate.
+- Editable targets, dependency and preservation obligations.
+- Current evidence, prior attempts and unresolved questions relevant to that work.
+- A fixed measurement basis and numerical control for the child's assignment.
+- A parent-authored return contract naming the next decision and needed findings.
+
+The child proposal envelope contains `child: assignment`. The assignment declares
+`role`, `goal`, `requirements`, `writable_paths`,
+`materialization_targets`, `return_contract`, `measure_request`,
+`replace_previous` and `prerequisites`. Unneeded grants are empty.
+Designer additionally declares the optional approach described above. A supported
+conflict can name the affected requirements at a coordinating owner.
+
+The parent supplies task instructions within the declared role. This is not
+capability creation: an assignment can narrow its parent's grant, and prose
+cannot extend it. A new child inherits relevant history and obligations;
+a different invocation identity does not erase unsuccessful attempts or
+make old evidence fresh.
+
+Question and Support receive the same disciplined assignment. Their context is
+the information needed for the particular question or guidance gap, rather than
+the caller's entire transcript. Independent check review includes the actual
+checking source, fixtures, original requirements and available observations.
+Their read-only capabilities are declared by their bindings; the parent supplies
+the question, relevant scope and desired findings rather than inventing a tool
+grant in prose. They cannot launch another Episode or edit the Target Workflow.
+
+Each leaf research proposal selects one declared operation:
+`web_search` or `library_search` with `arguments.query`, `read_url` with
+`arguments.url`, or `read_library` with a returned catalog `arguments.source_id`.
+These operations retrieve evidence; a later `finding` proposal supplies
+per-requirement `state`, `answer`, `applicability`, `limitations` and inspected
+`source_ids`. Question uses `answered`, `refuted` or `unresolved`; Support uses
+`applicable`, `inapplicable` or `unresolved`. Failed retrieval is a limitation,
+not evidence that the researched claim is false. Independent checking-program
+review retains its separate `check_review` proposal.
+
+## Measures, credit and rarefaction
+
+Measure owns one composite checking function for its commission. It can author
+components directly or commission Measure Parts. Adequate components remain
+available while other components are unfinished. Every requirement retains its
+separate outcomes; one unresolved case does not erase the adequate work.
+
+Measure Parts can compose admitted components for its assigned scope and return
+that work. Only the owning Measure publishes the whole reusable composite.
+`compose_components=true` assembles returned admitted work; it does not invent
+new cases or award adequacy without their recorded review and controls.
+
+Other Episodes reuse their assigned fixed checking function. Selecting a smaller
+part does not redesign the measure. The parent explicitly commissions changes
+when the evidence identifies missing or inadequate checking capability.
+A newly admitted measure is evaluated on the baseline candidate before repair
+credit is attributed under it.
+
+Implementation units sample available unobserved local checks before proposing
+a change, preserving pre-edit evidence for credit accounting. An unavailable or
+unrunnable observation remains recorded as such while scoped repair can proceed.
+Direct `evaluate=true` also lets an implementation Episode choose observation
+without submitting an edit.
+
+Checking programs derive expected outcomes from requirements and grounded
+evidence, not from the candidate being repaired. Independent Question review
+and executed positive/negative controls assess their adequacy. Frozen policy,
+required interfaces and behavioral execution have different evidence surfaces:
+declared policy is not an invented requirement to echo policy in every response.
+
+Each Episode computes its own numerical credit from admitted evidence at its
+scope. Parents do not sum child credit totals. Delegation, design prose, patches,
+a restored old pass and repeated failed attempts have no inherent fresh credit.
+Verification can make progress by establishing a valid failure; favorable
+verdicts are not privileged.
+
+The registered rarefaction function consumes numerical credit. Each Episode's
+numerical controller governs continuation and return. An unresolved numerical
+return is not successful acceptance, and there is no fixed retry-count schedule
+for forcing work through the tree.
+
+## Source, materialization and checking permissions
+
+Host enforcement separates artifacts and instruments:
+
+- MaterializationImplementer and Materialization Parts submit structured
+  operations against explicitly granted Materialization Spec targets. Source
+  is read-only context.
+- Code Implementer and Code Parts edit explicitly granted source paths and
+  authorized target environment recipes. Materialization and protected checks
+  are read-only context.
+- Measure and Measure Parts author checking source and fixtures in their
+  measurement workspace. Target source and materialization remain read-only.
+- Verify and Verification Parts execute the assigned checks and inspect
+  evidence. They do not repair the target or alter the checks.
+- Question and Support use declared read-only web research and local
+  documentation/library lookup operations. Their host path has no source or
+  Materialization Spec editing operation, shell execution or child launch.
+  Findings never confer another role's write access.
+
+These grants are narrowed at every child boundary. Filesystem confinement and
+host admission implement them; the LLM is not trusted to enforce its own scope.
+The [coding workspace boundary](implementer_coding_workspace.md) documents the
+concrete source/materialization separation.
+
+An incomplete candidate need not import, compile or run before it can be
+examined as data. Missing plans and source remain explicit recorded facts.
+Target execution still goes through ordinary source admission and the isolated
+Run boundary.
+
+## Reports, integration and recovery
+
+Every parent defines what it needs back. The child returns compact, synthesized
+measurement outcomes and selected findings suited to that decision. Stored
+child reports, raw transcripts and automatically expanded artifacts are not
+added to the next parent's message. Full provenance remains in the audit store.
+
+For research leaves, retrieved pages, source text and raw operation responses
+remain evidence artifacts. The parent receives the selected synthesized findings
+through the same method-owned reporting boundary. Exact-field admission and
+capability separation constrain what can be transmitted and what a leaf can do.
+They do not prove arbitrary natural-language findings are prompt-injection-free.
+The caller treats findings as attributed evidence with limitations, while its
+approved goal, permissions and judgment contract retain authority.
+
+A specialist integrates Parts contributions over its own assignment. Designer
+integrates specialist findings over the whole approved goal. Cross-specialty
+dependencies and conflicting repairs are coordinated there. Helpers supply
+evidence or guidance, not instructions that silently rewrite an active goal or
+judgment contract. See [Episode communication](episode_communication.md).
+
+All work belongs to one campaign with exact candidate, plan, check and
+environment identities. Changes invalidate affected evidence; unknown or stale
+results stay distinct from failures and passes. Source edits and materialization
+edits use revision-checked host transactions. Repeated publication does not mint
+fresh credit. Cancellation preserves partial work and an honest terminal state.
+
+Duet approves the Target Workflow Architecture. The Refiner constructs and
+refines its Materialization Spec and source directly; no initial Target Workflow
+Builder generation pass or receipt is required. Existing supplied candidate work
+is retained subject to that approval. EpisodeBuilder provides shared validators
+and source admission, not a compulsory initial construction strategy.
+
+The Refiner uses the owning Duet's model/provider configuration. Isolated
+Target Workflow evaluations use the Target Workflow's approved launch
+configuration. Those are separate scopes; see the
+[launch routing contract](episode_launch_configuration.md).
+
+## Code declarations
+
+- `function_library/refinement_contract.py` declares the role-specific goals,
+  prompts, children, inputs and measurement meanings. `PARTS_ROLES` links
+  specialists to their Parts; `ROLE_SPECIALIZATION` identifies the operation
+  family without erasing the concrete role.
+- `episode_library/refinement.py` registers Designer as the launch binding and
+  each specialist, Parts and helper as its own concrete Episode binding.
+- `iterative_episode_refiner/design.py` places the four specialists below
+  Designer and Parts below their specialist. Repeatable calls supply same-Parts
+  recursion and Question/Support from every non-helper role. Both helper
+  declarations have empty child sets and materialize as leaves.
+- The existing `method_loop` supplies the Episode loop, parent-owned reporting,
+  nesting and numerical routing. Host refiner operations implement the declared
+  scoped capabilities through the existing artifact store and execution paths.
+
+A correct implementation must preserve this entire ownership structure,
+task-specific direct work, assignment inheritance, Measure's composite ownership
+and helper reachability. Changing only the displayed tree or prompt titles
+does not implement the design.

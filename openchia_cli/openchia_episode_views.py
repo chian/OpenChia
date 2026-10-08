@@ -12,6 +12,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
 import json
+from textwrap import fill
 from typing import Any, Mapping, Optional
 
 from agent.episode_contracts import OpaqueId, Sha256Digest
@@ -246,6 +247,7 @@ class WorkspacePart:
     editable: bool = False
     changed: bool = False
     incomplete: bool = False
+    callee_local_id: Optional[str] = None
 
 
 @dataclass
@@ -258,6 +260,7 @@ class WorkspaceEpisode:
     parts: tuple[WorkspacePart, ...]
     children: list["WorkspaceEpisode"] = field(default_factory=list)
     changed: bool = False
+    calls: list[WorkspacePart] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -266,6 +269,7 @@ class WorkspaceEntry:
     depth: int
     episode: Optional[WorkspaceEpisode] = None
     part: Optional[WorkspacePart] = None
+    last_child: bool = True
 
     @property
     def target(self) -> Optional[WorkspaceTarget]:
@@ -282,8 +286,8 @@ class WorkspaceEntry:
         if self.episode is None:
             raise ValueError("workspace entry has no Episode identity")
         if self.part is None:
-            return ("episode", self.episode.local_id, "")
-        return ("part", self.episode.local_id, self.part.key)
+            return (self.kind, self.episode.local_id, "")
+        return (self.kind, self.episode.local_id, self.part.key)
 
 
 @dataclass(frozen=True)
@@ -317,6 +321,7 @@ class _EpisodeTreeViewModel:
         self.roots: list[WorkspaceEpisode] = []
         self._episodes: dict[str, WorkspaceEpisode] = {}
         self.expanded_episode_ids: set[str] = set()
+        self.expanded_details_ids: set[str] = set()
 
     def _install_episodes(self, episodes: list[WorkspaceEpisode]) -> None:
         by_id = {item.local_id: item for item in episodes}
@@ -351,53 +356,62 @@ class _EpisodeTreeViewModel:
             visit(root)
         if len(visited) != len(episodes):
             raise ValueError("workspace Episode hierarchy contains a cycle")
+        first_install = not self._episodes
         self.roots = roots
         self._episodes = by_id
-        if not self.expanded_episode_ids:
+        if first_install:
             self.expanded_episode_ids = {item.local_id for item in roots}
         else:
             self.expanded_episode_ids.intersection_update(by_id)
+        self.expanded_details_ids.intersection_update(by_id)
 
     def visible_entries(self) -> list[WorkspaceEntry]:
-        entries: list[WorkspaceEntry] = [
-            WorkspaceEntry("global", 0, part=part)
-            for part in self.global_parts
-        ]
+        entries: list[WorkspaceEntry] = []
 
-        def visit(episode: WorkspaceEpisode, depth: int) -> None:
-            entries.append(WorkspaceEntry("episode", depth, episode=episode))
+        def visit(episode: WorkspaceEpisode, depth: int, last_child: bool) -> None:
+            entries.append(WorkspaceEntry(
+                "episode", depth, episode=episode, last_child=last_child,
+            ))
             if episode.local_id not in self.expanded_episode_ids:
                 return
-            entries.extend(
-                WorkspaceEntry("part", depth + 1, episode=episode, part=part)
-                for part in episode.parts
-            )
-            for child in episode.children:
-                visit(child, depth + 1)
+            count = len(episode.children) + len(episode.calls) + bool(episode.parts)
+            for index, child in enumerate(episode.children):
+                visit(child, depth + 1, index == count - 1)
+            for index, call in enumerate(episode.calls, start=len(episode.children)):
+                entries.append(WorkspaceEntry(
+                    "call", depth + 1, episode=episode, part=call,
+                    last_child=index == count - 1,
+                ))
+            if episode.parts:
+                entries.append(WorkspaceEntry("details", depth + 1, episode=episode))
+                if episode.local_id in self.expanded_details_ids:
+                    entries.extend(
+                        WorkspaceEntry(
+                            "part", depth + 2, episode=episode, part=part,
+                            last_child=index == len(episode.parts) - 1,
+                        )
+                        for index, part in enumerate(episode.parts)
+                    )
 
         for root in self.roots:
-            visit(root, 0)
+            visit(root, 0, True)
+        entries.extend(WorkspaceEntry("global", 0, part=part) for part in self.global_parts)
         return entries
-
-    def toggle(
-        self,
-        episode: WorkspaceEpisode,
-        *,
-        expanded: Optional[bool] = None,
-    ) -> None:
-        current = episode.local_id in self.expanded_episode_ids
-        desired = not current if expanded is None else expanded
-        if desired:
-            self.expanded_episode_ids.add(episode.local_id)
-        else:
-            self.expanded_episode_ids.discard(episode.local_id)
 
     def index_for_episode(self, local_id: str) -> int:
         entries = self.visible_entries()
         for index, entry in enumerate(entries):
-            if entry.episode is not None and entry.episode.local_id == local_id:
+            if entry.kind == "episode" and entry.episode.local_id == local_id:
                 return index
         return 0
+
+    def reveal_episode(self, local_id: str) -> int:
+        episode = self._episodes[local_id]
+        parent_id = episode.parent_local_id
+        while parent_id is not None:
+            self.expanded_episode_ids.add(parent_id)
+            parent_id = self._episodes[parent_id].parent_local_id
+        return self.index_for_episode(local_id)
 
     def episode_target(self, episode: WorkspaceEpisode) -> WorkspaceTarget:
         return episode.target
@@ -407,7 +421,7 @@ class _EpisodeTreeViewModel:
             part = entry.part
             heading = part.label
             if entry.episode is not None:
-                heading = f"{entry.episode.name} / {part.label}"
+                heading = f"{entry.episode.local_id} / {part.label}"
             return WorkspaceDetail(
                 heading=heading,
                 description=part.description,
@@ -445,14 +459,21 @@ class _EpisodeTreeViewModel:
             raise ValueError("workspace entry is missing its Episode")
         episode = entry.episode
         target = episode.target
+        summary = [f"Episode: {episode.local_id}", f"Parent: {episode.parent_local_id or '-'}"]
+        goal_part = next((part for part in episode.parts if part.key == "goal"), None)
+        if goal_part is not None:
+            summary.extend(("", fill(goal_part.summary, width=68)))
+        if episode.children:
+            summary.extend(("", "Child Episodes:"))
+            summary.extend(f"  {child.local_id}" for child in episode.children)
+        if episode.calls:
+            summary.extend(("", "Repeatable calls:"))
+            summary.extend(f"  {call.label}" for call in episode.calls)
+        summary.extend(("", "Expand Details in the tree to inspect individual contract fields."))
         return WorkspaceDetail(
             heading=episode.name,
-            description="Episode navigation node and immediate topology.",
-            summary=(
-                f"Episode {episode.local_id}\n"
-                f"Parent: {episode.parent_local_id or '-'}\n"
-                f"Children: {', '.join(child.local_id for child in episode.children) or '-'}"
-            ),
+            description="Episode contract and declared child calls.",
+            summary="\n".join(summary),
             declaration=json.dumps(
                 episode.raw,
                 indent=2,
@@ -623,6 +644,70 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
             incomplete=self._contains_missing(payload),
         )
 
+    def _install_calls(self) -> tuple[WorkspacePart, ...]:
+        extension = self.document.get("repeatable_calls")
+        if "repeatable_calls" not in self.document:
+            return ()
+        if (
+            not isinstance(extension, Mapping)
+            or extension.get("version") != 1
+            or not isinstance(extension.get("bindings"), list)
+        ):
+            return (self._call_part(None, extension),)
+        unplaced = []
+        # Drafts may have incomplete calls. Display them without repairing or
+        # admitting them, and only offer navigation to existing templates.
+        for index, binding in enumerate(extension["bindings"]):
+            part = self._call_part(index, binding)
+            caller = binding.get("caller_local_id") if isinstance(binding, Mapping) else None
+            if isinstance(caller, str) and caller in self._episodes:
+                self._episodes[caller].calls.append(part)
+            else:
+                unplaced.append(part)
+        return tuple(unplaced)
+
+    def _call_part(self, index: Optional[int], binding: object) -> WorkspacePart:
+        record = binding if isinstance(binding, Mapping) else {}
+        caller = record.get("caller_local_id")
+        slot = record.get("slot_name")
+        callee = record.get("callee_template_local_id")
+        complete = (
+            index is not None
+            and all(isinstance(value, str) and value.strip() for value in (caller, slot, callee))
+            and caller in self._episodes and callee in self._episodes
+        )
+        label = "Incomplete calls" if index is None else f"Incomplete call {index + 1}"
+        summary = "Incomplete repeatable call; see Declaration and Workflow validation."
+        if complete:
+            label = callee if slot == callee else f"{slot} -> {callee}"
+            if caller == callee:
+                label += " (recursive)"
+            goal = self._episodes[callee].raw["contract"].get("goal")
+            summary = (
+                f"Caller: {caller}\nSlot: {slot}\nCalled Episode: {callee}\n\n"
+                + fill(str(goal), width=68)
+                + "\n\nEnter or Right opens the called Episode. Backspace returns."
+            )
+        return WorkspacePart(
+            key=f"repeatable_call_{index if index is not None else 'declaration'}",
+            label=label,
+            description="Declared call to an existing Episode template.",
+            summary=summary,
+            declaration=_json_copy(binding),
+            evidence={
+                "source_artifact_id": self.source_artifact_id,
+                "content_hash": self.content_hash,
+                "json_pointer": (
+                    "/repeatable_calls" if index is None
+                    else f"/repeatable_calls/bindings/{index}"
+                ),
+            },
+            part_hash=_digest(binding),
+            target=None,
+            incomplete=not complete,
+            callee_local_id=callee if complete else None,
+        )
+
     def _rebuild_global_parts(self) -> None:
         overview = {
             "source_artifact_id": self.source_artifact_id,
@@ -647,12 +732,12 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
                     f"Workflow hash: {self.workflow_hash or '-'}\n"
                     f"Host editable: {'yes' if self.host_editable else 'no'}"
                 ),
-                declaration=_json_copy(overview),
+                declaration=_json_copy(self.document),
                 evidence={
                     "source_artifact_id": self.source_artifact_id,
                     "content_hash": self.content_hash,
                 },
-                part_hash=_digest(overview),
+                part_hash=_digest(self.document),
                 target=self._target(None, ""),
                 changed=bool(self.changed_paths),
             ),
@@ -705,10 +790,9 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
                     changed=True,
                 )
             )
-        self.global_parts = tuple(parts)
+        self.global_parts = tuple(parts) + self._unplaced_calls
 
     def _rebuild(self) -> None:
-        self._rebuild_global_parts()
         raw_episodes = self.document.get("episodes")
         if not isinstance(raw_episodes, list) or not raw_episodes:
             raise ValueError(
@@ -866,15 +950,10 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
                     json_pointer=contract_pointer + "/epistemic",
                     editable=True,
                 ),)
-            goal = contract.get("goal")
-            name = local_id
-            if isinstance(goal, str) and goal.strip() and goal != self.missing_value:
-                compact = " ".join(goal.split())
-                name = compact if len(compact) <= 46 else compact[:43].rstrip() + "..."
             episodes.append(
                 WorkspaceEpisode(
                     local_id=local_id,
-                    name=name,
+                    name=local_id,
                     parent_local_id=parent,
                     raw=_json_copy(raw),
                     target=self._target(
@@ -886,6 +965,8 @@ class WorkflowArchitectureViewModel(_EpisodeTreeViewModel):
                 )
             )
         self._install_episodes(episodes)
+        self._unplaced_calls = self._install_calls()
+        self._rebuild_global_parts()
 
     def episode_target(self, episode: WorkspaceEpisode) -> WorkspaceTarget:
         return episode.target

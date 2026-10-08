@@ -58,8 +58,10 @@ def continue_build(host, build_request_id=None):
     from agent.build_refinement import BuildRefinement
     from agent.openchia_build_job import run_build_job
     from agent.openchia_host import OpenChiaHostError
+    from agent.workflow_editing import require_no_editor
 
     with host._build_lock:
+        require_no_editor(host)
         host._require_no_active_run("build continuation")
         if host._build_thread is not None and host._build_thread.is_alive():
             raise OpenChiaHostError("an Episode build is already active")
@@ -80,16 +82,15 @@ def continue_build(host, build_request_id=None):
         ):
             raise OpenChiaHostError("Saved build no longer has the current exact workflow authority.")
         row = read_record(host.store, "build_job", build_request_id=request.build_request_id.value)
-        if row is None:
-            from agent.openchia_builder_continue import continue_builder
-
-            return continue_builder(host, request)
-        if row["duet_id"] != host.identity.duet_id.value:
+        if row is not None and row["duet_id"] != host.identity.duet_id.value:
             raise OpenChiaHostError("Saved refinement handoff belongs to another Duet.")
-        job = row["record"]
-        receipt = host.build_store.read_receipt(OpaqueId(job["initial_build_receipt_id"]))
-        if receipt.build_request_id != request.build_request_id:
-            raise OpenChiaHostError("Saved refinement handoff belongs to another build request.")
+        from agent.openchia_build_recovery import requested_jobs, require_owner_stopped, owner_record
+
+        starts = [item for item in requested_jobs(host) if item["build_request_id"] == selected]
+        if len(starts) != 1:
+            raise OpenChiaHostError("Continuation requires its exact original build request event.")
+        require_owner_stopped(host, starts[0])
+        job = None if row is None else row["record"]
         launches = [
             event["record"] for event in host.store.events(host.identity.duet_id.value)
             if event["event_type"] == "model_launch_resolved"
@@ -102,16 +103,18 @@ def continue_build(host, build_request_id=None):
             host.store, host.identity.duet_id.value,
             configuration_hash=launches[0]["configuration_hash"],
         )
-        refiner = BuildRefinement(host, binding=restore_binding(host, job["experiment"]["launch_ref"]))
+        reference = starts[0]["refiner_binding_ref"] if job is None else job["experiment"]["launch_ref"]
+        refiner = BuildRefinement(host, binding=restore_binding(host, reference))
         builder = host._builder_for(request, launch)
         cancel = threading.Event()
-        host._build_request, host._build_receipt = request, receipt
-        host._build_attempt_id = receipt.build_attempt_id
-        host._build_baseline = host.workspace.current_baseline()
+        host._build_request, host._build_receipt = request, None
+        start = read_record(host.store, "construction_start", build_request_id=selected)
+        host._build_attempt_id = None if start is None else OpaqueId(start["record"]["inputs"]["build_attempt_id"])
+        host._build_baseline = None
         host._build_cancel_event, host._build_error = cancel, None
         host._build_state = "continuing"
-        host._build_progress = host._receipt_progress(request, receipt)
-        host._build_progress["stage"] = "continuing"
+        host._build_progress = host._empty_progress("continuing")
+        host._build_progress["counts"]["episodes_total"] = len(request.frozen_workflow.workflow.episodes)
 
         async def continuation():
             with host._build_lock:
@@ -119,12 +122,12 @@ def continue_build(host, build_request_id=None):
                     raise asyncio.CancelledError
                 host._build_loop = asyncio.get_running_loop()
                 host._build_refinement_task = asyncio.create_task(refiner.continue_job(job, builder, launch))
-            return receipt, await host._build_refinement_task
+            return await host._build_refinement_task
 
         def work():
             run_build_job(
-                host, request, builder, launch, None, cancel, refiner,
-                continuation=continuation, continued_job=job,
+                host, request, builder, launch, cancel, refiner,
+                continuation=continuation if job is not None else None, continued_job=job,
             )
 
         context = contextvars.copy_context()
@@ -136,7 +139,8 @@ def continue_build(host, build_request_id=None):
         host.store.append_event(
             duet_id=host.identity.duet_id.value, event_type="build_continue_requested",
             provenance=DuetProvenance.HUMAN_INPUT.value,
-            record={"build_request_id": request.build_request_id.value, "experiment_id": job["experiment_id"]},
+            record={"build_request_id": request.build_request_id.value,
+                    "experiment_id": None if job is None else job["experiment_id"], "owner": owner_record()},
         )
         try:
             worker.start()

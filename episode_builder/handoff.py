@@ -51,33 +51,51 @@ def _blocked(reason: str) -> dict:
 
 def _source_candidates(store, inputs, calls):
     """Select emitted bytes, or the sole captured raw source when emission failed."""
+    from .planner import _module_name
+    from .source_inputs import read_source_inputs
+
+    submitted = read_source_inputs(store, inputs)
     modules = {module.local_id: module for module in inputs.emitted_modules}
+    nodes = {node.local_id: node for node in inputs.plan.nodes}
     files, sources = {}, {}
-    for node in inputs.plan.nodes:
+    for design in inputs.build_request.frozen_workflow.workflow.episodes:
+        local_id = design.local_id
+        node = nodes.get(local_id)
         raw_sources = sorted({
             call["module_source_hash"] for call in calls
-            if call["stage"] == "emission" and call["local_id"] == node.local_id
+            if call["stage"] == "emission" and call["local_id"] == local_id
             and call["module_source_hash"] is not None
         })
-        module = modules.get(node.local_id)
+        if submitted is not None and local_id in submitted["sources"]:
+            raw_sources = [submitted["sources"][local_id]]
+        module = modules.get(local_id)
         digest = module.source_hash.value if module else (
             raw_sources[0] if len(raw_sources) == 1 else None
         )
-        sources[node.local_id] = {
+        sources[local_id] = {
             "source_hash": digest,
-            "kind": "emitted_module" if module else "raw_model_source",
+            "kind": "emitted_module" if module else (
+                "submitted_source" if submitted is not None and local_id in submitted["sources"]
+                else "raw_model_source"
+            ),
             "raw_source_hashes": raw_sources,
             "emitted_module_id": None if module is None else module.emitted_module_id.value,
+            **({"submitted_source_ref": _ref(submitted)} if submitted is not None else {}),
         }
         if digest is not None:
             store.read_blob(digest)
-            files[BuildStore._package_module_path(node.module_name).as_posix()] = digest
+            name = node.module_name if node is not None else _module_name(local_id, design.contract.spec_hash.value)
+            files[BuildStore._package_module_path(name).as_posix()] = digest
     if inputs.manifest is not None and inputs.manifest.environment_recipe is not None:
         from agent.duet_contracts import canonical_json
         from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
 
         recipe = inputs.manifest.as_record()["environment_recipe"]
         files[ENVIRONMENT_RECIPE_PATH] = store.put_blob(canonical_json(recipe).encode("utf-8")).value
+    elif submitted is not None and submitted["environment_source"] is not None:
+        from episode_runtime.target_environment import ENVIRONMENT_RECIPE_PATH
+
+        files[ENVIRONMENT_RECIPE_PATH] = submitted["environment_source"]
     return dict(sorted(files.items())), sources
 
 
@@ -146,15 +164,26 @@ def materialization_handoff(store: BuildStore, receipt_id: OpaqueId | str) -> di
     Library checks expose their actual predicates for future candidate checks.
     Each observation is tied to this candidate and the checking code's hashes.
     """
-    inputs = store.inspection_inputs_for_receipt(receipt_id)
+    return inspect_materialization(store, store.inspection_inputs_for_receipt(receipt_id))
+
+
+def inspect_materialization(store: BuildStore, inputs) -> dict:
+    """Check an exact candidate, including an architecture with no construction yet.
+
+    A missing receipt means source admission has not happened. It remains a
+    blocked observation, not a synthetic failed build or a successful check.
+    """
     request, attempt, plan, receipt = (
         inputs.build_request, inputs.build_attempt, inputs.plan, inputs.receipt,
     )
     specification = project_materialized_specification(inputs)
     calls = model_call_evidence_for_attempt(store, attempt)
+    from .source_inputs import read_source_inputs
+
+    submitted = read_source_inputs(store, inputs)
     files, sources = _source_candidates(store, inputs, calls)
     candidate = _identified("materialization_candidate", {
-        "receipt_ref": {
+        "receipt_ref": None if receipt is None else {
             "artifact_id": receipt.receipt_id.value,
             "content_hash": receipt.content_hash.value,
         },
@@ -210,7 +239,7 @@ def materialization_handoff(store: BuildStore, receipt_id: OpaqueId | str) -> di
         source = raw_sources[0] if len(raw_sources) == 1 else None
         # Emitter shape checks run before the host appends its declaration;
         # full module admission below checks the final post-attachment bytes.
-        shape_outcome = _blocked("No unambiguous pre-declaration model source was captured")
+        shape_outcome = _blocked("No unambiguous pre-declaration source was captured")
         if source is not None and node is not None:
             shape_outcome = SOURCE_SHAPE.load()(
                 source=store.read_blob(source).decode("utf-8"),
@@ -235,7 +264,8 @@ def materialization_handoff(store: BuildStore, receipt_id: OpaqueId | str) -> di
               depends_on=(plan_requirement, source_requirement))
     check(RECEIPT_MATERIALIZED, "/workflow_global/parts/outcome",
           "Entire approved workflow has a statically admitted materialization",
-          RECEIPT_MATERIALIZED.load()(receipt),
+          _blocked("Source admission has not been performed") if receipt is None
+          else RECEIPT_MATERIALIZED.load()(receipt),
           depends_on=tuple(item["requirement_id"] for item in requirements))
 
     achievement = requirement_satisfaction(
@@ -266,13 +296,15 @@ def materialization_handoff(store: BuildStore, receipt_id: OpaqueId | str) -> di
         "scope": "initial_materialization_static_evidence",
         "build_request_id": request.build_request_id.value,
         "build_attempt_id": attempt.build_attempt_id.value,
-        "receipt_id": receipt.receipt_id.value,
-        "status": receipt.status,
+        "receipt_id": None if receipt is None else receipt.receipt_id.value,
+        "status": "not_materialized" if receipt is None else receipt.status,
         "candidate": candidate,
         "materialized_specification": specification.as_record(),
         "parts": parts,
         "episode_dependencies": dependencies,
         "model_calls": list(calls),
+        **({"submitted_materialization": submitted["materialization"]}
+           if submitted is not None else {}),
         "diagnostics": _diagnostic_index(specification),
         "requirements": requirements,
         "checks": checks,

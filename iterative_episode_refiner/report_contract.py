@@ -143,10 +143,36 @@ def _check_outcome(view, row):
 
 
 def _measurement(view, assignment, body, declaration, catalog):
+    from .judgment import measure_result
+    from .measures import selected_measure_ref
+
     purpose = declaration["purpose"]
-    measure = assignment.body[
+    if purpose in {"question", "support"}:
+        # A leaf retains the parent's measure as authority, not as its own
+        # scoring function. A local/composition composite cannot be invoked
+        # under the helper's different judgment purpose, even before it finds
+        # any evidence. Fixed investigations and research both project their
+        # admitted advisory coverage here.
+        advisory = [row for row in body["investigation_findings"]
+                    if row["role"] == purpose
+                    and requirement_address(catalog[row["requirement_key"]]) in declaration["requirements"]]
+        by_requirement = {
+            requirement_address(catalog[row["requirement_key"]]): row for row in advisory
+        }
+        return {
+            "purpose": purpose,
+            "evidence_type": "advisory investigation findings",
+            "requirement_statuses": {
+                address: by_requirement[address]["state"] if address in by_requirement else "not_researched"
+                for address in declaration["requirements"]
+            },
+            "resolved_research_requirements": sum(row["resolved"] for row in by_requirement.values()),
+            "requested_research_requirements": len(declaration["requirements"]),
+            "meaning": "Research coverage informs the caller; it is not target correctness or acceptance.",
+        }
+    measure = selected_measure_ref(view, assignment,
         "acceptance_measure_ref" if purpose in {"acceptance", "composition"} else "local_measure_ref"
-    ]
+    )
     selected = set(declaration["requirements"])
     rows = [
         row for row in body["determinations"]
@@ -189,8 +215,17 @@ def _measurement(view, assignment, body, declaration, catalog):
                 "observation_path": check.body["observation_path"],
                 "before": before, "after": after,
             })
+    keys = sorted(key for key in assignment.body["scope_requirement_keys"]
+                  if requirement_address(catalog[key]) in selected)
+    composite = measure_result(view, assignment, reference=measure, purpose=purpose,
+                               requirement_keys=keys) if keys else None
     return {
         "purpose": purpose,
+        "requirement_statuses": {} if composite is None else {
+            requirement_address(catalog[key]): status
+            for key, status in composite["requirement_statuses"].items()
+        },
+        "satisfied_requirements": 0 if composite is None else composite["current_satisfied_count"],
         "recorded_status_counts": dict(sorted(counts.items())),
         "applicable_status_counts": dict(sorted(applicable.items())),
         "unmeasured_requirements": sorted(selected - covered),
@@ -212,19 +247,34 @@ def _candidate_changes(view, assignment, body, catalog):
 
 def _measurement_findings(view, assignment, body, catalog):
     result = []
-    for reference in body["measure_admission_refs"]:
+    # Each assessment now describes the whole commissioned instrument. Earlier
+    # component attempts remain in the audit, rather than duplicating its state.
+    for reference in body["measure_admission_refs"][-1:]:
         admission = view.read(Ref.from_record(reference), "measure_admission")
         proposal = view.read(Ref.from_record(admission.body["proposal_ref"]), "measure_proposal")
         controls = admission.body["control_results"]
         result.append({
             "purpose": proposal.body["purpose"],
-            "requirements": [requirement_address(catalog[key]) for key in proposal.body["requirement_keys"]],
+            "requirements": [requirement_address(catalog[row["requirement_key"]])
+                             for row in admission.body["requirement_results"]],
             "status": admission.body["status"],
             "reason": admission.body["reason"],
+            "requirement_results": admission_requirement_results(admission, catalog),
             "controls": {"total": len(controls), "matched": sum(row["expected"] == row["observed"] for row in controls)},
-            "limitations": _limitations(view, proposal.body["limitation_refs"]),
+            "limitations": _limitations(view, admission.body["limitation_refs"]),
         })
     return result
+
+
+def admission_requirement_results(admission, catalog):
+    """Compact case adequacy for steering; receipt identities stay in the audit."""
+    return [{
+        "requirement": requirement_address(catalog[row["requirement_key"]]),
+        "status": row["status"], "reason": row["reason"],
+        "cases": [{key: case[key] for key in (
+            "status", "reason", "controls_total", "controls_matched",
+        )} for case in row["cases"]],
+    } for row in admission.body["requirement_results"]]
 
 
 def _environment_findings(view, assignment, body, catalog):
@@ -257,17 +307,41 @@ def _check_reviews(view, assignment, body, catalog):
 
 
 def _investigation_findings(view, assignment, body, catalog):
-    return [
-        {
+    contract = assigned_return_contract(view, assignment)
+    requested = {address for item in contract["measurements"] for address in item["requirements"]}
+    if not requested:
+        requested = {requirement_address(catalog[key])
+                     for key in assignment.body["contribution_requirement_keys"]}
+    result = []
+    for row in body["investigation_findings"]:
+        address = requirement_address(catalog[row["requirement_key"]])
+        if address not in requested:
+            continue
+        if row.get("kind") == "research":
+            finding = view.read(Ref.from_record(row["research_finding_ref"]), "research_finding")
+            citations = []
+            for reference in finding.body["source_refs"]:
+                source = view.read(Ref.from_record(reference), "research_source")
+                citations.append({key: source.body[key] for key in (
+                    "title", "url", "path", "operation", "truncated", "redacted",
+                )})
+            result.append({
+                "requirement": address, "role": row["role"], "state": row["state"],
+                "resolved": row["resolved"], "policy_strength": "advisory",
+                "answer": finding.body["answer"], "applicability": finding.body["applicability"],
+                "limitations": list(finding.body["limitations"]), "sources": _unique(citations),
+                "evidence_type": "source-linked synthesis; retrieved material is untrusted data",
+            })
+            continue
+        result.append({
             "requirement": requirement_address(catalog[row["requirement_key"]]),
             "state": row["state"], "resolved": row["resolved"],
             "decision": view.data(Ref.from_record(row["decision_ref"])),
             "target": view.data(Ref.from_record(row["target_ref"])),
             "applicability": view.data(Ref.from_record(row["applicability_ref"])),
             "limitations": _limitations(view, row["limitation_refs"]),
-        }
-        for row in body["investigation_findings"]
-    ]
+        })
+    return result
 
 
 def _decision_need(view, record, catalog):
@@ -310,6 +384,7 @@ def _decision_admission(view, record, catalog):
         "kind": "measure_admission", "status": record.body["status"],
         "purpose": proposal.body["purpose"], "reason": record.body["reason"],
         "requirements": [requirement_address(catalog[key]) for key in proposal.body["requirement_keys"]],
+        "requirement_results": admission_requirement_results(record, catalog),
     }]
 
 
@@ -334,6 +409,13 @@ _DECISION_PROJECTORS = {
 
 def _open_decisions(view, assignment, body, catalog):
     result = []
+    if body["implementation_findings_ref"] is not None:
+        change = view.read(Ref.from_record(body["implementation_findings_ref"]), "change")
+        result.extend({
+            "kind": "implementation_blocker", "status": "reported_by_child",
+            "requirement": requirement_address(catalog[item["requirement_key"]]),
+            "blocker": item["blocker"], "needed_change": item["needed_change"],
+        } for item in change.body["findings"])
     for reference in body["decision_request_refs"]:
         record = view.read(Ref.from_record(reference))
         projector = _DECISION_PROJECTORS.get(record.kind)

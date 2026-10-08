@@ -882,6 +882,10 @@ class EpisodeBuilder:
         source_deficits: tuple[BuildDeficit, ...] = (),
         environment_recipe=None,
         environment_lock=None,
+        submitted_sources: Mapping[str, str] | None = None,
+        submitted_materialization: dict | None = None,
+        submitted_environment_source: str | None = None,
+        source_origin: dict | None = None,
         progress_callback: ProgressCallback | None = None,
         cancel_event: CancellationSignal | None = None,
     ) -> BuildReceipt:
@@ -910,6 +914,16 @@ class EpisodeBuilder:
             self.store.put_build_request(build_request)
             self.store.put_build_attempt(build_attempt)
             self.store.put_plan(plan)
+            if submitted_sources is not None:
+                from .source_inputs import put_source_inputs
+
+                put_source_inputs(
+                    self.store, build_request, build_attempt, plan,
+                    sources=dict(submitted_sources),
+                    materialization=submitted_materialization,
+                    environment_source=submitted_environment_source,
+                    origin=source_origin,
+                )
             for module in emitted_modules:
                 self.store.put_emitted_module(module)
 

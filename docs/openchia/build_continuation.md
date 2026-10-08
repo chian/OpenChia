@@ -63,8 +63,9 @@ not discharge requirements, assign credit, or weaken acceptance.
 Cancellation before the first Run dispatch publishes a job result without inventing
 a Run ID or per-Run result. The continuation request records its requester; only
 the execution service's fenced lease establishes ownership of the successor Run.
-Before the first Builder receipt, terminal publication is keyed by Duet and build
-request in the same transaction as its event append. Repeating the same result
+Before source admission produces a receipt, terminal publication is keyed by Duet,
+build request and its owning start/continuation event in the same transaction as
+its event append. Repeating the same result
 leaves one terminal event; conflicting terminal content is rejected.
 
 ## Supported boundaries and current limits
@@ -110,8 +111,11 @@ leaves one terminal event; conflicting terminal content is rejected.
   evidence of process death. Legacy terminal Runs without host ownership events
   still use their exact stopped-worker attestation; new Runs additionally record
 and fence the host lease. Historical missing ownership cannot be reconstructed.
-- Initial Builder interruption is supported for new jobs with recorded process
-  ownership and model binding, using its existing call evidence. Refiner setup
+- Construction starts from the persisted approved architecture and optional
+  existing work. No Target Workflow planner/emitter runs before the Refiner.
+  Setup interrupted before campaign publication resumes the same construction
+  inputs; an existing campaign continues through the ordinary Run journal.
+  Refiner setup
   can reuse a completed shipped-program build and idempotent campaign preparation.
   A partial shipped-program build uses a linked single-use request and the same
   deterministic materializer. Completed receipt and campaign preparation are
@@ -131,10 +135,8 @@ job. It does not trigger a fallback route, another component, a repair iteration
 or an automatic continuation. Rejected JSON or an inadequate *returned answer*
 remains ordinary refinement feedback and can be iterated.
 
-Builder call evidence is committed before the failure propagates; no failed
-Builder receipt is handed to the refiner as if the API outage were a code defect.
-The normal Builder continuation adapter reuses completed responses and retries
-the unanswered request. Runs record `interrupted` with
+Refiner construction calls use the same committed Run response boundary as later
+repairs. An API outage is an interruption, not a candidate defect. Runs record `interrupted` with
 `stop_reason: model_api_error`; nested validation failure propagates to the owning
 refiner and build. `/launch calls` retains the provider diagnostics. The stopped
 experiment remains inspectable without silently rerunning it.
@@ -180,15 +182,12 @@ this fresh path. Ordinary status inspection has its own short-lived scope;
 high-frequency monitoring can use the existing maintained `read_run_record`
 view, which is not a substitute for independent evidence verification.
 
-The initial Builder stage uses `agent/openchia_build_recovery.py` to read the
-existing `BuildCallEvidenceRecorder` records. A successor request/attempt is linked
-through the shared record registry; its previous attempt and cancelled receipt
-remain unchanged. Exact completed responses are fed through the normal planner,
-emitter and admission functions. Missing responses are requested live only after
-the saved response prefix is matched. Divergence is an error, not live fallback.
-`build_model_response_reused` events identify source evidence without inventing
-new provider calls. An already finished Builder receipt skips planning/emission
-and proceeds to the ordinary refiner handoff.
+`iterative_episode_refiner/construction.py` persists approved starting inputs and
+static findings. The campaign references those inputs directly, including an
+empty plan and absent source. A receipt first appears when candidate source is
+admitted. `agent/openchia_build_recovery.py` retains ownership recovery and the
+deterministic packaging of the shipped Refiner program itself; that packaging
+does not design or implement the Target Workflow.
 
 New jobs record the owning process's PID **and creation time** and the frozen
 owning-Duet binding before starting their thread. A Builder with no terminal

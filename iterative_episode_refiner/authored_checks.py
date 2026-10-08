@@ -10,6 +10,7 @@ from agent.episode_contracts import OpaqueId
 from episode_runtime.testing_harness.checker_programs import execute_program
 from episode_runtime.testing_harness.judgments import judge_value
 from function_library.epistemic_contract import exact
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .records import EvidenceRef, Ref
 
@@ -24,9 +25,10 @@ def instrument(view, binding):
     definition = view.read(Ref.from_record(value["definition_ref"]), "measure_definition")
     assignment = view.read(Ref.from_record(definition.body["assignment_ref"]), "assignment")
     reviewed(view, value["definition_ref"], assignment)
-    parent = view.read(Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment")
+    from .measure_components import readable_paths
+
     if (value["target_workflow_ref"] != view.contract.body["target_workflow_ref"]
-            or sorted(value["readable_paths"]) != sorted(parent.body["writable_paths"])
+            or sorted(value["readable_paths"]) != readable_paths(view, assignment)
             or definition.body["design"]["program"] is None):
         raise ValueError("checking program differs from its reviewed scope")
     return value, definition.body["design"]["program"]
@@ -152,7 +154,7 @@ async def prepare(evaluations, session, call, payload):
     """Execute outside the campaign transaction; admission consumes exact receipts."""
     with session.view() as view:
         candidate = view.candidate
-        if call.assignment.body["role"] == "measure" and "proposal_ref" in payload:
+        if ROLE_SPECIALIZATION[call.assignment.body["role"]] == "measure" and "proposal_ref" in payload:
             proposal = view.read(Ref.from_record(payload["proposal_ref"]), "measure_proposal")
             if proposal.body["oracle_kind"] != "checking_program":
                 return
@@ -192,9 +194,10 @@ async def prepare(evaluations, session, call, payload):
         session.put_data("checker_result", {"subject": expected, "execution_ref": execution})
 
 
-def control_results(view, proposal, grounding_ref, grounding, selection):
+def control_results(view, proposal, grounding_ref, grounding, selection, *, snapshot=None):
     """Require real discrimination by the exact reviewed program, not example labels."""
     from types import SimpleNamespace
+    from .measure_controls import control_key
 
     call = SimpleNamespace(invocation_id=proposal.invocation_id, unit_id=proposal.logical_unit_id)
     _, program = instrument(view, grounding["execution_binding"])
@@ -206,16 +209,25 @@ def control_results(view, proposal, grounding_ref, grounding, selection):
             if control["expected_outcome"] != polarity:
                 raise ValueError("checker control changes its reviewed polarity")
             expected = subject(view, call, proposal=proposal, grounding=grounding_ref, control=ref)
-            execution = _saved(view, expected)
+            execution = (_saved(view, expected) if snapshot is None else
+                         snapshot.get(control_key(proposal.ref, grounding_ref, ref)))
             if execution is None:
-                raise ValueError("checking program has no executed control receipt")
+                results.append({"control_ref": raw, "expected": polarity,
+                                "observed": None, "status": "blocked",
+                                "reason": "checking program has no executed control receipt"})
+                continue
             # Read through the same transaction; generated code never has this connection.
             outcome = _read_execution(view, execution, program=program, fixture=control["fixture"], subject=expected)
             actual = (judge_value(selection, observed=outcome["result"], expected=grounding["expected"])
                       if outcome["status"] == "completed" else "error")
-            if actual != polarity:
-                raise ValueError(f"checking control expected {polarity}, observed {actual}: {outcome['diagnostics']}")
-            results.append({"control_ref": raw, "expected": polarity, "observed": actual})
+            status = "error" if actual == "error" else "pass" if actual == polarity else "fail"
+            results.append({
+                "control_ref": raw, "expected": polarity, "observed": actual,
+                "status": status,
+                "reason": None if status == "pass" else (
+                    f"checking control expected {polarity}, observed {actual}: {outcome['diagnostics']}"
+                ),
+            })
             evidence.append(_evidence(view, execution))
     return results, evidence
 

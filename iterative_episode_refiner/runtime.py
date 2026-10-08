@@ -22,7 +22,7 @@ from episode_runtime.linker import prepare_source_package
 from episode_runtime.protocol import episode_id_for_path
 from function_library.epistemic_contract import exact
 from function_library.models import _thaw_json
-from function_library.refinement_contract import REQUEST_PAYLOAD, RESULT_PAYLOAD, ROLES
+from function_library.refinement_contract import IMPLEMENTATION_ROLES, REQUEST_PAYLOAD, RESULT_PAYLOAD, ROLES
 from handoff_library import (
     ParentRequestAddress,
     admit_child_result,
@@ -34,7 +34,6 @@ from method_loop.identities import EpisodeRef
 
 from .campaign_store import CampaignView
 from .records import Ref, RefinementRecord
-from .instrument_builds import relevant_sources
 
 
 @dataclass
@@ -100,7 +99,7 @@ class RefinementSession:
         self.nodes_by_grain = {node.grain_name: node for node in self.plan.nodes}
         root = self.nodes["launch"]
         if root.local_id != self.plan.root_local_id:
-            raise ValueError("the refiner's root must be Parts")
+            raise ValueError("the refiner's root must be Designer")
         self.edges = {
             (edge.parent_local_id, edge.slot_name): edge for edge in self.plan.all_edges
         }
@@ -209,6 +208,10 @@ class RefinementSession:
         from episode_runtime.host_tasks import join_local
 
         call = self._caller(episode_id, episode_path)
+        if operation == "research":
+            from .research import execute_retrieval
+
+            return await execute_retrieval(self, call, payload, request_event=request_event)
         await self.evaluations.prepare_context(self)
         if operation == "evaluate":
             self._require_unit(call, payload)
@@ -313,52 +316,28 @@ class RefinementSession:
     def snapshot(self, call):
         from .assignment_choices import assigned_addresses
         from .runtime_proposals import proposal_schemas
-        from .measures import authorized_check_refs, evaluation_bindings
         from .judgment import current_check_states, judgment_purpose
-        from .evaluation_plan import evaluation_availability, resolve_evaluations
+        from .measures import selected_checks, selected_measure_ref
         from .model_inputs import model_inputs
 
         with self.view() as view:
             assignment = call.assignment
             role = assignment.body["role"]
             purpose = judgment_purpose(view, assignment)
-            measure = assignment.body[
-                "acceptance_measure_ref" if role in {"parts", "designer"}
-                else "local_measure_ref"
-            ]
-            relevant = [
-                check
-                for ref in authorized_check_refs(view, self.policy, assignment)
-                for check in (view.read(ref, "check"),)
-                if check.body["measure_ref"] == measure
-                and check.body["purpose"] == purpose
-                and check.body["requirement_key"] in assignment.body["scope_requirement_keys"]
-            ]
-            states = {
-                key: status for key, (_, status) in current_check_states(view).items()
-            }
-            parent_evaluation = (
-                evaluation_availability(resolve_evaluations(
-                    view, self.policy, assignment, purpose
-                )) if role in {"parts", "designer"} else None
-            )
-            source_admissions = relevant_sources(
-                view, (
-                    binding for binding in evaluation_bindings(view, self.policy, assignment)
-                    if binding["measure_ref"] == measure and binding["purpose"] == purpose
-                ),
-            )
-            source_rejected = bool(
-                source_admissions and source_admissions[-1].status == "rejected"
-            )
+            observe_before_work = False
+            if role in IMPLEMENTATION_ROLES:
+                states = current_check_states(view)
+                measure = selected_measure_ref(view, assignment, "local_measure_ref")
+                observe_before_work = any(
+                    check.body["evidence_kind"] != "materialization"
+                    and states.get(check.artifact_id.value, (None, None))[1] not in {"pass", "fail"}
+                    for check in selected_checks(view, self.policy, assignment, measure, purpose="local")
+                )
             # Loop controls stay on the worker protocol. The model receives
             # exactly the inputs declared by this Episode, not this envelope.
             context = {
                 "inputs": model_inputs(self, view, call),
-                "baseline_required": not source_rejected
-                and (parent_evaluation is None or parent_evaluation["executable"])
-                and any(states.get(check.artifact_id.value) not in {"pass", "fail"}
-                        for check in relevant),
+                "observe_before_work": observe_before_work,
                 "evaluation_purpose": purpose,
                 "proposal_schemas": proposal_schemas(
                     role, assigned_addresses(self, assignment)
@@ -474,20 +453,12 @@ class RefinementSession:
         return self.store.put_data(self.duet_id, kind, value)
 
     def _prepare_child(self, call, episode_id, payload):
-        from .runtime_proposals import verification_assignment
-
         self._require_unit(call, payload)
         exact(payload, {"unit_id", "selection"}, "refinement child selection")
         selection = payload["selection"]
         role = selection["role"]
         if role not in ROLES[call.assignment.body["role"]].children:
             raise ValueError("role cannot create this child")
-        if "purpose" in selection:
-            if role != "verify":
-                raise ValueError(
-                    "only fixed independent verification has an automatic assignment"
-                )
-            selection = verification_assignment(self, call, selection["purpose"])
         with self.view() as view:
             child = view.entry("invocation", selection["invocation_id"])
             if (
@@ -632,8 +603,7 @@ class RefinementSession:
     def _close_unit(self, call, episode_id, payload):
         self._require_unit(call, payload)
         exact(payload, {"unit_id"}, "refinement unit close")
-        if call.assignment.body["role"] == "parts":
-            self._resolve_joint_results(call)
+        self._resolve_joint_results(call)
         self.commit(
             call,
             "close_unit",

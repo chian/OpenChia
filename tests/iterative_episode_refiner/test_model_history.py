@@ -32,7 +32,7 @@ def history_campaign(report_campaign):
                            (contract.artifact_id.value, campaign_id.value))
         call = SimpleNamespace(
             invocation_id=child, assignment=view.entry("invocation", child.value).record,
-            path=(("parts", parent.value), ("implementer", child.value)),
+            path=(("designer", parent.value), ("implementer", child.value)),
         )
     session = SimpleNamespace(registration=SimpleNamespace(logical_run_id=content_id("run", "history")))
     return store, campaign_id, call, session, baseline, current, parent

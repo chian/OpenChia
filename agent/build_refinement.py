@@ -72,7 +72,7 @@ class BuildRefinement:
                 self.host._build_state = stage
                 self.host._build_progress["stage"] = stage
 
-    async def run(self, target_request, baseline, target_builder, launch):
+    async def run(self, target_request, target_inputs, target_handoff, target_builder, launch):
         host = self.host
         request = await asyncio.to_thread(authorize_program, host, target_request)
         options = CallOptions(model_type="refinement")
@@ -119,9 +119,11 @@ class BuildRefinement:
             prepare_build,
             host,
             campaigns,
-            baseline,
+            target_inputs,
+            target_handoff,
             registration,
             registration.runtime_identity,
+            launch.model_slot_catalog(),
         )
         target_launch = await asyncio.to_thread(
             put_data, host.store, host.identity.duet_id.value, "launch", launch.record
@@ -157,7 +159,10 @@ class BuildRefinement:
             duet_id=host.identity.duet_id.value,
             build_request_id=target_request.build_request_id.value,
             record={
-                "initial_build_receipt_id": baseline.build_receipt_id.value,
+                "construction_start": {
+                    "build_request_id": target_inputs.build_request.build_request_id.value,
+                    "build_attempt_id": target_inputs.build_attempt.build_attempt_id.value,
+                },
                 "campaign_ref": prepared.contract.ref.as_record(),
                 "experiment_id": spec.experiment_id,
                 "experiment": spec.as_record(),

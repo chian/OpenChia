@@ -11,7 +11,7 @@ from pathlib import Path
 from .records import logical_path
 
 
-PLAN_EDITS = ".openchia-plan-edits.json"
+IMPLEMENTATION_NOTES = ".openchia-implementation.json"
 CONTEXT = ".openchia-assignment.json"
 
 
@@ -23,7 +23,7 @@ class CodingWorkspace:
         self.paths = set(self.source_files) | self.writable_paths
         for name in self.paths:
             logical_path(name)
-            if name in {PLAN_EDITS, CONTEXT}:
+            if name in {IMPLEMENTATION_NOTES, CONTEXT}:
                 raise ValueError("assignment source overlaps coding workspace metadata")
 
     def _path(self, name):
@@ -49,8 +49,8 @@ class CodingWorkspace:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
         self.refresh_context(context)
-        self._path(PLAN_EDITS).write_text(
-            json.dumps({"implementation_detail_operations": []}, indent=2), encoding="utf-8",
+        self._path(IMPLEMENTATION_NOTES).write_text(
+            json.dumps({"findings": []}, indent=2), encoding="utf-8",
         )
 
     def refresh_context(self, context):
@@ -68,15 +68,15 @@ class CodingWorkspace:
             if name not in self.writable_paths:
                 raise ValueError(f"coding agent changed read-only candidate source: {name}")
             changes.append({"logical_path": name, "content": after})
-        plan = json.loads(self._path(PLAN_EDITS).read_text(encoding="utf-8"))
-        if not isinstance(plan, dict):
-            raise ValueError("plan edits must be an object")
-        if set(plan) == {"prerequisite"}:
+        notes = json.loads(self._path(IMPLEMENTATION_NOTES).read_text(encoding="utf-8"))
+        if not isinstance(notes, dict):
+            raise ValueError("implementation notes must be an object")
+        if set(notes) in ({"child"}, {"child", "conflict"}, {"return_prerequisite"}, {"evaluate"}):
             if changes:
-                raise ValueError("a prerequisite request cannot also submit file edits")
-            return plan
-        if set(plan) != {"implementation_detail_operations"} or not isinstance(plan["implementation_detail_operations"], list):
-            raise ValueError("plan edits must contain only implementation_detail_operations")
+                raise ValueError("a child, evaluation or return-prerequisite proposal cannot also submit file edits")
+            return notes
+        if set(notes) != {"findings"} or not isinstance(notes["findings"], list):
+            raise ValueError("implementation notes require findings, child, evaluate, or return_prerequisite")
         # Exact operation kinds, writable paths and expected candidate identity
         # are still checked by ordinary runtime_proposals._change admission.
-        return {"files": changes, **plan}
+        return {"files": changes, **notes}

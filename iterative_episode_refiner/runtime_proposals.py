@@ -7,7 +7,7 @@ identity, authority, inherited constraints, candidate hashes and final records.
 from agent.duet_contracts import content_id
 from function_library.epistemic_contract import exact, names
 from function_library.models import _thaw_json
-from function_library.refinement_contract import ROLES
+from function_library.refinement_contract import ROLES, ROLE_SPECIALIZATION
 
 from .records import Ref, logical_path
 from .state_machine import judgment_lineage
@@ -27,12 +27,14 @@ _ASSIGNMENT_SHAPE = {
         "context retains the other requirements and their protections."
     ],
     "writable_paths": ["an exact path within the parent's editable scope"],
+    "materialization_targets": ["an exact assigned Materialization Spec target; [] for source-only or read-only children"],
     "return_contract": RETURN_SHAPE,
     "measure_request": (
-        "For role=measure, supply {purpose, requirements}. purpose is one literal category: "
+        "For role=measure or measure_parts, supply {purpose, requirements}. purpose is one literal category: "
         "local (implementation progress), acceptance (independent part acceptance), "
         "composition (whole-scope acceptance), or adequacy (instrument quality). "
         "requirements contains exactly the assignment's requirements. Explain the work in goal. "
+        "Measure Parts retain their enclosing Measure's purpose and narrow its requirements. "
         "For other roles supply null."
     ),
     "replace_previous": "true to replace the most recently returned child of this role for these requirements; otherwise false",
@@ -46,22 +48,15 @@ _ASSIGNMENT_SHAPE = {
     }],
 }
 
-_PREREQUISITE_ROLES = {
-    "designer": ("support", "question", "measure"),
-    "implementer": ("question",),
-    "measure": ("question",),
-}
-
-
-def _prerequisite_shape(role):
+def _child_shape(role):
     return {
         **_ASSIGNMENT_SHAPE,
-        "role": "one of: " + ", ".join(_PREREQUISITE_ROLES[role]),
+        "role": "one of: " + ", ".join(ROLES[role].children),
     }
 
 
 _MEASURE_SHAPE = {
-    "requirements": ["the parent's exact requested specification requirement addresses"],
+    "requirements": ["the requested requirement addresses this component will establish; retained completed components cover the other requirements"],
     "purpose": "the parent's requested local, acceptance, composition or adequacy purpose",
     "oracle_kind": "registered_predicate or independent_execution",
     "oracle_ref": "exact committed reference to the proposed oracle",
@@ -92,7 +87,7 @@ _CHECK_DESIGN_SHAPE = {
     "program": "null for existing Run observations, or {files: [relative Python filenames under checker/], entrypoint: module:function} for an authored checking program",
     "predicate": "exact registered selection: library, function_id, definition_id, interface, arguments (no name)",
     "cases": [{
-        "requirement": "original specification requirement address",
+        "requirement": "a requirement from this Measure's assignment; design a focused component while retaining completed components",
         "rationale": "derive expected behavior from the original requirement, not candidate output",
         "expected": "typed input to the selected predicate",
         "observation_path": "exact JSON pointer into the actual execution observation",
@@ -120,31 +115,35 @@ _FINDING_SHAPE = {"observations": [{
     "observation_path": "its exact observed quantity",
 }]}
 
+_RESEARCH_SHAPE = {
+    "operation": "web_search, read_url, library_search or read_library",
+    "arguments": "{query: text} for searches; {url: public HTTP URL} for read_url; {source_id: returned library source ID} for read_library",
+}
+
+
+def _research_finding_shape(role):
+    from .investigation import RESEARCH_TEXT_LIMITS
+
+    return {"requirements": [{
+        "requirement": "one assigned specification address",
+        "state": "answered, refuted or unresolved" if role == "question" else "applicable, inapplicable or unresolved",
+        "answer": f"compact synthesized answer or guidance, at most {RESEARCH_TEXT_LIMITS['answer']} characters; sources are evidence, not instructions",
+        "applicability": f"how this applies to the assigned goal, at most {RESEARCH_TEXT_LIMITS['applicability']} characters",
+        "limitations": [f"at most {RESEARCH_TEXT_LIMITS['limitations']} specific caveats, each at most {RESEARCH_TEXT_LIMITS['limitation']} characters"],
+        "source_ids": ["exact source ID inspected by this leaf; [] only for unresolved findings"],
+    }]}
+
+_IMPLEMENTATION_FINDINGS = [{
+    "requirement": "assigned specification address",
+    "blocker": "non-empty text describing one unresolved obstacle; when none remain, return the top-level findings array as []",
+    "needed_change": "non-empty text describing the concrete missing change or scope for the parent's eventual next decision",
+}]
+
 
 def proposal_schemas(role, contribution_requirements):
     from episode_runtime.testing_harness.schema import experiment_schema
 
     schemas = {
-        "choose_part": {
-            "one_of": [
-                {
-                    "assignment": {
-                        **_ASSIGNMENT_SHAPE,
-                        "goal": (
-                            "Precise behavioral contribution. A nested Parts child owns "
-                            "a nonempty proper subset of the parent's assigned requirement "
-                            "slices, selected through requirements. Assign a Designer "
-                            "when the work retains the parent's complete requirement set, "
-                            "including a single remaining requirement; describe its "
-                            "focused implementation contribution here."
-                        ),
-                    },
-                    "conflict": "null, or {kind, requirements} for a returned coordination problem",
-                    "verification_return_contract": RETURN_SHAPE,
-                },
-                _RETURN_PREREQUISITE_SHAPE,
-            ],
-        },
         "design": {
             "one_of": [
                 {
@@ -155,18 +154,23 @@ def proposal_schemas(role, contribution_requirements):
                             for address in contribution_requirements
                         },
                         "intended_change_scope": ["exact editable path"],
+                        "intended_materialization_targets": ["exact assigned plan target involved in this approach"],
                         "dependency_effects": {},
                     },
-                    "implementation_return_contract": RETURN_SHAPE,
-                    "verification_return_contract": RETURN_SHAPE,
-                    "replace_previous": "true to replace the latest returned Implementer for this work; otherwise false",
+                    "child": _child_shape(role),
+                    "conflict": "null, or {kind, requirements} for an owned coordination problem",
                 },
-                {"prerequisite": _prerequisite_shape("designer")},
-                _RETURN_PREREQUISITE_SHAPE,
             ],
+            "plan_rule": (
+                "Supply plan=null to reuse the admitted approach or commission information "
+                "needed before choosing one; otherwise supply the complete approach object. "
+                "Choose the next child from current evidence. Recording an approach and "
+                "examining its selected contribution form one measured unit."
+            ),
         },
         "change": {
             "one_of": [
+                {"evaluate": True},
                 {
                     "files": [
                         {
@@ -174,6 +178,14 @@ def proposal_schemas(role, contribution_requirements):
                             "content": "complete UTF-8 replacement, or null to remove",
                         }
                     ],
+                    "findings": _IMPLEMENTATION_FINDINGS,
+                },
+            ],
+        },
+        "materialize": {
+            "one_of": [
+                {"evaluate": True},
+                {
                     "implementation_detail_operations": [
                         {
                             "json_pointer": "an exact permitted materialization target",
@@ -181,15 +193,20 @@ def proposal_schemas(role, contribution_requirements):
                             "after": "replacement field value",
                         }
                     ],
+                    "findings": _IMPLEMENTATION_FINDINGS,
                 },
-                {"prerequisite": _prerequisite_shape("implementer")},
             ],
         },
-        "support": {
-            "finding": _FINDING_SHAPE
-        },
+        "verify": {"one_of": [{"evaluate": True}]},
+        "support": {"one_of": [
+            {"research": _RESEARCH_SHAPE},
+            {"finding": _research_finding_shape("support")},
+            {"finding": _FINDING_SHAPE},
+        ]},
         "question": {
             "one_of": [
+                {"research": _RESEARCH_SHAPE},
+                {"finding": _research_finding_shape("question")},
                 {"finding": _FINDING_SHAPE},
                 {"check_review": {
                     "criteria": {"each exact check_design.review_criteria key": {"satisfied": "boolean", "reason": "specific reasoning against the original requirement and proposed cases"}},
@@ -204,7 +221,7 @@ def proposal_schemas(role, contribution_requirements):
                 {"check_design": _CHECK_DESIGN_SHAPE},
                 {"submit_reviewed_design": True},
                 {"resume_instrument": True},
-                {"prerequisite": _prerequisite_shape("measure")},
+                {"compose_components": True},
                 {
                     "prerequisite_request": {
                         "kind": "a kind from measure_needs",
@@ -221,24 +238,39 @@ def proposal_schemas(role, contribution_requirements):
             ]
         },
     }
+    specialization = ROLE_SPECIALIZATION[role]
+    task = {
+        "designer": "design", "implementer": "change",
+        "materialization_implementer": "materialize", "verify": "verify",
+        "measure": "measure", "question": "question", "support": "support",
+    }[specialization]
+    child = {"child": _child_shape(role)}
+    if specialization not in {"question", "support"}:
+        child["conflict"] = "null, or {kind, requirements} for a returned coordination problem"
+    if specialization != "designer" and ROLES[role].children:
+        schemas[task]["one_of"].append(child)
+    schemas[task]["one_of"].append(_RETURN_PREREQUISITE_SHAPE)
     if role == "designer":
         # One scoped example teaches the envelope without duplicating the whole
         # assignment or selecting the Designer's next operation for it.
         example_requirements = list(contribution_requirements[:1])
         schemas["design"]["format_example"] = {
             "guidance": (
-                "This example shows the complete JSON nesting for a new local-measure "
-                "prerequisite. Choose your operation, purpose, contribution, requested "
+                "This example shows the complete JSON nesting for a scoped child. "
+                "Choose your operation, purpose, contribution, requested "
                 "return and replacement decision from the current assignment and findings. "
                 "All child assignment fields, including role and writable_paths, belong "
-                "inside prerequisite. Return just the chosen one_of response shape."
+                "inside child. Return just the chosen one_of response shape."
             ),
             "response": {
-                "prerequisite": {
+                "plan": None,
+                "conflict": None,
+                "child": {
                     "role": "measure",
                     "goal": "Establish local checks for the selected requirement so implementation progress can be measured.",
                     "requirements": example_requirements,
                     "writable_paths": [],
+                    "materialization_targets": [],
                     "return_contract": {
                         "decision": "Determine whether local measurement is ready or which prerequisite to resolve next.",
                         "measurements": [],
@@ -253,38 +285,28 @@ def proposal_schemas(role, contribution_requirements):
                 },
             },
         }
-    tasks = {
-        "parts": ("choose_part",),
-        "designer": ("design",),
-        "implementer": ("change",),
-        "verify": (),
-        "support": ("support",),
-        "question": ("question",),
-        "measure": ("measure",),
-    }
-    result = {name: schemas[name] for name in tasks[role]}
-    if role in {"implementer", "verify", "support", "question", "measure"}:
+    result = {task: schemas[task]}
+    if specialization != "designer":
         result["experiment"] = {"one_of": [
             {"evaluation_request_ref": "one exact request from experiment_targets", "experiment": experiment_schema()},
             {"control_target_ref": "one exact grounded control from experiment_targets", "experiment": experiment_schema()},
-        ]} if role == "measure" else {
+        ]} if specialization == "measure" else {
             "evaluation_request_ref": "one exact request from experiment_targets", "experiment": experiment_schema()
         }
     return result
 
 
-def assign_child(session, call, draft, producer, *, conflict_ref=None,
-                 verification_return_contract=None, review_definition=None):
+def assign_child(session, call, draft, producer, *, conflict_ref=None, review_definition=None):
     exact(draft, set(_ASSIGNMENT_SHAPE), "child assignment proposal")
     parent = call.assignment
     role = draft["role"]
     if role not in ROLES[parent.body["role"]].children:
-        raise ValueError("only Parts owners may create Designers or nested Parts")
+        raise ValueError("child is outside the parent's declared role bindings")
     if not isinstance(draft["goal"], str) or not draft["goal"].strip():
         raise ValueError("child needs a specific behavioral goal")
     need = draft["measure_request"]
     contribution = requirement_keys(session, parent, draft["requirements"])
-    if role == "measure":
+    if ROLE_SPECIALIZATION[role] == "measure":
         exact(need, {"purpose", "requirements"}, "parent measure request")
         if need["purpose"] not in {"local", "acceptance", "composition", "adequacy"}:
             raise ValueError(
@@ -298,8 +320,13 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None,
             != set(contribution)
         ):
             raise ValueError("measure_request.requirements must equal the assignment's requirements")
+        if role == "measure_parts":
+            with session.view() as view:
+                parent_goal = view.data(Ref.from_record(parent.body["goal_record_ref"]))
+            if need["purpose"] != parent_goal["measure_request"]["purpose"]:
+                raise ValueError("Measure Parts retain the enclosing Measure's commissioned purpose")
     elif need is not None:
-        raise ValueError("measure requests belong to EstablishMeasure assignments")
+        raise ValueError("measure requests belong to Measure or Measure Parts assignments")
     from .measure_needs import assignment_prerequisites
     scope = {
         requirement_address(row) for row in session.requirements
@@ -307,10 +334,16 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None,
     }
     projection = validate_return_contract(draft["return_contract"], scope)
     projection_ref = session.put_data("return_projection", projection)
-    if verification_return_contract is not None:
-        verification_return_contract = validate_return_contract(verification_return_contract, scope)
-
     with session.view() as view:
+        from .measures import measure_basis, selected_measure_ref
+
+        local_measure = selected_measure_ref(view, parent, "local_measure_ref")
+        acceptance_measure = selected_measure_ref(view, parent, "acceptance_measure_ref")
+        basis = measure_basis(view, session.policy, parent, need["purpose"]) if role == "measure" else None
+        if role == "measure_parts":
+            basis_ref = parent_goal["measure_basis_ref"]
+        else:
+            basis_ref = None
         selected_prerequisites = [
             prerequisite_choice(
                 session, view, parent, choice, include_inherited=True
@@ -324,6 +357,8 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None,
         )
         slices = owned_slices(view, parent, contribution)
         prior = replacements(view, parent, role, contribution, draft["replace_previous"])
+    if basis is not None:
+        basis_ref = session.put_data("measure_basis", basis).as_record()
     goal_ref = session.put_data(
         "assigned_goal",
         {
@@ -332,7 +367,7 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None,
             "requirement_keys": contribution,
             "producer_ref": producer.as_record(),
             "measure_request": need,
-            "verification_return_contract": verification_return_contract,
+            **({"measure_basis_ref": basis_ref} if basis_ref is not None else {}),
             **({"prerequisite_refs": prerequisite_refs} if prerequisite_refs else {}),
             **({"measure_review_ref": review_definition} if review_definition is not None else {}),
         },
@@ -351,46 +386,24 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None,
         body["baseline_candidate_ref"] = view.candidate.ref.as_record()
     body.update({
         "parent_assignment_ref": parent.ref.as_record(),
-        "owning_parts_invocation_id": call.invocation_id.value
-        if parent.body["role"] == "parts"
-        else parent.body["owning_parts_invocation_id"],
+        "coordinating_invocation_id": call.invocation_id.value,
         "role": role,
         "goal_record_ref": goal_ref.as_record(),
         "contribution_requirement_keys": contribution,
         "owned_slice_keys": slices,
         "writable_paths": draft["writable_paths"],
+        "materialization_targets": draft["materialization_targets"],
         "local_measure_ref": (
             session.policy["measure_admission"]["adequacy_measure_ref"]
-            if role == "measure" else parent.body["acceptance_measure_ref"]
-            if role == "verify" else parent.body["local_measure_ref"]
+            if ROLE_SPECIALIZATION[role] == "measure" else acceptance_measure
+            if ROLE_SPECIALIZATION[role] == "verify" else local_measure
         ),
-        "acceptance_measure_ref": parent.body["acceptance_measure_ref"],
+        "acceptance_measure_ref": acceptance_measure,
         "return_projection_ref": projection_ref.as_record(),
         "allowed_child_bindings": list(ROLES[role].children),
         "supersedes_assignment_refs": prior,
     })
     body["judgment_lineage"] = judgment_lineage(body)
-    if conflict_ref is not None:
-        from .coordination import _affected_branches
-
-        if body["supersedes_assignment_refs"]:
-            raise ValueError(
-                "joint predecessors are derived from the original conflict"
-            )
-        with session.view() as view:
-            conflict = view.read(Ref.from_record(conflict_ref), "conflict")
-            branches = _affected_branches(view, conflict, parent)
-        body["supersedes_assignment_refs"] = [
-            branch.ref.as_record() for branch in branches
-        ]
-        body["preservation_requirement_keys"] = sorted({
-            *body["preservation_requirement_keys"],
-            *(
-                key
-                for branch in branches
-                for key in branch.body["preservation_requirement_keys"]
-            ),
-        })
     assignment = session.record(call, "assignment", body, producer=producer)
     invocation_id = content_id(
         "refinement_invocation",
@@ -413,91 +426,52 @@ def assign_child(session, call, draft, producer, *, conflict_ref=None,
     return {"role": role, "invocation_id": invocation_id.value}
 
 
-def _inherited_draft(session, call, role, *, goal, return_contract):
-    body = call.assignment.body
-    return {
-        "role": role,
-        "goal": goal,
-        "requirements": assigned_addresses(session, call.assignment),
-        "writable_paths": list(body["writable_paths"]) if role == "implementer" else [],
-        "return_contract": return_contract,
-        "measure_request": None,
-        "replace_previous": False,
-        "prerequisites": [],
-    }
-
-
-def verification_assignment(session, call, purpose):
-    from function_library.refinement_contract import verification_return_contract
-    role = call.assignment.body["role"]
-    expected = "composition" if role == "parts" else "acceptance"
-    if role not in {"parts", "designer"} or purpose not in {"baseline", expected}:
-        raise ValueError("verification purpose does not belong to this parent")
-    if purpose == "baseline":
-        projection = verification_return_contract(expected, [
-            requirement_address(row) for row in session.requirements
-            if row["requirement_key"] in call.assignment.body["scope_requirement_keys"]
-        ])
-    else:
+def _child(session, call, proposal, producer):
+    fields = {"child"}
+    if "conflict" in proposal and ROLE_SPECIALIZATION[call.assignment.body["role"]] not in {"question", "support"}:
+        fields.add("conflict")
+    exact(proposal, fields, "child choice")
+    conflict = None
+    if proposal.get("conflict") is not None:
         with session.view() as view:
-            children = [row.record for row in view.entries("assignment")
-                        if row.record.invocation_id == call.invocation_id
-                        and row.record.logical_unit_id == call.unit_id
-                        and row.record.body["role"] in {"implementer", "designer", "parts"}]
-            if len(children) != 1:
-                raise ValueError("verification needs this unit's explicit parent return request")
-            goal = view.data(Ref.from_record(children[0].body["goal_record_ref"]))
-            projection = goal["verification_return_contract"]
-    return assign_child(
-        session,
-        call,
-        _inherited_draft(
-            session,
-            call,
-            "verify",
-            goal=f"Independently determine {expected} against the parent's unchanged requirements.",
-            return_contract=projection,
-        ),
-        session.contract.producer_ref,
-    )
-
-
-def _choose_part(session, call, proposal, producer):
-    if "return_prerequisite" in proposal:
-        return _return_prerequisite(session, call, proposal, producer)
-    exact(proposal, {"assignment", "conflict", "verification_return_contract"}, "part choice")
-    with session.view() as view:
-        conflict = conflict_choice(session, view, call.assignment, proposal["conflict"])
+            conflict = conflict_choice(session, view, call.assignment, proposal["conflict"])
     return session.reply(
         call,
         child=assign_child(
             session,
             call,
-            proposal["assignment"],
+            proposal["child"],
             producer,
             conflict_ref=conflict,
-            verification_return_contract=proposal["verification_return_contract"],
         ),
     )
 
 
 def _design(session, call, proposal, producer):
-    if "return_prerequisite" in proposal:
-        return _return_prerequisite(session, call, proposal, producer)
-    if "prerequisite" in proposal:
-        return _prerequisite(session, call, proposal, producer)
-    fields = {"plan", "implementation_return_contract", "verification_return_contract", "replace_previous"}
-    exact(proposal, fields, "design proposal")
+    exact(proposal, {"plan", "child", "conflict"}, "design and contribution proposal")
+    if proposal["plan"] is not None:
+        _record_approach(session, call, proposal["plan"], producer)
+    return _child(
+        session, call,
+        {"child": proposal["child"], "conflict": proposal["conflict"]},
+        producer,
+    )
+
+
+def _record_approach(session, call, approach, producer):
     fields = {
         "approach_key",
         "requirement_mapping",
         "intended_change_scope",
+        "intended_materialization_targets",
         "dependency_effects",
     }
-    proposed = exact(proposal["plan"], fields, "design plan")
-    scope = assigned_addresses(session, call.assignment, "scope_requirement_keys")
-    for field in ("implementation_return_contract", "verification_return_contract"):
-        validate_return_contract(proposal[field], scope)
+    proposed = exact(approach, fields, "design plan")
+    from .measures import selected_measure_ref
+
+    with session.view() as view:
+        local_measure = selected_measure_ref(view, call.assignment, "local_measure_ref")
+        acceptance_measure = selected_measure_ref(view, call.assignment, "acceptance_measure_ref")
     body = {
         **proposed,
         "requirement_mapping": {
@@ -506,29 +480,16 @@ def _design(session, call, proposal, producer):
         },
         "assumption_refs": [],
         "proposed_component_refs": [],
-        "preservation_measure_refs": [call.assignment.body["acceptance_measure_ref"]],
+        "preservation_measure_refs": [acceptance_measure],
         "expected_observation_refs": [],
         "falsifying_observation_refs": [],
-        "local_measure_ref": call.assignment.body["local_measure_ref"],
+        "local_measure_ref": local_measure,
         "assignment_ref": call.assignment.ref.as_record(),
-        "acceptance_measure_ref": call.assignment.body["acceptance_measure_ref"],
+        "acceptance_measure_ref": acceptance_measure,
         "open_need_refs": [],
     }
     plan = session.record(call, "design_plan", body, producer=producer)
     session.commit(call, "admit_plan", {"plan": plan.as_record()}, producer=producer)
-    draft = _inherited_draft(
-        session,
-        call,
-        "implementer",
-        goal="Implement the parent's admitted approach under its fixed local measure.",
-        return_contract=proposal["implementation_return_contract"],
-    )
-    draft["writable_paths"] = list(proposed["intended_change_scope"])
-    draft["replace_previous"] = proposal["replace_previous"]
-    return session.reply(call, child=assign_child(
-        session, call, draft, producer,
-        verification_return_contract=proposal["verification_return_contract"],
-    ))
 
 
 def _return_prerequisite(session, call, proposal, producer):
@@ -542,46 +503,45 @@ def _return_prerequisite(session, call, proposal, producer):
     return session.reply(call, proceed=False)
 
 
-def _prerequisite(session, call, proposal, producer):
-    exact(proposal, {"prerequisite"}, "prerequisite proposal")
-    roles = _PREREQUISITE_ROLES[call.assignment.body["role"]]
-    if proposal["prerequisite"]["role"] not in roles:
-        raise ValueError(
-            "prerequisite child role must be one of: " + ", ".join(roles)
-        )
-    return session.reply(
-        call, child=assign_child(session, call, proposal["prerequisite"], producer)
-    )
-
-
 def _change(session, call, proposal, producer):
-    if "prerequisite" in proposal:
-        return _prerequisite(session, call, proposal, producer)
-    fields = {"files"}
-    if "implementation_detail_operations" in proposal:
-        fields.add("implementation_detail_operations")
-    exact(proposal, fields, "implementation proposal")
-    details = proposal.get("implementation_detail_operations", [])
+    return _implementation(session, call, proposal, producer, role="implementer", operation="files")
+
+
+def _materialize(session, call, proposal, producer):
+    return _implementation(session, call, proposal, producer,
+                           role="materialization_implementer", operation="implementation_detail_operations")
+
+
+def _implementation(session, call, proposal, producer, *, role, operation):
+    if ROLE_SPECIALIZATION[call.assignment.body["role"]] != role:
+        raise ValueError("implementation API does not belong to this specialist")
+    if "evaluate" in proposal:
+        return _evaluate_choice(session, call, proposal, producer)
+    exact(proposal, {operation, "findings"}, "implementation proposal")
+    details = proposal[operation] if role == "materialization_implementer" else []
+    files = proposal[operation] if role == "implementer" else []
     if (
-        not isinstance(proposal["files"], list)
-        or not isinstance(details, list)
-        or not (proposal["files"] or details)
+        not isinstance(proposal[operation], list)
+        or not isinstance(proposal["findings"], list)
+        or not (proposal[operation] or proposal["findings"])
     ):
-        raise ValueError(
-            "implementation needs explicit source or permitted plan-detail changes"
-        )
+        raise ValueError("implementation needs a scoped change or explicit unresolved findings")
+    findings = []
+    for item in proposal["findings"]:
+        exact(item, {"requirement", "blocker", "needed_change"}, "implementation finding")
+        findings.append({
+            "requirement_key": requirement_keys(session, call.assignment, [item["requirement"]])[0],
+            "blocker": item["blocker"], "needed_change": item["needed_change"],
+        })
     with session.view() as view:
+        from .state_machine import design_plan_for
+
         candidate = view.candidate
-        plans = [
-            row.record
-            for row in view.entries("plan")
-            if row.record.body["assignment_ref"]
-            == call.assignment.body["parent_assignment_ref"]
-        ]
-    if not plans:
-        raise ValueError("coding cannot precede an admitted parent design")
+        plan = design_plan_for(view, call.assignment)
+    if plan is None:
+        raise ValueError("implementation requires its owning Designer's admitted approach")
     operations = []
-    for item in proposal["files"]:
+    for item in files:
         exact(item, {"logical_path", "content"}, "source edit")
         path = logical_path(item["logical_path"])
         if (
@@ -609,10 +569,11 @@ def _change(session, call, proposal, producer):
         "change",
         {
             "assignment_ref": call.assignment.ref.as_record(),
-            "design_plan_ref": plans[-1].ref.as_record(),
+            "design_plan_ref": plan.ref.as_record(),
             "expected_head_ref": candidate.ref.as_record(),
             "file_operations": operations,
             "implementation_detail_operations": details,
+            "findings": findings,
             "rationale_claim_refs": [producer.as_record()],
         },
         producer=producer,
@@ -625,6 +586,12 @@ def _change(session, call, proposal, producer):
 
 def _finding(session, call, proposal, producer):
     from .investigation import needs, selected_checks
+    from .research import propose_retrieval, propose_findings
+
+    if "research" in proposal:
+        return propose_retrieval(session, call, proposal, producer)
+    if isinstance(proposal.get("finding"), dict) and "requirements" in proposal["finding"]:
+        return propose_findings(session, call, proposal, producer)
 
     if "check_review" in proposal:
         from .measure_design import assigned_definition
@@ -672,13 +639,13 @@ def _finding(session, call, proposal, producer):
 
 
 def _measure(session, call, proposal, producer):
-    from .measure_design_runtime import propose_design, propose_reviewed_instrument
+    from .measure_design_runtime import propose_component_composite, propose_design, propose_reviewed_instrument
 
     handlers = {
         "check_design": propose_design,
         "submit_reviewed_design": propose_reviewed_instrument,
         "resume_instrument": _resume_measure,
-        "prerequisite": _measure_prerequisite,
+        "compose_components": propose_component_composite,
         "prerequisite_request": _measure_request,
         "instrument": _measure_instrument,
     }
@@ -696,10 +663,6 @@ def _resume_measure(session, call, proposal, producer):
         if not proposals:
             raise ValueError("this assignment has no instrument proposal to resume")
     return session.reply(call, proposal_ref=proposals[-1].ref.as_record())
-
-
-def _measure_prerequisite(session, call, proposal, producer):
-    return _prerequisite(session, call, proposal, producer)
 
 
 def _measure_request(session, call, proposal, producer):
@@ -724,6 +687,8 @@ def _measure_request(session, call, proposal, producer):
 
 
 def _measure_instrument(session, call, proposal, producer):
+    from .measure_components import completed_components, measure_owner
+
     exact(proposal, {"instrument"}, "instrument proposal")
     fields = set(_MEASURE_SHAPE)
     for optional in ("instrument_return", "acquired_grounding"):
@@ -756,12 +721,19 @@ def _measure_instrument(session, call, proposal, producer):
             acquisition_refs=constructed.get("grounding_acquisition_refs", ()),
         )
         constructed["instrument_return_ref"] = reference.as_record()
+    with session.view() as view:
+        components = completed_components(view, call.assignment, replacing=instrument["requirement_keys"])
+        owner_ref = measure_owner(view, call.assignment).body["parent_assignment_ref"]
     record = session.record(
         call,
         "measure_proposal",
         {
             "assignment_ref": call.assignment.ref.as_record(),
-            "owner_assignment_ref": call.assignment.body["parent_assignment_ref"],
+            "owner_assignment_ref": owner_ref,
+            "components": components,
+            "basis_ref": session.store.evidence.reference(
+                Ref.from_record(call.assignment.body["goal_record_ref"]), session.duet_id
+            )["measure_basis_ref"],
             **{
                 key: value
                 for key, value in instrument.items()
@@ -778,13 +750,21 @@ def _measure_instrument(session, call, proposal, producer):
     return session.reply(call, proposal_ref=record.ref.as_record())
 
 
+def _evaluate_choice(session, call, proposal, producer):
+    exact(proposal, {"evaluate"}, "evaluation choice")
+    if proposal["evaluate"] is not True:
+        raise ValueError("evaluation requires explicit true")
+    return session.reply(call)
+
+
 _HANDLERS = {
-    "choose_part": _choose_part,
     "design": _design,
     "change": _change,
+    "materialize": _materialize,
     "support": _finding,
     "question": _finding,
     "measure": _measure,
+    "verify": _evaluate_choice,
 }
 
 
@@ -799,4 +779,10 @@ def admit_proposal(session, call, task, proposal, producer):
         return propose_experiment(
             session.evaluations, session, call, proposal, producer
         )
+    if "return_prerequisite" in proposal:
+        return _return_prerequisite(session, call, proposal, producer)
+    if task == "design":
+        return _design(session, call, proposal, producer)
+    if "child" in proposal:
+        return _child(session, call, proposal, producer)
     return _HANDLERS[task](session, call, proposal, producer)

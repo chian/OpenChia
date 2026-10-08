@@ -7,6 +7,7 @@ do not execute checks, impersonate a Run, or overwrite the child's observations.
 
 from agent.duet_contracts import canonical_json, content_id
 from episode_runtime.testing_harness.judgments import judge_value
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 
 from .records import Ref
 from .state_machine import derived
@@ -14,18 +15,18 @@ from .state_machine import derived
 
 def judgment_purpose(view, assignment):
     """Verification inherits its parent's judgment, never a first-check default."""
-    role = assignment.body["role"]
+    role = ROLE_SPECIALIZATION[assignment.body["role"]]
     if role == "verify":
-        parent = view.read(
-            Ref.from_record(assignment.body["parent_assignment_ref"]), "assignment"
-        )
-        if parent.body["role"] not in {"parts", "designer"}:
-            raise ValueError("independent verification needs a Parts or Designer owner")
-        role = parent.body["role"]
+        parent = assignment
+        while ROLE_SPECIALIZATION[parent.body["role"]] == "verify":
+            parent = view.read(Ref.from_record(parent.body["parent_assignment_ref"]), "assignment")
+        if parent.body["role"] != "designer":
+            raise ValueError("independent verification needs a Designer commission")
+        role = "designer"
     return {
-        "parts": "composition",
-        "designer": "acceptance",
+        "designer": "composition",
         "implementer": "local",
+        "materialization_implementer": "local",
         "measure": "adequacy",
         "support": "support",
         "question": "question",
@@ -63,14 +64,43 @@ def returned_children(view, attempt, assignment, roles):
             yield report
 
 
+def returned_observation(view, observation, assignment):
+    """An original observation reaches its parent through returned same-role work."""
+    current = view.entry("invocation", observation.invocation_id.value)
+    family = ROLE_SPECIALIZATION[assignment.body["role"]]
+    while current.record.ref != assignment.ref:
+        if (current.status not in {"returned", "superseded"}
+                or ROLE_SPECIALIZATION[current.record.body["role"]] != family
+                or current.record.body["parent_assignment_ref"] is None):
+            return False
+        parent = view.read(Ref.from_record(current.record.body["parent_assignment_ref"]), "assignment")
+        parents = [row for row in view.entries("invocation") if row.record.ref == parent.ref]
+        if len(parents) != 1:
+            return False
+        current = parents[0]
+    return True
+
+
 def _sources(view, attempt, assignment):
     from .measurement import dependency_hashes
+    from .measures import selected_checks, selected_measure_ref
 
-    purpose = {"parts": "composition", "designer": "acceptance"}[
-        assignment.body["role"]
-    ]
+    family = ROLE_SPECIALIZATION[assignment.body["role"]]
     states = {entry.key: entry for entry in view.entries("check_state")}
-    for report in returned_children(view, attempt, assignment, {"verify"}):
+    policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
+    routes = ({
+        "verify": ("acceptance_measure_ref", judgment_purpose(view, assignment)),
+        "implementer": ("local_measure_ref", "local"),
+        "materialization_implementer": ("local_measure_ref", "local"),
+    } if family == "designer" else {
+        role: ("local_measure_ref", judgment_purpose(view, assignment))
+        for role, specialization in ROLE_SPECIALIZATION.items()
+        if specialization == family and role != family
+    })
+    for report in returned_children(view, attempt, assignment, set(routes)):
+        field, purpose = routes[report.body["role"]]
+        measure = selected_measure_ref(view, assignment, field)
+        members = {check.ref for check in selected_checks(view, policy, assignment, measure, purpose=purpose)}
         for determination in report.body["determinations"]:
             reference = determination["observation_ref"]
             if reference is None:
@@ -79,10 +109,10 @@ def _sources(view, attempt, assignment):
             check = view.entry("check", observation.body["check_key"]).record
             state = states.get(check.artifact_id.value)
             if (
-                observation.invocation_id != report.invocation_id
+                not returned_observation(view, observation,
+                    view.read(Ref.from_record(report.body["assignment_ref"]), "assignment"))
                 or check.body["purpose"] != purpose
-                or check.body["measure_ref"]
-                != assignment.body["acceptance_measure_ref"]
+                or check.ref not in members
                 or state is None
                 or state.record.ref != observation.ref
                 or state.status
@@ -94,7 +124,7 @@ def _sources(view, attempt, assignment):
             yield report, check, observation
 
 
-def _compatible(view, policy, check, source_check, observation):
+def _compatible(view, policy, check, source_check, observation, measure_ref):
     from .measures import bindings_for_check, evaluation_bindings
 
     # Equal JSON paths in different instruments do not denote equal evidence.
@@ -115,7 +145,7 @@ def _compatible(view, policy, check, source_check, observation):
         )
     request = view.read(Ref.from_record(observation.body["request_ref"]), "evaluation")
     return any(
-        binding["measure_ref"] == check.body["measure_ref"]
+        binding["measure_ref"] == measure_ref
         and binding["purpose"] == check.body["purpose"]
         and all(
             canonical_json(binding[field]) == canonical_json(request.body[field])
@@ -128,6 +158,7 @@ def _compatible(view, policy, check, source_check, observation):
                 view.entry("invocation", observation.invocation_id.value).record,
             ),
             check,
+            measure_ref=measure_ref,
         )
     )
 
@@ -135,27 +166,27 @@ def _compatible(view, policy, check, source_check, observation):
 def parent_assessments(view, attempt, assignment):
     """Re-evaluate the parent's frozen criterion; never read child credit."""
     from .measurement import dependency_hashes
-    from .measures import authorized_check_refs
+    from .measures import selected_checks, selected_measure_ref
 
-    if assignment.body["role"] not in {"parts", "designer"}:
+    family = ROLE_SPECIALIZATION[assignment.body["role"]]
+    if family not in {"designer", "implementer", "materialization_implementer", "verify"}:
         return ()
     policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
-    authorized = set(authorized_check_refs(view, policy, assignment))
+    measure = selected_measure_ref(view, assignment, "local_measure_ref")
+    purpose = "local" if family == "designer" else judgment_purpose(view, assignment)
+    checks = selected_checks(view, policy, assignment, measure, purpose=purpose)
     sources = tuple(_sources(view, attempt, assignment))
     assessments = []
-    for entry in view.entries("check"):
-        check = entry.record
+    for check in checks:
         if (
-            check.ref not in authorized
-            or check.body["measure_ref"] != assignment.body["local_measure_ref"]
-            or check.body["requirement_key"]
+            check.body["requirement_key"]
             not in assignment.body["contribution_requirement_keys"]
         ):
             continue
         matches = [
             (report, observation)
             for report, source_check, observation in sources
-            if _compatible(view, policy, check, source_check, observation)
+            if _compatible(view, policy, check, source_check, observation, measure)
         ]
         if not matches:
             continue
@@ -273,34 +304,80 @@ def verification_fact(view, check, outcome, request=None):
     ).value
 
 
+def measure_result(view, assignment, *, reference, purpose, assessments=(), requirement_keys=None):
+    """Apply the fixed composition to evidence valid for the current candidate.
+
+    Checks retain their individual outcomes. Guard failures and unresolved or
+    contradicted evidence prevent a pass from becoming requirement attainment.
+    """
+    from .measures import measure_function, selected_checks
+
+    policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
+    function = measure_function(view, policy, assignment, reference, purpose=purpose)
+    states = current_check_states(view, assessments)
+    observations = []
+    for check in selected_checks(view, policy, assignment, reference, purpose=purpose):
+        state = states.get(check.artifact_id.value)
+        if state is None or not state[0].evidence_refs:
+            continue
+        record, status = state
+        if status not in {"pass", "fail", "blocked", "error"}:
+            status = "not_checked"
+        if status == "pass" and any(
+            guard not in states or states[guard][1] != "pass"
+            or not states[guard][0].evidence_refs
+            for guard in check.body["guard_keys"]
+        ):
+            status = "blocked"
+        observations.append({
+            "check_id": check.artifact_id.value,
+            "candidate_ref": view.candidate.ref.as_record(),
+            "status": status,
+        })
+    return function(
+        observations=observations,
+        candidate_ref=view.candidate.ref.as_record(),
+        requirement_ids=(assignment.body["contribution_requirement_keys"]
+                         if requirement_keys is None else requirement_keys),
+    )
+
+
 def operative_check_facts(view, assignment, assessments=()):
     """Project each role's own evidence; repair success and inquiry differ.
 
     Used independently at unit close, numerical control and publication. The
     caller awarding credit additionally requires evidence from its own unit.
     """
-    from .materialization import satisfied_requirements
-    from .measurement import check_fact
-    from .measures import authorized_check_refs
+    from .measures import requirement_fact, selected_checks, selected_measure_ref
 
     if assignment.body["role"] in {"support", "question"}:
-        from .investigation import findings
+        from .investigation import finding_record, findings
 
         return {
-            item["fact_key"]: (
-                view.read(Ref.from_record(item["observation_ref"]), "observation"),
-            )
+            item["fact_key"]: (finding_record(view, item),)
             for item in findings(view, assignment)
             if item["resolved"]
         }
     policy = view.data(Ref.from_record(view.contract.body["policy_bundle_ref"]))
-    authorized = set(authorized_check_refs(view, policy, assignment))
+    measure = selected_measure_ref(view, assignment, "local_measure_ref")
+    authorized = {check.ref for check in selected_checks(view, policy, assignment, measure)}
     states = current_check_states(view, assessments)
-    verification = assignment.body["role"] == "verify"
+    family = ROLE_SPECIALIZATION[assignment.body["role"]]
+    verification = family == "verify"
     acceptable = {"pass", "fail"} if verification else {"pass"}
-    static_satisfied = (
-        set() if verification else satisfied_requirements(view, assignment, assessments)
-    )
+    if family in {"designer", "implementer", "materialization_implementer"}:
+        result = measure_result(view, assignment, reference=measure, purpose="local",
+                                assessments=assessments)
+        return {
+            requirement_fact(view, measure, requirement): tuple(
+                record for key, (record, status) in states.items()
+                if view.entry("check", key).record.ref in authorized
+                and view.entry("check", key).record.body["purpose"] == "local"
+                and view.entry("check", key).record.body["requirement_key"] == requirement
+                and status == "pass" and record.evidence_refs
+            )
+            for requirement in result["current_satisfied_requirement_ids"]
+        }
     purpose = judgment_purpose(view, assignment)
     # Parent-local judgments can use a different purpose from acceptance. They
     # are still exact, independently re-derived assessments, not child scores.
@@ -309,7 +386,6 @@ def operative_check_facts(view, assignment, assessments=()):
         check = view.entry("check", key).record
         if (
             check.ref not in authorized
-            or check.body["measure_ref"] != assignment.body["local_measure_ref"]
             or check.body["requirement_key"]
             not in assignment.body["contribution_requirement_keys"]
             or status not in acceptable
@@ -324,19 +400,17 @@ def operative_check_facts(view, assignment, assessments=()):
         ):
             continue
         if verification:
-            if record.kind != "observation":
+            source = record
+            if record.kind == "parent_assessment":
+                source = view.read(Ref.from_record(record.body["source_observation_refs"][0]), "observation")
+            elif record.kind != "observation":
                 continue
             request = view.read(
-                Ref.from_record(record.body["request_ref"]), "evaluation"
+                Ref.from_record(source.body["request_ref"]), "evaluation"
             )
             fact = verification_fact(view, check, status, request)
         else:
-            if (
-                check.body["evidence_kind"] == "materialization"
-                and check.body["requirement_key"] not in static_satisfied
-            ):
-                continue
-            fact = check_fact(view, check)
+            fact = requirement_fact(view, measure, check.body["requirement_key"])
         facts.setdefault(fact, []).append(record)
     return {key: tuple(records) for key, records in facts.items()}
 

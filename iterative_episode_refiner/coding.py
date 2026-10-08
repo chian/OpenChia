@@ -18,6 +18,7 @@ from agent.refinement_coding import CODING_INSTRUCTIONS, coding_backend
 from episode_runtime.host_tasks import join_local
 from episode_runtime.protocol import episode_id_for_path
 from function_library.models import _thaw_json
+from function_library.refinement_contract import ROLE_SPECIALIZATION
 from llm_call_library.transport import ModelCallFailed, ModelTransportResponse
 
 from .coding_workspace import CodingWorkspace
@@ -33,7 +34,7 @@ class RefinementCodingTransport:
         prompt = json.loads(request.messages[-1]["content"])
         call, candidate, context = self._working_context(request)
         coding_tasks = {"implementer": "change", "measure": "measure"}
-        if coding_tasks.get(call.assignment.body["role"]) != prompt.get("task"):
+        if coding_tasks.get(ROLE_SPECIALIZATION[call.assignment.body["role"]]) != prompt.get("task"):
             from .model_inputs import reasoning_inputs
 
             # Reasoning receives this invocation's exact declared working inputs.
@@ -91,7 +92,7 @@ class RefinementCodingTransport:
             bindings = [binding for binding in evaluation_bindings(view, self.session.policy, call.assignment)
                         if view.data(Ref.from_record(binding["harness_ref"])).get("execution_kind") != "checking_program"]
         writable = set(call.assignment.body["writable_paths"])
-        measuring = call.assignment.body["role"] == "measure"
+        measuring = ROLE_SPECIALIZATION[call.assignment.body["role"]] == "measure"
         projections = {}
         for binding in (None, *(row for row in bindings if row["purpose"] == "local")):
             projection = project_candidate_sources(
@@ -107,7 +108,7 @@ class RefinementCodingTransport:
 
         await self.session.evaluations.prepare_context(self.session)
         call, _, context = self._working_context(request)
-        if call.assignment.body["role"] == "measure":
+        if ROLE_SPECIALIZATION[call.assignment.body["role"]] == "measure":
             from episode_runtime.testing_harness.checker_programs import prepare_program_environment
 
             current = context["inputs"].get("check_design", {}).get("current_design")
@@ -202,7 +203,7 @@ class RefinementCodingTransport:
         root = builds.root / "refinement_coding" / self.session.campaign_id.value / call.invocation_id.value
         from .measure_coding import MeasureWorkspace
 
-        measuring = scope["role"] == "measure"
+        measuring = ROLE_SPECIALIZATION[scope["role"]] == "measure"
         workspace_type = MeasureWorkspace if measuring else CodingWorkspace
         sources = context["inputs"].get("source_files", {})
         if not measuring:
@@ -252,7 +253,7 @@ class RefinementCodingTransport:
         backend = coding_backend(self.binding)
         from .measure_coding import INSTRUCTIONS as MEASURE_INSTRUCTIONS
 
-        measuring = call.assignment.body["role"] == "measure"
+        measuring = ROLE_SPECIALIZATION[call.assignment.body["role"]] == "measure"
         instructions = request.messages[0]["content"] + "\n\n" + (
             MEASURE_INSTRUCTIONS if measuring else CODING_INSTRUCTIONS
         )
@@ -314,13 +315,16 @@ class RefinementCodingTransport:
                 "Existing edits in this workspace may be unfinished work from an interrupted "
                 "attempt; inspect them. The host candidate and measured feedback in the "
                 "assignment are authoritative. " + (
-                    "Author or revise the requested checking instrument in .openchia-measure.json."
+                    "Choose a scoped checking contribution, composition of admitted components, "
+                    "or a declared child using the supplied response schema in .openchia-measure.json."
                     if measuring else
                     "Inspect host_context.inputs.local_check_programs and their protected files "
                     "to trace measured failures to the actual predicate and its materialization/case inputs. "
                     "They are read-only diagnostic copies of your assigned local checks; "
                     "the host executes the immutable reviewed originals. "
-                    "Produce the next scoped candidate revision."
+                    "Choose a scoped candidate revision, direct evaluation or a declared child from the current "
+                    "evidence. Put evaluate, child or return_prerequisite proposals in "
+                    ".openchia-implementation.json without also submitting source edits."
                 ),
                 turn_timeout=None,
             )

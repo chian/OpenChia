@@ -193,7 +193,8 @@ async def test_campaign_source_requires_episode_experiment_and_preserves_its_ide
             check = view.entry("check", session.policy["check_refs"][0]["artifact_id"]).record
             original_candidate = view.candidate.ref.as_record()
             original_head = view.candidate.as_record()
-            target_receipt = view.data(Ref.from_record(session.contract.body["initial_build_receipt_ref"]))
+            target_inputs = view.data(Ref.from_record(session.contract.body["initial_build_inputs_ref"]))
+            target_receipt = session.store.evidence.builds.read_receipt(target_inputs["receipt_id"]).as_record()
         draft = _inherited_draft(root, "support", goal="Check the approved source without substituting it for the target.")
         draft["contribution_requirement_keys"] = [check.body["requirement_key"]]
         selection = assign_child(session, root, draft, session.contract.producer_ref)
