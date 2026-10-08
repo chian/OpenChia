@@ -1179,6 +1179,29 @@ class DuetStore:
             for row in rows
         )
 
+    def events_of_type(self, event_type: str, *, after_sequence: int = 0) -> tuple[dict[str, Any], ...]:
+        """Events of one type across every Duet, oldest first, after a ledger sequence.
+
+        Used to follow a build's model calls, which a refiner Run records under
+        its own Duet with ``owner_duet_id`` naming the owner.
+        """
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM duet_events WHERE event_type = ? AND sequence > ? ORDER BY sequence",
+                (event_type, int(after_sequence)),
+            ).fetchall()
+        return tuple(
+            {
+                "sequence": row["sequence"],
+                "duet_id": row["duet_id"],
+                "event_type": row["event_type"],
+                "provenance": row["provenance"],
+                "record": json.loads(row["record_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        )
+
 
 __all__ = [
     "DuetConflictError",

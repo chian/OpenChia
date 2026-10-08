@@ -1095,6 +1095,23 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
         return receipt.as_record()
 
     def build_status(self) -> dict[str, Any]:
+        """Return live or recovered build state for the current authority head.
+
+        While the refiner works (``refining``), ``model_wait`` describes its
+        newest model call from the ledger, since those calls bypass the
+        Builder's in-process wait tracker (#77).
+        """
+        status = self._build_status_core()
+        if status.get("state") == "refining" and not status.get("model_wait"):
+            from agent.model_call_status import refiner_model_wait
+
+            try:
+                status = {**status, "model_wait": refiner_model_wait(self)}
+            except Exception:  # status must stay readable even if the ledger is odd
+                pass
+        return status
+
+    def _build_status_core(self) -> dict[str, Any]:
         """Return live or recovered build state for the current authority head."""
         from agent.openchia_build_job import finalization_for, refinement_links
         from agent.openchia_build_recovery import unfinished_builder_status

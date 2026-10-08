@@ -22,6 +22,16 @@ class ModelCallRecoveryExhausted(RuntimeError):
     """Operational recovery ended without an Episode result."""
 
 
+#: A silent call records ``call_waiting`` at this interval, so the ledger (and
+#: ``/build status``) can tell "still waiting" from "supervisor stopped" (#77).
+WAITING_HEARTBEAT_SECONDS = 120.0
+#: Consecutive health probes that fail to *connect* before the provider is
+#: declared unreachable and the logical call ends (#77).
+UNREACHABLE_PROBE_LIMIT = 3
+#: Probe phases that mean the provider never answered at all (no response headers).
+_NO_RESPONSE_PHASES = frozenset({"dispatching", "request_dispatched"})
+
+
 class CallActivity:
     """Content-free observations shared with the attempt's provider thread."""
 
@@ -127,6 +137,8 @@ class _CallSupervisor:
         self.last_reported = 0.0
         self.reported_revision = -1
         self.next_probe_at = 0.0
+        self.last_heartbeat = time.monotonic()
+        self.unreachable_probes = 0
 
     def emit(self, state, **details):
         self.record({
@@ -209,12 +221,33 @@ class _CallSupervisor:
             self.emit("probe_cancelled", probe_id=self.probe_id, reason="provider_attempt_cancelled")
             healthy = False
         except Exception as exc:
-            self.emit("probe_failed", probe_id=self.probe_id, **self.describe_failure(
-                exc, self.probe.request, self.probe.activity,
-            ))
+            failure = self.describe_failure(exc, self.probe.request, self.probe.activity)
+            self.emit("probe_failed", probe_id=self.probe_id, **failure)
             healthy = False
+            # A probe asks for 16 tokens. Failing to connect, or timing out before
+            # any response headers arrived, means the provider did not answer at
+            # all; a slow provider still sends headers (#77: dropped VPN, every
+            # probe "Request timed out." in phase request_dispatched).
+            phase = self.probe.activity.snapshot()["phase"]
+            no_answer = _dropped_transport(failure) or (
+                failure.get("failure_category") == "timeout" and phase in _NO_RESPONSE_PHASES
+            )
+            if no_answer:
+                self.unreachable_probes += 1
+                if self.unreachable_probes >= UNREACHABLE_PROBE_LIMIT:
+                    self.emit("provider_unreachable", probe_id=self.probe_id,
+                              consecutive_failed_probes=self.unreachable_probes,
+                              probe_phase=phase, original_activity=self.activity_record())
+                    raise ModelCallRecoveryExhausted(
+                        "Model provider unreachable: "
+                        f"{self.unreachable_probes} consecutive health probes got no response; "
+                        "no result was admitted"
+                    )
+            else:
+                self.unreachable_probes = 0
         else:
             healthy = bool(text.strip())
+            self.unreachable_probes = 0
             self.emit(
                 "probe_succeeded", probe_id=self.probe_id,
                 response_model=actual_model, response_nonempty=healthy,
@@ -319,6 +352,12 @@ class _CallSupervisor:
                     self.emit("call_activity", **snapshot)
                     self.reported_revision = snapshot["revision"]
                     self.last_reported = now
+                    self.last_heartbeat = now
+                elif now - self.last_heartbeat >= WAITING_HEARTBEAT_SECONDS:
+                    self.emit("call_waiting", **snapshot,
+                              probe_active=self.probe is not None,
+                              next_probe_in_seconds=max(0.0, self.next_probe_at - now))
+                    self.last_heartbeat = now
                 if self.probe_revision is not None:
                     await self.inspect_probe(snapshot)
                 if self.grace_deadline is not None and time.monotonic() >= self.grace_deadline:

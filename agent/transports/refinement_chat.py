@@ -286,8 +286,10 @@ class ChatCompletionsCodingSession:
             if key is None:
                 outgoing.headers.pop("authorization", None)
 
-        http = httpx.Client(trust_env=False, timeout=None, follow_redirects=False,
-                            event_hooks={"request": [strip_auth]})
+        from agent.provider_http import provider_http_client
+
+        http = provider_http_client(trust_env=False, follow_redirects=False,
+                                    event_hooks={"request": [strip_auth]})
         with self._lock:
             self._http = http
         return OpenAI(api_key=key or "no-auth", base_url=route["base_url"], http_client=http,
