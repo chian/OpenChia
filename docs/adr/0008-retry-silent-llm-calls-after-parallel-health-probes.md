@@ -50,6 +50,19 @@ different scheduling treatment; a large original prompt can legitimately need
 longer. This uncertainty and the possibility of duplicate remote work remain
 visible in the audit.
 
+### Amendment 2026-10-08: retryable failed attempts
+
+A physical attempt whose **connection drops** mid-response with no provider
+verdict (e.g. `incomplete chunked read`, a connection reset or read error, and
+no HTTP error status) produced no result, so there is no original to preserve. Under `retry_on_healthy_probe` it is replaced through the same
+route, after a short backoff, using the same `max_replacements` budget as a
+silent-call replacement, and recorded as `recovery_replacement_proposed` with
+basis `retryable_transport_failure`. Provider error responses (an HTTP
+status such as 503, or an error event in the stream) still fail the call
+without a retry, as do `disabled` and `preserve` modes and an exhausted budget.
+Observed on ANL Argo: long streamed Refiner calls dropped after 100–165 s and,
+without this, stopped the whole build.
+
 ## Boundaries
 
 - Implement the decision once in the shared pinned model transport. Builder,
