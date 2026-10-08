@@ -119,10 +119,14 @@ shared model settings do not imply shared prompts or authority.
     pass by silently weakening the intended behavior or its acceptance criteria.
     Changes outside the designer's approved edit authority return to the Duet.
 
-14. **Nest by outcome ownership and actual decisions.** Parts-making and selection
-    sit above the Designer. The Designer owns realizing its approach, including
-    the implementer and the feedback from acceptance. It does not hand a paper
-    design back to the parts selector as though the part had been solved.
+14. **Nest by outcome ownership and actual decisions.** The Designer sits at the
+    top and owns realizing its approach. It commissions four peer specialists —
+    MaterializationImplementer, Code Implementer, Measure and Verify — and each
+    specialist owns its own task-specific Parts Episode for smaller decisions
+    (Parts may call narrower Parts of the same specialty). The Designer owns the
+    feedback from acceptance; it does not treat a paper design as a solved part.
+    (Updated 2026-10-08: the earlier Parts-above-Designer placement was replaced
+    by #66; see [refiner Episodes](iterative_episode_refiner_episodes.md).)
 
 15. **A prerequisite is not an optional sibling choice.** Establishing an admissible
     design/measure precedes implementation; assessing the result follows it.

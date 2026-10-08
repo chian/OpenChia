@@ -57,7 +57,9 @@ Approve exact workflow and applicable authority
     v
 Start build
     |
-    +--> Builder materializes implementation
+    +--> Refiner constructs from the approved Architecture
+    |    (EpisodeBuilder validators and source admission; no
+    |     separate initial Builder generation pass, #66)
     |        |
     |        v
     |    Candidate, partial results, and diagnostics
