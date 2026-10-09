@@ -246,6 +246,49 @@ class RefinementCodingTransport:
         resume = saved["thread_id"] if saved and saved["context_id"] == context_id else None
         return workspace, root / "sessions" / context_id, resume, context_id, identity
 
+    def _transcriber(self, call, workspace_root):
+        """A transcription session when every assigned path is a missing Episode module."""
+        from .candidate_source import project_candidate_sources
+        from .transcription import (
+            TranscribedTurnSession, emit_modules, run_coroutine_privately,
+            transcription_enabled, transcription_targets,
+        )
+
+        if not transcription_enabled():
+            return None
+        try:
+            with self.session.view() as view:
+                candidate = view.candidate
+            projection = project_candidate_sources(
+                self.session.store.evidence, self.session.contract, candidate, None,
+            )
+            from .materialization_edits import source_paths
+
+            planned = {node.local_id for node in projection.plan.nodes}
+            module_paths = {
+                local_id: path
+                for local_id, path in source_paths(
+                    projection.baseline.build_request.frozen_workflow.workflow, projection.plan,
+                ).items()
+                if local_id in planned  # the emitter needs an admitted node plan
+            }
+            targets = transcription_targets(
+                call.assignment.body["writable_paths"], module_paths, workspace_root,
+            )
+        except Exception:
+            # Eligibility is an optimisation; any doubt keeps the coding agent.
+            return None
+        if not targets:
+            return None
+        store, transport = self.session.store.evidence.builds, self.transport
+
+        def produce():
+            return run_coroutine_privately(lambda: emit_modules(
+                projection=projection, targets=targets, store=store, transport=transport,
+            ))
+
+        return TranscribedTurnSession(workspace=workspace_root, produce=produce)
+
     def _run(self, request, prompt, cancel, active, diagnostics):
         call, candidate, context = self._working_context(request)
         context = _thaw_json(context)
@@ -260,6 +303,10 @@ class RefinementCodingTransport:
         workspace, native_home, resume, context_id, identity = self._prepare(
             call, candidate, context, prompt, instructions, backend.runtime_id,
         )
+        # Missing Episode modules are a transcription of the admitted node plan:
+        # one Builder emitter call each instead of an exploratory coding turn (#80).
+        transcriber = None if measuring or resume is not None else self._transcriber(call, workspace.root)
+        runtime_id = backend.runtime_id if transcriber is None else transcriber.runtime_id
         route = self.binding.record["route"]
         receipt = {
             **identity, "binding_ref": self.binding.reference,
@@ -268,7 +315,7 @@ class RefinementCodingTransport:
             "run_id": self.session.registration.run_id.value,
             "call_id": uuid.uuid4().hex, "task": request.task,
             "model_type": request.model_type, "episode_local_id": request.episode_local_id,
-            "coding_runtime": backend.runtime_id,
+            "coding_runtime": runtime_id,
             **{key: route[key] for key in ("model", "provider", "base_url", "api_mode")},
         }
         started = time.monotonic()
@@ -296,7 +343,7 @@ class RefinementCodingTransport:
             if cancel.is_set():
                 raise asyncio.CancelledError
             extra = {}
-            if backend.runtime_id == "chat_completions_tools":
+            if transcriber is None and backend.runtime_id == "chat_completions_tools":
                 # Same boundary as the Target Workflow's container Runs (#72):
                 # diagnostics execute in a per-turn container, never on the host.
                 from agent.transports.coding_container import container_shell_for
@@ -304,7 +351,7 @@ class RefinementCodingTransport:
                 shell = container_shell_for(self.session.evaluations.executor, workspace.root)
                 if shell is not None:
                     extra["command_shell"] = shell
-            coder = backend(
+            coder = transcriber if transcriber is not None else backend(
                 **extra,
                 binding=self.binding, workspace=workspace.root, state_dir=native_home,
                 instructions=instructions, resume_thread_id=resume, on_event=observe,
@@ -314,7 +361,7 @@ class RefinementCodingTransport:
             self.session.put_data("coding_thread", {
                 "invocation_id": call.invocation_id.value, "context_id": context_id,
                 "thread_id": thread_id, "binding_ref": self.binding.reference,
-                "coding_runtime": backend.runtime_id,
+                "coding_runtime": runtime_id,
                 "process": coder.process_identity(),
             })
             if cancel.is_set():
