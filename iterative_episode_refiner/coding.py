@@ -291,9 +291,15 @@ class RefinementCodingTransport:
 
     def _run(self, request, prompt, cancel, active, diagnostics):
         call, candidate, context = self._working_context(request)
+        # Per-role routes (agent/refiner_role_routes.py): the coding session may
+        # use its own model/reasoning ("coder", else the invocation's role).
+        binding = self.binding.for_role("coder", call.assignment.body["role"])
+        return self._run_bound(request, prompt, cancel, active, diagnostics, call, candidate, context, binding)
+
+    def _run_bound(self, request, prompt, cancel, active, diagnostics, call, candidate, context, binding):
         context = _thaw_json(context)
         context["inputs"]["target_environment"]["coding_diagnostics"] = diagnostics
-        backend = coding_backend(self.binding)
+        backend = coding_backend(binding)
         from .measure_coding import INSTRUCTIONS as MEASURE_INSTRUCTIONS
 
         measuring = ROLE_SPECIALIZATION[call.assignment.body["role"]] == "measure"
@@ -307,11 +313,11 @@ class RefinementCodingTransport:
         # one Builder emitter call each instead of an exploratory coding turn (#80).
         transcriber = None if measuring or resume is not None else self._transcriber(call, workspace.root)
         runtime_id = backend.runtime_id if transcriber is None else transcriber.runtime_id
-        route = self.binding.record["route"]
+        route = binding.record["route"]
         receipt = {
-            **identity, "binding_ref": self.binding.reference,
-            "owner_duet_id": self.binding.owner_duet_id,
-            "session_id": self.binding.record["session_id"],
+            **identity, "binding_ref": binding.reference,
+            "owner_duet_id": binding.owner_duet_id,
+            "session_id": binding.record["session_id"],
             "run_id": self.session.registration.run_id.value,
             "call_id": uuid.uuid4().hex, "task": request.task,
             "model_type": request.model_type, "episode_local_id": request.episode_local_id,
@@ -353,14 +359,14 @@ class RefinementCodingTransport:
                     extra["command_shell"] = shell
             coder = transcriber if transcriber is not None else backend(
                 **extra,
-                binding=self.binding, workspace=workspace.root, state_dir=native_home,
+                binding=binding, workspace=workspace.root, state_dir=native_home,
                 instructions=instructions, resume_thread_id=resume, on_event=observe,
             )
             active.append(coder)
             thread_id = coder.ensure_started()
             self.session.put_data("coding_thread", {
                 "invocation_id": call.invocation_id.value, "context_id": context_id,
-                "thread_id": thread_id, "binding_ref": self.binding.reference,
+                "thread_id": thread_id, "binding_ref": binding.reference,
                 "coding_runtime": runtime_id,
                 "process": coder.process_identity(),
             })
@@ -422,7 +428,7 @@ class RefinementCodingTransport:
             self.record_attempt({**receipt, "state": "cancelled", "elapsed_seconds": time.monotonic() - started})
             raise
         except Exception as exc:
-            details = provider_failure(exc, route, credential=self.binding.api_key, request=request)
+            details = provider_failure(exc, route, credential=binding.api_key, request=request)
             self.record_attempt({**receipt, **details, "state": "failed", "elapsed_seconds": time.monotonic() - started})
             raise ModelCallFailed(f"{call.assignment.body['role']} coding call failed; its owning Run must stop.", receipt) from None
         finally:
