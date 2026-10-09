@@ -179,7 +179,14 @@ def _invoke(route: dict, key: str | None, request: ModelTransportRequest,
                         else _chat_completion(client, kwargs, request, route, progress))
             from agent.aux_accounting import record_aux_usage
             record_aux_usage(response, request.task, provider=route["provider"], base_url=route["base_url"])
-            return extract_content_or_reasoning(response) or "", str(getattr(response, "model", "") or route["model"])
+            text = extract_content_or_reasoning(response) or ""
+            from agent.provider_notices import ProviderRefusedService, provider_notice
+
+            notice = provider_notice(text)
+            if notice is not None:
+                # A refusal delivered as a reply is never a model result (#79 follow-up).
+                raise ProviderRefusedService(f"Provider refused service: {notice}")
+            return text, str(getattr(response, "model", "") or route["model"])
     finally:
         report_client(None)
         try:
