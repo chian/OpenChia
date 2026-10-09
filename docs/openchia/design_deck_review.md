@@ -105,6 +105,9 @@ The deck's key concepts, quoted:
 9. Communication is the key: put the right information in the right places (slide 32).
 10. Nest for ordered processes where each step needs iteration (slide 33).
 11. Use siblings for decision forks and interleaved tasks in unknown order (slide 34).
+12. **Episodes are for tasks that need iterative refinement.** Deterministic function calls, calculations and other one-shot runs are **tool** options an Episode uses as needed (Key Concept 12, added to the deck after the first review draft):
+
+![Key Concept 12: one-shot work is a tool, not an Episode](figures/design_deck/key-concept-12.png)
 
 ## 3. Where the deck and the record agree
 
@@ -123,6 +126,7 @@ The deck's key concepts, quoted:
 | Siblings for interleaving (slide 34) | Yes | Cross-specialty back-and-forth goes through the Designer, between peers (`iterative_episode_refiner_episodes.md:120-123`) |
 | Refiner uses a coding agent | Codex or Claude Code | ADR 0009. Since #67 there is also a plain `chat_completions` adapter (Argo) |
 | ASCII CLI for the machine | Yes | `openchia refiner … --json/--plain` "for repeatable agent inspection" (`refiner_terminal_viewer.md:85-115`) |
+| One-shot work is a tool (Key Concept 12) | Episodes only for iterative refinement; deterministic one-shot runs are tool options | ADR 0003:113-115: "If a workflow is a static DAG of deterministic tools, CWL is the correct choice and the Episode model is overkill." ADR 0003:117-124 (Episode outer loop, tool inner execution), #62 / draft ADR 0011. **Gap:** not applied in Architecture authoring; see D13 |
 | Libraries and examples | Key | Support finds reference Episodes; reference Episodes are evidence, not authority (`duet_owned_episode_design.md:51-53`) |
 
 ## 4. Where they diverge
@@ -141,6 +145,7 @@ The deck's key concepts, quoted:
 | D10 | **Code Implementer scope** | Should be 100% code writing (slide 35) | It also samples local checks, can request `evaluate=true` and edits the environment recipe (`iterative_episode_refiner_episodes.md:195-199, 225-227`) | Discuss. This is a design choice, not drift |
 | D11 | **Support vs Question** | Support reads docs and code; Question searches the web | Both have `web_search`, `read_url`, `library_search`, `read_library` and `read_candidate`. Question also independently reviews checking programs (`iterative_episode_refiner_episodes.md:158-175`) | Update the slide |
 | D12 | **Hermes rename** | `.hermes`/`HERMES_*` renamed to avoid clashes | The default home is still `~/.hermes` (`hermes_constants.py:50-58`). Slide 18 itself says "need to fix configs" | Track as an open item |
+| D13 | **One-shot work modelled as an Episode** | Key Concept 12: one-shot runs are tools | Nothing in Duet authoring or Architecture admission applies the rule. Our own bring-up Episode `asm_next_broker_probe` is two fixed GETs whose stopping rule is "plan exhausted after unit 2" with `max_predicted_marginal_hypervolume: 0.0`. Its controller is ceremony, and by the rule it should be a tool step | **Docs and code:** Duet guidance plus an advisory `episode_without_stopping_decision` finding ([#82](https://github.com/chian/OpenChia/issues/82)); record the rule in the principles doc |
 
 ## 5. Deck-only and docs-only items
 
@@ -253,6 +258,9 @@ Net: the deck's replay vision is hard to deliver on emitted modules, and it larg
 
 ### 6.6 Assessment
 
+Key Concept 12 frames this proposal: the Episode keeps the stopping decision, and deterministic one-shot work, whether a `curl`, a BV-BRC tool or a module generation, is a tool the Episode calls. #81 applies the same split inside the refiner: the Builder emitter is the one-shot tool, and repair stays iterative.
+
+
 - **Do now:**
   - #62's `cwl_tool` unit kind, **in Python**, inside today's runtime;
   - the build-time smoke run (#64);
@@ -346,6 +354,7 @@ The Target Workflow's *execution* is confined (above), but the refiner's **codin
 - [ ] D12: finish the `.hermes` → OpenChia home rename, or document why not.
 
 **Engineering (tracked issues)**
+- [ ] [#82](https://github.com/chian/OpenChia/issues/82): apply Key Concept 12 in Architecture authoring: Duet guidance plus an advisory finding for Episodes without a stopping decision.
 - [ ] #62: `cwl_tool` unit kind (Python first) and a coverage measurement.
 - [ ] #64: build-time smoke run in the container executor.
 - [ ] #63: give the planner the library type surface; make verification-only findings non-blocking.
