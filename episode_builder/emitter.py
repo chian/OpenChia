@@ -97,6 +97,9 @@ class EpisodeEmissionError(RuntimeError):
         self.field_path = field_path
         self.detail = detail.replace("\x00", " ")
         self.episode_local_id = episode_local_id
+        #: The model's raw source when validation rejected it, so a caller can
+        #: hand the rejection back for repair instead of losing the attempt.
+        self.rejected_source: str | None = None
         super().__init__(f"{code} at {field_path}: {self.detail}")
 
     def as_deficit(self) -> BuildDeficit:
@@ -1128,8 +1131,14 @@ class EpisodeModuleEmitter:
         approved_refinement_evidence: Mapping[str, object] | None = None,
         predecessor_module: EmittedEpisodeModule | None = None,
         model_call_observer: ModelCallObserver | None = None,
+        repair_feedback: Mapping[str, object] | None = None,
     ) -> EmittedEpisodeModule:
-        """Make one model call, compile its source, and return its immutable blob."""
+        """Make one model call, compile its source, and return its immutable blob.
+
+        ``repair_feedback`` describes a previous emission of this module that
+        validation rejected; it is added to the prompt only when given, so the
+        ordinary Builder prompt is unchanged.
+        """
 
         self._validate_inputs(
             contract,
@@ -1173,6 +1182,7 @@ class EpisodeModuleEmitter:
                     if predecessor_module is None
                     else predecessor_module.as_record()
                 ),
+                **({"rejected_previous_emission": dict(repair_feedback)} if repair_feedback else {}),
                 "module_role": (
                     "root" if plan.parent_local_id is None else "child"
                 ),
@@ -1230,14 +1240,18 @@ class EpisodeModuleEmitter:
                 episode_local_id=plan.local_id,
             )
         source, derivation_notes = result.value
-        return complete_module_source(
-            source,
-            contract=contract,
-            plan=plan,
-            direct_edges=direct_edges,
-            forbidden_module_names=forbidden_module_names,
-            derivation_notes=derivation_notes,
-        )
+        try:
+            return complete_module_source(
+                source,
+                contract=contract,
+                plan=plan,
+                direct_edges=direct_edges,
+                forbidden_module_names=forbidden_module_names,
+                derivation_notes=derivation_notes,
+            )
+        except EpisodeEmissionError as exc:
+            exc.rejected_source = source
+            raise
 
 
 __all__ = [
