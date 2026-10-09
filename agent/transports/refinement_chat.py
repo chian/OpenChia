@@ -53,12 +53,7 @@ NO_WRITE_STOP_STEPS = 40
 #: otherwise ~4 characters per token of the request).
 MAX_TURN_INPUT_TOKENS = 1_500_000
 MAX_INPUT_TOKENS_ENV = "OPENCHIA_CODING_MAX_INPUT_TOKENS"
-#: Text a gateway returns *as an assistant message* when it refuses service
-#: (Argo: "ACCESS REVOKED … Monthly limit exceeded"). Never a model answer.
-PROVIDER_NOTICE_MARKERS = (
-    "access revoked", "usage limit has been exceeded", "usage limit exceeded",
-    "monthly limit exceeded", "quota exceeded", "notice from argo",
-)
+#: Refusal-of-service replies are recognized by agent.provider_notices.
 DEFAULT_COMMAND_TIMEOUT = 120
 MAX_COMMAND_TIMEOUT = 600
 DEFAULT_MAX_TOKENS = 32_768
@@ -110,10 +105,9 @@ TOOLS = [
 
 def _provider_notice(content: str) -> str | None:
     """The gateway's refusal text when a reply is a service notice, not an answer."""
-    lowered = (content or "").lower()
-    if any(marker in lowered for marker in PROVIDER_NOTICE_MARKERS):
-        return " ".join(content.split())[:300]
-    return None
+    from agent.provider_notices import provider_notice
+
+    return provider_notice(content)
 
 
 class WorkspacePathError(ValueError):
