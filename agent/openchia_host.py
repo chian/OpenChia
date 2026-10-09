@@ -129,6 +129,17 @@ class HumanActionReceipt:
     approval_id: OpaqueId
 
 
+
+def _draft_advisories(record):
+    """Key Concept 12 advisories for a stored draft's blueprint (#82); never blocking."""
+    from agent.episode_advisories import workflow_advisories
+    from agent.episode_blueprints import workflow_spec_from_blueprint
+
+    try:
+        return workflow_advisories(workflow_spec_from_blueprint(record.get("workflow_blueprint")))
+    except Exception:
+        return []
+
 class OpenChiaHost(EpisodeLaunchHostMixin):
     """Persistent authority, materialization, and Run host for one Duet."""
 
@@ -329,6 +340,7 @@ class OpenChiaHost(EpisodeLaunchHostMixin):
                 record.get("validation_deficits") or ()
             ),
             "human_note_ids": list(record.get("human_note_ids") or ()),
+            "advisories": _draft_advisories(record),
         }
 
     def architecture_snapshot(self) -> dict[str, Any]:

@@ -98,6 +98,15 @@ def _egress_rule_invalid_detail(
     return str(exc)
 
 
+def _advisories(workflow):
+    from agent.episode_advisories import workflow_advisories
+
+    try:
+        return workflow_advisories(workflow)
+    except Exception:  # advice must never break status
+        return []
+
+
 def _egress_ceiling_deficits(
     workflow: EpisodeWorkflowSpec,
     authority: WorkflowAdmissionAuthority,
@@ -1275,6 +1284,9 @@ class DuetService:
                 ),
                 "ready": not deficits,
                 "validation_deficits": [item.as_record() for item in deficits],
+                # Advisory only (Key Concept 12, #82): computed live, never part of the
+                # hash-bound draft record, never affects readiness or approval.
+                "advisories": _advisories(workflow),
                 "refinement_id": record["refinement_id"],
                 "baseline_id": record["baseline_id"],
                 "proposal_id": record["proposal_id"],
