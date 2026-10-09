@@ -26,7 +26,9 @@ from typing import Any, Callable
 
 from agent.refinement_coding import CodingTurn
 
-MAX_TOOL_STEPS = 300
+#: Per-turn model-step budget. One 257-step turn sent ~7.8M input tokens and
+#: exhausted a monthly Argo quota (2026-10-09); chat completions carry no cache.
+MAX_TOOL_STEPS = 60
 #: Override the per-turn model-step budget (positive integer).
 MAX_STEPS_ENV = "OPENCHIA_CODING_MAX_STEPS"
 #: Steps before the budget at which the model is told to write its changes now.
@@ -44,7 +46,19 @@ MAX_HISTORY_CHARS = 240_000
 TRANSIENT_RETRIES = 3
 RETRY_BACKOFF_SECONDS = (5, 20, 60)
 #: Steps without any write_file/edit_file after which the model is reminded to write.
-EXPLORATION_NUDGE_STEPS = 40
+EXPLORATION_NUDGE_STEPS = 20
+#: Steps without any edit after which the turn ends (findings go back to the parent).
+NO_WRITE_STOP_STEPS = 40
+#: Per-turn input-token budget (provider-reported prompt tokens when available,
+#: otherwise ~4 characters per token of the request).
+MAX_TURN_INPUT_TOKENS = 1_500_000
+MAX_INPUT_TOKENS_ENV = "OPENCHIA_CODING_MAX_INPUT_TOKENS"
+#: Text a gateway returns *as an assistant message* when it refuses service
+#: (Argo: "ACCESS REVOKED … Monthly limit exceeded"). Never a model answer.
+PROVIDER_NOTICE_MARKERS = (
+    "access revoked", "usage limit has been exceeded", "usage limit exceeded",
+    "monthly limit exceeded", "quota exceeded", "notice from argo",
+)
 DEFAULT_COMMAND_TIMEOUT = 120
 MAX_COMMAND_TIMEOUT = 600
 DEFAULT_MAX_TOKENS = 32_768
@@ -94,6 +108,14 @@ TOOLS = [
 ]
 
 
+def _provider_notice(content: str) -> str | None:
+    """The gateway's refusal text when a reply is a service notice, not an answer."""
+    lowered = (content or "").lower()
+    if any(marker in lowered for marker in PROVIDER_NOTICE_MARKERS):
+        return " ".join(content.split())[:300]
+    return None
+
+
 class WorkspacePathError(ValueError):
     pass
 
@@ -127,6 +149,10 @@ class ChatCompletionsCodingSession:
             configured = os.environ.get(MAX_STEPS_ENV, "").strip()
             max_steps = int(configured) if configured.isdigit() and int(configured) > 0 else MAX_TOOL_STEPS
         self._max_steps = max_steps
+        configured_tokens = os.environ.get(MAX_INPUT_TOKENS_ENV, "").strip()
+        self._max_input_tokens = (int(configured_tokens) if configured_tokens.isdigit() and int(configured_tokens) > 0
+                                  else MAX_TURN_INPUT_TOKENS)
+        self._sentinel = None
         # Optional isolated executor for run_command (agent.transports.coding_container).
         # When set, commands never run on the host.
         self._shell = command_shell
@@ -145,6 +171,7 @@ class ChatCompletionsCodingSession:
             raise RuntimeError("chat-completions coding session is closed")
         if not self._started:
             self._state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            self._start_sentinel()
             saved = self._history_path()
             if self._resuming and saved.is_file():
                 self._messages = json.loads(saved.read_text(encoding="utf-8-sig"))
@@ -158,10 +185,40 @@ class ChatCompletionsCodingSession:
             self._started = True
         return self._thread_id
 
+    def _start_sentinel(self) -> None:
+        """A process whose life is this coding session's, for host liveness checks.
+
+        The loop runs inside the host process, so reporting the host's PID made
+        every later turn of the same invocation look like a live previous coder
+        ("Previous coding agent is live or unverifiable"). The sentinel exits when
+        the session closes, or when the host dies and its stdin pipe closes.
+        """
+        import sys
+
+        if self._sentinel is not None and self._sentinel.poll() is None:
+            return
+        self._sentinel = subprocess.Popen(
+            [sys.executable, "-I", "-S", "-c", "import sys; sys.stdin.read()"],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+    def _stop_sentinel(self) -> None:
+        sentinel, self._sentinel = self._sentinel, None
+        if sentinel is None:
+            return
+        try:
+            if sentinel.stdin is not None:
+                sentinel.stdin.close()
+            sentinel.wait(timeout=5)
+        except Exception:
+            sentinel.kill()
+            sentinel.wait(timeout=5)
+
     def process_identity(self) -> dict:
         from openchia_cli.active_sessions import _process_start_time
 
-        pid = os.getpid()
+        self.ensure_started()
+        pid = self._sentinel.pid
         started = _process_start_time(pid)
         if started is None:
             raise RuntimeError("coding session process identity is unavailable")
@@ -195,7 +252,18 @@ class ChatCompletionsCodingSession:
         final_text = ""
         warned = False
         steps_since_write = 0
+        input_tokens = 0
         for _step in range(self._max_steps):
+            if steps_since_write >= NO_WRITE_STOP_STEPS:
+                return self._end_turn(turn_id, tool_iterations, "no_progress", (
+                    f"Turn ended after {steps_since_write} steps without a source edit; "
+                    "record what blocks the assigned work so the parent can re-scope it."
+                ))
+            if input_tokens >= self._max_input_tokens:
+                return self._end_turn(turn_id, tool_iterations, "token_budget", (
+                    f"Turn ended at the {self._max_input_tokens:,}-input-token budget "
+                    f"({input_tokens:,} sent); workspace edits made so far stand for host admission."
+                ))
             remaining = self._max_steps - _step
             if not warned and remaining <= min(BUDGET_WARNING_STEPS, max(1, self._max_steps // 5)):
                 warned = True
@@ -215,7 +283,8 @@ class ChatCompletionsCodingSession:
                 return CodingTurn(thread_id=self._thread_id, turn_id=turn_id,
                                   tool_iterations=tool_iterations, interrupted=True)
             try:
-                message = self._complete_with_retries(turn_id)
+                message, used = self._complete_with_retries(turn_id)
+                input_tokens += used
             except Exception as exc:  # non-transient, or still failing after retries
                 if self._interrupt.is_set():
                     self._save()
@@ -234,6 +303,15 @@ class ChatCompletionsCodingSession:
                     "id": call.id, "type": "function",
                     "function": {"name": call.function.name, "arguments": call.function.arguments or "{}"},
                 } for call in calls]
+            notice = _provider_notice(content) if not calls else None
+            if notice is not None:
+                # A refusal of service delivered as text: not a model answer, and not
+                # transient. Fail visibly instead of handing it to the host as a result.
+                error = f"Provider refused service: {notice}"
+                self._emit("api_error", {"turn_id": turn_id, "provider_notice": True}, error=error)
+                self._save()
+                return CodingTurn(thread_id=self._thread_id, turn_id=turn_id,
+                                  tool_iterations=tool_iterations, error=error)
             self._messages.append(record)
             if not calls:
                 final_text = content
@@ -275,6 +353,7 @@ class ChatCompletionsCodingSession:
             self._shell.close()
         if self._started:
             self._save()
+        self._stop_sentinel()
 
     # -- model call -------------------------------------------------------------------------
 
@@ -319,6 +398,14 @@ class ChatCompletionsCodingSession:
                 if self._interrupt.wait(delay):
                     raise
 
+    def _end_turn(self, turn_id: str, tool_iterations: int, finish: str, note: str) -> CodingTurn:
+        """End the turn without an error: edits stand, the Episode's controller decides next."""
+        self._save()
+        self._emit("turn_completed", {"turn_id": turn_id, "tool_iterations": tool_iterations,
+                                      "budget_exhausted": True, "finish": finish})
+        return CodingTurn(final_text=note, thread_id=self._thread_id, turn_id=turn_id,
+                          tool_iterations=tool_iterations, native_result={"finish": finish})
+
     def _complete(self):
         from agent.auxiliary_client import (
             _create_with_progress_once, _provider_requires_stream, aux_progress_hook,
@@ -342,7 +429,11 @@ class ChatCompletionsCodingSession:
             force = _provider_requires_stream(route.get("provider", ""), route["base_url"])
             with aux_progress_hook(lambda: self._emit("activity", {})):
                 response = _create_with_progress_once(client, kwargs, "implementer_coding", force_stream=force)
-            return response.choices[0].message
+            usage = getattr(response, "usage", None)
+            prompt_tokens = getattr(usage, "prompt_tokens", None) if usage is not None else None
+            if not isinstance(prompt_tokens, int) or prompt_tokens <= 0:
+                prompt_tokens = sum(len(json.dumps(item, ensure_ascii=False)) for item in kwargs["messages"]) // 4
+            return response.choices[0].message, prompt_tokens
         finally:
             with self._lock:
                 http, self._http = self._http, None
