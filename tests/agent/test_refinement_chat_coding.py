@@ -170,7 +170,7 @@ def test_step_budget_is_configurable(tmp_path, monkeypatch) -> None:
     assert session._max_steps == 7
     monkeypatch.setenv("OPENCHIA_CODING_MAX_STEPS", "nonsense")
     session, _ = _session(tmp_path, ScriptedGateway([]))
-    assert session._max_steps == 300
+    assert session._max_steps == 60
 
 
 def test_wrong_route_is_rejected(tmp_path) -> None:
@@ -243,3 +243,53 @@ def test_compaction_keeps_the_head_of_old_tool_outputs(tmp_path, monkeypatch) ->
     session._compact()
     elided = [m for m in session._messages if m.get("role") == "tool" and "elided" in m["content"]]
     assert elided and all(m["content"].startswith("HEAD") for m in elided)
+
+
+# ---------------------------------------------------------------- guardrails (2026-10-09)
+
+
+def test_process_identity_is_a_session_sentinel_not_the_host(tmp_path) -> None:
+    import os
+    from openchia_cli.active_sessions import _pid_liveness
+
+    session, _ = _session(tmp_path, ScriptedGateway([]))
+    identity = session.process_identity()
+    assert identity["pid"] != os.getpid()
+    assert _pid_liveness(identity["pid"], identity["process_start_time"]) is True
+    session.close()
+    # After close the refiner can resume the invocation's workspace.
+    assert _pid_liveness(identity["pid"], identity["process_start_time"]) is False
+
+
+def test_provider_notice_fails_the_turn_instead_of_becoming_a_result(tmp_path) -> None:
+    notice = ("⚠️ **IMPORTANT USAGE NOTICE FROM ARGO** 🚫 **ACCESS REVOKED** Your Argo usage limit has "
+              "been exceeded. Reason: Monthly limit exceeded.")
+    gateway = ScriptedGateway([[_chunk(content=notice), _chunk(finish="stop")]])
+    events = []
+    session, _ = _session(tmp_path, gateway, events)
+    turn = session.run_turn("go")
+    assert turn.error and "Provider refused service" in turn.error and "Monthly limit exceeded" in turn.error
+    assert any(e["kind"] == "api_error" for e in events)
+
+
+def test_turn_ends_without_error_after_too_many_steps_without_an_edit(tmp_path, monkeypatch) -> None:
+    import agent.transports.refinement_chat as chat
+
+    monkeypatch.setattr(chat, "NO_WRITE_STOP_STEPS", 3)
+    monkeypatch.setattr(chat, "EXPLORATION_NUDGE_STEPS", 2)
+    looping = [[_chunk(tool=(0, f"t{i}", "list_files", "{}")), _chunk(finish="tool_calls")] for i in range(3)]
+    gateway = ScriptedGateway(looping)
+    session, _ = _session(tmp_path, gateway)
+    turn = session.run_turn("go")
+    assert turn.error is None and turn.native_result["finish"] == "no_progress"
+    assert len(gateway.requests) == 3
+
+
+def test_turn_ends_at_the_input_token_budget(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENCHIA_CODING_MAX_INPUT_TOKENS", "10")
+    looping = [[_chunk(tool=(0, f"t{i}", "list_files", "{}")), _chunk(finish="tool_calls")] for i in range(5)]
+    gateway = ScriptedGateway(looping)
+    session, _ = _session(tmp_path, gateway)
+    turn = session.run_turn("go")
+    assert turn.error is None and turn.native_result["finish"] == "token_budget"
+    assert len(gateway.requests) == 1  # the system prompt alone exceeds 10 tokens
