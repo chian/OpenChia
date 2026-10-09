@@ -440,7 +440,12 @@ DUET_PROTOCOL_GUIDANCE = (
     "the yield of accepted identities under the Episode's credit assignment and estimates the value of another unit. "
     "Its numerical rule continues productive acquisition and closes the Episode with a typed update when its criterion "
     "is met. Each closed child update becomes an observation at the parent level, so the same mechanism works back up "
-    "the tree. duet_status lists the exact task capabilities this host can assign."
+    "the tree. duet_status lists the exact task capabilities this host can assign. "
+    "Use an Episode only where there is a real stopping decision: work that needs iterative refinement and whose "
+    "units can show diminishing returns. Deterministic, one-shot work (a fixed list of calls, a calculation, a "
+    "single tool run) is a tool step that an Episode uses, not an Episode; propose it inside a parent Episode that "
+    "iterates. duet_status reports an advisory episode_without_stopping_decision when a draft Episode's stopping "
+    "rule is a fixed, exhaustible plan; explain it to the human, who may still approve a deliberate probe."
 )
 
 # Universal parallel-tool-call guidance (ALL models): the runtime already executes independent calls
