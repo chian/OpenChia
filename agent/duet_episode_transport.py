@@ -81,6 +81,10 @@ class DuetEpisodeBinding:
         from agent.model_call_recovery_policy import resolve_recovery_policy
 
         route["recovery"] = resolve_recovery_policy(route)
+        from agent.refiner_role_routes import configured_role_spec, resolve_role_routes
+
+        spec, providers = configured_role_spec()
+        role_routes = resolve_role_routes(spec, route, providers)
         record = {
             "schema_version": 1,
             "owner_duet_id": owner_duet_id,
@@ -91,6 +95,9 @@ class DuetEpisodeBinding:
             "auth_mode": runtime.get("auth_mode", ""),
             "credential_source": "owning_duet_host_memory",
         }
+        if role_routes:
+            # Pinned per-role overrides (agent/refiner_role_routes.py); no secrets.
+            record["role_routes"] = role_routes
         reference = put_data(artifacts, owner_duet_id, "duet_model_binding", record)
         return cls(owner_duet_id, reference, record, runtime.get("api_key") or None)
 
@@ -113,6 +120,29 @@ class DuetEpisodeBinding:
                 "The refiner's required model slots differ from the owning Duet binding."
             )
 
+    def route_for(self, episode_local_id=None):
+        """(role, route, key) for one call: a pinned role override or the Duet's route."""
+        from agent.refiner_role_routes import route_key, select_route
+
+        role, route = select_route(self.record.get("role_routes") or {}, self.record["route"], episode_local_id)
+        return role, route, route_key(route, self.api_key)
+
+    def for_role(self, *roles):
+        """This binding with its route replaced by the first configured override of *roles*."""
+        import dataclasses
+
+        from agent.refiner_role_routes import route_key
+
+        overrides = self.record.get("role_routes") or {}
+        for role in roles:
+            if role in overrides:
+                route = overrides[role]
+                return dataclasses.replace(
+                    self, record={**self.record, "route": route, "refiner_role": role},
+                    api_key=route_key(route, self.api_key),
+                )
+        return self
+
     def transport(self, *, record_attempt, cancel_event=None):
         return DuetEpisodeTransport(
             self, record_attempt=record_attempt, cancel_event=cancel_event
@@ -128,9 +158,10 @@ class DuetEpisodeTransport:
     async def __call__(self, request):
         if request.model_type not in self.binding.record["model_types"]:
             raise ValueError("Model call names a slot outside the frozen Duet binding.")
-        route = self.binding.record["route"]
+        role, route, key = self.binding.route_for(request.episode_local_id)
         receipt = {
             "binding_ref": self.binding.reference,
+            **({"refiner_role": role} if role else {}),
             "owner_duet_id": self.binding.owner_duet_id,
             "session_id": self.binding.record["session_id"],
             "call_id": uuid.uuid4().hex,
@@ -145,7 +176,7 @@ class DuetEpisodeTransport:
         self.record_attempt({**receipt, "state": "started"})
         try:
             text, actual_model = await invoke_pinned_route(
-                route, self.binding.api_key, request, self.cancel, lambda: None,
+                route, key, request, self.cancel, lambda: None,
                 record_activity=lambda details: self.record_attempt({**receipt, **details}),
             )
         except asyncio.CancelledError:
@@ -159,7 +190,7 @@ class DuetEpisodeTransport:
             self.record_attempt({
                 **receipt,
                 "state": "failed",
-                **provider_failure(exc, route, credential=self.binding.api_key, request=request),
+                **provider_failure(exc, route, credential=key, request=request),
                 "elapsed_seconds": time.monotonic() - started,
             })
             raise ModelCallFailed(

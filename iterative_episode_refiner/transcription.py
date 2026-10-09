@@ -81,7 +81,11 @@ async def emit_modules(*, projection, targets, store, transport, emitter=None, r
     resolver = resolver or EpisodeReferenceResolver()
     inherited = inherited_refinement_requests(build_request, store)
     sources: dict[str, str] = {}
-    with model_transport_scope(transport):
+    from agent.refiner_role_routes import role_scope
+
+    # Emitter calls are attributed to the "emitter" role so they can use their own
+    # model/reasoning (e.g. deep reasoning for one long call), see refiner_role_routes.
+    with model_transport_scope(transport), role_scope("emitter"):
         for target in targets:
             node = node_by_id[target.local_id]
             frozen = frozen_by_id[target.local_id]
