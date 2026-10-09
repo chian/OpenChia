@@ -9,6 +9,13 @@ local measurement; repair of existing source still uses the coding agent.
 
 Cost (#80): one emitter call is roughly 50–150k input tokens; an exploratory
 chat-completions coding turn on Argo used 5.8–7.8M.
+
+A module the emitter's own validation rejects is ordinary feedback, not a failed
+model call. The emitter gets one repair attempt with the rejection; if that is
+also rejected, the rejected source is written anyway so candidate admission
+reports the same deficit and the next unit repairs the existing file with the
+coding agent. (2026-10-09: a 598 s Qwen emission rejected as
+``goal_view_mutable`` stopped the whole Run.)
 """
 
 from __future__ import annotations
@@ -27,6 +34,17 @@ from agent.refinement_coding import CodingTurn
 
 #: Set to ``0`` to disable emitter transcription and always use the coding agent.
 TRANSCRIPTION_ENV = "OPENCHIA_REFINER_TRANSCRIPTION"
+
+#: Emitter calls per module: the first emission plus one repair of a rejection.
+EMISSION_ATTEMPTS = 2
+
+
+@dataclass(frozen=True)
+class EmittedSources:
+    """Sources to write, and the modules whose final emission validation rejected."""
+
+    sources: dict
+    rejections: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -55,9 +73,14 @@ def transcription_targets(writable_paths, paths_by_local_id: Mapping[str, str], 
     return tuple(TranscriptionTarget(by_path[path], path) for path in sorted(writable))
 
 
-async def emit_modules(*, projection, targets, store, transport, emitter=None, resolver=None):
-    """Emit each target module from the admitted plan; return ``{path: source}``."""
-    from episode_builder.emitter import EpisodeModuleEmitter
+async def emit_modules(*, projection, targets, store, transport, emitter=None, resolver=None) -> EmittedSources:
+    """Emit each target module from the admitted plan.
+
+    A validation rejection gets one repair attempt; a module still rejected is
+    reported in ``rejections`` and, when the model produced source, that source
+    is returned for ordinary admission. Model-call failures still raise.
+    """
+    from episode_builder.emitter import EpisodeEmissionError, EpisodeModuleEmitter
     from episode_builder.planner import (
         approved_refinement_evidence_for_episode,
         inherited_refinement_requests,
@@ -81,6 +104,7 @@ async def emit_modules(*, projection, targets, store, transport, emitter=None, r
     resolver = resolver or EpisodeReferenceResolver()
     inherited = inherited_refinement_requests(build_request, store)
     sources: dict[str, str] = {}
+    rejections: list[dict] = []
     from agent.refiner_role_routes import role_scope
 
     # Emitter calls are attributed to the "emitter" role so they can use their own
@@ -90,21 +114,37 @@ async def emit_modules(*, projection, targets, store, transport, emitter=None, r
             node = node_by_id[target.local_id]
             frozen = frozen_by_id[target.local_id]
             reference = None if frozen.episode_reference is None else resolver.resolve(frozen.episode_reference)
-            module = await emitter.emit(
-                contract=frozen.contract,
-                plan=node,
-                direct_children=children_by_parent.get(node.local_id, {}),
-                direct_edges=tuple(edges_by_parent.get(node.local_id, ())),
-                reference_context=reference,
-                target_module_name=node.module_name,
-                forbidden_module_names=tuple(name for name in module_names if name != node.module_name),
-                approved_refinement_evidence=approved_refinement_evidence_for_episode(
-                    build_request, node.local_id, inherited=inherited,
-                ),
-                predecessor_module=predecessors.get(node.module_name),
-            )
-            sources[target.path] = module.module_source
-    return sources
+            feedback = None
+            for attempt in range(1, EMISSION_ATTEMPTS + 1):
+                try:
+                    module = await emitter.emit(
+                        contract=frozen.contract,
+                        plan=node,
+                        direct_children=children_by_parent.get(node.local_id, {}),
+                        direct_edges=tuple(edges_by_parent.get(node.local_id, ())),
+                        reference_context=reference,
+                        target_module_name=node.module_name,
+                        forbidden_module_names=tuple(name for name in module_names if name != node.module_name),
+                        approved_refinement_evidence=approved_refinement_evidence_for_episode(
+                            build_request, node.local_id, inherited=inherited,
+                        ),
+                        predecessor_module=predecessors.get(node.module_name),
+                        **({"repair_feedback": feedback} if feedback else {}),
+                    )
+                except EpisodeEmissionError as exc:
+                    rejection = {"code": exc.code, "field_path": exc.field_path, "detail": exc.detail[:2048]}
+                    if attempt < EMISSION_ATTEMPTS:
+                        feedback = {**rejection, **({"rejected_module_source": exc.rejected_source}
+                                                    if exc.rejected_source else {})}
+                        continue
+                    rejections.append({"local_id": target.local_id, "path": target.path, "attempts": attempt,
+                                       "source_written": bool(exc.rejected_source), **rejection})
+                    if exc.rejected_source:
+                        sources[target.path] = exc.rejected_source
+                    break
+                sources[target.path] = module.module_source
+                break
+    return EmittedSources(sources, tuple(rejections))
 
 
 class TranscribedTurnSession:
@@ -149,10 +189,14 @@ class TranscribedTurnSession:
         if self._interrupted.is_set():
             return CodingTurn(thread_id=self._thread_id, turn_id=turn_id, interrupted=True)
         try:
-            sources = self._produce()
+            produced = self._produce()
         except Exception as exc:
             return CodingTurn(thread_id=self._thread_id, turn_id=turn_id,
                               error=f"Emitter transcription failed: {type(exc).__name__}: {exc}"[:2000])
+        if isinstance(produced, EmittedSources):
+            sources, rejections = produced.sources, produced.rejections
+        else:
+            sources, rejections = produced, ()
         for path, source in sources.items():
             target = (self._workspace / path).resolve()
             if self._workspace.resolve() not in target.parents:
@@ -160,11 +204,18 @@ class TranscribedTurnSession:
                                   error=f"Emitter target {path!r} is outside the coding workspace")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(source, encoding="utf-8")
+        text = ("Transcribed the admitted node plan with the Builder's module emitter: "
+                + ", ".join(sorted(sources) or ["no files"]) + ". Ordinary admission and local measurement judge it.")
+        for item in rejections:
+            text += (f" The emitter's validation rejected {item['path']} after {item['attempts']} attempts"
+                     f" ({item['code']} at {item['field_path']}: {item['detail']});"
+                     + (" the rejected source was written so admission reports it and it can be repaired."
+                        if item["source_written"] else " no source was produced."))
         return CodingTurn(
-            final_text=("Transcribed the admitted node plan with the Builder's module emitter: "
-                        + ", ".join(sorted(sources)) + ". Ordinary admission and local measurement judge it."),
+            final_text=text,
             thread_id=self._thread_id, turn_id=turn_id, tool_iterations=len(sources),
-            native_result={"finish": "transcribed", "paths": sorted(sources)},
+            native_result={"finish": "transcribed", "paths": sorted(sources),
+                           **({"rejections": [dict(item) for item in rejections]} if rejections else {})},
         )
 
     def close(self) -> None:
@@ -202,6 +253,7 @@ def run_coroutine_privately(make_coroutine):
 
 
 __all__ = [
+    "EmittedSources",
     "TRANSCRIPTION_ENV", "TranscribedTurnSession", "TranscriptionTarget", "emit_modules",
     "run_coroutine_privately", "transcription_enabled", "transcription_targets",
 ]
