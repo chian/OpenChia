@@ -65,10 +65,13 @@ def test_emitter_failure_is_a_turn_error_and_writes_nothing(tmp_path) -> None:
     def fail():
         raise RuntimeError("emission rejected")
 
-    session = TranscribedTurnSession(workspace=tmp_path, produce=fail)
+    # The repository conftest puts a HERMES_HOME under tmp_path; use a workspace of our own.
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    session = TranscribedTurnSession(workspace=workspace, produce=fail)
     turn = session.run_turn("work")
     assert turn.error and "emission rejected" in turn.error
-    assert not any(tmp_path.iterdir())
+    assert not any(workspace.iterdir())
     session.close()
 
 
