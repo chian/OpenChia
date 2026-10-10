@@ -16,7 +16,21 @@ from method_loop import (
     EpisodeTree,
     Grain,
     Leaf,
+    ReportContract,
 )
+
+
+# Since d75f85aa5b every child invocation needs a parent-owned report contract
+# and a synthesis callback; the parent receives only the requested fields.
+_REPORT = ReportContract(
+    decision="whether the parent needs another child unit",
+    measurements={},
+    information={"value": "the child's result value"},
+)
+
+
+def _synthesize(result, completion, request):
+    return {"value": result.value}
 
 
 @dataclass(frozen=True)
@@ -97,7 +111,7 @@ def _nested_run(*, run_id: str):
                 label="leaf",
             )
         ),
-        request=EpisodeRequest(goal=child_goal, message=_Message(1)),
+        request=EpisodeRequest(goal=child_goal, message=_Message(1), report_contract=_REPORT),
         build_result=lambda record: _Message(record.units_consumed),
     )
     root = Episode(
@@ -105,6 +119,7 @@ def _nested_run(*, run_id: str):
         key="root",
         source=_SequenceSource(
             ChildEpisodeUnit(
+                synthesize_report=_synthesize,
                 child=child,
                 receive_result=lambda result, completion, request: _Message(
                     result.value
@@ -162,6 +177,7 @@ def test_child_goal_must_refine_the_containing_goal():
                 objective={"task": "child"},
             ),
             message=_Message(1),
+            report_contract=_REPORT,
         ),
         build_result=lambda record: _Message(record.units_consumed),
     )
@@ -170,6 +186,7 @@ def test_child_goal_must_refine_the_containing_goal():
         key="root",
         source=_SequenceSource(
             ChildEpisodeUnit(
+                synthesize_report=_synthesize,
                 child=wrong_child,
                 receive_result=lambda result, completion, request: result,
             )

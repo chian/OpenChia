@@ -1,0 +1,42 @@
+name: Episode tests
+
+# The OpenChia Episode suite on a standard GitHub runner. The inherited Hermes
+# unit job (tests.yml) needs a 96-core org runner that this repository does not
+# have, so it never runs. This job runs the suite listed in tests/episode_suite.txt;
+# known failures (tests/episode_suite_known_failures.txt) are deselected so the
+# job blocks new failures while the list is worked down.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: episode-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  episode-tests:
+    name: Episode tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up locked Python and test dependencies
+        uses: ./.github/actions/setup-pm
+        with:
+          extras: '[]'
+          test-environment: 'true'
+
+      - name: Run the Episode suite
+        run: python3 scripts/run_episode_suite.py --python "$HERMES_PYTHON" --workers 4 --verbose
+
+      - name: Report known failures that pass again
+        if: always()
+        run: python3 scripts/run_episode_suite.py --python "$HERMES_PYTHON" --workers 4 --check-known
