@@ -224,8 +224,8 @@ class OpenChiaCLI(
 
     @staticmethod
     def _strict_run_executor_factory() -> Any:
-        """systemd on a Linux host, otherwise a container (Docker/Rancher/Podman);
-        ``OPENCHIA_RUN_EXECUTOR`` forces one, ``OPENCHIA_CONTAINER_IMAGE`` picks the image."""
+        """A container (Docker/Rancher/Podman) by default (ADR 0005); systemd only when
+        ``OPENCHIA_RUN_EXECUTOR=systemd`` selects it. ``OPENCHIA_CONTAINER_IMAGE`` picks the image."""
         from episode_runtime import make_run_executor_factory
 
         repository_root = Path(__file__).resolve().parents[1]

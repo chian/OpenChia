@@ -289,12 +289,13 @@ def test_backend_selection(monkeypatch):
     from episode_runtime import executor_selection as sel
 
     monkeypatch.delenv(sel.EXECUTOR_BACKEND_ENV, raising=False)
-    # Host facts are data: no host is faked, every branch runs everywhere.
-    assert sel.resolve_executor_backend(platform="darwin", systemd_available=True) == "container"
-    assert sel.resolve_executor_backend(platform="linux", systemd_available=False) == "container"
-    assert sel.resolve_executor_backend(platform="linux", systemd_available=True) == "systemd"
+    # ADR 0005: the container is the default everywhere; host systemd never selects.
+    assert sel.resolve_executor_backend() == "container"
+    assert sel.resolve_executor_backend("auto") == "container"
+    assert sel.resolve_executor_backend("systemd") == "systemd"
     monkeypatch.setenv(sel.EXECUTOR_BACKEND_ENV, "systemd")
-    assert sel.resolve_executor_backend(platform="darwin", systemd_available=False) == "systemd"
+    assert sel.resolve_executor_backend() == "systemd"
+    assert sel.resolve_executor_backend("container") == "container"
     monkeypatch.setenv(sel.EXECUTOR_BACKEND_ENV, "bogus")
     with pytest.raises(ValueError):
         sel.resolve_executor_backend()

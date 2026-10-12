@@ -4,7 +4,8 @@ Status: Accepted
 
 Date: 2026-10-03
 
-Implementation: both executors exist. Changing the Linux default and deriving
+Implementation: both executors exist. The container default is implemented in
+`episode_runtime/executor_selection.py` (2026-10-08). Deriving
 an explicit, recorded execution environment from the current project remain
 implementation work. Systemd compatibility changes are tracked separately in
 [ADR 0006](0006-support-systemd-255.md).
