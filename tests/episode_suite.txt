@@ -1,0 +1,42 @@
+# OpenChia Episode test suite, run by scripts/run_episode_suite.py and the
+# "Episode tests" workflow. One path per line (directory or file); `#` starts a note.
+# Add new OpenChia test files here, or put them under one of the directories below.
+
+tests/method_loop
+tests/numeric_control_library
+tests/function_library
+tests/episode_builder
+tests/episode_runtime
+tests/iterative_episode_refiner
+tests/openchia_cli/inspector
+
+# Duet, build/run host, launch, model-call supervision and coding transports
+tests/agent/test_build_refinement_job.py
+tests/agent/test_build_result_publication.py
+tests/agent/test_coding_container_shell.py
+tests/agent/test_duet_store_transactions.py
+tests/agent/test_egress_allowlist_contract.py
+tests/agent/test_episode_advisories.py
+tests/agent/test_episode_launch_receipts.py
+tests/agent/test_episode_model_failure_reporting.py
+tests/agent/test_episode_testing_launch.py
+tests/agent/test_inline_episode_architecture_cas.py
+tests/agent/test_launch_transport_streams.py
+tests/agent/test_model_call_failed_attempt_replacement.py
+tests/agent/test_model_call_liveness.py
+tests/agent/test_provider_notices.py
+tests/agent/test_refinement_chat_coding.py
+tests/agent/test_refiner_role_routes.py
+tests/agent/test_repeatable_episode_calls.py
+tests/agent/test_run_environment_status.py
+
+# OpenChia CLI commands and views
+tests/openchia_cli/test_background_duet_recovery.py
+tests/openchia_cli/test_doctor_episode_runtime.py
+tests/openchia_cli/test_episode_architecture_structure.py
+tests/openchia_cli/test_episode_launch_setup.py
+tests/openchia_cli/test_episode_test_continuation.py
+
+# Target environment preparation and the live-model bridge script
+tests/pm/test_prepared_project.py
+tests/scripts/test_openchia_live_model_bridge.py

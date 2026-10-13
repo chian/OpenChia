@@ -117,6 +117,7 @@ def report_campaign(tmp_path):
                     "control_bundle_ref": source.as_record(),
                     "supersedes_assignment_refs": [],
                     "writable_paths": [],
+                    "materialization_targets": [],
                     "protected_paths": [],
                     "judgment_lineage": content_id("lineage", role).value,
                 },

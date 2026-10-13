@@ -404,7 +404,6 @@ async def prepared_refiner(
     )
     from iterative_episode_refiner.runtime import RefinementSession
     from iterative_episode_refiner.measure_preparation import build_measure_policy
-    from iterative_episode_refiner.measure_groups import group_definition
     from iterative_episode_refiner.records import RefinementRecord
     from iterative_episode_refiner.service import IterativeEpisodeRefiner
     from iterative_episode_refiner.workspace import RefinementWorkspace
@@ -493,6 +492,9 @@ async def prepared_refiner(
                 "refiner_approval": refiner.workflow_approval.as_record(),
             },
         )
+        if grouped_measures:
+            # Measure groups were removed in def61cccee; only the grouped variant needs them.
+            from iterative_episode_refiner.measure_groups import group_definition
         local = data("local_measure", group_definition("local") if grouped_measures else {"purpose": "local"})
         acceptance = data("acceptance_measure", group_definition("acceptance", "composition") if grouped_measures else {"purpose": "independent acceptance"})
         workflow_ref = data("target_workflow", target.frozen_workflow.as_record())
