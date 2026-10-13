@@ -20,9 +20,10 @@ conversation / exact notes
      human approval
            |
            v
-     EpisodeBuilder
+  /build: IterativeEpisodeRefiner constructs
+  (Designer + specialists; EpisodeBuilder validators)
            |
- Materialized Specification
+ admitted candidate + Materialization Spec
            |
        human Run
            |
@@ -149,6 +150,11 @@ working; a direct Architecture replacement is admitted only against the still
 current idle authority head.
 
 ## IterativeEpisodeRefiner
+
+> **Since #66** the refiner also performs initial construction inside `/build`;
+> there is no separate Builder generation pass or receipt first. See
+> [refiner Episodes](iterative_episode_refiner_episodes.md) and the design deck
+> review (chian/OpenChia#68, D5). The concerns below describe its refinement role.
 
 IterativeEpisodeRefiner is a host subsystem with three modular concerns:
 

@@ -39,6 +39,17 @@ another command or routine approval. The required sequence is:
 6. Return the independently accepted build, or an explicit unresolved,
    interrupted or cancelled result. Never call an unfinished build complete.
 
+> **Update 2026-10-08 (#66).** Step 1 no longer runs a separate Builder
+> generation pass. `/build` starts the IterativeEpisodeRefiner directly from the
+> approved Architecture: its Designer commissions MaterializationImplementer,
+> Code Implementer, Measure and Verify to construct and validate the candidate.
+> EpisodeBuilder supplies the shared validators and source admission, not a
+> compulsory initial construction strategy
+> ([refiner Episodes](../openchia/iterative_episode_refiner_episodes.md),
+> `iterative_episode_refiner/construction.py`). The ownership decision above —
+> one `/build` owns construction, repair and validation without further
+> commands — is unchanged. See the design deck review (chian/OpenChia#68, D5).
+
 A failed Builder attempt or failed validation supplies evidence for the next
 refinement decision. Failure alone must not end the job or require the user or
 coding assistant to launch the refiner, issue another build command, repair the

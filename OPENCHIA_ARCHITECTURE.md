@@ -20,10 +20,14 @@ human <----> restricted conversational LLM
                     |
           exact human approval
                     |
-             EpisodeBuilder
-        plan -> emit -> inspect
+                 /build
                     |
-       Materialized Specification
+       IterativeEpisodeRefiner (constructs and validates)
+   Designer -> MaterializationImplementer | Code Implementer
+               | Measure | Verify   (EpisodeBuilder validators
+                                      and source admission)
+                    |
+       admitted candidate + Materialization Spec
                     |
            explicit human Run
                     |
@@ -31,12 +35,16 @@ human <----> restricted conversational LLM
                     |
           validated audit records
                     |
-       IterativeEpisodeRefiner
-                    |
-        successor proposal to Duet
+        successor proposal to Duet (when the
+        Architecture itself must change)
                     |
           exact human approval
 ```
+
+Since #66 there is no separate initial Builder generation pass: `/build`
+starts the refiner, which constructs the Materialization Spec and source
+directly from the approved Architecture
+([refiner Episodes](docs/openchia/iterative_episode_refiner_episodes.md)).
 
 The Duet is the human, a search-capable conversational LLM, and the host
 protocol that joins them. It owns the complete Workflow Architecture. The host
@@ -183,11 +191,13 @@ correct; those meanings belong to the Episode's declared result and credit.
 
 ## Iterative refinement
 
-IterativeEpisodeRefiner is a modular subsystem between inspection and the next
-Duet proposal. It pins one approved Architecture, one admitted Materialized
-Specification, exact human notes, and validated terminal Run evidence when such
-evidence exists. Refinement may begin before a Run when the human is responding
-to static materialization details.
+IterativeEpisodeRefiner constructs and refines the Target Workflow inside
+`/build` (#66): it pins one approved Architecture, imports any existing
+candidate work through the plan validators, and authors the Materialization
+Spec and source through its Designer and four peer specialists
+(MaterializationImplementer, Code Implementer, Measure, Verify). Exact human
+notes and validated terminal Run evidence, when such evidence exists, inform
+later refinement.
 
 Generated source and Run audit content enter the refinement context only as
 untrusted reference data. They cannot select tools, alter authority, approve a
