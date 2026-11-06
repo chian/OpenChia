@@ -353,6 +353,9 @@ def constructor_signatures() -> dict[str, dict[str, list[str]]]:
         "handoff_library.HandoffPayloadContract": handoff_library.HandoffPayloadContract,
         "numeric_control_library.ResultColumnSchema": numeric_control_library.ResultColumnSchema,
     }
+    for module in ("numeric_control_library", "numeric_control_library.computation_adapter"):
+        for name in ("ComputationState", "ComputationObservation", "ComputationInput"):
+            classes[f"{module}.{name}"] = getattr(numeric_control_library, name)
     signatures: dict[str, dict[str, list[str]]] = {}
     for qualified, cls in classes.items():
         init_fields = [field for field in dataclasses.fields(cls) if field.init]
@@ -385,11 +388,13 @@ def _function_signatures() -> dict[str, dict[str, list[str]]]:
     """
     import inspect
 
-    from numeric_control_library import controller
+    from numeric_control_library import computation_adapter, controller
 
     functions = {
         "numeric_control_library.compose_controller": controller.compose_controller,
         "numeric_control_library.controller.compose_controller": controller.compose_controller,
+        "numeric_control_library.compose_computation_controller": computation_adapter.compose_computation_controller,
+        "numeric_control_library.computation_adapter.compose_computation_controller": computation_adapter.compose_computation_controller,
     }
     signatures: dict[str, dict[str, list[str]]] = {}
     for qualified, function in functions.items():
