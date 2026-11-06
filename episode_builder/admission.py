@@ -353,6 +353,9 @@ def constructor_signatures() -> dict[str, dict[str, list[str]]]:
         "handoff_library.HandoffPayloadContract": handoff_library.HandoffPayloadContract,
         "numeric_control_library.ResultColumnSchema": numeric_control_library.ResultColumnSchema,
     }
+    for name in ("PreferentialChannelSchema", "PreferentialControllerConfig", "PreferentialIncidenceObservation"):
+        for module in ("numeric_control_library", "numeric_control_library.preferential_control"):
+            classes[f"{module}.{name}"] = getattr(numeric_control_library, name)
     signatures: dict[str, dict[str, list[str]]] = {}
     for qualified, cls in classes.items():
         init_fields = [field for field in dataclasses.fields(cls) if field.init]
@@ -385,11 +388,15 @@ def _function_signatures() -> dict[str, dict[str, list[str]]]:
     """
     import inspect
 
-    from numeric_control_library import controller
+    from numeric_control_library import controller, preferential_control
 
     functions = {
         "numeric_control_library.compose_controller": controller.compose_controller,
         "numeric_control_library.controller.compose_controller": controller.compose_controller,
+        "numeric_control_library.joint_preferential_discovery": preferential_control.joint_preferential_discovery,
+        "numeric_control_library.preferential_control.joint_preferential_discovery": preferential_control.joint_preferential_discovery,
+        "numeric_control_library.compose_preferential_controller": preferential_control.compose_preferential_controller,
+        "numeric_control_library.preferential_control.compose_preferential_controller": preferential_control.compose_preferential_controller,
     }
     signatures: dict[str, dict[str, list[str]]] = {}
     for qualified, function in functions.items():
