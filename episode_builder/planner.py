@@ -35,6 +35,7 @@ from llm_call_library import (
     structured_json_completion,
 )
 from numeric_control_library import (
+    COMPOSE_COMPUTATION_CONTROLLER,
     COMPOSE_INCIDENCE_CONTROLLER,
     MARGINAL_DOMINATED_HYPERVOLUME,
     PAIRED_INCIDENCE,
@@ -343,6 +344,7 @@ def _library_functions() -> tuple[LibraryFunction, ...]:
         ADMIT_CHILD_RESULT,
         ADMIT_DUET_LAUNCH_REQUEST,
         COMPOSE_INCIDENCE_CONTROLLER,
+        COMPOSE_COMPUTATION_CONTROLLER,
         MARGINAL_DOMINATED_HYPERVOLUME,
         *continuation_function_library.functions(),
         *rarefaction_function_library.functions(),

@@ -1,10 +1,12 @@
 """The computation estimator is executable and keeps its model contract explicit."""
 
+import ast
 import json
 
 import pytest
 
 from episode_builder.planner import materializer_function_catalog
+from episode_builder import admission, emitter
 from function_library import FunctionImplementation
 from numeric_control_library import VALUE_OF_COMPUTATION, BayesianTransitionModel
 from numeric_control_library.rarefaction import rarefaction_function_library
@@ -74,3 +76,45 @@ def test_model_estimator_cannot_masquerade_as_incidence_estimation():
     ):
         with pytest.raises(ValueError):
             VALUE_OF_COMPUTATION.admit_arguments(arguments)
+
+
+def test_builder_checks_measured_adapter_calls_before_runtime():
+    # Both public import forms must enforce the same measured-input contract.
+    for module in (
+        "numeric_control_library",
+        "numeric_control_library.computation_adapter",
+    ):
+        preamble = (
+            f"from {module} import ComputationState, ComputationObservation, "
+            "ComputationInput, compose_computation_controller\n"
+        )
+        valid = (
+            "state = ComputationState('before', 0, ('measurement:before',), ('try',))\n"
+            "event = ComputationObservation('attempt', state, 'try', state, ('execution:1',))\n"
+            "value = ComputationInput(state, (event,))\n"
+            "factory = compose_computation_controller(epoch='task', initial_state=state)\n"
+        )
+        assert not admission._constructor_argument_deficits(ast.parse(preamble + valid))
+        invalid = (
+            "state = ComputationState(state_id='before', score=0)\n"
+            "event = ComputationObservation('attempt', state, 'try', state)\n"
+            "value = ComputationInput()\n"
+            "factory = compose_computation_controller('task', state)\n"
+        )
+        deficits = admission._constructor_argument_deficits(
+            ast.parse(preamble + invalid)
+        )
+        for record in ("ComputationState", "ComputationObservation"):
+            assert any(record in item and "evidence_refs" in item for item in deficits)
+        assert any(
+            "ComputationInput" in item and "current_state" in item for item in deficits
+        )
+        assert any("keyword-only" in item for item in deficits)
+        # Generated code sees the same signatures used for admission.
+        signatures = admission.constructor_signatures()
+        assert (
+            emitter._MODULE_CONTRACT["constructor_signatures"]["classes"][
+                f"{module}.compose_computation_controller"
+            ]
+            == signatures[f"{module}.compose_computation_controller"]
+        )

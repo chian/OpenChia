@@ -43,6 +43,8 @@ supports more work and return when the registered numerical rule resolves.
 The numerical library also includes a modular
 [value-of-computation yield estimator](docs/openchia/value_of_computation.md)
 for adaptive attempts and diagnostic work, with an explicit predictive-model interface.
+Its registered Episode adapter connects measured action outcomes to forecasts
+and credit history available to the next chooser decision.
 
 ## Start
 
