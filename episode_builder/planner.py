@@ -327,6 +327,10 @@ def _admit_plan_payload(value: object) -> dict[str, object]:
 
 
 def _library_functions() -> tuple[LibraryFunction, ...]:
+    from numeric_control_library.preferential_control import (
+        COMPOSE_PREFERENTIAL_CONTROLLER,
+        preferential_function_library,
+    )
     from function_library.episode_calls import BUILD_REPEATABLE_CHILD
     from function_library.epistemic import epistemic_function_library
     from function_library.reasoning import reasoning_function_library
@@ -342,6 +346,8 @@ def _library_functions() -> tuple[LibraryFunction, ...]:
         ADMIT_CHILD_RESULT,
         ADMIT_DUET_LAUNCH_REQUEST,
         COMPOSE_INCIDENCE_CONTROLLER,
+        COMPOSE_PREFERENTIAL_CONTROLLER,
+        *preferential_function_library.functions(),
         MARGINAL_DOMINATED_HYPERVOLUME,
         *continuation_function_library.functions(),
         *rarefaction_function_library.functions(),

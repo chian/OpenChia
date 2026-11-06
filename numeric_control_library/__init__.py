@@ -20,10 +20,29 @@ from .credit_assignment import (
     is_stable_id,
 )
 from .rarefaction import PAIRED_INCIDENCE, paired_incidence
+from .preferential_control import (
+    COMPOSE_PREFERENTIAL_CONTROLLER,
+    JOINT_PREFERENTIAL_DISCOVERY,
+    PREFERENTIAL_EXCLUDED,
+    PREFERENTIAL_FAILED,
+    PREFERENTIAL_OBSERVED,
+    PreferentialChannelSchema,
+    PreferentialControllerConfig,
+    PreferentialDiscoveryEstimator,
+    PreferentialEstimatorController,
+    PreferentialIncidenceObservation,
+    compose_preferential_controller,
+    joint_preferential_discovery,
+)
 
 
 __all__ = [
     "COMPOSE_INCIDENCE_CONTROLLER",
+    "COMPOSE_PREFERENTIAL_CONTROLLER",
+    "JOINT_PREFERENTIAL_DISCOVERY",
+    "PREFERENTIAL_EXCLUDED",
+    "PREFERENTIAL_FAILED",
+    "PREFERENTIAL_OBSERVED",
     "MARGINAL_DOMINATED_HYPERVOLUME",
     "PAIRED_INCIDENCE",
     "PREDICTED_CREDIT_UPPER_BOUND",
@@ -33,9 +52,16 @@ __all__ = [
     "NumericBand",
     "NumericIncidenceState",
     "NumericYieldProjection",
+    "PreferentialChannelSchema",
+    "PreferentialControllerConfig",
+    "PreferentialDiscoveryEstimator",
+    "PreferentialEstimatorController",
+    "PreferentialIncidenceObservation",
     "ResultColumnSchema",
     "is_stable_id",
     "compose_controller",
+    "compose_preferential_controller",
+    "joint_preferential_discovery",
     "paired_incidence",
     "predicted_credit_upper_bound",
 ]

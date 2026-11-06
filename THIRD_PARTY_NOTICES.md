@@ -8,8 +8,15 @@ The `method_loop/` package is adapted from `chian/nano-graphrag` at commit
 `efe161dfec7595f7168b3ea626d61011147cc130`. The source-backed question-pipeline
 Episode collection in `episode_library/` and its numerical components in
 `numeric_control_library/` come from commit
-`546526a77bd34ca79ea16f16549640d22fa86851`. Both remain covered by the
-nano-graphrag MIT license:
+`546526a77bd34ca79ea16f16549640d22fa86851`.
+
+The complete `numeric_control_library/preferential_discovery.py` is copied
+unchanged from `question_pipeline/utilities/rarefaction.py` at nano-graphrag
+commit `60a167f9eeda0c9ea2ca294724174948947baf3f`, under the same license.
+`numeric_control_library/preferential_control.py` supplies OpenChia library
+registration and closed-record integration around that original implementation.
+
+These remain covered by the nano-graphrag MIT license:
 
 > MIT License
 >

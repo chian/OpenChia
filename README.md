@@ -40,6 +40,10 @@ its fixed place in the approved tree. Rarefaction measures the predicted value
 of continuing from observed credit; Episodes continue while projected credit
 supports more work and return when the registered numerical rule resolves.
 
+The numerical function library also contains nano-graphrag's original
+[joint preferential-discovery estimator and controller](docs/openchia/preferential_discovery.md),
+with ordered attempt histories and independent fits for each Episode.
+
 ## Start
 
 From this checkout:

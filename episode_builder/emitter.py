@@ -881,6 +881,17 @@ _MODULE_CONTRACT = {
             "*_parameters values are their JSON argument mappings; it returns the "
             "callable(path) factory that build_controller_factory returns"
         ),
+        "compose_preferential_controller": (
+            "When explicitly selected, numeric_control_library.compose_preferential_controller "
+            "binds nano-graphrag's original history-aware numerical component. Its keyword-only "
+            "arguments are epoch, channel_schema=PreferentialChannelSchema(...), "
+            "control=PreferentialControllerConfig(...), with optional window_size, "
+            "subsample_size, alpha and threshold_adapter. Its observations are "
+            "PreferentialIncidenceObservation, whose inherited failed(reason, ...) and "
+            "excluded(reason, ...) distinguish failure and exclusion from observed zero yield. "
+            "It cannot consume CreditObservation or anonymous NumericIncidenceState. "
+            "Existing Architecture bindings to compose_controller remain unchanged."
+        ),
     },
     "library_exports": {
         "rule": (
