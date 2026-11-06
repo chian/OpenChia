@@ -20,6 +20,12 @@ from .credit_assignment import (
     is_stable_id,
 )
 from .rarefaction import PAIRED_INCIDENCE, paired_incidence
+from .value_of_computation import (
+    VALUE_OF_COMPUTATION,
+    BayesianTransitionModel,
+    ComputationReport,
+    value_of_computation,
+)
 
 
 __all__ = [
@@ -27,6 +33,9 @@ __all__ = [
     "MARGINAL_DOMINATED_HYPERVOLUME",
     "PAIRED_INCIDENCE",
     "PREDICTED_CREDIT_UPPER_BOUND",
+    "VALUE_OF_COMPUTATION",
+    "BayesianTransitionModel",
+    "ComputationReport",
     "ComposedIncidenceController",
     "ContinuationDecision",
     "CreditObservation",
@@ -38,4 +47,5 @@ __all__ = [
     "compose_controller",
     "paired_incidence",
     "predicted_credit_upper_bound",
+    "value_of_computation",
 ]
